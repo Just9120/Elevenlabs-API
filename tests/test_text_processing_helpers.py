@@ -89,6 +89,12 @@ HELPER_NAMES = {
     "is_manifest_v2",
     "should_skip_by_manifest",
     "parse_iso_datetime",
+    "normalize_authoritative_source_created_at",
+    "extract_embedded_media_creation_candidates",
+    "resolve_source_creation_authority",
+    "with_source_creation_authority",
+    "get_runtime_language_code",
+    "get_language_mode_label",
     "build_existing_google_doc_manifest_signature",
     "get_manifest_entry",
     "classify_existing_google_doc_transcript_standard",
@@ -239,6 +245,7 @@ def load_text_helpers() -> dict[str, object]:
                     "OPENAI_PREP_AUDIO_BITRATE",
                     "OPENAI_PREP_AUDIO_CHANNELS",
                     "PROJECT_TEMP_PREFIX",
+                    "SOURCE_CREATION_TAG_KEYS",
                 }:
                     selected_nodes.append(node)
                     break
@@ -333,6 +340,12 @@ find_manifest_entries_referencing_google_doc = HELPERS["find_manifest_entries_re
 load_manifest_read_only = HELPERS["load_manifest_read_only"]
 ORIGINAL_LOAD_MANIFEST_READ_ONLY = load_manifest_read_only
 should_skip_by_manifest = HELPERS["should_skip_by_manifest"]
+normalize_authoritative_source_created_at = HELPERS["normalize_authoritative_source_created_at"]
+extract_embedded_media_creation_candidates = HELPERS["extract_embedded_media_creation_candidates"]
+resolve_source_creation_authority = HELPERS["resolve_source_creation_authority"]
+with_source_creation_authority = HELPERS["with_source_creation_authority"]
+get_runtime_language_code = HELPERS["get_runtime_language_code"]
+get_language_mode_label = HELPERS["get_language_mode_label"]
 
 make_manifest_v2_default = HELPERS["make_manifest_v2_default"]
 build_transcript_standard_check = HELPERS["build_transcript_standard_check"]
@@ -668,6 +681,99 @@ def build_legacy_standard_document(title: str = "Call", body: str = "Hello world
 def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
     assert format_transcript_metadata_value(None) == "unknown"
     assert format_transcript_metadata_value("  alpha\n beta  ") == "alpha beta"
+
+
+def test_colab_language_modes_include_english_without_changing_auto_detection() -> None:
+    assert get_runtime_language_code("ru") == "ru"
+    assert get_runtime_language_code("en") == "en"
+    assert get_runtime_language_code("detect") is None
+    assert get_language_mode_label("en") == "English"
+
+
+def test_source_creation_timestamp_requires_timezone_and_normalizes_to_iso_8601_utc() -> None:
+    assert normalize_authoritative_source_created_at("2026-08-24T15:10:11+03:00") == "2026-08-24T12:10:11Z"
+    assert normalize_authoritative_source_created_at("2026-08-24T12:10:11.987Z") == "2026-08-24T12:10:11Z"
+    assert normalize_authoritative_source_created_at("2026-08-24T12:10:11") is None
+    assert normalize_authoritative_source_created_at("") is None
+
+
+def test_source_creation_authority_prefers_embedded_media_then_drive_created_time(monkeypatch) -> None:
+    globals_dict = resolve_source_creation_authority.__globals__
+    monkeypatch.setitem(
+        globals_dict,
+        "extract_embedded_media_creation_candidates",
+        lambda _path: [{"created_at": "2024-01-02T03:04:05Z", "authority": "embedded_media.format.creation_time"}],
+    )
+    assert resolve_source_creation_authority(
+        "media.mp4",
+        {"createdTime": "2025-02-03T04:05:06Z", "modifiedTime": "2099-01-01T00:00:00Z"},
+    ) == {
+        "created_at": "2024-01-02T03:04:05Z",
+        "authority": "embedded_media.format.creation_time",
+        "status": "confirmed",
+    }
+
+    monkeypatch.setitem(globals_dict, "extract_embedded_media_creation_candidates", lambda _path: [])
+    assert resolve_source_creation_authority(
+        "media.mp4",
+        {"createdTime": "2025-02-03T07:05:06+03:00", "modifiedTime": "2099-01-01T00:00:00Z"},
+    ) == {
+        "created_at": "2025-02-03T04:05:06Z",
+        "authority": "google_drive.createdTime",
+        "status": "confirmed",
+    }
+
+
+def test_source_creation_authority_fails_closed_on_conflict_or_missing_authority(monkeypatch) -> None:
+    globals_dict = resolve_source_creation_authority.__globals__
+    monkeypatch.setitem(
+        globals_dict,
+        "extract_embedded_media_creation_candidates",
+        lambda _path: [
+            {"created_at": "2024-01-02T03:04:05Z", "authority": "embedded_media.format.creation_time"},
+            {"created_at": "2024-01-02T04:04:05Z", "authority": "embedded_media.stream:0.creation_time"},
+        ],
+    )
+    assert resolve_source_creation_authority("media.mp4", {"createdTime": "2025-02-03T04:05:06Z"}) == {
+        "created_at": "unknown",
+        "authority": "embedded_media_conflict",
+        "status": "conflict",
+    }
+
+    monkeypatch.setitem(globals_dict, "extract_embedded_media_creation_candidates", lambda _path: [])
+    assert resolve_source_creation_authority(
+        "media.mp4",
+        {"modifiedTime": "2025-02-03T04:05:06Z"},
+    ) == {"created_at": "unknown", "authority": "unavailable", "status": "unavailable"}
+
+
+def test_embedded_source_creation_extractor_accepts_only_creation_tags(monkeypatch) -> None:
+    class Completed:
+        stdout = json.dumps({
+            "format": {"tags": {
+                "creation_time": "2024-01-02T03:04:05Z",
+                "date": "2099-01-01T00:00:00Z",
+            }},
+            "streams": [{"tags": {"com.apple.quicktime.creationdate": "2024-01-02T03:04:05Z"}}],
+        })
+
+    subprocess_module = extract_embedded_media_creation_candidates.__globals__["subprocess"]
+    monkeypatch.setattr(subprocess_module, "run", lambda *_args, **_kwargs: Completed())
+
+    assert extract_embedded_media_creation_candidates("media.mov") == [{
+        "created_at": "2024-01-02T03:04:05Z",
+        "authority": "embedded_media.format.creation_time",
+    }]
+
+
+def test_new_transcript_output_never_uses_job_time_as_source_creation_time() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    function_block = source.split("def upsert_transcript_document(", 1)[1].split("\ndef ", 1)[0]
+
+    assert "created_at=source_created_at" in function_block
+    assert "created_at=utc_now_iso()" not in function_block
+    assert source.count('source_created_at=source_meta.get("source_created_at", "unknown")') == 6
+    assert 'source_created_at=segment_meta.get("source_created_at", "unknown")' in source
 
 
 def test_format_visible_transcript_timestamp_handles_iso_and_visible_values() -> None:

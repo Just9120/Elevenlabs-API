@@ -789,6 +789,104 @@ def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+SOURCE_CREATION_TAG_KEYS = (
+    "creation_time",
+    "com.apple.quicktime.creationdate",
+)
+
+
+def normalize_authoritative_source_created_at(value: Optional[str]) -> Optional[str]:
+    """Normalize a timezone-aware source timestamp to strict ISO 8601 UTC."""
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def extract_embedded_media_creation_candidates(input_path: str) -> list[dict]:
+    """Read bounded creation-time tags without logging media metadata."""
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format_tags:stream_tags",
+                "-of", "json",
+                input_path,
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30,
+        )
+        payload = json.loads(result.stdout or "{}")
+    except Exception:
+        return []
+
+    candidates = []
+    scopes = [("format", payload.get("format") or {})]
+    scopes.extend(
+        (f"stream:{index}", stream)
+        for index, stream in enumerate(payload.get("streams") or [])
+        if isinstance(stream, dict)
+    )
+    for scope, item in scopes:
+        tags = item.get("tags") or {}
+        if not isinstance(tags, dict):
+            continue
+        normalized_tags = {str(key).casefold(): value for key, value in tags.items()}
+        for tag_key in SOURCE_CREATION_TAG_KEYS:
+            normalized = normalize_authoritative_source_created_at(normalized_tags.get(tag_key))
+            if normalized:
+                candidates.append({
+                    "created_at": normalized,
+                    "authority": f"embedded_media.{scope}.{tag_key}",
+                })
+
+    unique = {}
+    for candidate in candidates:
+        unique.setdefault(candidate["created_at"], candidate)
+    return [unique[key] for key in sorted(unique)]
+
+
+def resolve_source_creation_authority(input_path: str, source_meta: Optional[dict] = None) -> dict:
+    """Resolve truthful source creation time, preferring embedded media tags."""
+
+    embedded = extract_embedded_media_creation_candidates(input_path)
+    if len(embedded) == 1:
+        return {**embedded[0], "status": "confirmed"}
+    if len(embedded) > 1:
+        return {"created_at": "unknown", "authority": "embedded_media_conflict", "status": "conflict"}
+
+    drive_created_at = normalize_authoritative_source_created_at((source_meta or {}).get("createdTime"))
+    if drive_created_at:
+        return {
+            "created_at": drive_created_at,
+            "authority": "google_drive.createdTime",
+            "status": "confirmed",
+        }
+    return {"created_at": "unknown", "authority": "unavailable", "status": "unavailable"}
+
+
+def with_source_creation_authority(source_meta: Optional[dict], input_path: str) -> dict:
+    enriched = dict(source_meta or {})
+    resolution = resolve_source_creation_authority(input_path, enriched)
+    enriched["source_created_at"] = resolution["created_at"]
+    enriched["source_created_at_authority"] = resolution["authority"]
+    enriched["source_created_at_status"] = resolution["status"]
+    return enriched
+
+
 def make_manifest_default() -> dict:
     return {
         "version": 1,
@@ -851,6 +949,8 @@ def compute_sha256_for_bytes(data: bytes) -> str:
 def get_runtime_language_code(language_mode: str) -> Optional[str]:
     if language_mode == "ru":
         return "ru"
+    if language_mode == "en":
+        return "en"
     if language_mode == "detect":
         return None
     raise ValueError(f"Неизвестный режим языка: {language_mode}")
@@ -859,6 +959,7 @@ def get_runtime_language_code(language_mode: str) -> Optional[str]:
 def get_language_mode_label(language_mode: str) -> str:
     return {
         "ru": "Русский",
+        "en": "English",
         "detect": "Автоопределение",
     }.get(language_mode, language_mode)
 
@@ -5092,6 +5193,7 @@ def upsert_transcript_document(
     source_name: str,
     source_mode: str,
     options: TranscriptionRuntimeOptions,
+    source_created_at: str,
     segment_metadata: Optional[dict] = None,
 ) -> dict:
     existing = get_single_existing_doc_match(base_name, docs_index)
@@ -5107,7 +5209,7 @@ def upsert_transcript_document(
             provider_model=options.provider_model_label,
             language=language,
             speakers_enabled=options.separate_speakers,
-            created_at=utc_now_iso(),
+            created_at=source_created_at,
             segment_label=(segment_metadata or {}).get("label"),
             segment_time_range=(segment_metadata or {}).get("range_label"),
             original_source_name=(segment_metadata or {}).get("original_source_name"),
@@ -5307,6 +5409,7 @@ def collect_files_from_drive_folder_id(folder_id: str, recursive: bool = False, 
                 "id": item_id,
                 "name": item_name,
                 "display_name": display_name,
+                "createdTime": item.get("createdTime", ""),
                 "modifiedTime": item.get("modifiedTime", ""),
                 "size": item.get("size", ""),
             })
@@ -5332,6 +5435,7 @@ def resolve_drive_source_input(raw_value: str) -> dict:
             "name": meta["name"],
             "mimeType": meta["mimeType"],
             "webViewLink": meta.get("webViewLink", ""),
+            "createdTime": meta.get("createdTime", ""),
             "modifiedTime": meta.get("modifiedTime", ""),
             "size": meta.get("size", ""),
         }
@@ -5601,6 +5705,7 @@ def process_user_segments_for_source(
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
     segment_paths = []
+    original_source_meta = with_source_creation_authority(original_source_meta, input_path)
     try:
         duration_seconds = get_media_duration_seconds(input_path)
     except Exception as e:
@@ -5682,6 +5787,7 @@ def process_user_segments_for_source(
                         source_name=segment_source_name,
                         source_mode=source_mode,
                         options=run_ctx.options,
+                        source_created_at=segment_meta.get("source_created_at", "unknown"),
                         segment_metadata={**segment, "original_source_name": original_filename},
                     )
                 if result["status"] == "skipped":
@@ -5736,6 +5842,7 @@ def process_local_uploaded(
             if user_segment_plan_text is not None or user_segment_builder_rows is not None:
                 print(f"\nОбрабатываю: {filename}")
                 temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
+                source_meta = with_source_creation_authority(source_meta, temp_input_path)
                 return process_user_segments_for_source(
                     input_path=temp_input_path,
                     original_filename=filename,
@@ -5764,6 +5871,7 @@ def process_local_uploaded(
 
             print(f"\nОбрабатываю: {filename}")
             temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
+            source_meta = with_source_creation_authority(source_meta, temp_input_path)
             with timer.measure("manifest_write") if timer else nullcontext():
                 mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация: {filename}")
@@ -5786,7 +5894,8 @@ def process_local_uploaded(
                     conflict_mode=run_ctx.conflict_mode,
                     source_name=filename,
                     source_mode=source_mode,
-                    options=run_ctx.options
+                    options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
                 )
 
             if result["status"] == "skipped":
@@ -5845,7 +5954,8 @@ def process_drive_file_input(
         file_path = resolved["path"]
         filename = resolved["name"]
         source_signature = build_local_path_source_signature(file_path, filename)
-        source_meta = with_output_folder_context({"type": "local_path", "path": file_path}, run_ctx)
+        source_meta = with_output_folder_context({"type": "local_path"}, run_ctx)
+        source_meta = with_source_creation_authority(source_meta, file_path)
 
         if not is_supported_filename(filename):
             raise ValueError(f"Неподдерживаемое расширение: {Path(file_path).suffix}")
@@ -5902,10 +6012,11 @@ def process_drive_file_input(
                 output_folder_id=run_ctx.output_folder_id,
                 docs_index=run_ctx.docs_index,
                 conflict_mode=run_ctx.conflict_mode,
-                source_name=filename,
-                source_mode="drive_file",
-                options=run_ctx.options
-            )
+                    source_name=filename,
+                    source_mode="drive_file",
+                    options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
+                )
 
             if result["status"] == "skipped":
                 print(f"Пропуск: {filename} -> {result['reason']}")
@@ -5937,6 +6048,7 @@ def process_drive_file_input(
     source_meta = with_output_folder_context({
         "type": "drive",
         "file_id": resolved["id"],
+        "createdTime": resolved.get("createdTime", ""),
         "modifiedTime": resolved.get("modifiedTime", ""),
         "size": str(resolved.get("size", "")),
     }, run_ctx)
@@ -5952,6 +6064,7 @@ def process_drive_file_input(
             print(f"\nОбрабатываю: {filename}")
             report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
             tmp_path = download_drive_file_to_temp(resolved["id"], filename)
+            source_meta = with_source_creation_authority(source_meta, tmp_path)
             return process_user_segments_for_source(
                 input_path=tmp_path,
                 original_filename=filename,
@@ -5981,6 +6094,7 @@ def process_drive_file_input(
         print(f"\nОбрабатываю: {filename}")
         report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
         tmp_path = download_drive_file_to_temp(resolved["id"], filename)
+        source_meta = with_source_creation_authority(source_meta, tmp_path)
         mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
         report_progress_for_file(progress_callback, 1, 1, 2, f"Транскрибация: {filename}")
 
@@ -5999,7 +6113,8 @@ def process_drive_file_input(
             conflict_mode=run_ctx.conflict_mode,
             source_name=filename,
             source_mode="drive_file",
-            options=run_ctx.options
+            options=run_ctx.options,
+            source_created_at=source_meta.get("source_created_at", "unknown"),
         )
 
         if result["status"] == "skipped":
@@ -6048,6 +6163,7 @@ def process_drive_multi_input(
             "type": "drive",
             "selection_mode": "drive_multi",
             "file_id": item["id"],
+            "createdTime": item.get("createdTime", ""),
             "modifiedTime": item.get("modifiedTime", ""),
             "size": str(item.get("size", "")),
         }, run_ctx)
@@ -6075,6 +6191,7 @@ def process_drive_multi_input(
             report_progress_for_file(progress_callback, idx, len(selected_files), 1, f"Скачивание из Google Drive: {display_name}")
             with timer.measure("drive_download") if timer else nullcontext():
                 tmp_path = download_drive_file_to_temp(item["id"], filename)
+            source_meta = with_source_creation_authority(source_meta, tmp_path)
             report_progress_for_file(progress_callback, idx, len(selected_files), 2, f"Транскрибация: {display_name}")
 
             with timer.measure("provider_transcription") if timer else nullcontext():
@@ -6096,6 +6213,7 @@ def process_drive_multi_input(
                     source_name=display_name,
                     source_mode="drive_multi",
                     options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
                 )
 
             if result["status"] == "skipped":
@@ -6146,7 +6264,8 @@ def process_drive_folder_input(
         for idx, file_path in enumerate(file_list, start=1):
             filename = os.path.basename(file_path)
             source_signature = build_local_path_source_signature(file_path, filename)
-            source_meta = with_output_folder_context({"type": "local_path", "path": file_path}, run_ctx)
+            source_meta = with_output_folder_context({"type": "local_path"}, run_ctx)
+            source_meta = with_source_creation_authority(source_meta, file_path)
             report_progress_for_file(progress_callback, idx, len(file_list), 0, f"Подготовка: {filename}")
 
             print(f"\n[{idx}/{len(file_list)}] {filename}")
@@ -6182,7 +6301,8 @@ def process_drive_folder_input(
                     conflict_mode=run_ctx.conflict_mode,
                     source_name=filename,
                     source_mode="drive_folder",
-                    options=run_ctx.options
+                    options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
                 )
 
                 if result["status"] == "skipped":
@@ -6221,6 +6341,7 @@ def process_drive_folder_input(
         source_meta = with_output_folder_context({
             "type": "drive",
             "file_id": item["id"],
+            "createdTime": item.get("createdTime", ""),
             "modifiedTime": item.get("modifiedTime", ""),
             "size": str(item.get("size", "")),
         }, run_ctx)
@@ -6246,6 +6367,7 @@ def process_drive_folder_input(
             mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, source_meta)
             report_progress_for_file(progress_callback, idx, len(folder_files), 1, f"Скачивание из Google Drive: {display_name}")
             tmp_path = download_drive_file_to_temp(item["id"], filename)
+            source_meta = with_source_creation_authority(source_meta, tmp_path)
             report_progress_for_file(progress_callback, idx, len(folder_files), 2, f"Транскрибация: {display_name}")
 
             transcript = transcribe_media_path(
@@ -6263,7 +6385,8 @@ def process_drive_folder_input(
                 conflict_mode=run_ctx.conflict_mode,
                 source_name=display_name,
                 source_mode="drive_folder",
-                options=run_ctx.options
+                options=run_ctx.options,
+                source_created_at=source_meta.get("source_created_at", "unknown"),
             )
 
             if result["status"] == "skipped":
@@ -7323,6 +7446,7 @@ provider_widget = widgets.Dropdown(
 language_mode_widget = widgets.Dropdown(
     options=[
         ("Русский", "ru"),
+        ("English", "en"),
         ("Автоопределение", "detect"),
     ],
     value="ru",

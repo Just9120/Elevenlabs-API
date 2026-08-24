@@ -30,9 +30,9 @@
 - Last verified revision: `ebbba50a938feb2d06b2ec59e828834ff204988d` — exact `origin/main` at branch creation.
 - Working tree at branch start: clean; local `main = origin/main`; divergence `0/0`; unrelated pre-existing changes absent.
 - Completed: previous realtime Goal reconciled from PRs #228–#230. Exact-main repository CI `32706218832`, Studio/browser CI `32706218892` and web CD `32706218830` passed for `main@ebbba50`; owner-controlled Chrome mixed canary confirmed both source signals and accepted residual simultaneous-speaker masking as non-critical. Three merged realtime branches were safely removed locally/remotely.
-- Current step: independently audit the six batch gaps and one realtime gap against current code/tests/runtime contract before implementation.
-- Next exact action: map source/time/manifest/realtime ownership and write focused failing regression tests for the first bounded implementation slice.
-- Validation and Evidence: branch/base/worktree identity verified; previous delivery terminal states and LIVE result recorded in PR #230. New Goal implementation validation has not started.
+- Current step: English и authoritative source-creation timestamp реализованы в первом batch slice; timestamp берётся из embedded media `creation_time`, затем из Drive `createdTime`, а при отсутствии/конфликте authority остаётся `unknown` без подмены job/modified time.
+- Next exact action: перевести manifest persistence на confirmed Google Docs output only и добавить безопасную dry-run/confirmed-clear operation с backup.
+- Validation and Evidence: focused Colab helpers `189 passed`; `scripts/ci_checks.py` passed; `git diff --check` passed. `CB-11` закрыт CODE/TEST; `CB-21/22` получили CODE/TEST, но остаются open до representative Colab LIVE с реальным media metadata/Drive source.
 - Pull Request: none.
 - CI/checks: not started for this branch.
 - Deployment/environment: Colab has no VPS component deployment; exact reviewed repository revision and launcher `GITHUB_REF` are the applicable delivery identity. Final applicability of `DEPLOY` Evidence will be stated explicitly after targeted topology verification.
@@ -46,9 +46,9 @@
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **90,0% (`108/120`)** | **89,2% (`107/120`)** | `PR-06` подтверждён; семь Colab AC остаются open. |
-| **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Current Goal target: `29/29`. |
-| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `CB-05/11/15/17/21/22` open. |
+| **Project** | **90,8% (`109/120`)** | **90,0% (`108/120`)** | `CB-11` закрыт English code/test contract; шесть Colab AC остаются open. |
+| **Google Colab** | **79,3% (`23/29`)** | **75,9% (`22/29`)** | Current Goal target: `29/29`. |
+| `COLAB-BATCH-01` | **78,3% (`18/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `CB-05/15/17/21/22` open, timestamp LIVE gate ожидается. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `CR-06` open. |
 | **Studio PWA** | **94,5% (`86/91`)** | **93,4% (`85/91`)** | Previous Goal closed `PR-06`; вне Goal. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | 🟦 IN PROGRESS; LIVE retention breadth remains partial. |
