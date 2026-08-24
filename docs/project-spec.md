@@ -214,7 +214,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 0% (`0/16`)**. Scope явно авторизован владельцем 2026-08-24; implementation и Evidence ещё не подтверждены.
+Status: **🟦 IN PROGRESS — 0% (`0/16`)**. Backend/schema/worker implementation подтверждена локальными focused tests, но ни один user-facing AC ещё не считается выполненным до интеграции PWA и applicable delivery Evidence.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
 
@@ -237,7 +237,7 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | — |
 | `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | — |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 Definition of Done: `16/16`, relevant backend/frontend/migration tests и required exact-head CI green, additive schema release и API/worker/web deployment по applicable gates, bounded owner-controlled LIVE с короткими fixtures, authenticated download и одним Google Drive upload без provider call.
 

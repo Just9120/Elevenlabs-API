@@ -75,6 +75,24 @@ class S3SourceStorage:
             ExpiresIn=expires_seconds,
         )
 
+    def presigned_get_url(self, key: str, expires_seconds: int, *, download_name: str | None = None) -> str:
+        params = {"Bucket": self.bucket, "Key": key}
+        if download_name:
+            params["ResponseContentDisposition"] = f'attachment; filename="{safe_filename(download_name)}"'
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params=params,
+            ExpiresIn=expires_seconds,
+        )
+
+    def put_file(self, key: str, path: Path, content_type: str) -> None:
+        self.client.upload_file(
+            str(path),
+            self.bucket,
+            key,
+            ExtraArgs={"ContentType": content_type},
+        )
+
     def head_object(self, key: str) -> ObjectHead:
         try:
             result = self.client.head_object(Bucket=self.bucket, Key=key)

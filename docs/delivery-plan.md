@@ -17,22 +17,22 @@
   7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
   8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
   9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** durable job/output lifecycle потребует additive migration `0025_audio_preparation` и после merge отдельного action-time authorization для worker drain и `MANUAL_GATED` release; production LIVE требует только короткие owner-controlled media fixtures и не расходует provider quota. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** `AP-01..AP-16` и required Evidence подтверждены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; optional TOTP не начинается в этой Goal.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:18:00Z.
+- Updated (UTC): 2026-08-24T20:25:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: `e5983f3` — deterministic audio-preparation probe/plan/processing core with `21/21` focused tests.
+- Last verified revision: `d7b6fd6` — schema head `0025_audio_preparation`; subsequent backend/service/worker changes are validated locally but not yet committed at this checkpoint.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: deterministic core; additive direct-successor migration `0025_audio_preparation`; owner/project job, ordered input, destination/output, progress/cancel/lease and ephemeral-reference schema models; repository preflight expected-head markers advanced to `0025`.
-- Current step: implement owner-scoped API and worker state transitions around schema/domain.
-- Next exact action: add create/list/detail/start/cancel/download routes and worker preview/processing runner.
-- Validation and Evidence: focused deterministic contract `21/21` passed; full SQLite Alembic chain reached `0025_audio_preparation (head)`. Broader focused schema run reached `58 passed` before three sandbox temp-directory errors and one unrelated speaker temp-directory failure; these are local filesystem limitations, not accepted success and remain covered by Linux CI. Product AC remain `0/16` until integrated user flows exist.
+- Completed: deterministic FFprobe/FFmpeg core; additive migration/schema `0025`; owner-scoped create/list/detail/start/cancel/download API; preview/processing worker; lease recovery; S3 output/download/reuse identity; idempotent Google Drive upload reconciliation; active-source deletion guard; terminal ephemeral cleanup and hard TTL 24h.
+- Current step: integrate and test the separate PWA workspace and navigation.
+- Next exact action: finish frontend contracts/tests and run the combined backend/PWA validation set.
+- Validation and Evidence: backend focused set `67/67` passed; TypeScript build passed; local Vite production build passed. Backend/schema Evidence is partial until frontend integration, full regression CI, migration delivery and LIVE. Product AC remain `0/16` at this backend-only checkpoint.
 - Pull Request / CI / deployment: not created / not started / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.

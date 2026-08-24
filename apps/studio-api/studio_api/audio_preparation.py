@@ -315,6 +315,7 @@ def build_ffmpeg_command(
     probes: Sequence[AudioProbe],
     *,
     concat_list_path: Path | None = None,
+    creation_time: datetime | None = None,
 ) -> list[str]:
     preview = build_preview(probes, (), options)
     if len(input_paths) != len(probes) or not input_paths:
@@ -322,7 +323,7 @@ def build_ffmpeg_command(
     if options.output_format is AudioOutputFormat.copy:
         if not preview.copy_compatible or concat_list_path is None:
             raise AudioPreparationError(AudioPreparationReason.copy_incompatible)
-        return [
+        command = [
             "ffmpeg",
             "-v",
             "error",
@@ -337,9 +338,11 @@ def build_ffmpeg_command(
             "0:a:0",
             "-c:a",
             "copy",
-            "-y",
-            str(output_path),
         ]
+        if creation_time is not None:
+            command.extend(["-metadata", f"creation_time={_iso_creation_time(creation_time)}"])
+        command.extend(["-y", str(output_path)])
+        return command
     command = ["ffmpeg", "-v", "error", "-xerror"]
     for path in input_paths:
         command.extend(["-i", str(path)])
@@ -373,6 +376,8 @@ def build_ffmpeg_command(
         command.extend(["-c:a", "pcm_s16le", "-f", "wav"])
     else:
         command.extend(["-c:a", "flac", "-f", "flac"])
+    if creation_time is not None:
+        command.extend(["-metadata", f"creation_time={_iso_creation_time(creation_time)}"])
     command.extend(["-y", str(output_path)])
     return command
 
@@ -455,3 +460,9 @@ def _bounded_token(value: object, maximum: int) -> str:
 
 def _number(value: float) -> str:
     return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _iso_creation_time(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

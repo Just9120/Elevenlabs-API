@@ -74,6 +74,16 @@ from .transcript_catalog import (
 )
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, provider_language_code, stored_language_mode, stored_transcription_options
 from .transcript_catalog_routes import router as transcript_catalog_router
+from .audio_preparation import AudioPreparationError
+from .audio_preparation_service import (
+    AudioPreparationServiceError,
+    audio_preparation_payload,
+    cancel_audio_preparation_job,
+    create_audio_preparation_job,
+    list_owned_audio_preparation_jobs,
+    load_owned_audio_preparation_job,
+    start_audio_preparation_job,
+)
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -184,6 +194,28 @@ class LocalUploadInitiateIn(BaseModel):
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+
+class AudioPreparationCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str=Field(min_length=1,max_length=160)
+    source_ids: list[str]=Field(min_length=1,max_length=50)
+    ephemeral_source_ids: list[str]=Field(default_factory=list,max_length=50)
+    manual_order: StrictBool=False
+    options: dict=Field(default_factory=dict)
+    output_destination: str=Field(pattern=r"^(download|google_drive)$")
+    output_drive_folder_id: str|None=Field(default=None,min_length=1,max_length=256)
+
+    @model_validator(mode="after")
+    def destination_and_sources_are_consistent(self):
+        if len(self.source_ids) != len(set(self.source_ids)):
+            raise ValueError("Повторяющиеся источники не допускаются")
+        if len(self.ephemeral_source_ids) != len(set(self.ephemeral_source_ids)):
+            raise ValueError("Повторяющиеся временные источники не допускаются")
+        if not set(self.ephemeral_source_ids).issubset(set(self.source_ids)):
+            raise ValueError("Временный источник должен входить в список входных файлов")
+        if (self.output_destination == "google_drive") != bool(self.output_drive_folder_id):
+            raise ValueError("Для Google Drive выберите целевую папку")
+        return self
 
 class AccountPreferencesPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1624,6 +1656,138 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
         raise HTTPException(status_code=409, detail={"reason": result.reason.value})
     db.commit()
     return {"ok": True, "source_state": result.source_state, "storage_cleanup": result.storage_cleanup}
+
+
+def _raise_audio_preparation_error(exc: Exception) -> None:
+    reason = getattr(getattr(exc, "reason", None), "value", "invalid_request")
+    code = {
+        "not_found": 404,
+        "project_unavailable": 404,
+        "source_unavailable": 422,
+        "invalid_sources": 422,
+        "invalid_destination": 422,
+        "invalid_options": 422,
+        "invalid_input": 422,
+        "invalid_state": 409,
+        "lease_unavailable": 409,
+    }.get(reason, 422)
+    raise HTTPException(code, detail={"reason": reason}) from None
+
+
+@app.get("/api/projects/{project_id}/audio-preparations")
+def list_audio_preparations(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _, user = pair
+    try:
+        rows = list_owned_audio_preparation_jobs(db, owner_user_id=user.id, project_id=project_id)
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+    return {"jobs": [audio_preparation_payload(row) for row in rows]}
+
+
+@app.post("/api/projects/{project_id}/audio-preparations")
+def create_audio_preparation(
+    project_id: str,
+    data: AudioPreparationCreateIn,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    _, user = pair
+    limiter.check("audio-preparation:create:" + user.id, 30, 3600)
+    folder = None
+    if data.output_destination == "google_drive":
+        try:
+            access_token = refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+            folder = verify_output_folder_selection(access_token, data.output_drive_folder_id)
+        except GoogleConnectionAccessError as exc:
+            raise HTTPException(409, detail={"reason": exc.reason.value}) from None
+    try:
+        job = create_audio_preparation_job(
+            db,
+            owner_user_id=user.id,
+            project_id=project_id,
+            title=data.title,
+            source_ids=data.source_ids,
+            ephemeral_source_ids=set(data.ephemeral_source_ids),
+            manual_order=data.manual_order,
+            options_payload=data.options,
+            output_destination=data.output_destination,
+            output_folder=folder,
+            now=utcnow(),
+        )
+        audit(db, "audio_preparation.created", actor_user_id=user.id, subject_user_id=user.id, project_id=project_id, job_id=job.id)
+        db.commit()
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id)
+    except (AudioPreparationServiceError, AudioPreparationError) as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    return audio_preparation_payload(job)
+
+
+@app.get("/api/audio-preparations/{job_id}")
+def get_audio_preparation(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _, user = pair
+    try:
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+    return audio_preparation_payload(job)
+
+
+@app.post("/api/audio-preparations/{job_id}/start")
+def start_audio_preparation(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:start:" + user.id, 30, 3600)
+    try:
+        job = start_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
+        audit(db, "audio_preparation.started", actor_user_id=user.id, subject_user_id=user.id, project_id=job.project_id, job_id=job.id)
+        db.commit()
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    return audio_preparation_payload(job)
+
+
+@app.post("/api/audio-preparations/{job_id}/cancel")
+def cancel_audio_preparation(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:cancel:" + user.id, 60, 3600)
+    try:
+        job = cancel_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id, now=utcnow())
+        if job.status is AudioPreparationStatus.cancelled:
+            for item in job.inputs:
+                if item.ephemeral_reference:
+                    request_source_deletion(db, owner_user_id=user.id, source_id=item.source_id, now=utcnow())
+        audit(db, "audio_preparation.cancelled", actor_user_id=user.id, subject_user_id=user.id, project_id=job.project_id, job_id=job.id)
+        db.commit()
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    return audio_preparation_payload(job)
+
+
+@app.get("/api/audio-preparations/{job_id}/download")
+def download_audio_preparation(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _, user = pair
+    try:
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+    if job.status is not AudioPreparationStatus.completed or not job.output_source_id:
+        raise HTTPException(409, detail={"reason": "output_unavailable"})
+    source = owned_source_or_404(db, user, job.output_source_id)
+    if source.source_type is not SourceType.local_upload or not source.s3_object_key or is_source_expired(source, utcnow()):
+        raise HTTPException(404, "Не найдено")
+    url = get_source_storage(settings).presigned_get_url(
+        source.s3_object_key,
+        min(settings.source_presign_ttl_seconds, 300),
+        download_name=source.original_filename,
+    )
+    response = RedirectResponse(url=url, status_code=303)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 

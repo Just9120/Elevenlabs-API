@@ -38,6 +38,18 @@ def _reason(exc: BaseException) -> str:
 
 
 def _safe_log_result(logger: logging.Logger, result) -> None:
+    if hasattr(result, "stage"):
+        logger.info(
+            "studio_worker_audio_preparation_processed",
+            extra={
+                "event": "studio_worker_audio_preparation_processed",
+                "job_id": result.job_id,
+                "final_job_status": result.status,
+                "stage": result.stage,
+                "output_created": result.output_created,
+            },
+        )
+        return
     logger.info(
         "studio_worker_job_processed",
         extra={
@@ -73,9 +85,9 @@ def run_worker_loop(
     realtime_draft_cleanup_runner: Callable | None = None,
 ) -> int:
     if iteration is None:
-        from .job_processing_runner import claim_next_and_orchestrate_processing_job
+        from .audio_preparation_worker import claim_next_studio_work
 
-        iteration = claim_next_and_orchestrate_processing_job
+        iteration = claim_next_studio_work
     lease_ttl = timedelta(seconds=settings.worker_lease_ttl_seconds)
     poll_interval = settings.worker_poll_interval_seconds
     error_backoff = settings.worker_error_backoff_seconds
