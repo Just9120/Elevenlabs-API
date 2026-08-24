@@ -2355,17 +2355,19 @@ def test_mark_manifest_done_v1_does_not_create_documents_catalog() -> None:
     assert saved
 
 
-def test_mark_manifest_done_without_doc_link_saves_source_without_document() -> None:
+def test_mark_manifest_done_without_confirmed_google_doc_does_not_persist_source() -> None:
     manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
-    HELPERS["save_manifest"] = lambda incoming: None
+    saved = []
+    HELPERS["save_manifest"] = lambda incoming: saved.append(incoming)
 
-    mark_manifest_done(manifest, "source-no-doc", "settings", "Audio", "", "")
+    with pytest.raises(ValueError, match="подтверждённого Google Docs результата"):
+        mark_manifest_done(manifest, "source-no-doc", "settings", "Audio", "", "")
 
-    assert manifest["sources"]["source-no-doc"]["status"] == "done"
-    assert manifest["sources"]["source-no-doc"]["doc_id"] == ""
+    assert "source-no-doc" not in manifest["sources"]
     assert manifest["documents"] == {}
-    assert manifest["summary"]["sources_total"] == 1
-    assert manifest["summary"]["orphan_sources"] == 1
+    assert manifest["summary"]["sources_total"] == 0
+    assert manifest["summary"]["orphan_sources"] == 0
+    assert saved == []
 
 
 def test_manifest_maintenance_does_not_count_transcription_created_document_as_add() -> None:
@@ -3969,23 +3971,22 @@ def test_user_segmented_and_non_segmented_paths_are_separate_static() -> None:
         segment_index = block.index("if user_segment_plan_text is not None or user_segment_builder_rows is not None:")
         assert segment_index < block.index("conflict_mode_needs_existing_match_before_transcription")
         assert segment_index < block.index("should_skip_by_manifest")
-        assert segment_index < block.index("mark_manifest_in_progress")
 
-    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in local_block
-    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in drive_local_block
-    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in drive_download_block
-    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in local_block
-    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in drive_block
+    runtime_block = source.split("def process_user_segments_for_source", 1)[1].split("# =========================\n# 5) OUTPUT FOLDER PICKER", 1)[0]
+    assert "mark_manifest_in_progress(" not in runtime_block
+    assert "mark_manifest_failed(" not in runtime_block
+    assert runtime_block.count("mark_manifest_done(") == 7
 
 
 
 
-def test_user_segment_failures_use_derived_segment_identity_static() -> None:
+def test_user_segment_failures_do_not_persist_source_before_google_docs_output_static() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
     segment_block = source.split("def process_user_segments_for_source", 1)[1].split("def process_local_uploaded", 1)[0]
     assert "segment_signature = build_user_segment_source_signature" in segment_block
-    assert "mark_manifest_failed(run_ctx.manifest, segment_signature" in segment_block
-    assert "mark_manifest_failed(run_ctx.manifest, original_source_signature" not in segment_block
+    assert "mark_manifest_in_progress(" not in segment_block
+    assert "mark_manifest_failed(" not in segment_block
+    assert segment_block.index("upsert_transcript_document(") < segment_block.index("mark_manifest_done(")
 
 
 def test_user_segment_source_check_uses_safe_branch_before_detailed_identifiers() -> None:

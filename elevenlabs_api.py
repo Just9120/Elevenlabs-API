@@ -1623,6 +1623,9 @@ def mark_manifest_in_progress(manifest: dict, source_signature: str, settings_si
 
 
 def mark_manifest_done(manifest: dict, source_signature: str, settings_signature: str, source_name: str, doc_name: str, doc_link: str, source_meta: Optional[dict] = None):
+    doc_id = extract_google_doc_id_from_url(doc_link)
+    if not doc_id:
+        raise ValueError("Manifest обновляется только после подтверждённого Google Docs результата.")
     entry = get_manifest_entry(manifest, source_signature) or {}
     updated_at = utc_now_iso()
     entry.update({
@@ -1632,7 +1635,7 @@ def mark_manifest_done(manifest: dict, source_signature: str, settings_signature
         "source_name": source_name,
         "doc_name": doc_name,
         "doc_link": doc_link,
-        "doc_id": entry.get("doc_id") or extract_google_doc_id_from_url(doc_link),
+        "doc_id": doc_id,
         "source_meta": source_meta or entry.get("source_meta", {}),
         "finished_at": updated_at,
         "updated_at": updated_at,
@@ -5765,8 +5768,6 @@ def process_user_segments_for_source(
                         skipped.append({"source": segment_source_name, "reason": reason})
                         continue
 
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_in_progress(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, segment_meta)
                 report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация сегмента: {segment['label']}")
                 with timer.measure("user_segment_processing") if timer else nullcontext():
                     with timer.measure("provider_transcription") if timer else nullcontext():
@@ -5799,8 +5800,6 @@ def process_user_segments_for_source(
                     print(f"Готово: {result['link']}")
                     append_success(successes, segment_source_name, result)
             except Exception as e:
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_failed(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, str(e), segment_meta)
                 print(f"Ошибка: {segment_source_name} -> {e}")
                 errors.append({"source": segment_source_name, "error": str(e)})
             finally:
@@ -5872,8 +5871,6 @@ def process_local_uploaded(
             print(f"\nОбрабатываю: {filename}")
             temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
             source_meta = with_source_creation_authority(source_meta, temp_input_path)
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация: {filename}")
 
             with timer.measure("provider_transcription") if timer else nullcontext():
@@ -5916,9 +5913,6 @@ def process_local_uploaded(
                 append_success(successes, filename, result)
 
         except Exception as e:
-            if user_segment_plan_text is None and user_segment_builder_rows is None:
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {filename} -> {e}")
             errors.append({"source": filename, "error": str(e)})
 
@@ -5992,8 +5986,6 @@ def process_drive_file_input(
                     return successes, errors, skipped
 
             print(f"\nОбрабатываю: {filename}")
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, 1, 1, 1, f"Транскрибация: {filename}")
 
             with timer.measure("provider_transcription") if timer else nullcontext():
@@ -6027,9 +6019,6 @@ def process_drive_file_input(
                 append_success(successes, file_path, result)
 
         except Exception as e:
-            if user_segment_plan_text is None and user_segment_builder_rows is None:
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {file_path} -> {e}")
             errors.append({"source": file_path, "error": str(e)})
 
@@ -6095,7 +6084,6 @@ def process_drive_file_input(
         report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
         tmp_path = download_drive_file_to_temp(resolved["id"], filename)
         source_meta = with_source_creation_authority(source_meta, tmp_path)
-        mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
         report_progress_for_file(progress_callback, 1, 1, 2, f"Транскрибация: {filename}")
 
         transcript = transcribe_media_path(
@@ -6126,8 +6114,6 @@ def process_drive_file_input(
             append_success(successes, resolved.get("webViewLink") or filename, result)
 
     except Exception as e:
-        if user_segment_plan_text is None and user_segment_builder_rows is None:
-            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
         print(f"Ошибка: {filename} -> {e}")
         errors.append({"source": filename, "error": str(e)})
 
@@ -6186,8 +6172,6 @@ def process_drive_multi_input(
                     skipped.append({"source": display_name, "reason": reason})
                     continue
 
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, source_meta)
             report_progress_for_file(progress_callback, idx, len(selected_files), 1, f"Скачивание из Google Drive: {display_name}")
             with timer.measure("drive_download") if timer else nullcontext():
                 tmp_path = download_drive_file_to_temp(item["id"], filename)
@@ -6226,8 +6210,6 @@ def process_drive_multi_input(
                 append_success(successes, display_name, result)
 
         except Exception as e:
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, str(e), source_meta)
             print(f"Ошибка: {display_name} -> {e}")
             errors.append({"source": display_name, "error": str(e)})
 
@@ -6284,7 +6266,6 @@ def process_drive_folder_input(
                         skipped.append({"source": file_path, "reason": reason})
                         continue
 
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
                 report_progress_for_file(progress_callback, idx, len(file_list), 1, f"Транскрибация: {filename}")
                 transcript = transcribe_media_path(
                     input_path=file_path,
@@ -6314,7 +6295,6 @@ def process_drive_folder_input(
                     append_success(successes, file_path, result)
 
             except Exception as e:
-                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
                 print(f"Ошибка: {file_path} -> {e}")
                 errors.append({"source": file_path, "error": str(e)})
 
@@ -6364,7 +6344,6 @@ def process_drive_folder_input(
                     skipped.append({"source": display_name, "reason": reason})
                     continue
 
-            mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, source_meta)
             report_progress_for_file(progress_callback, idx, len(folder_files), 1, f"Скачивание из Google Drive: {display_name}")
             tmp_path = download_drive_file_to_temp(item["id"], filename)
             source_meta = with_source_creation_authority(source_meta, tmp_path)
@@ -6398,7 +6377,6 @@ def process_drive_folder_input(
                 append_success(successes, display_name, result)
 
         except Exception as e:
-            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, str(e), source_meta)
             print(f"Ошибка: {display_name} -> {e}")
             errors.append({"source": display_name, "error": str(e)})
 
