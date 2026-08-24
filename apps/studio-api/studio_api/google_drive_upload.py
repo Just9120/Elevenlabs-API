@@ -98,7 +98,7 @@ def upload_file_resumable(
         raise
     except (OSError, httpx.HTTPError, json.JSONDecodeError) as exc:
         raise GoogleDriveUploadError(GoogleDriveUploadReason.unavailable) from exc
-    return _normalize_result(payload)
+    return _normalize_result(payload, expected_parent=folder_id)
 
 
 def _find_existing_upload(client, *, access_token: str, folder_id: str, idempotency_key: str) -> GoogleDriveUploadResult | None:
@@ -128,7 +128,7 @@ def _find_existing_upload(client, *, access_token: str, folder_id: str, idempote
     files = payload.get("files") if isinstance(payload, dict) else None
     if not isinstance(files, list) or len(files) > 1:
         raise GoogleDriveUploadError(GoogleDriveUploadReason.malformed_response)
-    return _normalize_result(files[0]) if files else None
+    return _normalize_result(files[0], expected_parent=folder_id) if files else None
 
 
 def _safe_drive_identifier(value: str) -> bool:
@@ -165,7 +165,7 @@ def _safe_upload_location(value: str | None) -> bool:
     )
 
 
-def _normalize_result(payload) -> GoogleDriveUploadResult:
+def _normalize_result(payload, *, expected_parent: str | None = None) -> GoogleDriveUploadResult:
     if not isinstance(payload, dict):
         raise GoogleDriveUploadError(GoogleDriveUploadReason.malformed_response)
     file_id = payload.get("id")
@@ -185,6 +185,7 @@ def _normalize_result(payload) -> GoogleDriveUploadResult:
         or not isinstance(parents, list)
         or len(parents) != 1
         or not isinstance(parents[0], str)
+        or (expected_parent is not None and parents[0] != expected_parent)
     ):
         raise GoogleDriveUploadError(GoogleDriveUploadReason.malformed_response)
     return GoogleDriveUploadResult(file_id=file_id, web_view_url=web_view_url, name=name)

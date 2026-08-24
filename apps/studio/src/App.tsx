@@ -86,6 +86,7 @@ import {
   requestProjectSourceCollection,
 } from "./projectCollectionContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
+import { AudioPreparationPage } from "./AudioPreparationPage";
 import {
   isApprovedOutputUrl,
   type JobDetailState,
@@ -8586,6 +8587,15 @@ function PlatformShell() {
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
             />
           </div>
+        )}
+        {page === "audio" && (
+          <AudioPreparationPage
+            csrf={csrf}
+            onCsrf={(token) => {
+              setSession((current) => ({ ...current, csrf: token }));
+              updatePwaDiagnosticsCsrf(token);
+            }}
+          />
         )}
         {page === "settings" && (
           <SettingsPage

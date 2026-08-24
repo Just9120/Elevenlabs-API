@@ -1468,6 +1468,79 @@ code {
   }
 }
 
+.audio-preparation-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.audio-preparation-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.audio-preparation-card h2 {
+  margin: 0;
+}
+
+.audio-source-grid,
+.audio-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.75rem;
+}
+
+.audio-settings-grid label,
+.audio-source-choice {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.audio-source-choice {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  padding: 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-soft);
+}
+
+.audio-source-choice span {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audio-source-choice small,
+.audio-settings-grid small {
+  color: var(--studio-muted);
+}
+
+.audio-order-list {
+  display: grid;
+  gap: 0.5rem;
+  padding-left: 1.5rem;
+}
+
+.audio-order-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.audio-preparation-card progress {
+  width: 100%;
+  accent-color: var(--studio-primary);
+}
+
+@media (max-width: 620px) {
+  .audio-settings-grid,
+  .audio-source-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .attention-card li + li {
   margin-top: 0.35rem;
 }

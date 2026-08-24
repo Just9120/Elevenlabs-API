@@ -7,6 +7,8 @@ import json
 import os
 import sys
 
+import pytest
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -16,12 +18,14 @@ os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 
 from studio_api.audio_preparation_processor import process_claimed_audio_preparation_job
 from studio_api.audio_preparation_service import (
+    AudioPreparationServiceError,
     claim_next_audio_preparation_job,
     create_audio_preparation_job,
     start_audio_preparation_job,
 )
 from studio_api.db import Base
 from studio_api.models import AudioPreparationJob, AudioPreparationStatus, Project, Source, SourceType, SourceUploadStatus, User
+from studio_api.security import utcnow
 
 
 class Stream:
@@ -103,3 +107,44 @@ def test_expired_active_lease_is_reclaimed():
         assert reclaimed.id == first.id
         assert reclaimed.lease_owner_id == "new-worker"
         assert reclaimed.lease_generation == first_generation + 1
+
+
+def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    payload = b"reference-audio"
+    storage = Storage(payload)
+    settings = SimpleNamespace(source_s3_bucket="private", source_max_upload_bytes=1024 * 1024)
+    now = datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)
+
+    @contextmanager
+    def temp_directory_factory(prefix):
+        root = ROOT / "temp" / "audio-preparation-pytest"
+        root.mkdir(exist_ok=True)
+        yield str(root)
+
+    with Session(engine) as db:
+        user = User(id="owner", email="owner@example.test")
+        project = Project(id="project", owner_user_id=user.id, title="Материалы")
+        source = Source(id="source", project_id=project.id, source_type=SourceType.local_upload, original_filename="input.flac", mime_type="audio/flac", size_bytes=len(payload), s3_bucket="private", s3_object_key="input", upload_status=SourceUploadStatus.uploaded, expires_at=datetime(2026, 8, 30))
+        db.add_all([user, project, source]); db.commit()
+        job = create_audio_preparation_job(db, owner_user_id=user.id, project_id=project.id, title="Запись", source_ids=[source.id], ephemeral_source_ids={source.id}, manual_order=True, options_payload={"output_format": "flac"}, output_destination="download", output_folder=None, now=now)
+        job.status = AudioPreparationStatus.preview_ready; job.current_stage = "preview_ready"; db.commit()
+        start_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id); db.commit()
+        claimed = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=now, lease_ttl=timedelta(minutes=10)); db.commit()
+
+        def cancelling_runner(command, **kwargs):
+            result = runner(command, **kwargs)
+            if command[0] == "ffmpeg" and command[-1] != "-":
+                current = db.get(AudioPreparationJob, job.id)
+                current.cancel_requested_at = utcnow()
+                db.commit()
+            return result
+
+        with pytest.raises(AudioPreparationServiceError):
+            process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=claimed.lease_generation, settings=settings, now=now, storage_factory=lambda _settings: storage, runner=cancelling_runner, temp_directory_factory=temp_directory_factory)
+        persisted = db.get(AudioPreparationJob, job.id)
+        db.refresh(source)
+        assert persisted.status is AudioPreparationStatus.cancelled
+        assert source.upload_status is SourceUploadStatus.deleted
+        assert storage.puts == []

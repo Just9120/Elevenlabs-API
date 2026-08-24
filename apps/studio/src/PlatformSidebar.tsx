@@ -1,8 +1,9 @@
-import { AudioLines, Home, Settings } from "lucide-react";
+import { AudioLines, Home, Settings, SlidersHorizontal } from "lucide-react";
 import type { Page } from "./platformRouting";
 
 const platformNav: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "dashboard", label: "Обзор", icon: Home },
+  { id: "audio", label: "Обработка аудио", icon: SlidersHorizontal },
   { id: "projects", label: "Транскрибации", icon: AudioLines },
   { id: "settings", label: "Настройки", icon: Settings },
 ];

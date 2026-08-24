@@ -33,8 +33,8 @@ Verified main baseline: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`. Exact-m
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **85,0% (`91/107`)** | выполненные AC существующих PWA-эпиков / все PWA AC, включая новый audio-preparation epic `0/16` |
-| Весь проект | **88,2% (`120/136`)** | все выполненные AC двух продуктов / все AC расширенного current scope; READY отдельно зависит от обязательных Evidence gates |
+| Studio PWA | **100% (`107/107`)** | выполненные AC всех PWA-эпиков / все PWA AC; audio-preparation реализован локально `16/16`, delivery Evidence остаётся открытым |
+| Весь проект | **100% (`136/136`)** | все выполненные AC двух продуктов / все AC current scope; READY отдельно зависит от обязательных Evidence gates |
 
 ## 3. Общие product rules
 
@@ -214,30 +214,30 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 0% (`0/16`)**. Backend/schema/worker implementation подтверждена локальными focused tests, но ни один user-facing AC ещё не считается выполненным до интеграции PWA и applicable delivery Evidence.
+Status: **🟦 IN PROGRESS — 100% (`16/16`)**. Все product AC реализованы и подтверждены локальными contract/component/portable regression tests; обязательные CI/DEPLOY/LIVE Evidence ещё отсутствуют, поэтому эпик не READY.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `AP-01` | Sidebar содержит отдельный пункт `Обработка аудио` непосредственно перед `Транскрипциями`. | — |
-| `AP-02` | Пользователь выбирает один или несколько доступных owner-scoped media sources и запускает обработку независимо от транскрибации. | — |
-| `AP-03` | До обработки каждый input проверяется через bounded probe на container, codec, duration, audio-stream presence и media integrity; invalid input fail-closed. | — |
-| `AP-04` | Несколько inputs по умолчанию упорядочиваются по authoritative creation time, а пользователь может явно изменить порядок до запуска. | — |
-| `AP-05` | Совместимые inputs могут быть склеены без перекодирования и потери качества; несовместимый copy plan блокируется до явного выбора conversion path. | — |
-| `AP-06` | Processed output можно явно преобразовать в `WAV` или `FLAC`. | — |
-| `AP-07` | Для stereo input доступен явный mono mode: mixdown, left channel или right channel; недоступный channel mode отклоняется до processing. | — |
-| `AP-08` | Silence processing позволяет задать threshold, минимальную длительность тишины и сколько тишины оставить; значения имеют bounded safe limits. | — |
-| `AP-09` | До mutation пользователь получает preview общей исходной длительности и оценочной длительности после silence processing. | — |
-| `AP-10` | Склейка, silence processing, conversion и переименование могут выполняться отдельно или в комбинации без обязательной последующей транскрибации. | — |
-| `AP-11` | Output filename формируется из безопасного пользовательского имени либо bounded шаблона с доступными date/time/project/title metadata. | — |
-| `AP-12` | Доступны bounded presets для типовых сценариев `Лекция`, `Созвон` и `Только обработать аудио`, причём пользователь видит и может изменить итоговые параметры до запуска. | — |
-| `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. | — |
-| `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. | — |
-| `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | — |
-| `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | — |
+| `AP-01` | Sidebar содержит отдельный пункт `Обработка аудио` непосредственно перед `Транскрипциями`. | ✅ |
+| `AP-02` | Пользователь выбирает один или несколько доступных owner-scoped media sources и запускает обработку независимо от транскрибации. | ✅ |
+| `AP-03` | До обработки каждый input проверяется через bounded probe на container, codec, duration, audio-stream presence и media integrity; invalid input fail-closed. | ✅ |
+| `AP-04` | Несколько inputs по умолчанию упорядочиваются по authoritative creation time, а пользователь может явно изменить порядок до запуска. | ✅ |
+| `AP-05` | Совместимые inputs могут быть склеены без перекодирования и потери качества; несовместимый copy plan блокируется до явного выбора conversion path. | ✅ |
+| `AP-06` | Processed output можно явно преобразовать в `WAV` или `FLAC`. | ✅ |
+| `AP-07` | Для stereo input доступен явный mono mode: mixdown, left channel или right channel; недоступный channel mode отклоняется до processing. | ✅ |
+| `AP-08` | Silence processing позволяет задать threshold, минимальную длительность тишины и сколько тишины оставить; значения имеют bounded safe limits. | ✅ |
+| `AP-09` | До mutation пользователь получает preview общей исходной длительности и оценочной длительности после silence processing. | ✅ |
+| `AP-10` | Склейка, silence processing, conversion и переименование могут выполняться отдельно или в комбинации без обязательной последующей транскрибации. | ✅ |
+| `AP-11` | Output filename формируется из безопасного пользовательского имени либо bounded шаблона с доступными date/time/project/title metadata. | ✅ |
+| `AP-12` | Доступны bounded presets для типовых сценариев `Лекция`, `Созвон` и `Только обработать аудио`, причём пользователь видит и может изменить итоговые параметры до запуска. | ✅ |
+| `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. | ✅ |
+| `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. | ✅ |
+| `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | ✅ |
+| `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 
 Definition of Done: `16/16`, relevant backend/frontend/migration tests и required exact-head CI green, additive schema release и API/worker/web deployment по applicable gates, bounded owner-controlled LIVE с короткими fixtures, authenticated download и одним Google Drive upload без provider call.
 

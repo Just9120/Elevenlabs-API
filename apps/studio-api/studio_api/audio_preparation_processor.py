@@ -28,6 +28,7 @@ from .audio_preparation_service import (
     complete_audio_preview,
     deserialize_options,
     fail_audio_preparation_job,
+    finalize_cancelled_audio_preparation_job,
 )
 from .google_connection_access import refresh_user_google_drive_access_token
 from .google_drive import fetch_drive_file_content
@@ -125,7 +126,7 @@ def process_claimed_audio_preparation_job(
                 return AudioProcessingResult(job.id, "preview_ready", "preview_ready", False)
             if job.status is not AudioPreparationStatus.processing:
                 raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
-            _require_not_cancelled(job)
+            _require_not_cancelled(db, job)
             _checkpoint(db, job, "processing", 45)
             creation_time = _earliest_creation_time(job) or _naive_utc(operation_now)
             extension = _output_extension(job, options, paths)
@@ -146,7 +147,7 @@ def process_claimed_audio_preparation_job(
                 creation_time=creation_time,
             )
             run_processing(command, runner=runner) if runner else run_processing(command)
-            _require_not_cancelled(job)
+            _require_not_cancelled(db, job)
             output_probe = probe_media(output_path, runner=runner) if runner else probe_media(output_path)
             output_size = output_path.stat().st_size
             if output_size <= 0 or output_size > settings.source_max_upload_bytes:
@@ -201,14 +202,23 @@ def process_claimed_audio_preparation_job(
         db.rollback()
         reason = getattr(getattr(exc, "reason", None), "value", "processing_failed")
         try:
-            fail_audio_preparation_job(
-                db,
-                job_id=job_id,
-                lease_owner_id=lease_owner_id,
-                lease_generation=lease_generation,
-                error_code=reason,
-                now=operation_now,
-            )
+            if reason == AudioPreparationServiceReason.cancellation_requested.value:
+                finalize_cancelled_audio_preparation_job(
+                    db,
+                    job_id=job_id,
+                    lease_owner_id=lease_owner_id,
+                    lease_generation=lease_generation,
+                    now=utcnow(),
+                )
+            else:
+                fail_audio_preparation_job(
+                    db,
+                    job_id=job_id,
+                    lease_owner_id=lease_owner_id,
+                    lease_generation=lease_generation,
+                    error_code=reason,
+                    now=utcnow(),
+                )
             failed_job = db.get(AudioPreparationJob, job_id)
             if failed_job is not None:
                 _request_ephemeral_cleanup(db, failed_job, operation_now)
@@ -371,15 +381,15 @@ def _request_ephemeral_cleanup(db, job, now):
         )
 
 
-def _require_not_cancelled(job):
+def _require_not_cancelled(db, job):
+    db.refresh(job)
     db_status = job.cancel_requested_at
     if db_status is not None:
-        raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.cancellation_requested)
 
 
 def _checkpoint(db, job, stage, percent):
-    db.refresh(job)
-    _require_not_cancelled(job)
+    _require_not_cancelled(db, job)
     job.current_stage = stage
     job.progress_percent = percent
     db.commit()

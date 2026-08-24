@@ -44,6 +44,7 @@ class AudioPreparationServiceReason(str, Enum):
     invalid_state = "invalid_state"
     invalid_destination = "invalid_destination"
     lease_unavailable = "lease_unavailable"
+    cancellation_requested = "cancellation_requested"
 
 
 class AudioPreparationServiceError(RuntimeError):
@@ -281,6 +282,46 @@ def fail_audio_preparation_job(
     job.finished_at = _naive_utc(now)
     job.lease_owner_id = None
     job.lease_expires_at = None
+    db.flush()
+    return job
+
+
+def finalize_cancelled_audio_preparation_job(
+    db: Session,
+    *,
+    job_id: str,
+    lease_owner_id: str,
+    lease_generation: int,
+    now: datetime,
+) -> AudioPreparationJob:
+    job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
+    if job.cancel_requested_at is None:
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
+    job.status = AudioPreparationStatus.cancelled
+    job.current_stage = "cancelled"
+    job.cancelled_at = _naive_utc(now)
+    job.finished_at = _naive_utc(now)
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    db.flush()
+    return job
+
+
+def renew_audio_preparation_lease(
+    db: Session,
+    *,
+    job_id: str,
+    lease_owner_id: str,
+    lease_generation: int,
+    now: datetime,
+    lease_ttl: timedelta,
+) -> AudioPreparationJob:
+    job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
+    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing}:
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
+    if job.lease_expires_at is None or _naive_utc(job.lease_expires_at) <= _naive_utc(now):
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
+    job.lease_expires_at = _naive_utc(now + lease_ttl)
     db.flush()
     return job
 

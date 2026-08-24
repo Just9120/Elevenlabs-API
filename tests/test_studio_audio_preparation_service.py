@@ -22,6 +22,7 @@ from studio_api.audio_preparation_service import (
     complete_audio_preview,
     create_audio_preparation_job,
     load_owned_audio_preparation_job,
+    renew_audio_preparation_lease,
     start_audio_preparation_job,
 )
 from studio_api.db import Base
@@ -230,3 +231,17 @@ def test_browser_payload_omits_source_ids_storage_and_drive_identity(db):
     ]
     for private in ["early\"", "private-bucket", "private/early", "private-drive-id"]:
         assert private not in rendered
+
+
+def test_active_lease_can_be_renewed_only_by_exact_owner_and_generation(db):
+    seed(db)
+    job = create(db, source_ids=["early"])
+    db.commit()
+    claimed = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=datetime(2026, 8, 24, 20, 1), lease_ttl=timedelta(minutes=10))
+    generation = claimed.lease_generation
+    db.commit()
+    renewed = renew_audio_preparation_lease(db, job_id=job.id, lease_owner_id="worker", lease_generation=generation, now=datetime(2026, 8, 24, 20, 5), lease_ttl=timedelta(minutes=10))
+    assert renewed.lease_expires_at == datetime(2026, 8, 24, 20, 15)
+    with pytest.raises(AudioPreparationServiceError) as caught:
+        renew_audio_preparation_lease(db, job_id=job.id, lease_owner_id="other", lease_generation=generation, now=datetime(2026, 8, 24, 20, 6), lease_ttl=timedelta(minutes=10))
+    assert caught.value.reason is AudioPreparationServiceReason.lease_unavailable

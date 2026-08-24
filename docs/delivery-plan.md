@@ -17,22 +17,22 @@
   7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
   8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
   9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** durable job/output lifecycle потребует additive migration `0025_audio_preparation` и после merge отдельного action-time authorization для worker drain и `MANUAL_GATED` release; production LIVE требует только короткие owner-controlled media fixtures и не расходует provider quota. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** `AP-01..AP-16` и required Evidence подтверждены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; optional TOTP не начинается в этой Goal.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:25:00Z.
+- Updated (UTC): 2026-08-24T20:38:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: `d7b6fd6` — schema head `0025_audio_preparation`; subsequent backend/service/worker changes are validated locally but not yet committed at this checkpoint.
+- Last verified revision: `4a63dd1` — committed backend/API/worker workflow; frontend/reliability completion is validated in the current worktree and awaits its atomic commit.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: deterministic FFprobe/FFmpeg core; additive migration/schema `0025`; owner-scoped create/list/detail/start/cancel/download API; preview/processing worker; lease recovery; S3 output/download/reuse identity; idempotent Google Drive upload reconciliation; active-source deletion guard; terminal ephemeral cleanup and hard TTL 24h.
-- Current step: integrate and test the separate PWA workspace and navigation.
-- Next exact action: finish frontend contracts/tests and run the combined backend/PWA validation set.
-- Validation and Evidence: backend focused set `67/67` passed; TypeScript build passed; local Vite production build passed. Backend/schema Evidence is partial until frontend integration, full regression CI, migration delivery and LIVE. Product AC remain `0/16` at this backend-only checkpoint.
+- Completed: all `AP-01..AP-16` source-level flows, including separate PWA workspace, local/Drive source selection, editable presets, preview, progress/cancel/recovery heartbeat, S3 retention/download/reuse, idempotent Drive upload and terminal ephemeral cleanup.
+- Current step: commit the validated frontend/reliability slice, then run final diff/schema checks and prepare PR.
+- Next exact action: create the atomic frontend/reliability commit and run final branch validation.
+- Validation and Evidence: portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript and Vite production build passed. Non-portable Windows suite is inapplicable because its bash tests require Linux; CI remains required. Product readiness is now `16/16`, while READY remains gated by CI/DEPLOY/LIVE.
 - Pull Request / CI / deployment: not created / not started / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
@@ -44,10 +44,10 @@
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **88,2% (`120/136`)** | **100% (`120/120`)** | Новый audio-preparation epic `0/16`; существующие AC не регрессировали. |
+| **Project** | **100% (`136/136`)** | **88,2% (`120/136`)** | `AP-01..AP-16` реализованы; обязательные delivery Evidence ещё открыты. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Batch `23/23`, realtime `6/6`; READY. |
-| **Studio PWA** | **85,0% (`91/107`)** | **100% (`91/91`)** | Новый audio-preparation epic `0/16`. |
-| `PWA-AUDIO-PREPARATION-01` | **0% (`0/16`)** | **N/A** | 🟦 IN PROGRESS; `SPEC ✅`, implementation Evidence open. |
+| **Studio PWA** | **100% (`107/107`)** | **85,0% (`91/107`)** | Все PWA product AC выполнены; delivery Evidence для нового эпика открыты. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **0% (`0/16`)** | 🟦 IN PROGRESS; `SPEC/CODE/TEST ✅`, `CI/DEPLOY/LIVE —`. |
 | `PWA-SPEAKER-IDENTITY-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; PR #233 delivery/LIVE reconciled. |
 | Остальные existing epics | **100% (`115/115`)** | **100% (`115/115`)** | Completion не изменилась; individual Evidence остаётся в project-spec. |
 

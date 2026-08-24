@@ -906,6 +906,74 @@ def test_transcription_workspace_reuses_active_and_never_unarchives_legacy_data(
         db.close()
 
 
+def test_audio_preparation_api_create_list_detail_and_owner_boundary():
+    email = "audio-preparation-owner@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    workspace = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]
+    db = SessionLocal()
+    try:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        source = Source(
+            project_id=workspace["id"],
+            source_type=SourceType.local_upload,
+            original_filename="meeting.wav",
+            mime_type="audio/wav",
+            size_bytes=1024,
+            s3_bucket="private-test-bucket",
+            s3_object_key="private/test/source",
+            upload_status=SourceUploadStatus.uploaded,
+            uploaded_at=utcnow(),
+            source_created_at=utcnow() - timedelta(days=1),
+            source_created_at_provenance="embedded_media_metadata",
+            expires_at=utcnow() + timedelta(days=1),
+        )
+        db.add(source)
+        db.commit()
+        source_id = source.id
+        owner_id = owner.id
+    finally:
+        db.close()
+    created = client.post(
+        f"/api/projects/{workspace['id']}/audio-preparations",
+        headers=headers,
+        json={
+            "title": "Обработанная встреча",
+            "source_ids": [source_id],
+            "ephemeral_source_ids": [source_id],
+            "manual_order": True,
+            "options": {"preset": "processing_only", "output_format": "wav"},
+            "output_destination": "download",
+            "output_drive_folder_id": None,
+        },
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["status"] == "preview_queued"
+    assert payload["inputs"] == [{"position": 0, "filename": "meeting.wav", "source_type": "local_upload", "ephemeral_reference": True}]
+    assert "private-test-bucket" not in created.text
+    assert "private/test/source" not in created.text
+    listed = client.get(f"/api/projects/{workspace['id']}/audio-preparations")
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()["jobs"]] == [payload["id"]]
+    assert client.get(f"/api/audio-preparations/{payload['id']}").status_code == 200
+    assert client.post(f"/api/audio-preparations/{payload['id']}/start", headers=headers).status_code == 409
+    other_email = "audio-preparation-other@example.com"
+    other_password = admin(other_email)
+    other_client = TestClient(app)
+    login(other_client, other_password, other_email)
+    assert other_client.get(f"/api/audio-preparations/{payload['id']}").status_code == 404
+    db = SessionLocal()
+    try:
+        assert db.get(User, owner_id) is not None
+        persisted = db.get(Source, source_id)
+        assert persisted.expires_at <= utcnow() + timedelta(hours=24, minutes=1)
+    finally:
+        db.close()
+
+
 def test_project_create_list_update_archive_lifecycle_and_archived_excluded():
     pw = admin(); c = TestClient(app); csrf = login(c, pw)
     r = c.post("/api/projects", json={"title": "  First project  ", "description": "  Notes  "}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
