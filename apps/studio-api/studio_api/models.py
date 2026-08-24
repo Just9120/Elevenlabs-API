@@ -301,6 +301,53 @@ class TranscriptionJobSource(Base):
     __table_args__=(UniqueConstraint("job_id", "source_id", name="uq_transcription_job_source"), Index("ix_transcription_job_sources_job_position", "job_id", "position"),)
 
 
+class SpeakerProfile(Base):
+    __tablename__="speaker_profiles"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    display_name: Mapped[str]=mapped_column(String(160), nullable=False)
+    normalized_name: Mapped[str]=mapped_column(String(160), nullable=False)
+    role: Mapped[str]=mapped_column(String(120), nullable=False)
+    active: Mapped[bool]=mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+    __table_args__=(
+        UniqueConstraint("owner_user_id", "normalized_name", name="uq_speaker_profiles_owner_normalized_name"),
+        CheckConstraint("length(trim(display_name)) > 0", name="ck_speaker_profiles_display_name_nonempty"),
+        CheckConstraint("length(trim(normalized_name)) > 0", name="ck_speaker_profiles_normalized_name_nonempty"),
+        CheckConstraint("length(trim(role)) > 0", name="ck_speaker_profiles_role_nonempty"),
+        Index("ix_speaker_profiles_owner_active_updated", "owner_user_id", "active", "updated_at"),
+    )
+
+
+class TranscriptionJobSpeaker(Base):
+    __tablename__="transcription_job_speakers"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    job_source_id: Mapped[str]=mapped_column(ForeignKey("transcription_job_sources.id"), nullable=False)
+    provider_speaker_label: Mapped[str]=mapped_column(String(160), nullable=False)
+    display_ordinal: Mapped[int]=mapped_column(Integer, nullable=False)
+    sample_start_ms: Mapped[int]=mapped_column(Integer, nullable=False)
+    sample_end_ms: Mapped[int]=mapped_column(Integer, nullable=False)
+    speaker_profile_id: Mapped[str|None]=mapped_column(ForeignKey("speaker_profiles.id"))
+    applied_display_name: Mapped[str|None]=mapped_column(String(160))
+    applied_role: Mapped[str|None]=mapped_column(String(120))
+    applied_document_label: Mapped[str|None]=mapped_column(String(320))
+    assigned_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+    __table_args__=(
+        UniqueConstraint("job_source_id", "provider_speaker_label", name="uq_transcription_job_speakers_source_provider_label"),
+        UniqueConstraint("job_source_id", "display_ordinal", name="uq_transcription_job_speakers_source_ordinal"),
+        CheckConstraint("display_ordinal >= 1", name="ck_transcription_job_speakers_ordinal_positive"),
+        CheckConstraint("sample_start_ms >= 0 AND sample_end_ms > sample_start_ms AND sample_end_ms - sample_start_ms <= 8000", name="ck_transcription_job_speakers_sample_bounded"),
+        CheckConstraint("((speaker_profile_id IS NULL AND applied_display_name IS NULL AND applied_role IS NULL AND applied_document_label IS NULL AND assigned_at IS NULL) OR (speaker_profile_id IS NOT NULL AND applied_display_name IS NOT NULL AND applied_role IS NOT NULL AND applied_document_label IS NOT NULL AND assigned_at IS NOT NULL))", name="ck_transcription_job_speakers_assignment_complete"),
+        Index("ix_transcription_job_speakers_owner_job", "owner_user_id", "job_id", "display_ordinal"),
+        Index("ix_transcription_job_speakers_profile", "speaker_profile_id"),
+    )
+
+
 
 
 class TranscriptionJobSourceAttempt(Base):
