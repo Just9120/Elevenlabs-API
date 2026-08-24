@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T08:06:23Z
+- Updated (UTC): 2026-08-24T08:15:03Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `b214a160999ae3ac953f2b57d472fe886a66fa4e`
 - Working branch: `codex/pwa-realtime-source-ducking`
-- Last verified revision: `b214a160999ae3ac953f2b57d472fe886a66fa4e` (PR #229 merge deployed successfully; new source-meter/ducking fix absent).
+- Last verified revision: `42e76e1be86f56d1d91e2c35c262715d1cd3efa6` (per-source meters, microphone-triggered ducking, UI guidance, regression coverage and architecture update validated locally).
 - Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
-- Completed: PR #229 merged as `main@b214a160`; exact-main CI `32696791719`, Studio/browser CI `32696791700` and web deployment `32696791720` passed; API, migration and worker correctly skipped. Static voice-priority gain staging is deployed. Post-deploy Chrome canary on laptop speakers still reproduced microphone speech not being recognized while display playback continued; both sources work separately. Headphones are unavailable, so the owner explicitly authorized continued software diagnosis instead of stopping at that external gate.
-- Current step: implement browser-only per-source signal evidence and automatic display ducking inside the same PR-06 Goal.
-- Next exact action: extend the mixed Web Audio graph with source analysers, safe source-level callbacks and bounded microphone-triggered display attenuation, then add regression coverage.
-- Validation and Evidence: PR #229 focused realtime/UI `46/46`, full Studio `562/562`, ESLint, TypeScript and production PWA build PASS; PR and exact-main CI/CD SUCCESS. New branch has not yet been validated. Product numerator remains unchanged until a successful representative mixed LIVE canary.
+- Completed: PR #229 merged as `main@b214a160`; exact-main CI `32696791719`, Studio/browser CI `32696791700` and web deployment `32696791720` passed; API, migration and worker correctly skipped. Static voice-priority gain staging is deployed. Post-deploy Chrome canary on laptop speakers still reproduced microphone speech not being recognized while display playback continued; both sources work separately. Headphones are unavailable, so the owner explicitly authorized continued software diagnosis instead of stopping at that external gate. Commit `42e76e1` inserts non-persistent analysers into each real mixed-source path, exposes separate UI meters, ducks display gain `0.35 → 0.08` on microphone activity with hysteresis recovery and clears all levels/monitor ownership during cleanup.
+- Current step: local implementation and full validation complete; prepare the source-ducking branch for PR.
+- Next exact action: run final status/diff checks, push the branch and create the fix PR.
+- Validation and Evidence: focused realtime/UI `46/46` PASS; full Studio `562/562` PASS; full ESLint PASS; TypeScript project build PASS; exact-worktree production PWA build PASS; `git diff --check` PASS. Product numerator remains unchanged until required CI/deploy and a successful representative mixed LIVE canary.
 - Pull Request: #229 merged; new fix PR not created.
 - CI/checks: exact-main required CI passed for `b214a160`; new fix revision absent.
 - Deployment/environment: web deployment `32696791720` succeeded for `b214a160`; migration class for the planned browser-only diff is expected `NONE`.
