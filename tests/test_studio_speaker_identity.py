@@ -17,8 +17,21 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
-os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 ALEMBIC = ROOT / "apps/studio-api" / "alembic.ini"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def speaker_identity_database_environment():
+    database_url = os.environ.get("STUDIO_DATABASE_URL")
+    configured_scheme = os.environ.get("STUDIO_DATABASE_SCHEME")
+    added_local_fallback = database_url is None and configured_scheme is None
+    if added_local_fallback:
+        os.environ["STUDIO_DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+    try:
+        yield
+    finally:
+        if added_local_fallback:
+            os.environ.pop("STUDIO_DATABASE_URL", None)
 
 
 @dataclass(frozen=True)
@@ -26,6 +39,12 @@ class Word:
     speaker_id: str | None
     start: float | None
     end: float | None
+
+
+def test_module_does_not_mutate_database_environment_during_collection():
+    source = Path(__file__).read_text(encoding="utf-8")
+    import_prefix = source.split("@pytest.fixture", 1)[0]
+    assert "os.environ" not in import_prefix
 
 
 def test_speaker_identity_schema_is_owner_scoped_bounded_and_additive():
