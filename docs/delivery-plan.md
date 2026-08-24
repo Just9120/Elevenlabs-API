@@ -22,7 +22,7 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T10:23:52Z.
+- Updated (UTC): 2026-08-24T10:25:45Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `ebbba50a938feb2d06b2ec59e828834ff204988d`.
@@ -30,11 +30,11 @@
 - Last verified revision: `f4d9722ff22f1d8d061cd2682aa3e039cfc0c9b6` — realtime capture lifecycle hardening.
 - Working tree at branch start: clean; local `main = origin/main`; divergence `0/0`; unrelated pre-existing changes absent.
 - Completed: previous realtime Goal reconciled from PRs #228–#230. Exact-main repository CI `32706218832`, Studio/browser CI `32706218892` and web CD `32706218830` passed for `main@ebbba50`; owner-controlled Chrome mixed canary confirmed both source signals and accepted residual simultaneous-speaker masking as non-critical. Three merged realtime branches were safely removed locally/remotely.
-- Current step: весь bounded source/test scope Goal реализован шестью atomic commits; branch divergence после `git fetch origin --prune` — `origin/main...HEAD = 0/6`.
-- Next exact action: зафиксировать final documentation reconciliation, push exact head и создать Pull Request.
+- Current step: весь bounded source/test scope Goal реализован семью reviewable commits и опубликован в PR #231; pre-PR divergence после `git fetch origin --prune` — `origin/main...HEAD = 0/6`; этот commit фиксирует final PR checkpoint.
+- Next exact action: отправить этот PR checkpoint, дождаться terminal state всех required exact-head CI checks и устранить failures в той же Goal.
 - Validation and Evidence: combined Colab helper/realtime suite `258 passed, 1 skipped`; skipped Node syntax case отдельно выполнен bundled Node `--check` и passed; `scripts/ci_checks.py` и `git diff --check` passed. Полный service-backed pytest локально не считается пройденным из-за отсутствия CI PostgreSQL/Redis/migration environment; exact-head CI остаётся обязательным. `CB-05/21/22` и `CR-06` остаются open до bounded LIVE. Readiness не изменилась: project `111/120`, Colab `25/29`, batch `20/23`, realtime `5/6`.
-- Pull Request: none.
-- CI/checks: not started for this branch.
+- Pull Request: `#231` — `https://github.com/Just9120/Elevenlabs-API/pull/231`.
+- CI/checks: PR создан; exact-head checks ожидаются после final checkpoint push.
 - Deployment/environment: Colab has no VPS component deployment; exact reviewed repository revision and launcher `GITHUB_REF` are the applicable delivery identity. Final applicability of `DEPLOY` Evidence will be stated explicitly after targeted topology verification.
 - Blockers: none for PR/CI. External LIVE and destructive manifest-clear gates remain owner-controlled after merge readiness.
 - Unverified assumptions: representative user media may or may not contain trustworthy embedded creation metadata; actual Colab browser folder transfer/path preservation and Windows/Chrome realtime stability remain unverified until bounded LIVE.
