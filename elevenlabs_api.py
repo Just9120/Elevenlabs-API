@@ -14,6 +14,7 @@ import io
 import os
 import re
 import json
+import base64
 import random
 import hashlib
 import mimetypes
@@ -39,7 +40,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 import ipywidgets as widgets
-from IPython.display import display, clear_output, Javascript
+from IPython.display import display, clear_output, Javascript, HTML
 
 from google.colab import auth, files, userdata, drive as colab_drive, output as colab_output
 import google.auth
@@ -356,6 +357,12 @@ TAG_AUDIO_EVENTS = False
 DOC_INSERT_CHUNK_SIZE = 200_000
 PREVIEW_LIMIT = 20
 LARGE_LOCAL_FILE_WARNING_MB = 300
+LOCAL_FOLDER_UPLOAD_CHUNK_BYTES = 128 * 1024
+LOCAL_FOLDER_UPLOAD_MAX_FILES = 500
+LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES = 1024 * 1024 * 1024
+LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+LOCAL_FOLDER_UPLOAD_MAX_RELATIVE_PATH_CHARS = 512
+LOCAL_FOLDER_UPLOAD_MAX_DEPTH = 32
 WAV_RECOMPRESS_THRESHOLD_MB = 300
 WAV_RECOMPRESS_THRESHOLD_BYTES = WAV_RECOMPRESS_THRESHOLD_MB * 1024 * 1024
 OPENAI_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024
@@ -5730,6 +5737,213 @@ def warn_about_large_local_uploads(uploaded: dict):
             print(f"- {filename}: {size_mb:.1f} MB")
 
 
+def normalize_local_folder_relative_path(value: str) -> str:
+    raw = str(value or "").replace("\\", "/").strip()
+    if not raw or len(raw) > LOCAL_FOLDER_UPLOAD_MAX_RELATIVE_PATH_CHARS:
+        raise ValueError("Некорректный или слишком длинный relative path локального файла.")
+    if raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
+        raise ValueError("Абсолютные пути локальной папки запрещены.")
+
+    parts = raw.split("/")
+    if len(parts) > LOCAL_FOLDER_UPLOAD_MAX_DEPTH:
+        raise ValueError("Слишком глубокая структура локальной папки.")
+    for part in parts:
+        if part in {"", ".", ".."}:
+            raise ValueError("Relative path содержит небезопасный сегмент.")
+        if any(ord(char) < 32 for char in part):
+            raise ValueError("Relative path содержит управляющие символы.")
+    return "/".join(parts)
+
+
+def make_local_folder_upload_state() -> dict:
+    return {
+        "files": {},
+        "casefold_paths": set(),
+        "declared_total_bytes": 0,
+        "completed_paths": set(),
+    }
+
+
+def accumulate_local_folder_upload_event(state: dict, payload: dict) -> dict:
+    event = str((payload or {}).get("event") or "")
+    relative_path = normalize_local_folder_relative_path((payload or {}).get("path"))
+    files_state = state.setdefault("files", {})
+
+    if event == "start":
+        if len(files_state) >= LOCAL_FOLDER_UPLOAD_MAX_FILES:
+            raise ValueError(f"В локальной папке больше {LOCAL_FOLDER_UPLOAD_MAX_FILES} supported files.")
+        folded = relative_path.casefold()
+        if folded in state.setdefault("casefold_paths", set()):
+            raise ValueError("В локальной папке обнаружены неоднозначные duplicate relative paths.")
+        if not is_supported_filename(relative_path):
+            raise ValueError("Browser передал неподдерживаемый тип файла.")
+        size = int((payload or {}).get("size", -1))
+        if size < 0 or size > LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES:
+            raise ValueError("Локальный файл превышает допустимый bounded upload size.")
+        new_total = int(state.get("declared_total_bytes", 0)) + size
+        if new_total > LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES:
+            raise ValueError("Суммарный размер локальной папки превышает bounded upload limit.")
+        state["declared_total_bytes"] = new_total
+        state["casefold_paths"].add(folded)
+        files_state[relative_path] = {"size": size, "buffer": bytearray()}
+        return {"ok": True, "path": relative_path, "offset": 0}
+
+    item = files_state.get(relative_path)
+    if not item:
+        raise ValueError("Получен chunk без подтверждённого начала файла.")
+
+    if event == "chunk":
+        offset = int((payload or {}).get("offset", -1))
+        if offset != len(item["buffer"]):
+            raise ValueError("Нарушен порядок chunks локального файла.")
+        try:
+            chunk = base64.b64decode(str((payload or {}).get("data") or ""), validate=True)
+        except Exception as error:
+            raise ValueError("Получен повреждённый base64 chunk.") from error
+        if len(chunk) > LOCAL_FOLDER_UPLOAD_CHUNK_BYTES:
+            raise ValueError("Browser chunk превышает допустимый размер.")
+        if len(item["buffer"]) + len(chunk) > item["size"]:
+            raise ValueError("Получено больше bytes, чем объявлено для локального файла.")
+        item["buffer"].extend(chunk)
+        return {"ok": True, "path": relative_path, "offset": len(item["buffer"])}
+
+    if event == "end":
+        if len(item["buffer"]) != item["size"]:
+            raise ValueError("Локальный файл передан не полностью.")
+        state.setdefault("completed_paths", set()).add(relative_path)
+        return {"ok": True, "path": relative_path, "size": item["size"]}
+
+    raise ValueError("Неизвестное событие local folder upload.")
+
+
+def finalize_local_folder_upload(state: dict) -> dict[str, bytes]:
+    files_state = state.get("files") or {}
+    completed = state.get("completed_paths") or set()
+    if not files_state:
+        raise ValueError("В выбранной папке нет supported audio/video files.")
+    if set(files_state) != set(completed):
+        raise ValueError("Передача локальной папки не завершена.")
+    return {
+        relative_path: bytes(item["buffer"])
+        for relative_path, item in sorted(files_state.items(), key=lambda pair: pair[0].casefold())
+    }
+
+
+def upload_local_folder_from_browser() -> dict[str, bytes]:
+    """Upload a user-selected browser folder through a bounded Colab eval_js iterator."""
+
+    session_id = uuid.uuid4().hex
+    namespace_name = f"__elevenlabsLocalFolderUpload_{session_id}"
+    input_id = f"elevenlabs-folder-input-{session_id}"
+    button_id = f"elevenlabs-folder-button-{session_id}"
+    cancel_id = f"elevenlabs-folder-cancel-{session_id}"
+    status_id = f"elevenlabs-folder-status-{session_id}"
+    state = make_local_folder_upload_state()
+    supported_extensions = sorted(SUPPORTED_EXTENSIONS)
+    display(HTML(f"""
+<div style="padding:12px;border:1px solid #dadce0;border-radius:8px;max-width:760px">
+  <input id="{input_id}" type="file" webkitdirectory directory multiple style="display:none">
+  <button id="{button_id}" type="button">Выбрать папку с компьютера</button>
+  <button id="{cancel_id}" type="button">Отменить ожидание</button>
+  <div id="{status_id}" style="margin-top:8px;color:#3c4043">Ожидание выбора папки…</div>
+</div>
+<script>
+(() => {{
+  const namespaceName = {json.dumps(namespace_name)};
+  const supported = new Set({json.dumps(supported_extensions)});
+  const chunkBytes = {LOCAL_FOLDER_UPLOAD_CHUNK_BYTES};
+  const maxFiles = {LOCAL_FOLDER_UPLOAD_MAX_FILES};
+  const maxFileBytes = {LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES};
+  const maxTotalBytes = {LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES};
+  const input = document.getElementById({json.dumps(input_id)});
+  const button = document.getElementById({json.dumps(button_id)});
+  const cancel = document.getElementById({json.dumps(cancel_id)});
+  const status = document.getElementById({json.dumps(status_id)});
+  const toBase64 = (buffer) => {{
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 0x8000) {{
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
+    }}
+    return btoa(binary);
+  }};
+  const controller = {{
+    iterator: null,
+    async *uploadFiles() {{
+      try {{
+        const selected = await new Promise((resolve) => {{
+          let settled = false;
+          const finishSelection = (value) => {{
+            if (settled) return;
+            settled = true;
+            resolve(value);
+          }};
+          button.addEventListener('click', () => input.click(), {{once: true}});
+          cancel.addEventListener('click', () => finishSelection(null), {{once: true}});
+          input.addEventListener('cancel', () => finishSelection(null), {{once: true}});
+          input.addEventListener('change', () => finishSelection(Array.from(input.files || [])), {{once: true}});
+        }});
+        if (selected === null) return {{action: 'cancelled'}};
+      const files = selected.filter((file) => {{
+        const dot = file.name.lastIndexOf('.');
+        return dot >= 0 && supported.has(file.name.slice(dot).toLowerCase());
+      }});
+      if (!files.length) throw new Error('В выбранной папке нет supported audio/video files.');
+      if (files.length > maxFiles) throw new Error(`Supported files: ${{files.length}}, limit: ${{maxFiles}}.`);
+      const totalBytes = files.reduce((total, file) => total + file.size, 0);
+      if (totalBytes > maxTotalBytes) throw new Error('Суммарный размер папки превышает bounded upload limit.');
+      for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {{
+        const file = files[fileIndex];
+        if (file.size > maxFileBytes) throw new Error(`Файл ${{file.name}} превышает bounded upload limit.`);
+        const path = file.webkitRelativePath || file.name;
+        status.textContent = `Передача ${{fileIndex + 1}}/${{files.length}}: ${{path}}`;
+        yield {{action: 'start', path, size: file.size}};
+        for (let offset = 0; offset < file.size; offset += chunkBytes) {{
+          const buffer = await file.slice(offset, offset + chunkBytes).arrayBuffer();
+          yield {{action: 'chunk', path, offset, data: toBase64(buffer)}};
+        }}
+        yield {{action: 'end', path}};
+      }}
+      status.textContent = `Передано supported files: ${{files.length}}; пропущено unsupported: ${{selected.length - files.length}}.`;
+        button.disabled = true;
+        cancel.disabled = true;
+        return {{action: 'complete', fileCount: files.length, skippedCount: selected.length - files.length}};
+      }} catch (error) {{
+        status.textContent = `Ошибка: ${{error && error.message ? error.message : error}}`;
+        return {{action: 'error', message: String(error && error.message ? error.message : error)}};
+      }}
+    }},
+    async next() {{
+      if (!this.iterator) this.iterator = this.uploadFiles();
+      const result = await this.iterator.next();
+      return result.value || {{action: 'complete'}};
+    }},
+  }};
+  window[namespaceName] = controller;
+}})();
+</script>
+"""))
+    while True:
+        result = colab_output.eval_js(f"window[{json.dumps(namespace_name)}].next()")
+        if not isinstance(result, dict):
+            raise RuntimeError("Не удалось передать локальную папку: invalid browser result")
+        action = result.get("action")
+        if action in {"start", "chunk", "end"}:
+            accumulate_local_folder_upload_event(
+                state,
+                {**result, "event": action},
+            )
+            continue
+        if action == "complete":
+            break
+        if action == "cancelled":
+            raise ValueError("Выбор локальной папки отменён.")
+        if action == "error":
+            raise RuntimeError(f"Не удалось передать локальную папку: {result.get('message', 'unknown browser error')}")
+        raise RuntimeError("Не удалось передать локальную папку: unknown browser action")
+    return finalize_local_folder_upload(state)
+
+
 def conflict_mode_result_hint(conflict_mode: str) -> str:
     mapping = {
         "skip": "Совпадения будут пропущены",
@@ -5914,8 +6128,12 @@ def process_local_uploaded(
         report_progress_for_file(progress_callback, idx, total, 0, f"Подготовка: {filename}")
 
         temp_input_path = None
+        display_name = os.path.basename(filename)
         source_signature = build_uploaded_source_signature(filename, file_bytes)
-        source_meta = with_output_folder_context({"type": "uploaded_bytes"}, run_ctx)
+        source_meta = with_output_folder_context({
+            "type": "uploaded_bytes",
+            "selection_mode": source_mode,
+        }, run_ctx)
 
         try:
             if not is_supported_filename(filename):
@@ -5974,7 +6192,7 @@ def process_local_uploaded(
                     output_folder_id=run_ctx.output_folder_id,
                     docs_index=run_ctx.docs_index,
                     conflict_mode=run_ctx.conflict_mode,
-                    source_name=filename,
+                    source_name=display_name,
                     source_mode=source_mode,
                     options=run_ctx.options,
                     source_created_at=source_meta.get("source_created_at", "unknown"),
@@ -5989,7 +6207,7 @@ def process_local_uploaded(
                         run_ctx.manifest,
                         source_signature,
                         run_ctx.settings_signature,
-                        filename,
+                        display_name,
                         result["doc_name"],
                         result["link"],
                         source_meta,
@@ -7468,6 +7686,7 @@ mode_widget = widgets.Dropdown(
     options=[
         ("Компьютер: 1 файл", "local_file"),
         ("Компьютер: несколько файлов", "local_multi"),
+        ("Компьютер: папка", "local_folder"),
         ("Google Drive: 1 файл", "drive_file"),
         ("Google Drive: несколько файлов", "drive_multi"),
         ("Google Drive: папка", "drive_folder"),
@@ -7781,6 +8000,14 @@ def refresh_ui(*args):
             "<span style='color:#8a6d3b;'>Для крупных файлов, особенно сотни МБ и выше, "
             "рекомендуется заранее загрузить их на Google Drive и использовать режим "
             "<b>Google Drive: несколько файлов</b> или <b>Google Drive: папка</b>.</span>"
+        )
+    elif mode == "local_folder":
+        recursive_widget.layout.display = "none"
+        check_source_button.layout.display = "none"
+        help_widget.value = (
+            "<b>Режим:</b> после нажатия <b>Запустить</b> появится browser-native выбор "
+            "<b>целой папки с компьютера</b>. Вложенные supported audio/video files включаются автоматически; "
+            "unsupported files пропускаются. Передача выполняется bounded chunks, абсолютные пути не передаются."
         )
     elif mode == "drive_file":
         recursive_widget.layout.display = "none"
@@ -8497,6 +8724,7 @@ def get_source_mode_label(mode: str) -> str:
     mapping = {
         "local_file": "Компьютер: 1 файл",
         "local_multi": "Компьютер: несколько файлов",
+        "local_folder": "Компьютер: папка",
         "drive_file": "Google Drive: 1 файл",
         "drive_multi": "Google Drive: несколько файлов",
         "drive_folder": "Google Drive: папка",
@@ -8505,7 +8733,7 @@ def get_source_mode_label(mode: str) -> str:
 
 
 def get_openai_diarize_chunking_preflight_warning(provider: str, separate_speakers: bool, source_mode: str):
-    source_modes_that_may_chunk = {"local_file", "local_multi", "drive_file", "drive_multi", "drive_folder"}
+    source_modes_that_may_chunk = {"local_file", "local_multi", "local_folder", "drive_file", "drive_multi", "drive_folder"}
     if provider != "openai" or not separate_speakers or source_mode not in source_modes_that_may_chunk:
         return None
 
@@ -8738,6 +8966,21 @@ def on_start_clicked(_):
                     progress_callback=set_progress,
                     timer=timer,
                     source_mode=mode,
+                    )
+
+            elif mode == "local_folder":
+                print("Выбери папку с компьютера через кнопку ниже...")
+                with timer.measure("local_upload_wait"):
+                    uploaded = upload_local_folder_from_browser()
+                warn_about_large_local_uploads(uploaded)
+
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_local_uploaded(
+                        uploaded=uploaded,
+                        run_ctx=run_ctx,
+                        progress_callback=set_progress,
+                        timer=timer,
+                        source_mode=mode,
                     )
 
             elif mode == "drive_file":

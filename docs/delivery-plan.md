@@ -27,12 +27,12 @@
 - Base branch: `main`.
 - Base SHA: `ebbba50a938feb2d06b2ec59e828834ff204988d`.
 - Working branch: `codex/colab-production-completion`.
-- Last verified revision: `a6359dbcc29fbef99818507aef7f1d821947121c` — confirmed-output-only manifest persistence slice.
+- Last verified revision: `ca6fc3cd0ba4819d896d8b6d9ca39c281815bc7b` — safe manifest clear slice.
 - Working tree at branch start: clean; local `main = origin/main`; divergence `0/0`; unrelated pre-existing changes absent.
 - Completed: previous realtime Goal reconciled from PRs #228–#230. Exact-main repository CI `32706218832`, Studio/browser CI `32706218892` and web CD `32706218830` passed for `main@ebbba50`; owner-controlled Chrome mixed canary confirmed both source signals and accepted residual simultaneous-speaker masking as non-critical. Three merged realtime branches were safely removed locally/remotely.
-- Current step: safe manifest clear реализован как read-only dry-run по умолчанию и explicit-confirmation apply; перед непустой очисткой создаётся backup, source files и Google Docs не удаляются, backup failure fail-closed блокирует write.
-- Next exact action: реализовать browser-native local folder selection/upload с сохранением безопасных relative paths, фильтрацией supported media и bounded transfer.
-- Validation and Evidence: safe clear slice — focused Colab helpers `193 passed`; destructive production apply не запускался. `CB-11/15/17` закрыты CODE/TEST; `CB-21/22` имеют CODE/TEST, но остаются open до representative Colab LIVE.
+- Current step: browser-native local folder intake реализован через `webkitdirectory` и upstream-aligned Colab `eval_js` iterator: supported files передаются 128 KiB chunks, relative paths валидируются, absolute paths/`lastModified` не используются, file/count/total limits fail-closed.
+- Next exact action: провести targeted realtime source/test audit, закрыть воспроизводимые lifecycle gaps и подготовить representative Windows/Chrome matrix.
+- Validation and Evidence: local-folder slice — focused Colab helpers `197 passed`; source bridge сверен с upstream Colab files upload iterator pattern. `CB-05` имеет CODE/TEST, но остаётся open до фактического Colab browser LIVE. Readiness поэтому не изменилась: project `111/120`, Colab `25/29`, batch `20/23`.
 - Pull Request: none.
 - CI/checks: not started for this branch.
 - Deployment/environment: Colab has no VPS component deployment; exact reviewed repository revision and launcher `GITHUB_REF` are the applicable delivery identity. Final applicability of `DEPLOY` Evidence will be stated explicitly after targeted topology verification.

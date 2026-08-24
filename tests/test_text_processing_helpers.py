@@ -10,6 +10,7 @@ from the source file.
 from __future__ import annotations
 
 import ast
+import base64
 import hashlib
 import json
 import os
@@ -141,6 +142,10 @@ HELPER_NAMES = {
     "build_standardize_manifest_v2_report_text",
     "print_standardize_manifest_v2_report",
     "is_supported_filename",
+    "normalize_local_folder_relative_path",
+    "make_local_folder_upload_state",
+    "accumulate_local_folder_upload_event",
+    "finalize_local_folder_upload",
     "validate_drive_multi_selected_items",
     "summarize_drive_multi_selection",
     "get_drive_source_double_click_action",
@@ -249,6 +254,12 @@ def load_text_helpers() -> dict[str, object]:
                     "PROJECT_TEMP_PREFIX",
                     "SOURCE_CREATION_TAG_KEYS",
                     "MANIFEST_CLEAR_CONFIRMATION",
+                    "LOCAL_FOLDER_UPLOAD_CHUNK_BYTES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_FILES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_RELATIVE_PATH_CHARS",
+                    "LOCAL_FOLDER_UPLOAD_MAX_DEPTH",
                 }:
                     selected_nodes.append(node)
                     break
@@ -267,6 +278,7 @@ def load_text_helpers() -> dict[str, object]:
 
     namespace: dict[str, object] = {
         "hashlib": hashlib,
+        "base64": base64,
         "json": json,
         "datetime": datetime,
         "timedelta": timedelta,
@@ -367,6 +379,10 @@ DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
 validate_drive_multi_selected_items = HELPERS["validate_drive_multi_selected_items"]
 summarize_drive_multi_selection = HELPERS["summarize_drive_multi_selection"]
+normalize_local_folder_relative_path = HELPERS["normalize_local_folder_relative_path"]
+make_local_folder_upload_state = HELPERS["make_local_folder_upload_state"]
+accumulate_local_folder_upload_event = HELPERS["accumulate_local_folder_upload_event"]
+finalize_local_folder_upload = HELPERS["finalize_local_folder_upload"]
 get_drive_source_double_click_action = HELPERS["get_drive_source_double_click_action"]
 RunTimer = HELPERS["RunTimer"]
 build_startup_timing_summary = HELPERS["build_startup_timing_summary"]
@@ -504,6 +520,60 @@ def test_summarize_drive_multi_selection_is_compact_and_limits_names() -> None:
     assert "- file-9.mp3" in summary
     assert "file-10.mp3" not in summary
     assert "... ещё 2" in summary
+
+
+def test_local_folder_relative_path_normalization_preserves_safe_nested_path() -> None:
+    assert normalize_local_folder_relative_path("Course\\Week 1\\lecture.MP3") == "Course/Week 1/lecture.MP3"
+
+    for unsafe in ["", "/root/audio.mp3", "C:\\private\\audio.mp3", "folder/../audio.mp3", "folder//audio.mp3", "folder/\x00audio.mp3"]:
+        with pytest.raises(ValueError):
+            normalize_local_folder_relative_path(unsafe)
+
+
+def test_local_folder_chunk_accumulator_round_trips_supported_files() -> None:
+    state = make_local_folder_upload_state()
+    payload = b"bounded-audio"
+    path = "Project A/meeting.mp3"
+
+    assert accumulate_local_folder_upload_event(state, {"event": "start", "path": path, "size": len(payload)})["offset"] == 0
+    assert accumulate_local_folder_upload_event(
+        state,
+        {"event": "chunk", "path": path, "offset": 0, "data": base64.b64encode(payload).decode("ascii")},
+    )["offset"] == len(payload)
+    assert accumulate_local_folder_upload_event(state, {"event": "end", "path": path})["size"] == len(payload)
+    assert finalize_local_folder_upload(state) == {path: payload}
+
+
+def test_local_folder_chunk_accumulator_rejects_ambiguous_or_incomplete_transfer() -> None:
+    state = make_local_folder_upload_state()
+    accumulate_local_folder_upload_event(state, {"event": "start", "path": "Folder/Call.mp3", "size": 1})
+    with pytest.raises(ValueError, match="duplicate relative paths"):
+        accumulate_local_folder_upload_event(state, {"event": "start", "path": "folder/call.MP3", "size": 1})
+    with pytest.raises(ValueError, match="не завершена"):
+        finalize_local_folder_upload(state)
+    with pytest.raises(ValueError, match="порядок chunks"):
+        accumulate_local_folder_upload_event(
+            state,
+            {"event": "chunk", "path": "Folder/Call.mp3", "offset": 1, "data": base64.b64encode(b"x").decode("ascii")},
+        )
+
+
+def test_local_folder_ui_and_colab_bridge_static_contract() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    bridge = source.split("def upload_local_folder_from_browser", 1)[1].split("def conflict_mode_result_hint", 1)[0]
+    process_local = source.split("def process_local_uploaded", 1)[1].split("def process_drive_file_input", 1)[0]
+
+    assert '("Компьютер: папка", "local_folder")' in source
+    assert 'elif mode == "local_folder":' in source
+    assert "upload_local_folder_from_browser()" in source
+    assert "webkitdirectory directory multiple" in bridge
+    assert "const chunkBytes = {LOCAL_FOLDER_UPLOAD_CHUNK_BYTES};" in bridge
+    assert ".next()" in bridge
+    assert "colab_output.eval_js" in bridge
+    assert "lastModified" not in bridge
+    assert "webkitRelativePath || file.name" in bridge
+    assert '"selection_mode": source_mode' in process_local
+    assert "source_name=display_name" in process_local
 
 
 def test_drive_source_double_click_action_mapping_is_conservative() -> None:

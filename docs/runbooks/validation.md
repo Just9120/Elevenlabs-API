@@ -170,6 +170,7 @@ Validate each supported source contour when safe fixtures are available:
 
 - [ ] computer single file;
 - [ ] computer multiple files;
+- [ ] computer folder, including a nested supported file and an ignored unsupported file;
 - [ ] Google Drive single file;
 - [ ] Google Drive folder.
 - [ ] Explicit English mode sends `en`; auto-detection still omits an explicit language code.
