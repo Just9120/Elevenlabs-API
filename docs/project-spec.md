@@ -235,7 +235,7 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. | — |
 | `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. | — |
 | `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | — |
-| `AP-16` | Request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel; API, UI, logs и diagnostics не раскрывают private paths, object keys или source bytes. | — |
+| `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | — |
 
 Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 

@@ -5,7 +5,7 @@
 - **ID / title:** `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио до транскрибации.
 - **State:** `IN_PROGRESS` — scope явно авторизован владельцем 2026-08-24 решениями реализовать Audacity-like PWA contour и отдельный menu item перед `Транскрипциями`.
 - **Authorization source:** explicit current user instructions 2026-08-24; durable product scope — `AP-01..AP-16` из `docs/project-spec.md`.
-- **Scope:** отдельный owner-scoped PWA workspace `Обработка аудио`; source selection и ordered concat; bounded FFprobe validation; compatible stream-copy concat; WAV/FLAC conversion; mono mix/left/right; configurable silence processing и preview; standalone processing without provider call; safe rename templates и editable presets; durable queue/progress/cancel/recovery; retained S3-compatible output, authenticated download/reuse as source либо explicit upload в выбранную Google Drive folder; cleanup, tests, architecture/docs и полный delivery flow.
+- **Scope:** отдельный owner-scoped PWA workspace `Обработка аудио`; ephemeral reference uploads в S3-compatible storage с terminal cleanup и hard TTL 24 часа; source selection и ordered concat; bounded FFprobe validation; compatible stream-copy concat; WAV/FLAC conversion; mono mix/left/right; configurable silence processing и preview; standalone processing without provider call; safe rename templates и editable presets; durable queue/progress/cancel/recovery; retained S3-compatible output, authenticated download/reuse as source либо explicit upload в выбранную Google Drive folder; cleanup, tests, architecture/docs и полный delivery flow.
 - **Non-goals:** optional TOTP, Cloudflare Zero Trust, STT/provider changes, Colab changes, commercial Russian S3 migration, billing/multi-user и unrelated redesign.
 - **Goal AC:**
   1. `AP-01..AP-02`: отдельный sidebar/workspace перед `Транскрипциями` выбирает один или несколько доступных owner sources и не требует provider credential/job.
@@ -15,7 +15,7 @@
   5. `AP-10..AP-12`: operations compose independently; safe naming и editable presets показывают exact effective parameters.
   6. `AP-13`: durable worker-owned state переживает restart и поддерживает progress/cancel без duplicate output.
   7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
-  8. `AP-16`: temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
+  8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
   9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
 - **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** durable job/output lifecycle потребует additive migration `0025_audio_preparation` и после merge отдельного action-time authorization для worker drain и `MANUAL_GATED` release; production LIVE требует только короткие owner-controlled media fixtures и не расходует provider quota. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
@@ -23,16 +23,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T19:48:54Z.
+- Updated (UTC): 2026-08-24T20:07:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: base SHA; current changes are uncommitted specification/reconciliation work.
+- Last verified revision: `7464d8f` — canonical audio-preparation Goal/scope/readiness reconciliation.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: reconciled PR #233 speaker closure; normalized new canonical `AP-01..AP-15`; inspected existing FFmpeg/source/worker boundaries.
-- Current step: implement additive schema/domain and deterministic probe/plan/processing core.
-- Next exact action: add migration `0025_audio_preparation`, models and focused backend contract tests.
-- Validation and Evidence: current base exact-main CI `32760830338` and Studio/browser CI `32760830386` green; new Goal code not yet validated.
+- Completed: reconciled PR #233 speaker closure; normalized canonical `AP-01..AP-16`; implemented pure deterministic options/preset normalization, FFprobe/integrity/silence analysis, preview estimation, stream-copy/transcode FFmpeg command planning и safe filename rendering.
+- Current step: implement additive schema/domain and durable processing lifecycle around the validated command core.
+- Next exact action: add migration `0025_audio_preparation`, models and owner-scoped API/worker state transitions.
+- Validation and Evidence: focused backend audio-preparation contract `21/21` passed; current base exact-main CI `32760830338` and Studio/browser CI `32760830386` green. Product AC remain `0/16` until integrated user flows exist.
 - Pull Request / CI / deployment: not created / not started / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
@@ -60,7 +60,7 @@
 - FFmpeg command строится только из allowlisted enums/bounded numbers и передаётся без shell; filenames/paths не становятся command fragments.
 - Preview не является output evidence и не создаёт reusable source.
 - Stream copy допустим только при exact probed compatibility; иначе пользователь выбирает WAV/FLAC conversion.
-- Source/output retention и cleanup не удаляют transcript/history metadata и не затрагивают arbitrary bucket keys.
+- Ephemeral reference objects удаляются при terminal state и имеют hard TTL 24 часа; reusable output retention отделён от reference lifecycle. Cleanup не удаляет transcript/history metadata и не затрагивает arbitrary bucket keys.
 - Provider и Google Docs не вызываются в bounded LIVE этой Goal.
 - MANUAL_GATED migration и worker lifecycle не выполняются без action-time authorization.
 
