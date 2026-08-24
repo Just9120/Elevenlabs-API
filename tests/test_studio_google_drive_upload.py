@@ -24,25 +24,24 @@ class Client:
     def put(self, *_args, **_kwargs): self.puts += 1; return Response(payload={"id": "file-id", "name": "result.flac", "webViewLink": "https://drive.google.com/file/d/file-id/view", "parents": ["folder-id"]})
 
 
-def input_file():
-    path = ROOT / "temp" / "audio-preparation-pytest" / "drive-upload.flac"
-    path.parent.mkdir(exist_ok=True)
+def input_file(tmp_path):
+    path = tmp_path / "drive-upload.flac"
     path.write_bytes(b"audio")
     return path
 
 
-def test_resumable_upload_reuses_existing_idempotent_drive_result():
+def test_resumable_upload_reuses_existing_idempotent_drive_result(tmp_path):
     existing = {"id": "existing-id", "name": "result.flac", "webViewLink": "https://drive.google.com/file/d/existing-id/view", "parents": ["folder-id"]}
     client = Client(existing=existing)
-    result = upload_file_resumable("token", folder_id="folder-id", path=input_file(), filename="result.flac", mime_type="audio/flac", idempotency_key="job-id", client_factory=lambda **_kwargs: client)
+    result = upload_file_resumable("token", folder_id="folder-id", path=input_file(tmp_path), filename="result.flac", mime_type="audio/flac", idempotency_key="job-id", client_factory=lambda **_kwargs: client)
     assert result.file_id == "existing-id"
     assert client.posts == 0
     assert client.puts == 0
 
 
-def test_resumable_upload_creates_once_after_empty_reconciliation():
+def test_resumable_upload_creates_once_after_empty_reconciliation(tmp_path):
     client = Client()
-    result = upload_file_resumable("token", folder_id="folder-id", path=input_file(), filename="result.flac", mime_type="audio/flac", idempotency_key="job-id", client_factory=lambda **_kwargs: client)
+    result = upload_file_resumable("token", folder_id="folder-id", path=input_file(tmp_path), filename="result.flac", mime_type="audio/flac", idempotency_key="job-id", client_factory=lambda **_kwargs: client)
     assert result.file_id == "file-id"
     assert client.posts == 1
     assert client.puts == 1

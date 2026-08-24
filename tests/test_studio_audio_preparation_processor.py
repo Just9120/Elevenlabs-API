@@ -51,7 +51,7 @@ def runner(command, **_kwargs):
     return SimpleNamespace(stdout="", stderr="")
 
 
-def test_preview_processing_storage_and_ephemeral_cleanup_are_durable():
+def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     now = datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)
@@ -61,7 +61,7 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable():
 
     @contextmanager
     def temp_directory_factory(prefix):
-        root = ROOT / "temp" / "audio-preparation-pytest"
+        root = tmp_path / prefix
         root.mkdir(exist_ok=True)
         yield str(root)
 
@@ -110,7 +110,7 @@ def test_expired_active_lease_is_reclaimed():
         assert reclaimed.lease_generation == first_generation + 1
 
 
-def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference():
+def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference(tmp_path):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     payload = b"reference-audio"
@@ -120,7 +120,7 @@ def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_referen
 
     @contextmanager
     def temp_directory_factory(prefix):
-        root = ROOT / "temp" / "audio-preparation-pytest"
+        root = tmp_path / prefix
         root.mkdir(exist_ok=True)
         yield str(root)
 
