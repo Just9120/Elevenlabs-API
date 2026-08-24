@@ -22,19 +22,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T17:54:56Z.
+- Updated (UTC): 2026-08-24T18:01:56Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `c9ac43fc71a97a868db744088c06c69882a555fa`.
 - Working branch: `codex/pwa-speaker-identity`.
-- Last verified revision: `49e09c5` — полный локальный speaker-identity scope, UI, documentation, migration-aware release preflight и browser DTO regression contract; applicable local regression green.
+- Last verified revision: `01e0ef0` — полный speaker-identity scope и CI regression fix, исключающий collection-time подмену configured PostgreSQL на SQLite; applicable local regression green.
 - Working tree at Goal start: clean; local `main = origin/main@c9ac43f`; unrelated pre-existing changes absent.
 - Completed: commits `ae5ef23`/`1fd1e78`/`6eafc9b` реализовали migration/domain/API/UI и operational documentation; `49e09c5` синхронизировал exact migration head в production preflight и закрепил safe browser DTO contract.
-- Current step: PR `#233` открыт из exact Goal branch; required CI checks запущены/ожидаются.
-- Next exact action: дождаться terminal state всех required checks PR `#233`, проанализировать failures/skips и исправить Goal-related failures в этой же ветке.
-- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript, ESLint и production PWA build passed; full portable backend `1021 passed, 6 skipped`; `scripts/ci_checks.py` passed. POSIX production-preflight suite локально невалиден под Windows path semantics и остаётся обязательным Linux CI gate. Product AC `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
+- Current step: CI run `32759420372` root cause исправлен и локально validated; отправить новый exact revision в PR `#233`.
+- Next exact action: push `01e0ef0` с checkpoint, затем дождаться нового terminal state всех required checks PR `#233`.
+- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript, ESLint и production PWA build passed; full portable backend после CI fix `1022 passed, 6 skipped`; `scripts/ci_checks.py` passed. POSIX production-preflight suite локально невалиден под Windows path semantics и остаётся обязательным Linux CI gate. Product AC `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
 - Pull Request: `#233` — `codex/pwa-speaker-identity` → `main`; branch base не diverged (`origin/main@c9ac43f`, `0 behind / 7 ahead` перед push).
-- CI/checks: pending for PR `#233`; exact final checked revision будет зафиксирован GitHub check suite после checkpoint push.
+- CI/checks: first suite на `991521f`: `studio` ✅ и `browser-e2e` ✅ в run `32759420357`; `checks` ❌ в run `32759420372` из-за collection-time SQLite environment contamination нового test module, исправлено commit `01e0ef0`; replacement suite pending после push.
 - Deployment/environment: not started; expected migration class `MANUAL_GATED`, component units API/worker/web.
 - Blockers: none for local implementation. Production migration remains future external gate requiring explicit authorization.
 - Unverified assumptions: existing production diarized output/source may or may not remain suitable for no-charge LIVE sample/assignment; verify before requesting any provider canary.
