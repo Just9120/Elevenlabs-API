@@ -17,23 +17,23 @@
   7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
   8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
   9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ❌ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** durable job/output lifecycle потребует additive migration `0025_audio_preparation` и после merge отдельного action-time authorization для worker drain и `MANUAL_GATED` release; production LIVE требует только короткие owner-controlled media fixtures и не расходует provider quota. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** `AP-01..AP-16` и required Evidence подтверждены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; optional TOTP не начинается в этой Goal.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:44:00Z.
+- Updated (UTC): 2026-08-24T20:51:06Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: `29801a0` — committed complete source-level audio-preparation workspace and reliability hardening.
+- Last verified revision: `5aead40b92289edad2c1a51894db63479816033c` — CI database-environment isolation fix подтверждён focused tests, full collection и lightweight checks.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: all `AP-01..AP-16` source-level flows, including separate PWA workspace, local/Drive source selection, editable presets, preview, progress/cancel/recovery heartbeat, S3 retention/download/reuse, idempotent Drive upload and terminal ephemeral cleanup.
-- Current step: PR `#234` открыт; обязательные CI checks выполняются на published head.
-- Next exact action: дождаться terminal state `CI / checks`, `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`, затем устранить failures либо оценить merge readiness.
-- Validation and Evidence: portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript and Vite production build passed. Non-portable Windows suite is inapplicable because its bash tests require Linux; CI remains required. Product readiness is now `16/16`, while READY remains gated by CI/DEPLOY/LIVE.
-- Pull Request / CI / deployment: `#234` / running / not started.
+- Current step: PR `#234` открыт; repository CI failure на `7e7f4996c55682f08d8217639046a975a0c49dcb` локализован и исправлен отдельным commit `5aead40`.
+- Next exact action: опубликовать исправление и дождаться terminal state нового exact-head `CI / checks`, `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`.
+- Validation and Evidence: прежний portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript и Vite production build passed. После CI fix: focused affected set `35/35`, full CI-like collection `1331/1331`, lightweight checks PASS. Run `32775446498` завершился failure (`4 failed, 1139 passed, 188 errors`) из-за collection-time SQLite pollution общего Alembic fixture; exact-head rerun ещё не выполнен. Studio/browser run `32775446540` success для обоих jobs.
+- Pull Request / CI / deployment: `#234` / `32775446498` failure, `32775446540` success, fixed head not pushed / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
 - Preserved pre-existing changes: none.
