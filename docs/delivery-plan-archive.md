@@ -783,6 +783,19 @@ Goal `PWA-TIMESTAMP-AUTHORITY-01` закрыла canonical `PB-10` и `PD-06` и
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Safe delivery record: https://github.com/Just9120/Elevenlabs-API/pull/227#issuecomment-5388439165.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`); closure reconciled в начале следующей authorized Goal без docs-only follow-up PR. Local `main` был clean и синхронизирован с merge SHA; merged branch удалена local/remote.
 
+## Archived PRs #231–#232 Colab production completion closure
+
+Goal `COLAB-PRODUCTION-COMPLETION-01` завершила canonical Colab batch/realtime scope 2026-08-24.
+
+- Base chain начат от `main@ebbba50a938feb2d06b2ec59e828834ff204988d`; implementation PR `#231` merged как `ceab95988b4a16f36e76134d6312a10c60d72fe5`.
+- Auto-detection-default extension PR `#232` merged как `c9ac43fc71a97a868db744088c06c69882a555fa`.
+- Exact PR-head CI `32738379146` и exact-main CI `32738787968` завершились success; Studio workflows корректно не запускались из-за Colab-only path filter.
+- Bounded batch LIVE обработал nested local-folder fixture, создал один native Google Doc с authoritative `2026-08-01T09:10:11Z` source creation time и подтвердил document-before-manifest ordering. Повторный provider charge не выполнялся.
+- Owner-controlled ordinary-Chrome realtime matrix подтвердила microphone/display/mixed, repeated start/stop, permission cancel и resource release; шесть bounded provider sessions не выявили воспроизводимого capture break.
+- `COLAB-BATCH-01` достиг `23/23`, `COLAB-REALTIME-01` — `6/6`, Google Colab — `29/29`; project readiness стала `115/120 = 95,8%`.
+- Colab не имеет VPS deployment unit, поэтому `DEPLOY N/A`; reviewed repository revision/launcher и manual runtime составили applicable delivery Evidence.
+- Approved post-deploy metadata writer отсутствовал; closure reconciled при старте следующей authorized code-bearing Goal без отдельного docs-only PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

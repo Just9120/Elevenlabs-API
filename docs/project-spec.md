@@ -53,9 +53,9 @@ Verified main baseline: `main@ceab95988b4a16f36e76134d6312a10c60d72fe5`. PR `#23
 
 ### Эпик `COLAB-BATCH-01` — batch-транскрибация
 
-Status: **🟦 IN PROGRESS — 100% (`23/23`)**. Product AC выполнены; exact-head CI/merge и non-provider LIVE-проверка нового language default остаются readiness gates.
+Status: **🟩 READY — 100% (`23/23`)**. Product AC, exact CI и bounded owner-controlled LIVE подтверждены.
 
-Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен. Product AC закрыты; эпик пока не `READY` только из-за незавершённых Evidence gates расширенного language-default scope.
+Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен; расширенный language-default scope также прошёл applicable CI и owner LIVE gates.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -83,15 +83,15 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-22` | Время получено из фактического creation time исходного media file. | ✅ |
 | `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY N/A | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE ✅`.
 
-Verified state: exact-main batch canary обработал supported media из вложенной local folder, создал native Google Doc с authoritative embedded creation time в strict ISO 8601 и обновил manifest после создания документа. English, safe manifest clear с backup/explicit confirmation и post-output-only source persistence подтверждены CODE/TEST. Working branch переводит language default на auto-detection без удаления explicit Russian/English overrides; для полного Evidence остаются exact-head CI/merge и визуальная non-provider LIVE-проверка default.
+Verified state: `main@c9ac43fc71a97a868db744088c06c69882a555fa` выбирает auto-detection по умолчанию без удаления explicit Russian/English overrides. Exact-main batch canary обработал supported media из вложенной local folder, создал native Google Doc с authoritative embedded creation time в strict ISO 8601 и обновил manifest после создания документа; CODE/TEST также подтверждают English, safe manifest clear и post-output-only source persistence.
 
 Definition of Done: `23/23`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data.
 
 ### Эпик `COLAB-REALTIME-01` — realtime-транскрибация
 
-Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**, приоритет ниже PWA.
+Status: **🟩 READY — 100% (`6/6`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -100,11 +100,11 @@ Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**, приоритет ниже PWA.
 | `CR-03` | Микрофон включается опционально и может смешиваться с display audio. | ✅ |
 | `CR-04` | Partial и committed transcript отображаются live в окне. | ✅ |
 | `CR-05` | Подтверждённый transcript скачивается как `.txt`. | ✅ |
-| `CR-06` | Захват не рвётся в согласованной серии representative Windows/Chrome sessions. | ❌ |
+| `CR-06` | Захват не рвётся в согласованной серии representative Windows/Chrome sessions. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE ✅`.
 
-Owner LIVE evidence подтверждает работоспособность и исторические периодические разрывы захвата вкладки. Current Goal branch добавляет track-ended cleanup, session/WebSocket timeouts и backpressure guard; automatic reconnect намеренно отсутствует, поскольку новый Start обязан получить новый single-use token. До закрытия `CR-06` нужен воспроизводимый manual Colab runtime validation по bounded Windows/Chrome matrix; это остаётся experimental Realtime Colab prototype, не создающий Google Docs и manifest.
+`main@ceab95988b4a16f36e76134d6312a10c60d72fe5` добавляет track-ended cleanup, session/WebSocket timeouts и backpressure guard; automatic reconnect намеренно отсутствует, поскольку новый Start обязан получить новый single-use token. Owner-controlled ordinary-Chrome matrix подтвердила microphone/display/mixed, repeated start/stop, permission cancel и resource release без воспроизводимого capture break. Realtime Colab не создаёт Google Docs и manifest.
 
 ## 5. Studio PWA
 
@@ -214,7 +214,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
-Status: **⬜ BACKLOG — 0,0% (`0/5`)**.
+Status: **🟦 IN PROGRESS — 0,0% (`0/5`)**. Реализация явно авторизована владельцем 2026-08-24; product AC пока не закрыты.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -355,8 +355,8 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`.
-- Exact-main repository CI: run `32706218832`, success.
+- Current verified revision: `main@c9ac43fc71a97a868db744088c06c69882a555fa`.
+- Exact-main repository CI: run `32738787968`, success.
 - Exact-main Studio/browser CI: run `32706218892`, jobs `studio` и `browser-e2e` success.
 - Studio web deployment: run `32706218830`, success; API, migration и worker корректно skipped для browser-only realtime diff. Migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
@@ -364,9 +364,9 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 9. Current critical path
 
-1. Закрыть шесть verified `COLAB-BATCH-01` gaps без ослабления manifest и source-time authority.
-2. Закрыть `CR-06` representative Colab realtime stability по Windows/Chrome LIVE matrix.
-3. PWA speaker names/roles и manual listen-and-assign остаются явно отложены владельцем.
+1. Реализовать `PWA-SPEAKER-IDENTITY-01` как manual listen-and-assign без biometric matching, voiceprints или embeddings.
+2. Подтвердить exact owner-scoped schema/API/UI, Google Docs/history propagation и bounded sample lifecycle.
+3. Провести MANUAL_GATED migration/deployment и bounded LIVE только после соответствующих action-time gates.
 
 ## 10. Supporting documents
 
