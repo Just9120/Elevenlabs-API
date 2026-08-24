@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type MockCallbacks = {
   onStatus: (value: string) => void;
   onInputLevel: (value: number) => void;
+  onSourceLevel: (kind: "display" | "microphone", value: number) => void;
   onPartial: (value: string) => void;
   onCommitted: (value: string) => void;
 };
@@ -166,7 +167,7 @@ describe("LiveTranscriptionPanel", () => {
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
   });
 
-  it("explains voice-priority mixing when both sources are selected", async () => {
+  it("shows isolated source levels and explains automatic ducking", async () => {
     render(
       <LiveTranscriptionPanel
         projectId="project-safe"
@@ -181,9 +182,30 @@ describe("LiveTranscriptionPanel", () => {
     );
 
     expect(
-      screen.getByText(/Studio приоритизирует речь с микрофона/),
+      screen.getByText(/Studio показывает уровни каждого источника/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Наушники уменьшают эхо/)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Уровни источников смешанного аудио"),
+    ).toBeInTheDocument();
+
+    const start = screen.getByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    act(() => {
+      controllerState.instances[0].callbacks.onSourceLevel("display", 0.64);
+      controllerState.instances[0].callbacks.onSourceLevel("microphone", 0.18);
+    });
+
+    expect(screen.getByText("Звук вкладки · 64%")).toBeInTheDocument();
+    expect(screen.getByText("Микрофон · 18%")).toBeInTheDocument();
+    expect(screen.getByLabelText("Уровень звука вкладки")).toHaveAttribute(
+      "value",
+      "64",
+    );
+    expect(screen.getByLabelText("Уровень микрофона")).toHaveAttribute(
+      "value",
+      "18",
+    );
   });
 
   it("requests a project-scoped one-use capability without rendering it", async () => {

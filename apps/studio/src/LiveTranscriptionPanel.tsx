@@ -147,6 +147,8 @@ export function LiveTranscriptionPanel({
   const [error, setError] = useState("");
   const [exportNotice, setExportNotice] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
+  const [displayInputLevel, setDisplayInputLevel] = useState(0);
+  const [microphoneInputLevel, setMicrophoneInputLevel] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [followTranscript, setFollowTranscript] = useState(true);
   const [recoveryCandidate, setRecoveryCandidate] =
@@ -592,6 +594,10 @@ export function LiveTranscriptionPanel({
         },
         onError: setError,
         onInputLevel: setInputLevel,
+        onSourceLevel: (kind, level) => {
+          if (kind === "display") setDisplayInputLevel(level);
+          else setMicrophoneInputLevel(level);
+        },
       },
       {
         requestCapability: async (signal) => {
@@ -828,6 +834,8 @@ export function LiveTranscriptionPanel({
     (displayAudio && displayAudioSupported) ||
     (microphone && microphoneSupported);
   const inputPercent = Math.round(inputLevel * 100);
+  const displayInputPercent = Math.round(displayInputLevel * 100);
+  const microphoneInputPercent = Math.round(microphoneInputLevel * 100);
   const inputSignalLabel = running
     ? inputPercent >= 2
       ? "Сигнал есть"
@@ -972,6 +980,36 @@ export function LiveTranscriptionPanel({
             <small>
               Рассчитывается только в браузере и не сохраняется.
             </small>
+            {displayAudio && microphone && (
+              <div
+                className="live-source-levels"
+                aria-label="Уровни источников смешанного аудио"
+              >
+                <label>
+                  Звук вкладки · {displayInputPercent}%
+                  <meter
+                    aria-label="Уровень звука вкладки"
+                    min="0"
+                    max="100"
+                    value={displayInputPercent}
+                  />
+                </label>
+                <label>
+                  Микрофон · {microphoneInputPercent}%
+                  <meter
+                    aria-label="Уровень микрофона"
+                    min="0"
+                    max="100"
+                    value={microphoneInputPercent}
+                  />
+                </label>
+                <small>
+                  Во время речи Studio автоматически приглушает звук вкладки.
+                  Если шкала микрофона остаётся на нуле, браузер или устройство
+                  не передаёт сигнал микрофона в смешанный поток.
+                </small>
+              </div>
+            )}
           </div>
         </section>
 
@@ -1056,9 +1094,9 @@ export function LiveTranscriptionPanel({
 
       {displayAudio && microphone && !running && (
         <p className="notice">
-          В смешанном режиме Studio приоритизирует речь с микрофона и снижает
-          громкость системного источника в отправляемом потоке. Наушники
-          уменьшают эхо и улучшают разделение источников.
+          В смешанном режиме Studio показывает уровни каждого источника и
+          автоматически приглушает системный источник во время речи. Наушники
+          дополнительно уменьшают эхо, но не требуются для диагностики.
         </p>
       )}
       {error && (

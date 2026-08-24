@@ -702,6 +702,29 @@ code {
   height: 0.8rem;
   accent-color: var(--studio-accent);
 }
+.live-source-levels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.75rem;
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--studio-border);
+  padding-top: 0.65rem;
+}
+.live-source-levels label {
+  display: grid;
+  gap: 0.25rem;
+}
+.live-source-levels small {
+  grid-column: 1 / -1;
+}
+@media (max-width: 560px) {
+  .live-source-levels {
+    grid-template-columns: 1fr;
+  }
+  .live-source-levels small {
+    grid-column: auto;
+  }
+}
 .live-transcript-card {
   background: var(--studio-surface);
 }

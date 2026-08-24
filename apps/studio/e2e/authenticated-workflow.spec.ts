@@ -204,7 +204,9 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
     class FakeAudioContext {
       state = 'running';
       sampleRate = 48_000;
+      currentTime = 12;
       destination = {};
+      analyserIndex = 0;
       async resume() {}
       async close() {}
       createMediaStreamSource() {
@@ -213,12 +215,42 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
       createMediaStreamDestination() {
         return { stream, disconnect() {} };
       }
+      createAnalyser() {
+        const sample = this.analyserIndex === 0 ? 0.2 : 0.02;
+        this.analyserIndex += 1;
+        return {
+          fftSize: 2_048,
+          connect() {},
+          disconnect() {},
+          getFloatTimeDomainData(target: Float32Array) {
+            target.fill(sample);
+          },
+        };
+      }
       createScriptProcessor() {
-        return { onaudioprocess: null, connect() {}, disconnect() {} };
+        const processor = {
+          onaudioprocess: null as ((event: AudioProcessingEvent) => void) | null,
+          connect() {},
+          disconnect() {},
+        };
+        window.setTimeout(() => {
+          processor.onaudioprocess?.({
+            inputBuffer: {
+              getChannelData: () => new Float32Array(48),
+            },
+          } as AudioProcessingEvent);
+        }, 0);
+        return processor;
       }
       createGain() {
+        const gain = {
+          value: 1,
+          setTargetAtTime(value: number) {
+            this.value = value;
+          },
+        };
         return {
-          gain: { value: 1 },
+          gain,
           connect() {},
           disconnect() {},
         };
@@ -328,6 +360,8 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
 
   await live.getByRole('button', { name: 'Начать' }).click();
   await expect(live.getByText('Распознаём речь')).toBeVisible();
+  await expect(live.getByText('Звук вкладки · 80%')).toBeVisible();
+  await expect(live.getByText('Микрофон · 8%')).toBeVisible();
   await expect(
     live.getByText('подтверждённый текст', { exact: true }),
   ).toBeVisible();
