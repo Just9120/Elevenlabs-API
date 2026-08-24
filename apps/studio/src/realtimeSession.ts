@@ -32,6 +32,10 @@ type RealtimeSessionCallbacks = {
 };
 
 type AudioNodeLike = { disconnect: () => void };
+type CapturedAudioSource = {
+  kind: "display" | "microphone";
+  stream: MediaStream;
+};
 type Attempt = {
   id: number;
   cancelled: boolean;
@@ -87,6 +91,8 @@ const CAPABILITY_TIMEOUT_MS = 25_000;
 const FINAL_COMMIT_GRACE_MS = 2_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 512 * 1024;
+const MIXED_DISPLAY_GAIN = 0.35;
+const MIXED_MICROPHONE_GAIN = 1;
 
 function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((track) => track.stop());
@@ -106,6 +112,16 @@ function normalizedInputLevel(input: Float32Array) {
   for (const sample of input) squareTotal += sample * sample;
   const rms = Math.sqrt(squareTotal / input.length);
   return Math.min(1, rms * 4);
+}
+
+function microphoneConstraints(deviceId?: string): MediaTrackConstraints {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    channelCount: { ideal: 1 },
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: true },
+    autoGainControl: { ideal: true },
+  };
 }
 
 export function realtimeProviderErrorMessage(code: string) {
@@ -302,13 +318,16 @@ export class RealtimeSessionController {
     attempt: Attempt,
     options: RealtimeSourceOptions,
   ) {
-    const streams: MediaStream[] = [];
-    const register = (stream: MediaStream) => {
+    const sources: CapturedAudioSource[] = [];
+    const register = (
+      kind: CapturedAudioSource["kind"],
+      stream: MediaStream,
+    ) => {
       if (!this.owns(attempt) || attempt.cancelled) {
         stopStream(stream);
         throw new Error("STALE_REALTIME_ATTEMPT");
       }
-      streams.push(stream);
+      sources.push({ kind, stream });
       attempt.mediaStreams.push(stream);
       stream.getAudioTracks().forEach((track) => {
         track.addEventListener(
@@ -334,6 +353,7 @@ export class RealtimeSessionController {
           );
         }
         const display = register(
+          "display",
           await getDisplayMedia.call(
             this.deps.mediaDevices,
             DISPLAY_AUDIO_CAPTURE_OPTIONS,
@@ -353,28 +373,33 @@ export class RealtimeSessionController {
           );
         }
         register(
+          "microphone",
           await getUserMedia.call(this.deps.mediaDevices, {
-            audio: options.microphoneDeviceId
-              ? { deviceId: { exact: options.microphoneDeviceId } }
-              : true,
+            audio: microphoneConstraints(options.microphoneDeviceId),
           }),
         );
       }
       this.assertActive(attempt);
-      if (streams.length === 1) return streams[0];
+      if (sources.length === 1) return sources[0].stream;
 
       const context = this.deps.createAudioContext();
       attempt.audioContext = context;
       const destination = context.createMediaStreamDestination();
       attempt.nodes.push(destination);
-      for (const stream of streams) {
+      for (const { kind, stream } of sources) {
         const source = context.createMediaStreamSource(stream);
-        source.connect(destination);
-        attempt.nodes.push(source);
+        const gain = context.createGain();
+        gain.gain.value =
+          kind === "microphone"
+            ? MIXED_MICROPHONE_GAIN
+            : MIXED_DISPLAY_GAIN;
+        source.connect(gain);
+        gain.connect(destination);
+        attempt.nodes.push(source, gain);
       }
       return destination.stream;
     } catch (error) {
-      streams.forEach(stopStream);
+      sources.forEach(({ stream }) => stopStream(stream));
       throw error;
     }
   }
