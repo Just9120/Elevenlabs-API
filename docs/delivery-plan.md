@@ -27,12 +27,12 @@
 - Base branch: `main`.
 - Base SHA: `ebbba50a938feb2d06b2ec59e828834ff204988d`.
 - Working branch: `codex/colab-production-completion`.
-- Last verified revision: `4032e886b7d66a68944c3ef2d1985036172e5647` — English/source-creation slice, based on exact `origin/main` at branch creation.
+- Last verified revision: `a6359dbcc29fbef99818507aef7f1d821947121c` — confirmed-output-only manifest persistence slice.
 - Working tree at branch start: clean; local `main = origin/main`; divergence `0/0`; unrelated pre-existing changes absent.
 - Completed: previous realtime Goal reconciled from PRs #228–#230. Exact-main repository CI `32706218832`, Studio/browser CI `32706218892` and web CD `32706218830` passed for `main@ebbba50`; owner-controlled Chrome mixed canary confirmed both source signals and accepted residual simultaneous-speaker masking as non-critical. Three merged realtime branches were safely removed locally/remotely.
-- Current step: manifest persistence переведён на confirmed Google Docs output only; provider/Docs failures больше не создают source records, а `mark_manifest_done` fail-closed отклоняет результат без Google Doc ID.
-- Next exact action: добавить безопасную manifest dry-run/confirmed-clear operation с обязательным backup и без удаления source files/Google Docs.
-- Validation and Evidence: post-output-only manifest slice — focused Colab helpers `189 passed`, `scripts/ci_checks.py` passed, `git diff --check` passed. `CB-11` и `CB-17` закрыты CODE/TEST; `CB-21/22` имеют CODE/TEST, но остаются open до representative Colab LIVE.
+- Current step: safe manifest clear реализован как read-only dry-run по умолчанию и explicit-confirmation apply; перед непустой очисткой создаётся backup, source files и Google Docs не удаляются, backup failure fail-closed блокирует write.
+- Next exact action: реализовать browser-native local folder selection/upload с сохранением безопасных relative paths, фильтрацией supported media и bounded transfer.
+- Validation and Evidence: safe clear slice — focused Colab helpers `193 passed`; destructive production apply не запускался. `CB-11/15/17` закрыты CODE/TEST; `CB-21/22` имеют CODE/TEST, но остаются open до representative Colab LIVE.
 - Pull Request: none.
 - CI/checks: not started for this branch.
 - Deployment/environment: Colab has no VPS component deployment; exact reviewed repository revision and launcher `GITHUB_REF` are the applicable delivery identity. Final applicability of `DEPLOY` Evidence will be stated explicitly after targeted topology verification.
@@ -46,9 +46,9 @@
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **91,7% (`110/120`)** | **90,8% (`109/120`)** | `CB-17` закрыт accepted-output-only persistence contract; пять Colab AC остаются open. |
-| **Google Colab** | **82,8% (`24/29`)** | **79,3% (`23/29`)** | Current Goal target: `29/29`. |
-| `COLAB-BATCH-01` | **82,6% (`19/23`)** | **78,3% (`18/23`)** | 🟦 IN PROGRESS; `CB-05/15/21/22` open, timestamp LIVE gate ожидается. |
+| **Project** | **92,5% (`111/120`)** | **91,7% (`110/120`)** | `CB-15` закрыт safe dry-run/backup/confirmation contract; четыре Colab AC остаются open. |
+| **Google Colab** | **86,2% (`25/29`)** | **82,8% (`24/29`)** | Current Goal target: `29/29`. |
+| `COLAB-BATCH-01` | **87,0% (`20/23`)** | **82,6% (`19/23`)** | 🟦 IN PROGRESS; `CB-05/21/22` open, timestamp LIVE gate ожидается. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `CR-06` open. |
 | **Studio PWA** | **94,5% (`86/91`)** | **93,4% (`85/91`)** | Previous Goal closed `PR-06`; вне Goal. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | 🟦 IN PROGRESS; LIVE retention breadth remains partial. |

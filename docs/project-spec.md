@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified implementation snapshot: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`. Exact-main CI, Studio/browser CI, web deployment и owner-controlled Chrome LIVE matrix подтвердили ранее закрытые timestamp AC и `PR-06`; PWA realtime принимает display и microphone signals в mixed capture, а residual simultaneous-speaker masking на laptop speakers явно принят владельцем как non-critical limitation.
+Verified main baseline: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`. Текущие Colab проценты дополнительно включают independently tested working-branch criteria `CB-11/15/17`; до merge это не exact-main Evidence. Exact-main CI, Studio/browser CI, web deployment и owner-controlled Chrome LIVE matrix подтвердили ранее закрытые PWA timestamp AC и `PR-06`; PWA realtime принимает display и microphone signals в mixed capture, а residual simultaneous-speaker masking на laptop speakers явно принят владельцем как non-critical limitation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
+| Google Colab | **86,2% (`25/29`)** | working-branch snapshot: `COLAB-BATCH 20/23` + `COLAB-REALTIME 5/6` |
 | Studio PWA | **94,5% (`86/91`)** | сумма десяти PWA-эпиков ниже; `PR-06` подтверждён exact CI/deploy и bounded Chrome LIVE |
-| Весь проект | **90,0% (`108/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Весь проект | **92,5% (`111/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -53,7 +53,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 ### Эпик `COLAB-BATCH-01` — batch-транскрибация
 
-Status: **🟦 IN PROGRESS — 73,9% (`17/23`)**.
+Status: **🟦 IN PROGRESS — 87,0% (`20/23`)**.
 
 Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен. Новый scope добавляет отсутствующие AC, поэтому эпик больше не может считаться `READY`.
 
@@ -69,13 +69,13 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-08` | На Google Drive выбирается source folder. | ✅ |
 | `CB-09` | Доступно разделение на спикеров. | ✅ |
 | `CB-10` | Доступен явный русский язык. | ✅ |
-| `CB-11` | Доступен явный английский язык. | ❌ |
+| `CB-11` | Доступен явный английский язык. | ✅ |
 | `CB-12` | Доступно auto-detection языка. | ✅ |
 | `CB-13` | Manifest защищает от повторной платной транскрибации. | ✅ |
 | `CB-14` | Пользователь может явно пропустить manifest check. | ✅ |
-| `CB-15` | Пользователь может безопасно очистить manifest. | ❌ |
+| `CB-15` | Пользователь может безопасно очистить manifest. | ✅ |
 | `CB-16` | Пользователь может зарегистрировать выбранную папку в manifest. | ✅ |
-| `CB-17` | Manifest не записывает source до подтверждённого Google Docs результата. | ❌ |
+| `CB-17` | Manifest не записывает source до подтверждённого Google Docs результата. | ✅ |
 | `CB-18` | Source identity основана на Drive metadata/content fingerprint, а не только на имени. | ✅ |
 | `CB-19` | Новый transcript document разбит на читабельные абзацы. | ✅ |
 | `CB-20` | В начало документа добавлен metadata header. | ✅ |
@@ -85,7 +85,7 @@ Owner runtime evidence: существующий batch contour использу�
 
 Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Verified gaps: UI содержит `local_file`, `local_multi`, `drive_file`, `drive_multi`, `drive_folder`, но не local folder; language contract содержит только `ru` и `detect`; manifest сохраняет `in_progress`/`failed` до Google Docs output; видимый timestamp имеет legacy-формат и новый output использует job time.
+Verified gaps: local folder ещё не доступен; `CB-21/22` требуют representative Colab LIVE с embedded/Drive creation authority. English, safe manifest clear с backup/explicit confirmation и post-output-only source persistence закрыты CODE/TEST в Current Goal branch.
 
 Definition of Done: `23/23`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data.
 

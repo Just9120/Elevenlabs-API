@@ -114,6 +114,8 @@ HELPER_NAMES = {
     "manifest_v2_material_changes_needed",
     "create_manifest_backup",
     "write_active_manifest_v2",
+    "clear_manifest_catalog",
+    "build_manifest_clear_report_text",
     "standardize_manifest_to_v2_for_existing_google_docs",
     "is_existing_google_doc_registry_entry",
     "find_manifest_entries_referencing_google_doc",
@@ -246,6 +248,7 @@ def load_text_helpers() -> dict[str, object]:
                     "OPENAI_PREP_AUDIO_CHANNELS",
                     "PROJECT_TEMP_PREFIX",
                     "SOURCE_CREATION_TAG_KEYS",
+                    "MANIFEST_CLEAR_CONFIRMATION",
                 }:
                     selected_nodes.append(node)
                     break
@@ -353,6 +356,8 @@ build_manifest_v2_from_existing_manifest_and_docs = HELPERS["build_manifest_v2_f
 standardize_manifest_to_v2_for_existing_google_docs = HELPERS["standardize_manifest_to_v2_for_existing_google_docs"]
 comparable_manifest_v2_for_material_change = HELPERS["comparable_manifest_v2_for_material_change"]
 manifest_v2_material_changes_needed = HELPERS["manifest_v2_material_changes_needed"]
+clear_manifest_catalog = HELPERS["clear_manifest_catalog"]
+build_manifest_clear_report_text = HELPERS["build_manifest_clear_report_text"]
 mark_manifest_in_progress = HELPERS["mark_manifest_in_progress"]
 mark_manifest_done = HELPERS["mark_manifest_done"]
 mark_manifest_failed = HELPERS["mark_manifest_failed"]
@@ -2368,6 +2373,101 @@ def test_mark_manifest_done_without_confirmed_google_doc_does_not_persist_source
     assert manifest["summary"]["sources_total"] == 0
     assert manifest["summary"]["orphan_sources"] == 0
     assert saved == []
+
+
+def make_non_empty_manifest_for_clear() -> dict:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    HELPERS["save_manifest"] = lambda _incoming: None
+    mark_manifest_done(
+        manifest,
+        "source-a",
+        "settings",
+        "Audio",
+        "Transcript",
+        "https://docs.google.com/document/d/doc-clear/edit",
+    )
+    return manifest
+
+
+def test_manifest_clear_dry_run_is_read_only_and_reports_catalog(monkeypatch) -> None:
+    current = make_non_empty_manifest_for_clear()
+    globals_dict = clear_manifest_catalog.__globals__
+    calls = []
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda force_reload=False: calls.append(("read", force_reload)) or current)
+    monkeypatch.setitem(globals_dict, "load_manifest", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("mutable load")))
+    monkeypatch.setitem(globals_dict, "create_manifest_backup", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("backup")))
+    monkeypatch.setitem(globals_dict, "write_active_manifest_v2", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("write")))
+
+    report = clear_manifest_catalog(dry_run=True)
+
+    assert calls == [("read", True)]
+    assert report["records_total"] == 2
+    assert report["would_create_backup"] is True
+    assert report["would_clear_manifest"] is True
+    assert report["backup_created"] is False
+    assert report["manifest_cleared"] is False
+    assert report["source_files_deleted"] is False
+    assert report["google_docs_deleted"] is False
+
+
+def test_manifest_clear_apply_requires_exact_confirmation_before_read(monkeypatch) -> None:
+    globals_dict = clear_manifest_catalog.__globals__
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("read")))
+
+    with pytest.raises(ValueError, match="ОЧИСТИТЬ MANIFEST"):
+        clear_manifest_catalog(dry_run=False, confirmation_text="очистить")
+
+
+def test_manifest_clear_apply_backs_up_then_writes_empty_v2(monkeypatch) -> None:
+    current = make_non_empty_manifest_for_clear()
+    globals_dict = clear_manifest_catalog.__globals__
+    calls = []
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda force_reload=False: calls.append(("read_only", force_reload)) or current)
+    monkeypatch.setitem(globals_dict, "load_manifest", lambda force_reload=False: calls.append(("read_current", force_reload)) or current)
+    monkeypatch.setitem(
+        globals_dict,
+        "create_manifest_backup",
+        lambda manifest, timestamp: calls.append(("backup", manifest is current, timestamp)) or {"name": f"backup.{timestamp}.json"},
+    )
+    monkeypatch.setitem(
+        globals_dict,
+        "write_active_manifest_v2",
+        lambda manifest: calls.append(("write", manifest)),
+    )
+
+    report = clear_manifest_catalog(
+        dry_run=False,
+        confirmation_text=HELPERS["MANIFEST_CLEAR_CONFIRMATION"],
+    )
+
+    assert [call[0] for call in calls] == ["read_only", "read_current", "backup", "write"]
+    written = calls[-1][1]
+    assert written["version"] == HELPERS["MANIFEST_V2_TARGET_VERSION"]
+    assert written["documents"] == {}
+    assert written["sources"] == {}
+    assert report["backup_created"] is True
+    assert report["manifest_cleared"] is True
+    assert report["manifest_after"]["documents_total"] == 0
+    assert report["manifest_after"]["sources_total"] == 0
+    assert "doc-clear" not in build_manifest_clear_report_text(report)
+
+
+def test_manifest_clear_never_writes_when_backup_fails(monkeypatch) -> None:
+    current = make_non_empty_manifest_for_clear()
+    globals_dict = clear_manifest_catalog.__globals__
+    writes = []
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda force_reload=False: current)
+    monkeypatch.setitem(globals_dict, "load_manifest", lambda force_reload=False: current)
+    monkeypatch.setitem(globals_dict, "create_manifest_backup", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("backup failed")))
+    monkeypatch.setitem(globals_dict, "write_active_manifest_v2", lambda manifest: writes.append(manifest))
+
+    with pytest.raises(RuntimeError, match="backup failed"):
+        clear_manifest_catalog(
+            dry_run=False,
+            confirmation_text=HELPERS["MANIFEST_CLEAR_CONFIRMATION"],
+        )
+
+    assert writes == []
 
 
 def test_manifest_maintenance_does_not_count_transcription_created_document_as_add() -> None:

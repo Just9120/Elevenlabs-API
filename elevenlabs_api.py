@@ -2462,6 +2462,91 @@ def write_active_manifest_v2(manifest_v2: dict) -> None:
     MANIFEST_CACHE["data"] = manifest_v2
 
 
+MANIFEST_CLEAR_CONFIRMATION = "ОЧИСТИТЬ MANIFEST"
+
+
+def clear_manifest_catalog(dry_run: bool = True, confirmation_text: str = "") -> dict:
+    """Preview or safely clear the global manifest without deleting source files or Docs."""
+
+    if not dry_run and str(confirmation_text or "").strip() != MANIFEST_CLEAR_CONFIRMATION:
+        raise ValueError(f"Для очистки введите точно: {MANIFEST_CLEAR_CONFIRMATION}")
+
+    current = load_manifest_read_only(force_reload=True)
+    before = summarize_manifest_catalog_for_report(current)
+    records_total = int(before.get("documents_total", 0)) + int(before.get("sources_total", 0))
+    report = {
+        "dry_run": bool(dry_run),
+        "records_total": records_total,
+        "manifest_before": before,
+        "manifest_after": before,
+        "would_create_backup": bool(records_total),
+        "backup_created": False,
+        "backup_name": "",
+        "would_clear_manifest": bool(records_total),
+        "manifest_cleared": False,
+        "source_files_deleted": False,
+        "google_docs_deleted": False,
+    }
+    if dry_run or not records_total:
+        return report
+
+    # Re-read immediately before the write so the backup and cleared catalog use
+    # the same current state rather than a stale preview snapshot.
+    current = load_manifest(force_reload=True)
+    before = summarize_manifest_catalog_for_report(current)
+    records_total = int(before.get("documents_total", 0)) + int(before.get("sources_total", 0))
+    report.update({
+        "records_total": records_total,
+        "manifest_before": before,
+        "would_create_backup": bool(records_total),
+        "would_clear_manifest": bool(records_total),
+    })
+    if not records_total:
+        report["manifest_after"] = before
+        return report
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = create_manifest_backup(current, timestamp)
+    cleared = make_manifest_v2_default(updated_at=utc_now_iso())
+    write_active_manifest_v2(cleared)
+    report.update({
+        "manifest_after": summarize_manifest_catalog_for_report(cleared),
+        "backup_created": True,
+        "backup_name": backup.get("name", ""),
+        "manifest_cleared": True,
+    })
+    return report
+
+
+def build_manifest_clear_report_text(report: dict) -> str:
+    before = report.get("manifest_before") or {}
+    after = report.get("manifest_after") or {}
+    dry_run = bool(report.get("dry_run"))
+    lines = [
+        "=== Очистка manifest ===",
+        f"Режим: {'dry-run, без изменений' if dry_run else 'подтверждённое применение'}",
+        f"Документов в каталоге до операции: {before.get('documents_total', 0)}",
+        f"Источников в каталоге до операции: {before.get('sources_total', 0)}",
+        f"Будет создан backup: {yes_no(bool(report.get('would_create_backup')))}",
+        f"Manifest будет очищен: {yes_no(bool(report.get('would_clear_manifest')))}",
+    ]
+    if not dry_run:
+        lines.extend([
+            f"Backup создан: {yes_no(bool(report.get('backup_created')))}",
+            f"Manifest очищен: {yes_no(bool(report.get('manifest_cleared')))}",
+            f"Документов после операции: {after.get('documents_total', 0)}",
+            f"Источников после операции: {after.get('sources_total', 0)}",
+        ])
+        if report.get("backup_name"):
+            lines.append(f"Backup file: {report['backup_name']}")
+    lines.extend([
+        "Исходные media files удалены: нет",
+        "Google Docs удалены: нет",
+        "=== Конец отчёта ===",
+    ])
+    return "\n".join(lines)
+
+
 def standardize_manifest_to_v2_for_existing_google_docs(
     output_folder_id: str,
     output_folder_path: str = "",
@@ -7563,6 +7648,34 @@ standardize_manifest_v2_help_widget = widgets.HTML(
     "</div>"
 )
 
+manifest_clear_dry_run_widget = widgets.Checkbox(
+    value=True,
+    description="Только проверить очистку, не изменять manifest",
+    indent=False,
+    layout=widgets.Layout(width="500px")
+)
+
+manifest_clear_confirmation_widget = widgets.Text(
+    value="",
+    description="Подтверждение:",
+    placeholder=MANIFEST_CLEAR_CONFIRMATION,
+    layout=widgets.Layout(width="620px")
+)
+
+manifest_clear_button = widgets.Button(
+    description="Проверить / очистить manifest",
+    icon="trash",
+    layout=widgets.Layout(width="360px")
+)
+
+manifest_clear_help_widget = widgets.HTML(
+    "<div style='margin-top:6px; color:#5f6368;'>"
+    "Сначала выполните dry-run. Для применения снимите флаг dry-run и введите точно "
+    f"<code>{MANIFEST_CLEAR_CONFIRMATION}</code>. Перед очисткой обязательно создаётся backup. "
+    "Операция очищает только duplicate-protection catalog и не удаляет исходные media files или Google Docs."
+    "</div>"
+)
+
 standardize_existing_docs_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "Стандартизация Google Docs в apply-режиме переписывает выбранные документы на месте. "
@@ -7582,6 +7695,7 @@ check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
 standardize_existing_docs_output_widget = widgets.Output()
 standardize_manifest_v2_output_widget = widgets.Output()
+manifest_clear_output_widget = widgets.Output()
 output_widget = widgets.Output()
 
 standardize_existing_docs_section_widget = widgets.VBox([
@@ -7613,6 +7727,15 @@ standardize_existing_docs_section_widget = widgets.VBox([
     standardize_manifest_v2_button,
     standardize_manifest_v2_help_widget,
     standardize_manifest_v2_output_widget,
+    widgets.HTML(
+        "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
+        "<h4 style='margin:0 0 8px 0;'>Безопасная очистка manifest</h4>"
+    ),
+    manifest_clear_dry_run_widget,
+    manifest_clear_confirmation_widget,
+    manifest_clear_button,
+    manifest_clear_help_widget,
+    manifest_clear_output_widget,
 ])
 
 folder_picker_ui = widgets.VBox(folder_picker_core_widgets + [standardize_existing_docs_section_widget])
@@ -8325,6 +8448,24 @@ def on_standardize_manifest_v2_clicked(_):
             standardize_manifest_v2_button.disabled = False
 
 
+def on_manifest_clear_clicked(_):
+    manifest_clear_button.disabled = True
+    with manifest_clear_output_widget:
+        clear_output()
+        try:
+            report = clear_manifest_catalog(
+                dry_run=manifest_clear_dry_run_widget.value,
+                confirmation_text=manifest_clear_confirmation_widget.value,
+            )
+            print(build_manifest_clear_report_text(report))
+            if report.get("manifest_cleared"):
+                manifest_clear_confirmation_widget.value = ""
+        except Exception as error:
+            print(f"Ошибка очистки manifest: {error}")
+        finally:
+            manifest_clear_button.disabled = False
+
+
 def collect_runtime_options_from_ui() -> TranscriptionRuntimeOptions:
     return TranscriptionRuntimeOptions(
         provider=provider_widget.value,
@@ -9031,6 +9172,7 @@ check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
 standardize_manifest_v2_button.on_click(on_standardize_manifest_v2_clicked)
+manifest_clear_button.on_click(on_manifest_clear_clicked)
 start_button.on_click(on_start_clicked)
 refresh_user_segment_ui()
 

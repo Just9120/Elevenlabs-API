@@ -172,6 +172,10 @@ Validate each supported source contour when safe fixtures are available:
 - [ ] computer multiple files;
 - [ ] Google Drive single file;
 - [ ] Google Drive folder.
+- [ ] Explicit English mode sends `en`; auto-detection still omits an explicit language code.
+- [ ] A source with embedded `creation_time` writes that timezone-aware value as ISO 8601 metadata.
+- [ ] A Drive source without embedded creation metadata uses Drive `createdTime`, never `modifiedTime`.
+- [ ] A source without authoritative creation metadata writes explicit `unknown`, never job/document/transcription time.
 
 ### Manifest and Drive workspace
 
@@ -179,6 +183,10 @@ Validate each supported source contour when safe fixtures are available:
 - [ ] `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json` exists.
 - [ ] Legacy `_transcription_state` migration preserves existing history when legacy state is present.
 - [ ] A repeated controlled run confirms manifest skip behavior and does not repeat paid transcription without a valid reason.
+- [ ] A forced provider or Google Docs failure creates no new source entry in manifest.
+- [ ] Manifest source appears only after the created/updated Google Doc ID is confirmed.
+- [ ] Safe clear dry-run reports counts without writes.
+- [ ] Safe clear apply rejects missing/wrong confirmation, creates a backup first, then leaves an empty v2 catalog without deleting media files or Google Docs.
 - [ ] Old state files are not manually deleted before reconciliation when legacy/current manifest conflict is observed.
 
 ### Analytics JSONL
