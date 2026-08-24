@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T17:45:07Z.
+- Updated (UTC): 2026-08-24T17:52:53Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `c9ac43fc71a97a868db744088c06c69882a555fa`.
 - Working branch: `codex/pwa-speaker-identity`.
-- Last verified revision: `1fd1e78` — owner-scoped profile/sample/assignment API, safe History DTO и revision-guarded Google Docs mutation; focused backend regression green.
+- Last verified revision: `49e09c5` — полный локальный speaker-identity scope, UI, documentation, migration-aware release preflight и browser DTO regression contract; applicable local regression green.
 - Working tree at Goal start: clean; local `main = origin/main@c9ac43f`; unrelated pre-existing changes absent.
-- Completed: commits `ae5ef23`/`1fd1e78` добавили migration/domain/API. Локально завершён UI slice: strict safe contracts, on-demand profile panel, profile CRUD, bounded sample playback, explicit assignment и post-mutation job/history refresh; commit pending после validation.
-- Current step: зафиксировать validated frontend/documentation slice и запустить полный backend/repository regression.
-- Next exact action: commit UI/docs, затем выполнить full applicable backend, frontend build/lint и repository CI-equivalent checks; исправить только Goal-related regressions.
-- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript build check passed. Product AC теперь `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
+- Completed: commits `ae5ef23`/`1fd1e78`/`6eafc9b` реализовали migration/domain/API/UI и operational documentation; `49e09c5` синхронизировал exact migration head в production preflight и закрепил safe browser DTO contract.
+- Current step: проверить divergence от `origin/main`, отправить ветку и открыть Pull Request.
+- Next exact action: `git fetch origin`, зафиксировать divergence, затем push branch и создать PR; дождаться terminal state всех required CI checks.
+- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript, ESLint и production PWA build passed; full portable backend `1021 passed, 6 skipped`; `scripts/ci_checks.py` passed. POSIX production-preflight suite локально невалиден под Windows path semantics и остаётся обязательным Linux CI gate. Product AC `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
 - Pull Request: not created.
 - CI/checks: not started for Goal branch.
 - Deployment/environment: not started; expected migration class `MANUAL_GATED`, component units API/worker/web.
