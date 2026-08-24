@@ -43,6 +43,7 @@ JOB_KEYS = {
     "error_code",
     "error_message",
     "output_folder",
+    "speaker_identities",
 }
 
 
@@ -128,6 +129,7 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     assert payload["diarization_enabled"] is False
     assert payload["media_clip"] is None
     assert payload["terminal_dismissed_at"] is None
+    assert payload["speaker_identities"] == []
 
 
 def test_job_browser_payload_exposes_only_safe_clip_bounds(browser_serializers):
