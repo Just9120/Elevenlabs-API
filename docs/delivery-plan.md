@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T15:55:00Z.
+- Updated (UTC): 2026-08-24T17:32:51Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `c9ac43fc71a97a868db744088c06c69882a555fa`.
 - Working branch: `codex/pwa-speaker-identity`.
-- Last verified revision: `c9ac43fc71a97a868db744088c06c69882a555fa` — clean synchronized baseline; no Goal code yet.
+- Last verified revision: `ae5ef23` — additive migration/schema, bounded observation derivation и accepted-output worker persistence; focused migration/domain/orchestrator regression green.
 - Working tree at Goal start: clean; local `main = origin/main@c9ac43f`; unrelated pre-existing changes absent.
-- Completed: previous Colab Goal reconciled по PR `#231/#232`, exact-main CI `32738787968` и owner LIVE; independent PWA code audit подтвердил отсутствие только `SP-01..05`. Focused current-main validation: Studio `273/273` passed; PWA retention/manifest backend subset `89/90`, где единственный failure — stale fixed-date diagnostic test, а не product behavior.
-- Current step: design additive schema/domain boundary и time-independent baseline regression repair до реализации API.
-- Next exact action: добавить migration/models/domain tests для speaker profiles, observations и assignments, затем подключить persistence к accepted-output transaction.
-- Validation and Evidence: `origin/main` fetched; branch/base verified. Exact-main repository CI `32738787968` success; latest applicable Studio CI `32706218892` и component CD `32706218830` success на ancestor `ebbba50`.
+- Completed: commit `ae5ef23` добавил additive `0024_speaker_identity`, owner-scoped profiles/observations, bounded timestamp-only samples и persistence в accepted-output transaction. Локально также завершён API slice: profile CRUD, safe History metadata, no-store on-demand sample и revision-guarded explicit Google Docs assignment; commit pending после focused validation.
+- Current step: завершить API regression/checkpoint commit и перейти к browser contracts/UI.
+- Next exact action: зафиксировать validated API slice, затем расширить frontend job contracts и добавить speaker identity panel с profile CRUD, listen и explicit assign actions.
+- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed. Product readiness остаётся `0/5`, пока API flow не доступен пользователю через PWA UI.
 - Pull Request: not created.
 - CI/checks: not started for Goal branch.
 - Deployment/environment: not started; expected migration class `MANUAL_GATED`, component units API/worker/web.

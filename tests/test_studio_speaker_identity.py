@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import sys
 import os
+import io
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -185,3 +188,344 @@ def test_persisted_observations_use_job_owner_and_do_not_overwrite_assignment():
         assert (row.sample_start_ms, row.sample_end_ms) == (11_000, 12_000)
         assert row.applied_document_label == "Анна — Автор"
     engine.dispose()
+
+
+def test_speaker_profile_crud_is_owner_scoped_and_soft_deactivates(monkeypatch):
+    from fastapi import HTTPException
+    from studio_api.db import Base
+    from studio_api.main import (
+        SpeakerProfileIn,
+        SpeakerProfilePatch,
+        create_speaker_profile,
+        deactivate_speaker_profile,
+        list_speaker_profiles,
+        update_speaker_profile,
+    )
+    from studio_api.models import User
+    monkeypatch.setattr("studio_api.main.limiter.check", lambda *args, **kwargs: None)
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as db:
+        owner = User(id="profile-owner-1", email="profile-owner-1@example.test")
+        other = User(id="profile-owner-2", email="profile-owner-2@example.test")
+        db.add_all([owner, other])
+        db.commit()
+
+        created = create_speaker_profile(
+            SpeakerProfileIn(display_name="  Анна  ", role=" Автор "),
+            pair=(None, owner),
+            db=db,
+        )
+        create_speaker_profile(
+            SpeakerProfileIn(display_name="Борис", role="Редактор"),
+            pair=(None, other),
+            db=db,
+        )
+
+        assert list_speaker_profiles(pair=(None, owner), db=db)["profiles"] == [created]
+        updated = update_speaker_profile(
+            created["id"],
+            SpeakerProfilePatch(role="Ведущий автор"),
+            pair=(None, owner),
+            db=db,
+        )
+        assert updated["display_name"] == "Анна"
+        assert updated["role"] == "Ведущий автор"
+
+        with pytest.raises(HTTPException) as foreign_update:
+            update_speaker_profile(
+                created["id"],
+                SpeakerProfilePatch(role="Чужая роль"),
+                pair=(None, other),
+                db=db,
+            )
+        assert foreign_update.value.status_code == 404
+
+        assert deactivate_speaker_profile(created["id"], pair=(None, owner), db=db) == {"ok": True}
+        assert list_speaker_profiles(pair=(None, owner), db=db) == {"profiles": []}
+        reactivated = create_speaker_profile(
+            SpeakerProfileIn(display_name="анна", role="Новая роль"),
+            pair=(None, owner),
+            db=db,
+        )
+        assert reactivated["id"] == created["id"]
+        assert reactivated["active"] is True
+    engine.dispose()
+
+
+def test_job_payload_exposes_only_safe_speaker_identity_metadata():
+    from studio_api.db import Base
+    from studio_api.main import job_payload
+    from studio_api.models import (
+        JobStatus,
+        Project,
+        Source,
+        SourceType,
+        SpeakerProfile,
+        TranscriptionJob,
+        TranscriptionJobSource,
+        TranscriptionJobSpeaker,
+        User,
+    )
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 8, 24, 18, 0, tzinfo=timezone.utc)
+    with Session(engine, expire_on_commit=False) as db:
+        owner = User(id="history-owner", email="history-owner@example.test")
+        project = Project(id="history-project", owner_user_id=owner.id, title="Транскрибации")
+        source = Source(id="history-source", project_id=project.id, source_type=SourceType.local_upload, original_filename="call.mp3")
+        job = TranscriptionJob(id="history-job", project_id=project.id, owner_user_id=owner.id, status=JobStatus.completed)
+        relation = TranscriptionJobSource(id="history-job-source", job_id=job.id, source_id=source.id, position=0)
+        profile = SpeakerProfile(id="history-profile", owner_user_id=owner.id, display_name="Анна", normalized_name="анна", role="Автор")
+        speaker = TranscriptionJobSpeaker(
+            id="history-speaker",
+            owner_user_id=owner.id,
+            job_id=job.id,
+            job_source_id=relation.id,
+            provider_speaker_label="provider-secret-label",
+            display_ordinal=1,
+            sample_start_ms=1000,
+            sample_end_ms=2000,
+            speaker_profile_id=profile.id,
+            applied_display_name="Анна",
+            applied_role="Автор",
+            applied_document_label="Анна — Автор",
+            assigned_at=now,
+        )
+        db.add_all([owner, project, source, job, relation, profile, speaker])
+        db.commit(); db.refresh(job)
+
+        payload = job_payload(job)
+
+        assert payload["speaker_identities"] == [{
+            "id": speaker.id,
+            "label": "Speaker 1",
+            "sample_available": True,
+            "profile": {"id": profile.id, "display_name": "Анна", "role": "Автор"},
+        }]
+        encoded = str(payload)
+        assert "provider-secret-label" not in encoded
+        assert "sample_start_ms" not in encoded
+    engine.dispose()
+
+
+def test_speaker_sample_is_bounded_owner_scoped_and_not_persisted():
+    from studio_api.db import Base
+    from studio_api.models import (
+        Project,
+        Source,
+        SourceType,
+        SourceUploadStatus,
+        TranscriptionJob,
+        TranscriptionJobSource,
+        TranscriptionJobSpeaker,
+        User,
+    )
+    from studio_api.source_storage import SourceObjectStream
+    from studio_api.speaker_sample import (
+        SpeakerSampleError,
+        SpeakerSampleReason,
+        create_speaker_sample_audio,
+    )
+
+    class Storage:
+        def open_read(self, key):
+            assert key == "owner/source.mp3"
+            return SourceObjectStream(io.BytesIO(b"source-audio"), "audio/mpeg", 12)
+
+    captured = {}
+
+    def runner(command, **kwargs):
+        captured["command"] = command
+        captured["input"] = Path(command[command.index("-i") + 1])
+        captured["output"] = Path(command[-1])
+        captured["output"].write_bytes(b"bounded-mp3")
+        return SimpleNamespace(returncode=0)
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 8, 24, 18, 0, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        owner = User(id="sample-owner", email="sample-owner@example.test")
+        project = Project(id="sample-project", owner_user_id=owner.id, title="Транскрибации")
+        source = Source(
+            id="sample-source",
+            project_id=project.id,
+            source_type=SourceType.local_upload,
+            original_filename="call.mp3",
+            s3_bucket="bucket",
+            s3_object_key="owner/source.mp3",
+            upload_status=SourceUploadStatus.uploaded,
+            expires_at=now.replace(year=2027),
+        )
+        job = TranscriptionJob(id="sample-job", project_id=project.id, owner_user_id=owner.id)
+        relation = TranscriptionJobSource(id="sample-job-source", job_id=job.id, source_id=source.id, position=0)
+        speaker = TranscriptionJobSpeaker(
+            id="sample-speaker",
+            owner_user_id=owner.id,
+            job_id=job.id,
+            job_source_id=relation.id,
+            provider_speaker_label="speaker-a",
+            display_ordinal=1,
+            sample_start_ms=1250,
+            sample_end_ms=6250,
+        )
+        db.add_all([owner, project, source, job, relation, speaker])
+        db.commit()
+
+        sample = create_speaker_sample_audio(
+            db,
+            owner_user_id=owner.id,
+            job_id=job.id,
+            speaker_id=speaker.id,
+            settings=SimpleNamespace(source_s3_bucket="bucket", source_max_upload_bytes=100),
+            storage_factory=lambda _: Storage(),
+            runner=runner,
+        )
+
+        assert sample.content == b"bounded-mp3"
+        assert sample.media_type == "audio/mpeg"
+        assert captured["command"][captured["command"].index("-ss") + 1] == "1.250"
+        assert captured["command"][captured["command"].index("-t") + 1] == "5.000"
+        assert not captured["input"].exists()
+        assert not captured["output"].exists()
+
+        with pytest.raises(SpeakerSampleError) as foreign:
+            create_speaker_sample_audio(
+                db,
+                owner_user_id="other-owner",
+                job_id=job.id,
+                speaker_id=speaker.id,
+                settings=SimpleNamespace(source_s3_bucket="bucket", source_max_upload_bytes=100),
+                storage_factory=lambda _: Storage(),
+                runner=runner,
+            )
+        assert foreign.value.reason == SpeakerSampleReason.not_found
+    engine.dispose()
+
+
+def test_manual_assignment_updates_exact_document_headings_and_history_snapshot():
+    from studio_api.db import Base
+    from studio_api.models import (
+        Project,
+        Source,
+        SourceType,
+        SpeakerProfile,
+        TranscriptionJob,
+        TranscriptionJobOutput,
+        TranscriptionJobSource,
+        TranscriptionJobSpeaker,
+        User,
+    )
+    from studio_api.speaker_assignment import assign_speaker_profile
+    from studio_api.transcript_catalog_standardize import CatalogGoogleDocumentSnapshot
+
+    class Standardizer:
+        def __init__(self, document_text):
+            self.document_text = document_text
+            self.replacements = []
+
+        def read_document(self, *, access_token, document_id):
+            assert access_token == "private-token"
+            assert document_id == "private-document-id"
+            return CatalogGoogleDocumentSnapshot(
+                document_id=document_id,
+                revision_id="revision-1",
+                tab_id="tab-1",
+                document_text=self.document_text,
+                end_index=len(self.document_text) + 1,
+            )
+
+        def replace_document_text(self, *, access_token, snapshot, document_text):
+            assert snapshot.revision_id == "revision-1"
+            self.replacements.append(document_text)
+            self.document_text = document_text
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 8, 24, 18, 30, tzinfo=timezone.utc)
+    with Session(engine, expire_on_commit=False) as db:
+        owner = User(id="assignment-owner", email="assignment-owner@example.test")
+        project = Project(id="assignment-project", owner_user_id=owner.id, title="Транскрибации")
+        source = Source(id="assignment-source", project_id=project.id, source_type=SourceType.local_upload, original_filename="call.mp3")
+        job = TranscriptionJob(id="assignment-job", project_id=project.id, owner_user_id=owner.id)
+        relation = TranscriptionJobSource(id="assignment-job-source", job_id=job.id, source_id=source.id, position=0)
+        output = TranscriptionJobOutput(
+            id="assignment-output",
+            job_id=job.id,
+            job_source_id=relation.id,
+            document_id="private-document-id",
+            web_view_url="https://docs.google.com/document/d/private-document-id/edit",
+            output_drive_folder_id="private-folder-id",
+            output_kind="google_docs_transcript",
+            transcript_standard="transcript_doc_v1.2",
+            document_character_count=50,
+            document_created_at=now,
+            persisted_at=now,
+            lease_generation=1,
+        )
+        profile = SpeakerProfile(id="assignment-profile", owner_user_id=owner.id, display_name="Анна", normalized_name="анна", role="Автор")
+        speaker = TranscriptionJobSpeaker(
+            id="assignment-speaker",
+            owner_user_id=owner.id,
+            job_id=job.id,
+            job_source_id=relation.id,
+            provider_speaker_label="provider-private-label",
+            display_ordinal=1,
+            sample_start_ms=1000,
+            sample_end_ms=2000,
+        )
+        db.add_all([owner, project, source, job, relation, output, profile, speaker])
+        db.commit()
+
+        standardizer = Standardizer("Header\n\nSpeaker 1:\nHello\n\nSpeaker 1:\nAgain\n")
+        first = assign_speaker_profile(
+            db,
+            owner_user_id=owner.id,
+            job_id=job.id,
+            speaker_id=speaker.id,
+            profile_id=profile.id,
+            settings=SimpleNamespace(),
+            now=now,
+            token_resolver=lambda *args, **kwargs: "private-token",
+            standardizer=standardizer,
+        )
+        db.commit()
+
+        assert first.document_changed is True
+        assert standardizer.replacements == ["Header\n\nАнна — Автор:\nHello\n\nАнна — Автор:\nAgain\n"]
+        assert first.payload["profile"] == {"id": profile.id, "display_name": "Анна", "role": "Автор"}
+        assert speaker.applied_document_label == "Анна — Автор"
+
+        second = assign_speaker_profile(
+            db,
+            owner_user_id=owner.id,
+            job_id=job.id,
+            speaker_id=speaker.id,
+            profile_id=profile.id,
+            settings=SimpleNamespace(),
+            now=now,
+            token_resolver=lambda *args, **kwargs: "private-token",
+            standardizer=standardizer,
+        )
+        assert second.document_changed is False
+        assert len(standardizer.replacements) == 1
+    engine.dispose()
+
+
+def test_manual_assignment_rejects_document_without_expected_heading():
+    from studio_api.speaker_assignment import (
+        SpeakerAssignmentError,
+        SpeakerAssignmentReason,
+        replace_exact_speaker_heading,
+    )
+
+    with pytest.raises(SpeakerAssignmentError) as changed:
+        replace_exact_speaker_heading(
+            "Header\n\nТекст изменён вручную\n",
+            current_heading="Speaker 1:",
+            desired_heading="Анна — Автор:",
+        )
+    assert changed.value.reason == SpeakerAssignmentReason.document_changed
