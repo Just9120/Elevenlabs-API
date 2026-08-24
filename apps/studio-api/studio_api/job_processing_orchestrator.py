@@ -30,6 +30,7 @@ from .job_output_persistence import persist_processing_job_source_output_and_may
 from .job_output_reconciliation import mark_reconciliation_required
 from .job_retry_recovery import prepare_current_attempt_sources, classify_source_attempt_failure, mark_attempt_provider_started, mark_attempt_provider_returned, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
 from .provider_part_checkpoints import delete_provider_part_checkpoints
+from .speaker_identity import persist_speaker_observations
 from .job_processing_lifecycle import (
     acknowledge_job_cancellation,
     begin_job_processing,
@@ -292,6 +293,13 @@ def orchestrate_processing_job(
                     lease_owner_id=lease_owner_id,
                     lease_generation=lease_generation,
                     artifact=artifact,
+                    now=clock(),
+                )
+                persist_speaker_observations(
+                    db,
+                    job=db.get(TranscriptionJob, job_id),
+                    job_source_id=rel.id,
+                    words=getattr(transcript, "words", ()),
                     now=clock(),
                 )
                 delete_provider_part_checkpoints(db, job_source_id=rel.id)

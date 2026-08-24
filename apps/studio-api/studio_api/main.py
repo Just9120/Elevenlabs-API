@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAP
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
 from sqlalchemy import and_, text, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from .audit import audit
@@ -36,6 +36,22 @@ from .realtime_drafts import (
     delete_realtime_draft,
     load_latest_realtime_draft,
     save_realtime_draft,
+)
+from .speaker_identity import (
+    job_speaker_payload,
+    normalize_profile_name,
+    normalize_profile_role,
+    speaker_profile_payload,
+)
+from .speaker_sample import (
+    SpeakerSampleError,
+    SpeakerSampleReason,
+    create_speaker_sample_audio,
+)
+from .speaker_assignment import (
+    SpeakerAssignmentError,
+    SpeakerAssignmentReason,
+    assign_speaker_profile,
 )
 from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
@@ -197,6 +213,26 @@ class AccountPreferencesPatch(BaseModel):
         if self.source_retention_ttl_seconds is None and self.accent_color is None:
             raise ValueError("Укажите изменяемую настройку")
         return self
+
+class SpeakerProfileIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str=Field(min_length=1,max_length=160)
+    role: str=Field(min_length=1,max_length=120)
+
+class SpeakerProfilePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str|None=Field(default=None,min_length=1,max_length=160)
+    role: str|None=Field(default=None,min_length=1,max_length=120)
+
+    @model_validator(mode="after")
+    def at_least_one_field(self):
+        if self.display_name is None and self.role is None:
+            raise ValueError("Укажите изменяемое поле")
+        return self
+
+class SpeakerAssignmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_id: str=Field(min_length=1,max_length=36)
 
 class ConfirmedClearIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -497,7 +533,7 @@ def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)]}
     batch=browser_batch_reference(job)
     if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
@@ -927,6 +963,94 @@ def delete_output_folder_favorite(favorite_id: str, pair=Depends(require_csrf), 
     audit(db,"output_folder_favorite.deleted",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()
     return {"ok": True}
+
+
+def _clean_speaker_profile_values(display_name: str, role: str) -> tuple[str, str, str]:
+    try:
+        clean_name, normalized_name = normalize_profile_name(display_name)
+        clean_role = normalize_profile_role(role)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return clean_name, normalized_name, clean_role
+
+
+@app.get("/api/speaker-profiles")
+def list_speaker_profiles(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    rows=(
+        db.query(SpeakerProfile)
+        .filter(SpeakerProfile.owner_user_id==user.id, SpeakerProfile.active.is_(True))
+        .order_by(SpeakerProfile.display_name.asc(), SpeakerProfile.id.asc())
+        .all()
+    )
+    return {"profiles":[speaker_profile_payload(row) for row in rows]}
+
+
+@app.post("/api/speaker-profiles")
+def create_speaker_profile(data: SpeakerProfileIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("speaker-profile:create:"+user.id, 120, 3600)
+    display_name,normalized_name,role=_clean_speaker_profile_values(data.display_name,data.role)
+    row=(
+        db.query(SpeakerProfile)
+        .filter(SpeakerProfile.owner_user_id==user.id, SpeakerProfile.normalized_name==normalized_name)
+        .one_or_none()
+    )
+    now=utcnow()
+    if row is None:
+        row=SpeakerProfile(owner_user_id=user.id,display_name=display_name,normalized_name=normalized_name,role=role,active=True,created_at=now,updated_at=now)
+        db.add(row)
+        event_type="speaker_profile.created"
+    elif row.active:
+        raise HTTPException(409,"Профиль спикера с таким именем уже существует")
+    else:
+        row.display_name=display_name; row.role=role; row.active=True; row.updated_at=now
+        event_type="speaker_profile.reactivated"
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback(); raise HTTPException(409,"Профиль спикера с таким именем уже существует") from None
+    audit(db,event_type,actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); db.refresh(row)
+    return speaker_profile_payload(row)
+
+
+@app.patch("/api/speaker-profiles/{profile_id}")
+def update_speaker_profile(profile_id: str, data: SpeakerProfilePatch, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("speaker-profile:update:"+user.id, 240, 3600)
+    row=(
+        db.query(SpeakerProfile)
+        .filter(SpeakerProfile.id==profile_id,SpeakerProfile.owner_user_id==user.id,SpeakerProfile.active.is_(True))
+        .one_or_none()
+    )
+    if row is None:
+        raise HTTPException(404,"Не найдено")
+    display_name=data.display_name if data.display_name is not None else row.display_name
+    role=data.role if data.role is not None else row.role
+    display_name,normalized_name,role=_clean_speaker_profile_values(display_name,role)
+    row.display_name=display_name; row.normalized_name=normalized_name; row.role=role; row.updated_at=utcnow()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback(); raise HTTPException(409,"Профиль спикера с таким именем уже существует") from None
+    audit(db,"speaker_profile.updated",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); db.refresh(row)
+    return speaker_profile_payload(row)
+
+
+@app.delete("/api/speaker-profiles/{profile_id}")
+def deactivate_speaker_profile(profile_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("speaker-profile:delete:"+user.id, 120, 3600)
+    row=(
+        db.query(SpeakerProfile)
+        .filter(SpeakerProfile.id==profile_id,SpeakerProfile.owner_user_id==user.id,SpeakerProfile.active.is_(True))
+        .one_or_none()
+    )
+    if row is None:
+        raise HTTPException(404,"Не найдено")
+    row.active=False; row.updated_at=utcnow()
+    audit(db,"speaker_profile.deactivated",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return {"ok":True}
 
 _IDEMPOTENCY_RE=re.compile(r"^[A-Za-z0-9_.-]{8,128}$")
 def _clean_idempotency_key(value: str|None) -> str:
@@ -1506,7 +1630,7 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
 @app.get("/api/projects/{project_id}/jobs")
 def list_project_jobs(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id)
-    query=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
+    query=db.query(TranscriptionJob).options(selectinload(TranscriptionJob.speakers)).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
     if p.history_reset_at is not None:
         query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at))
     rows=query.order_by(TranscriptionJob.created_at.desc()).all()
@@ -1646,6 +1770,65 @@ def get_transcription_job_outputs(job_id: str, pair=Depends(current_session), db
     except Exception:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить результаты задания") from None
     return {"job_id": job.id, "job_status": job.status.value, "output_count": len(outputs), "outputs": outputs}
+
+
+@app.get("/api/jobs/{job_id}/speakers/{speaker_id}/sample")
+def get_job_speaker_sample(job_id: str, speaker_id: str, pair=Depends(current_session), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("job:speaker-sample:"+user.id, 240, 3600)
+    owned_job_or_404(db,user,job_id)
+    try:
+        sample=create_speaker_sample_audio(
+            db,
+            owner_user_id=user.id,
+            job_id=job_id,
+            speaker_id=speaker_id,
+            settings=settings,
+        )
+    except SpeakerSampleError as exc:
+        if exc.reason==SpeakerSampleReason.not_found:
+            raise HTTPException(404,"Не найдено") from None
+        if exc.reason==SpeakerSampleReason.source_unavailable:
+            raise HTTPException(410,"Исходный файл больше недоступен") from None
+        if exc.reason==SpeakerSampleReason.source_too_large:
+            raise HTTPException(413,"Исходный файл слишком большой") from None
+        raise HTTPException(503,"Не удалось подготовить фрагмент голоса") from None
+    return FastAPIResponse(
+        content=sample.content,
+        media_type=sample.media_type,
+        headers={"Cache-Control":"no-store","Pragma":"no-cache","Content-Disposition":"inline"},
+    )
+
+
+@app.put("/api/jobs/{job_id}/speakers/{speaker_id}/assignment")
+def put_job_speaker_assignment(job_id: str, speaker_id: str, data: SpeakerAssignmentIn, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("job:speaker-assignment:"+user.id, 120, 3600)
+    job=owned_job_or_404(db,user,job_id)
+    try:
+        result=assign_speaker_profile(
+            db,
+            owner_user_id=user.id,
+            job_id=job.id,
+            speaker_id=speaker_id,
+            profile_id=data.profile_id,
+            settings=settings,
+            now=utcnow(),
+        )
+    except SpeakerAssignmentError as exc:
+        db.rollback()
+        if exc.reason==SpeakerAssignmentReason.not_found:
+            raise HTTPException(404,"Не найдено") from None
+        if exc.reason==SpeakerAssignmentReason.profile_unavailable:
+            raise HTTPException(422,"Профиль спикера недоступен") from None
+        if exc.reason==SpeakerAssignmentReason.output_unavailable:
+            raise HTTPException(409,"Результат транскрибации ещё недоступен") from None
+        if exc.reason==SpeakerAssignmentReason.google_connection_unavailable:
+            raise HTTPException(409,"Google Drive недоступен") from None
+        if exc.reason==SpeakerAssignmentReason.document_changed:
+            raise HTTPException(409,"Документ изменён и требует ручной проверки") from None
+        raise HTTPException(502,"Не удалось обновить Google Docs") from None
+    audit(db,"job.speaker_assigned",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
+    db.commit()
+    return {"speaker":result.payload,"document_changed":result.document_changed}
 
 
 

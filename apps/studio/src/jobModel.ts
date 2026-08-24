@@ -63,6 +63,17 @@ export type JobBatchReference = {
   id: string;
   position: number;
 };
+export type SpeakerProfileSummary = {
+  id: string;
+  display_name: string;
+  role: string;
+};
+export type JobSpeakerIdentity = {
+  id: string;
+  label: string;
+  sample_available: boolean;
+  profile: SpeakerProfileSummary | null;
+};
 export type TranscriptionJob = {
   id: string;
   project_id: string;
@@ -86,6 +97,7 @@ export type TranscriptionJob = {
   error_code: string | null;
   error_message: string | null;
   output_folder?: JobOutputFolder | null;
+  speaker_identities?: JobSpeakerIdentity[];
 };
 export type JobState = {
   loading: boolean;

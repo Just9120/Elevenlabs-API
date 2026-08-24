@@ -2,83 +2,78 @@
 
 ## Current Goal
 
-- **ID / title:** `COLAB-PRODUCTION-COMPLETION-01` — полное закрытие production Colab batch и realtime contours.
-- **State:** `IN_PROGRESS` — Goal явно авторизована владельцем 2026-08-24; clean working branch создана от verified `origin/main`.
-- **Authorization source:** explicit owner instructions 2026-08-24: `ставь цель и приступай` после согласования полного Colab scope до `29/29`, затем `расширяй эту goal` для auto-detection default.
-- **Scope:** закрыть `CB-05`, `CB-11`, `CB-15`, `CB-17`, `CB-21`, `CB-22` и `CR-06`; независимо перепроверить source/test/runtime gaps; реализовать local-folder intake, English, safe manifest clear, accepted-output-only manifest semantics, authoritative ISO 8601 source creation timestamp и representative realtime capture stability; сделать Colab batch auto-detection default, сохранив explicit Russian/English overrides; добавить relevant regression tests/documentation; выполнить atomic commits и полный PR → CI → merge → applicable delivery → bounded LIVE flow.
-- **Non-goals:** удаление explicit Russian/English overrides; PWA implementation; `PWA-SPEAKER-IDENTITY-01`; новые providers; ослабление source-creation authority; unrelated architecture, CI/CD, credential или production-topology changes.
+- **ID / title:** `PWA-SPEAKER-IDENTITY-01` — ручная идентификация спикеров в Studio PWA.
+- **State:** `IN_PROGRESS` — Goal явно авторизована владельцем 2026-08-24 командой `ставь цель и приступай` после независимой проверки code/tests и подтверждения единственного оставшегося product gap.
+- **Authorization source:** explicit current user instruction 2026-08-24; durable product scope — `SP-01..SP-05` из `docs/project-spec.md`.
+- **Scope:** реализовать owner-scoped speaker identity database с именем и ролью; сохранять только provider label и bounded sample time bounds без voiceprints/audio persistence; предоставить безопасное прослушивание короткого фрагмента из исходного source; реализовать explicit manual label-to-identity assignment; синхронизировать подтверждённые имя/роль в Google Docs transcript и safe History metadata; добавить additive migration, API/UI, regression tests, architecture/operational documentation и полный PR → CI → merge → MANUAL_GATED migration → API/worker/web deployment → bounded LIVE flow.
+- **Non-goals:** automatic biometric matching, voiceprints, embeddings, постоянное хранение voice samples, raw transcript/audio в database/logs/diagnostics, изменение Colab speaker-project contour, новые providers и unrelated UX/CI/CD/infrastructure scope.
 - **Goal AC:**
-  1. Предыдущая `PWA-REALTIME-STABILITY-READINESS-01` reconciled по exact PR/CI/deployment/LIVE Evidence; current denominator остаётся `120`.
-  2. Targeted audit независимо подтверждает фактический state каждого из семи незакрытых Colab product AC и не принимает старый dashboard на веру.
-  3. `COLAB-BATCH-01` достигает `23/23`: local folder, English, manifest clear, post-output manifest persistence и authoritative ISO timestamp работают по canonical rules.
-  4. Duplicate-protection manifest не сохраняет source как accepted до подтверждённого Google Docs output; transient failure/in-progress state не создаёт ложного success evidence.
-  5. Timestamp не подменяется modification/job/document/transcription time; unavailable or conflicting authority остаётся explicit `unknown`/blocked result, а не выдуманной датой.
-  6. `COLAB-REALTIME-01` достигает `6/6`: representative Windows/Chrome microphone/display/mixed sessions, repeated start/stop и permission-cancellation lifecycle проходят bounded LIVE matrix без воспроизводимого capture break.
-  7. Secrets, tokens, transcript bodies, private source bytes, Google/provider payloads и raw Drive links не попадают в code, tests, logs, analytics или delivery Evidence.
-  8. Relevant focused/full tests и exact-head CI проходят; reviewed exact revision доступна Colab launcher; bounded production LIVE подтверждает batch и realtime либо фиксирует конкретный внешний gate.
-  9. Colab batch выбирает provider auto-detection по умолчанию; explicit Russian/English остаются доступными overrides, а provider request не получает language code в default mode.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY N/A | LIVE ◐`.
-- **Known blockers/dependencies:** standard browser upload не гарантирует filesystem creation time; implementation использует embedded media creation metadata, затем Drive `createdTime`, а при отсутствии/conflict оставляет `unknown` без fallback на `lastModified`. Batch provider canary завершён; destructive manifest-clear apply не требуется и не авторизован. Финальная realtime matrix и визуальная проверка нового auto-detection default требуют owner-controlled Chrome/Windows. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому фактический post-delivery state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
+  1. `SP-01`: authenticated owner создаёт, читает, изменяет и деактивирует только собственные speaker identities; names не конфликтуют case-insensitively в owner scope.
+  2. `SP-02`: каждая identity хранит bounded normalized role и возвращает её только в owner-scoped safe DTO.
+  3. `SP-03`: completed diarized job предоставляет по одному bounded sample на detected provider label; endpoint fail-closed при чужом job/profile, unavailable/expired source, invalid bounds или media failure и не сохраняет audio.
+  4. `SP-04`: пользователь явно выбирает identity для technical speaker label; assignment идемпотентен, owner-scoped и не выполняет biometric inference.
+  5. `SP-05`: successful assignment обновляет speaker heading в exact Google Docs output и отображается как safe name/role metadata в History/job detail; failure Google mutation не выдаётся за persisted assignment.
+  6. Schema/API/browser DTO не раскрывают provider payload, transcript body, source bytes/keys, Google document ID/token или credential values; logs/diagnostics содержат только allowlisted scalar outcomes.
+  7. Relevant backend/frontend/migration tests, full repository/Studio CI и exact-head checks проходят; production release соблюдает migration/API/worker/web gates.
+  8. Bounded LIVE использует один уже существующий либо отдельно авторизованный короткий diarized result, подтверждает profile → listen → assign → Doc/History flow без нового provider charge, если существующего evidence достаточно.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** additive migration `0024_speaker_identity` будет `MANUAL_GATED` и потребует отдельной action-time authorization/Environment approval после merge; sample доступен только пока исходный Drive/R2 source доступен; Google Docs mutation требует active owner Google connection и exact persisted output. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому final delivery state фиксируется GitHub Evidence/final report и reconciled в следующем authorized code-bearing scope без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T14:22:25Z.
+- Updated (UTC): 2026-08-24T18:05:36Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
-- Base SHA for expanded scope: `ceab95988b4a16f36e76134d6312a10c60d72fe5`.
-- Working branch: `codex/colab-production-completion`.
-- Last verified revision: `65d2b76b0e026ac05f96d42439134b06b7292163` — auto-detection default, explicit overrides preserved.
-- Working tree at expanded-scope start: clean; local `main = origin/main@ceab959`; existing Goal branch safely fast-forwarded to main; unrelated pre-existing changes absent.
-- Completed: PR `#231` merged as `main@ceab959`; PR-head CI `32716793205` и post-merge main CI `32717076189` passed. Bounded batch LIVE обработал nested local-folder fixture, создал один native Google Doc с непустым transcript и exact authoritative `Created at: 2026-08-01T09:10:11Z`; Drive metadata подтверждает document creation before manifest modification. Auto-detection default реализован отдельным atomic commit без удаления explicit overrides.
-- Current step: expanded code/spec scope опубликован в PR `#232`; final PR checkpoint синхронизируется перед exact-head CI.
-- Next exact action: дождаться terminal state required exact-head CI PR `#232`, устранить failures при наличии и оценить merge readiness.
-- Validation and Evidence: auto-default commit — `197 passed`; `scripts/ci_checks.py` и `git diff --check` passed. Предыдущий combined Colab helper/realtime suite — `258 passed, 1 skipped`, отдельный bundled Node syntax check passed. Batch `CB-05/21/22` закрыты bounded LIVE; `CR-06` остаётся единственным open product AC.
-- Pull Request: `#231` merged; expanded code-bearing PR `#232` — `https://github.com/Just9120/Elevenlabs-API/pull/232`.
-- CI/checks: exact-main CI `32717076189` passed для `ceab959`; PR `#232` CI run `32738280409` started для pre-checkpoint head `c762285`, final exact head ожидает push.
-- Deployment/environment: Colab не имеет VPS deployment unit; `DEPLOY N/A`. Applicable delivery identity — reviewed repository revision и exact `GITHUB_REF` launcher.
-- Blockers: none for code/PR. Финальная realtime и non-provider auto-default LIVE остаются owner-controlled.
-- Unverified assumptions: representative Windows/Chrome realtime matrix после lifecycle hardening ещё не завершена.
+- Base SHA: `c9ac43fc71a97a868db744088c06c69882a555fa`.
+- Working branch: `codex/pwa-speaker-identity`.
+- Last verified revision: `01e0ef0` — полный speaker-identity scope и CI regression fix, исключающий collection-time подмену configured PostgreSQL на SQLite; applicable local regression green.
+- Working tree at Goal start: clean; local `main = origin/main@c9ac43f`; unrelated pre-existing changes absent.
+- Completed: commits `ae5ef23`/`1fd1e78`/`6eafc9b` реализовали migration/domain/API/UI и operational documentation; `49e09c5` синхронизировал exact migration head в production preflight и закрепил safe browser DTO contract.
+- Current step: replacement CI suite на `b6da829` terminal green; подготовлен финальный pre-merge Evidence checkpoint.
+- Next exact action: после terminal success required checks финального docs-only revision выполнить merge PR `#233`, затем остановиться на action-time authorization gate для production migration/deploy.
+- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript, ESLint и production PWA build passed; full portable backend после CI fix `1022 passed, 6 skipped`; `scripts/ci_checks.py` passed. POSIX production-preflight suite локально невалиден под Windows path semantics и остаётся обязательным Linux CI gate. Product AC `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
+- Pull Request: `#233` — `codex/pwa-speaker-identity` → `main`; branch base не diverged (`origin/main@c9ac43f`, `0 behind / 7 ahead` перед push).
+- CI/checks: first suite на `991521f`: `studio`/`browser-e2e` ✅, `checks` ❌ из-за collection-time SQLite contamination. Исправление `01e0ef0`; replacement suite на `b6da829`: `checks` ✅ run `32760121555`, `studio`/`browser-e2e` ✅ run `32760121568`.
+- Deployment/environment: not started; expected migration class `MANUAL_GATED`, component units API/worker/web.
+- Blockers: none for local implementation. Production migration remains future external gate requiring explicit authorization.
+- Unverified assumptions: existing production diarized output/source may or may not remain suitable for no-charge LIVE sample/assignment; verify before requesting any provider canary.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Snapshot независимо reconciled по exact-main delivery и owner-controlled LIVE предыдущей Goal; denominator не изменился.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Snapshot независимо reconciled по current code/tests, exact CI/CD records и completed owner-controlled Colab/PWA LIVE; denominator не изменился.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **95,0% (`114/120`)** | **92,5% (`111/120`)** | `CB-05/21/22` закрыты bounded batch LIVE; +3 AC, denominator не изменился. |
-| **Google Colab** | **96,6% (`28/29`)** | **86,2% (`25/29`)** | Остался `CR-06`; auto-default меняет behavior, но не numerator. |
-| `COLAB-BATCH-01` | **100% (`23/23`)** | **87,0% (`20/23`)** | 🟦 IN PROGRESS; product AC выполнены, новый default ожидает exact-head CI/merge и non-provider LIVE view. |
-| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `CR-06` open. |
-| **Studio PWA** | **94,5% (`86/91`)** | **94,5% (`86/91`)** | Вне Goal; numerator не изменился. |
-| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | 🟦 IN PROGRESS; LIVE retention breadth remains partial. |
-| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | 🟩 READY. |
+| **Project** | **100% (`120/120`)** | **95,8% (`115/120`)** | Все current product AC реализованы; release Evidence текущей Goal ещё не закрыт. |
+| **Google Colab** | **100% (`29/29`)** | **96,6% (`28/29`)** | Batch `23/23`, realtime `6/6`; PR `#231/#232`, CI и bounded LIVE завершены. |
+| `COLAB-BATCH-01` | **100% (`23/23`)** | **100% (`23/23`)** | 🟩 READY. |
+| `COLAB-REALTIME-01` | **100% (`6/6`)** | **83,3% (`5/6`)** | 🟩 READY; representative Windows/Chrome matrix accepted. |
+| **Studio PWA** | **100% (`91/91`)** | **94,5% (`86/91`)** | Product AC complete в working branch; epic остаётся IN PROGRESS до CI/DEPLOY/LIVE. |
+| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Product AC complete; operational LIVE breadth учитывается отдельно. |
+| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | Product AC complete. |
 | `PWA-INGEST-01` | **100% (`11/11`)** | **100% (`11/11`)** | 🟩 READY. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **100% (`10/10`)** | **100% (`10/10`)** | 🟩 READY. |
-| `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Explicitly deferred; вне Goal. |
-| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | 🟦 IN PROGRESS; destructive LIVE breadth remains partial. |
+| `PWA-SPEAKER-IDENTITY-01` | **100% (`5/5`)** | **0% (`0/5`)** | 🟦 IN PROGRESS; CODE/TEST подтверждены, delivery gates открыты. |
+| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Product AC complete; destructive LIVE breadth учитывается отдельно. |
 | `PWA-STANDARDIZATION-01` | **100% (`6/6`)** | **100% (`6/6`)** | 🟩 READY. |
-| `PWA-REALTIME-01` | **100% (`13/13`)** | **92,3% (`12/13`)** | 🟩 READY; exact CI/deploy and bounded Chrome matrix accepted. |
+| `PWA-REALTIME-01` | **100% (`13/13`)** | **100% (`13/13`)** | 🟩 READY. |
 | `PWA-OPERABILITY-01` | **100% (`18/18`)** | **100% (`18/18`)** | 🟩 READY. |
 
 ## Candidate next Goals
 
-Эти items — proposals и не авторизуют implementation:
-
-1. `PWA-SPEAKER-IDENTITY-01` — owner explicitly deferred; names/roles и manual listen-and-assign требуют отдельного privacy/product decision.
-2. `PWA-OPERATIONAL-EVIDENCE-CLOSURE-01` — retention expiry и destructive manifest LIVE breadth без изменения product numerator.
+Новых product Goals в current denominator после `PWA-SPEAKER-IDENTITY-01` нет. Future auth hardening остаётся вне denominator и не авторизовано.
 
 ## Risks и boundaries
 
-- Colab manifest содержит sensitive operational metadata; clear/migration обязаны иметь preview, confirmation, backup и narrow target semantics.
-- Provider success без confirmed Google Docs output не является accepted result и не должен блокировать safe retry как completed manifest entry.
-- Browser/local upload metadata не считается authoritative creation time только потому, что поле называется `lastModified`.
-- Realtime main API key остаётся Python-only; browser получает только short-lived single-use token.
-- Browser capture permission и surface selection остаются user gesture; automated/static tests не заменяют owner-controlled Chrome/Windows matrix.
-- No Google Docs, manifest или analytics mutation допускается из realtime contour.
-- Approved post-deploy metadata writer отсутствует; фактический state фиксируется в final report/GitHub records и reconciled в следующем authorized scope без docs-only follow-up PR.
+- Speaker identity — manual user decision; provider label не считается biometric identity и не переносится автоматически между jobs.
+- Voice sample извлекается on demand из owner-authorized source, ограничен длительностью и размером, получает `no-store` и не сохраняется в database/R2/Google Docs.
+- Assignment mutation касается только exact accepted Google Docs output текущего owner/job; raw document ID не возвращается browser.
+- Source retention может сделать sample недоступным после успешной транскрибации; это explicit recoverable UI state, а не основание хранить audio бессрочно.
+- MANUAL_GATED migration, worker lifecycle и production canary не выполняются без соответствующих action-time gates.
+- Approved post-deploy metadata writer отсутствует; protection rules не обходятся ради metadata-only update.
 
 ## Sources of truth
 
@@ -87,5 +82,4 @@
 - Current Goal/checkpoint/readiness: этот документ.
 - CI/CD и production safety: `docs/ci-cd-rules.md`.
 - Actual architecture: `docs/architecture.md`.
-- Colab validation: `docs/runbooks/validation.md` и `docs/runbooks/realtime-colab.md`.
 - Historical evidence: `docs/delivery-plan-archive.md` только при reconciliation.

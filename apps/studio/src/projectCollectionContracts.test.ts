@@ -146,6 +146,71 @@ describe("project collection contracts", () => {
     expect(parsed?.[0]).not.toHaveProperty("sources");
   });
 
+  it("accepts only safe speaker identity history metadata", () => {
+    const withSpeakers = {
+      ...job,
+      speaker_identities: [
+        {
+          id: "speaker-safe",
+          label: "Speaker 1",
+          sample_available: true,
+          profile: {
+            id: "profile-safe",
+            display_name: "Анна",
+            role: "Автор",
+            provider_label: "private-provider-label",
+          },
+          sample_start_ms: 1000,
+          document_id: "private-document-id",
+        },
+      ],
+    };
+    const parsed = parseProjectJobCollection(
+      { jobs: [withSpeakers] },
+      "project-safe",
+    );
+
+    expect(parsed?.[0].speaker_identities).toEqual([
+      {
+        id: "speaker-safe",
+        label: "Speaker 1",
+        sample_available: true,
+        profile: {
+          id: "profile-safe",
+          display_name: "Анна",
+          role: "Автор",
+        },
+      },
+    ]);
+    expect(parsed?.[0].speaker_identities?.[0]).not.toHaveProperty(
+      "sample_start_ms",
+    );
+    expect(parsed?.[0].speaker_identities?.[0]).not.toHaveProperty(
+      "document_id",
+    );
+
+    expect(
+      parseProjectJobCollection(
+        {
+          jobs: [
+            {
+              ...job,
+              speaker_identities: [
+                {
+                  id: "speaker-safe",
+                  label: "provider-private-label",
+                  sample_available: true,
+                  profile: null,
+                },
+              ],
+            },
+          ],
+        },
+        "project-safe",
+      ),
+    ).toBeNull();
+  });
+
   it("accepts every canonical job language mode across list, detail, and summary", () => {
     for (const languageMode of ["ru", "en", "detect"] as const) {
       const localizedJob = { ...job, language_mode: languageMode };

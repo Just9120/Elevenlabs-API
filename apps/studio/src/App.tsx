@@ -3761,6 +3761,12 @@ function PreparationPanel({
           jobMutationKey("dismiss", job.id),
         )}
         onDismissTerminal={dismissTerminalJob}
+        csrf={csrf}
+        onCsrf={onCsrf}
+        onSpeakerUpdated={async (jobId) => {
+          await loadDetail(jobId);
+          await onReloadJobs(project.id);
+        }}
       />
     );
   }
