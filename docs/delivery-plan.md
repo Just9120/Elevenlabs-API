@@ -23,7 +23,7 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T14:17:03Z.
+- Updated (UTC): 2026-08-24T14:22:25Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA for expanded scope: `ceab95988b4a16f36e76134d6312a10c60d72fe5`.
@@ -31,11 +31,11 @@
 - Last verified revision: `65d2b76b0e026ac05f96d42439134b06b7292163` — auto-detection default, explicit overrides preserved.
 - Working tree at expanded-scope start: clean; local `main = origin/main@ceab959`; existing Goal branch safely fast-forwarded to main; unrelated pre-existing changes absent.
 - Completed: PR `#231` merged as `main@ceab959`; PR-head CI `32716793205` и post-merge main CI `32717076189` passed. Bounded batch LIVE обработал nested local-folder fixture, создал один native Google Doc с непустым transcript и exact authoritative `Created at: 2026-08-01T09:10:11Z`; Drive metadata подтверждает document creation before manifest modification. Auto-detection default реализован отдельным atomic commit без удаления explicit overrides.
-- Current step: expanded code/spec change локально проверен; operational checkpoint и readiness синхронизируются перед push/new PR той же Goal.
-- Next exact action: закоммитить checkpoint, push рабочей branch, создать новый code-bearing PR для расширенного scope и дождаться terminal exact-head CI.
+- Current step: expanded code/spec scope опубликован в PR `#232`; final PR checkpoint синхронизируется перед exact-head CI.
+- Next exact action: дождаться terminal state required exact-head CI PR `#232`, устранить failures при наличии и оценить merge readiness.
 - Validation and Evidence: auto-default commit — `197 passed`; `scripts/ci_checks.py` и `git diff --check` passed. Предыдущий combined Colab helper/realtime suite — `258 passed, 1 skipped`, отдельный bundled Node syntax check passed. Batch `CB-05/21/22` закрыты bounded LIVE; `CR-06` остаётся единственным open product AC.
-- Pull Request: `#231` merged; новый PR для post-merge code scope ещё не создан.
-- CI/checks: exact-main CI `32717076189` passed для `ceab959`; `65d2b76` ожидает exact-head CI.
+- Pull Request: `#231` merged; expanded code-bearing PR `#232` — `https://github.com/Just9120/Elevenlabs-API/pull/232`.
+- CI/checks: exact-main CI `32717076189` passed для `ceab959`; PR `#232` CI run `32738280409` started для pre-checkpoint head `c762285`, final exact head ожидает push.
 - Deployment/environment: Colab не имеет VPS deployment unit; `DEPLOY N/A`. Applicable delivery identity — reviewed repository revision и exact `GITHUB_REF` launcher.
 - Blockers: none for code/PR. Финальная realtime и non-provider auto-default LIVE остаются owner-controlled.
 - Unverified assumptions: representative Windows/Chrome realtime matrix после lifecycle hardening ещё не завершена.
