@@ -40,7 +40,7 @@ Verified main baseline: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`. Тек�
 
 1. Primary batch artifact — Google Docs transcript; realtime должен позволять скачать подтверждённый текст как `.txt`.
 2. Фраза владельца «импорт транскрипции в виде документа `.txt`» в текущем контракте означает выгрузку/скачивание результата. Import внешнего `.txt` обратно в продукт не включён без отдельного уточнения.
-3. Языковые режимы обоих batch-продуктов: русский, английский и provider auto-detection.
+3. Языковые режимы обоих batch-продуктов: русский, английский и provider auto-detection. В Google Colab auto-detection выбран по умолчанию; русский и английский остаются optional explicit overrides.
 4. Время в metadata документа — ISO 8601 и отражает фактическое создание исходного media file. Время изменения файла, время job и время создания transcript document не являются допустимой заменой.
 5. Duplicate protection использует устойчивую source identity: Google Drive file ID и доступные metadata; для local files — content fingerprint и доступные metadata. Filename alone недостаточен.
 6. Accepted-output manifest/catalog record создаётся только после подтверждённого создания Google Docs результата. Operational job state может храниться отдельно, но не должен становиться ложным доказательством успешной транскрибации.
@@ -70,7 +70,7 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-09` | Доступно разделение на спикеров. | ✅ |
 | `CB-10` | Доступен явный русский язык. | ✅ |
 | `CB-11` | Доступен явный английский язык. | ✅ |
-| `CB-12` | Доступно auto-detection языка. | ✅ |
+| `CB-12` | Доступно auto-detection языка и оно выбрано по умолчанию; русский и английский остаются optional overrides. | ✅ |
 | `CB-13` | Manifest защищает от повторной платной транскрибации. | ✅ |
 | `CB-14` | Пользователь может явно пропустить manifest check. | ✅ |
 | `CB-15` | Пользователь может безопасно очистить manifest. | ✅ |
