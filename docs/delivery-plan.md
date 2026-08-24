@@ -27,12 +27,12 @@
 - Base branch: `main`.
 - Base SHA: `ebbba50a938feb2d06b2ec59e828834ff204988d`.
 - Working branch: `codex/colab-production-completion`.
-- Last verified revision: `ca6fc3cd0ba4819d896d8b6d9ca39c281815bc7b` — safe manifest clear slice.
+- Last verified revision: `b3e3d3211e1aa44f935cc4f326abafdbd93a03d1` — bounded local-folder intake slice.
 - Working tree at branch start: clean; local `main = origin/main`; divergence `0/0`; unrelated pre-existing changes absent.
 - Completed: previous realtime Goal reconciled from PRs #228–#230. Exact-main repository CI `32706218832`, Studio/browser CI `32706218892` and web CD `32706218830` passed for `main@ebbba50`; owner-controlled Chrome mixed canary confirmed both source signals and accepted residual simultaneous-speaker masking as non-critical. Three merged realtime branches were safely removed locally/remotely.
-- Current step: browser-native local folder intake реализован через `webkitdirectory` и upstream-aligned Colab `eval_js` iterator: supported files передаются 128 KiB chunks, relative paths валидируются, absolute paths/`lastModified` не используются, file/count/total limits fail-closed.
-- Next exact action: провести targeted realtime source/test audit, закрыть воспроизводимые lifecycle gaps и подготовить representative Windows/Chrome matrix.
-- Validation and Evidence: local-folder slice — focused Colab helpers `197 passed`; source bridge сверен с upstream Colab files upload iterator pattern. `CB-05` имеет CODE/TEST, но остаётся open до фактического Colab browser LIVE. Readiness поэтому не изменилась: project `111/120`, Colab `25/29`, batch `20/23`.
+- Current step: targeted realtime hardening реализован: track-ended cleanup, bounded session-config/WebSocket-open timeouts, 1 MiB backpressure stop, abort pending config fetch и voice-processing ideal constraints; fresh Start остаётся единственным retry path для single-use token.
+- Next exact action: выполнить full local validation, проверить branch divergence, синхронизировать readiness/Evidence и подготовить PR exact head.
+- Validation and Evidence: realtime focused suite `61 passed, 1 skipped`; skipped Node syntax case отдельно выполнен bundled Node `--check` и passed. `CR-06` остаётся open до bounded representative Windows/Chrome matrix. Readiness не изменилась: project `111/120`, Colab `25/29`, realtime `5/6`.
 - Pull Request: none.
 - CI/checks: not started for this branch.
 - Deployment/environment: Colab has no VPS component deployment; exact reviewed repository revision and launcher `GITHUB_REF` are the applicable delivery identity. Final applicability of `DEPLOY` Evidence will be stated explicitly after targeted topology verification.

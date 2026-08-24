@@ -85,7 +85,7 @@ Owner runtime evidence: существующий batch contour использу�
 
 Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Verified gaps: local folder ещё не доступен; `CB-21/22` требуют representative Colab LIVE с embedded/Drive creation authority. English, safe manifest clear с backup/explicit confirmation и post-output-only source persistence закрыты CODE/TEST в Current Goal branch.
+Verified gaps: local folder реализован и покрыт focused tests в Current Goal branch, но `CB-05` требует representative Colab browser LIVE; `CB-21/22` требуют representative Colab LIVE с embedded/Drive creation authority. English, safe manifest clear с backup/explicit confirmation и post-output-only source persistence закрыты CODE/TEST в Current Goal branch.
 
 Definition of Done: `23/23`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data.
 
@@ -104,7 +104,7 @@ Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**, приоритет ниже PWA.
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Owner LIVE evidence подтверждает работоспособность и периодические разрывы захвата вкладки. Automatic reconnect сейчас отсутствует. До закрытия `CR-06` нужен воспроизводимый manual Colab runtime validation; это остаётся experimental Realtime Colab prototype, не создающий Google Docs и manifest.
+Owner LIVE evidence подтверждает работоспособность и исторические периодические разрывы захвата вкладки. Current Goal branch добавляет track-ended cleanup, session/WebSocket timeouts и backpressure guard; automatic reconnect намеренно отсутствует, поскольку новый Start обязан получить новый single-use token. До закрытия `CR-06` нужен воспроизводимый manual Colab runtime validation по bounded Windows/Chrome matrix; это остаётся experimental Realtime Colab prototype, не создающий Google Docs и manifest.
 
 ## 5. Studio PWA
 
