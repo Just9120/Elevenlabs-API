@@ -16,13 +16,13 @@
   6. Schema/API/browser DTO не раскрывают provider payload, transcript body, source bytes/keys, Google document ID/token или credential values; logs/diagnostics содержат только allowlisted scalar outcomes.
   7. Relevant backend/frontend/migration tests, full repository/Studio CI и exact-head checks проходят; production release соблюдает migration/API/worker/web gates.
   8. Bounded LIVE использует один уже существующий либо отдельно авторизованный короткий diarized result, подтверждает profile → listen → assign → Doc/History flow без нового provider charge, если существующего evidence достаточно.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** additive migration `0024_speaker_identity` будет `MANUAL_GATED` и потребует отдельной action-time authorization/Environment approval после merge; sample доступен только пока исходный Drive/R2 source доступен; Google Docs mutation требует active owner Google connection и exact persisted output. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому final delivery state фиксируется GitHub Evidence/final report и reconciled в следующем authorized code-bearing scope без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T18:01:56Z.
+- Updated (UTC): 2026-08-24T18:05:36Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `c9ac43fc71a97a868db744088c06c69882a555fa`.
@@ -30,11 +30,11 @@
 - Last verified revision: `01e0ef0` — полный speaker-identity scope и CI regression fix, исключающий collection-time подмену configured PostgreSQL на SQLite; applicable local regression green.
 - Working tree at Goal start: clean; local `main = origin/main@c9ac43f`; unrelated pre-existing changes absent.
 - Completed: commits `ae5ef23`/`1fd1e78`/`6eafc9b` реализовали migration/domain/API/UI и operational documentation; `49e09c5` синхронизировал exact migration head в production preflight и закрепил safe browser DTO contract.
-- Current step: CI run `32759420372` root cause исправлен и локально validated; отправить новый exact revision в PR `#233`.
-- Next exact action: push `01e0ef0` с checkpoint, затем дождаться нового terminal state всех required checks PR `#233`.
+- Current step: replacement CI suite на `b6da829` terminal green; подготовлен финальный pre-merge Evidence checkpoint.
+- Next exact action: после terminal success required checks финального docs-only revision выполнить merge PR `#233`, затем остановиться на action-time authorization gate для production migration/deploy.
 - Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript, ESLint и production PWA build passed; full portable backend после CI fix `1022 passed, 6 skipped`; `scripts/ci_checks.py` passed. POSIX production-preflight suite локально невалиден под Windows path semantics и остаётся обязательным Linux CI gate. Product AC `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
 - Pull Request: `#233` — `codex/pwa-speaker-identity` → `main`; branch base не diverged (`origin/main@c9ac43f`, `0 behind / 7 ahead` перед push).
-- CI/checks: first suite на `991521f`: `studio` ✅ и `browser-e2e` ✅ в run `32759420357`; `checks` ❌ в run `32759420372` из-за collection-time SQLite environment contamination нового test module, исправлено commit `01e0ef0`; replacement suite pending после push.
+- CI/checks: first suite на `991521f`: `studio`/`browser-e2e` ✅, `checks` ❌ из-за collection-time SQLite contamination. Исправление `01e0ef0`; replacement suite на `b6da829`: `checks` ✅ run `32760121555`, `studio`/`browser-e2e` ✅ run `32760121568`.
 - Deployment/environment: not started; expected migration class `MANUAL_GATED`, component units API/worker/web.
 - Blockers: none for local implementation. Production migration remains future external gate requiring explicit authorization.
 - Unverified assumptions: existing production diarized output/source may or may not remain suitable for no-charge LIVE sample/assignment; verify before requesting any provider canary.
