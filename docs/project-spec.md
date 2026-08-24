@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@ceab95988b4a16f36e76134d6312a10c60d72fe5`. PR `#231`, PR-head CI `32716793205` и post-merge main CI `32717076189` подтвердили реализованный Colab scope. Bounded owner-controlled Colab batch LIVE на exact main подтвердил local-folder intake вложенного файла, native Google Docs output, visible authoritative `2026-08-01T09:10:11Z` и manifest update после создания документа. Working branch дополнительно меняет только UX default языка на auto-detection; denominator не меняется.
+Verified main baseline: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`. Exact-main repository CI `32760830338`, Studio/browser CI `32760830386` и component delivery chain подтвердили текущий merged code. Новая явно авторизованная Goal `PWA-AUDIO-PREPARATION-01` расширяет canonical scope на `AP-01..AP-16`; эти AC ещё не выполнены и увеличивают denominator.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **100% (`91/91`)** | сумма десяти PWA-эпиков ниже; speaker identity AC реализованы в current working branch, delivery gates ещё не закрыты |
-| Весь проект | **100% (`120/120`)** | все выполненные AC двух продуктов / все AC текущего scope; READY отдельно зависит от обязательных Evidence gates |
+| Studio PWA | **85,0% (`91/107`)** | выполненные AC существующих PWA-эпиков / все PWA AC, включая новый audio-preparation epic `0/16` |
+| Весь проект | **88,2% (`120/136`)** | все выполненные AC двух продуктов / все AC расширенного current scope; READY отдельно зависит от обязательных Evidence gates |
 
 ## 3. Общие product rules
 
@@ -212,9 +212,38 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 `main@800bcc820529ff3c78214c129c593d182c621c62` передаёт persisted source creation authority в output/maintenance contract и запрещает fallback на Google Doc/job/upload/modified clocks. Exact-main CI/CD и bounded production canary подтверждены delivery record PR #227.
 
+### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
+
+Status: **🟦 IN PROGRESS — 0% (`0/16`)**. Scope явно авторизован владельцем 2026-08-24; implementation и Evidence ещё не подтверждены.
+
+Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `AP-01` | Sidebar содержит отдельный пункт `Обработка аудио` непосредственно перед `Транскрипциями`. | — |
+| `AP-02` | Пользователь выбирает один или несколько доступных owner-scoped media sources и запускает обработку независимо от транскрибации. | — |
+| `AP-03` | До обработки каждый input проверяется через bounded probe на container, codec, duration, audio-stream presence и media integrity; invalid input fail-closed. | — |
+| `AP-04` | Несколько inputs по умолчанию упорядочиваются по authoritative creation time, а пользователь может явно изменить порядок до запуска. | — |
+| `AP-05` | Совместимые inputs могут быть склеены без перекодирования и потери качества; несовместимый copy plan блокируется до явного выбора conversion path. | — |
+| `AP-06` | Processed output можно явно преобразовать в `WAV` или `FLAC`. | — |
+| `AP-07` | Для stereo input доступен явный mono mode: mixdown, left channel или right channel; недоступный channel mode отклоняется до processing. | — |
+| `AP-08` | Silence processing позволяет задать threshold, минимальную длительность тишины и сколько тишины оставить; значения имеют bounded safe limits. | — |
+| `AP-09` | До mutation пользователь получает preview общей исходной длительности и оценочной длительности после silence processing. | — |
+| `AP-10` | Склейка, silence processing, conversion и переименование могут выполняться отдельно или в комбинации без обязательной последующей транскрибации. | — |
+| `AP-11` | Output filename формируется из безопасного пользовательского имени либо bounded шаблона с доступными date/time/project/title metadata. | — |
+| `AP-12` | Доступны bounded presets для типовых сценариев `Лекция`, `Созвон` и `Только обработать аудио`, причём пользователь видит и может изменить итоговые параметры до запуска. | — |
+| `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. | — |
+| `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. | — |
+| `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | — |
+| `AP-16` | Request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel; API, UI, logs и diagnostics не раскрывают private paths, object keys или source bytes. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+Definition of Done: `16/16`, relevant backend/frontend/migration tests и required exact-head CI green, additive schema release и API/worker/web deployment по applicable gates, bounded owner-controlled LIVE с короткими fixtures, authenticated download и одним Google Drive upload без provider call.
+
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
-Status: **🟦 IN PROGRESS — 100% (`5/5`)**. Product AC реализованы и покрыты local tests в working branch; CI, production rollout и bounded LIVE ещё не подтверждены, поэтому эпик не READY.
+Status: **🟩 READY — 100% (`5/5`)**. Exact-main CI, protected migration, API/worker/web deployment и bounded owner-controlled LIVE подтверждены.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -224,7 +253,9 @@ Status: **🟦 IN PROGRESS — 100% (`5/5`)**. Product AC реализованы
 | `SP-04` | Пользователь явно связывает provider speaker label с выбранным именем. | ✅ |
 | `SP-05` | Подтверждённое имя/роль используется в transcript output и history metadata. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+
+Verified delivery: PR `#233` merged как `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`; exact-main CI `32760830338`/`32760830386`, protected migration `0024_speaker_identity`, API/worker/web delivery и bounded synthetic two-speaker LIVE подтвердили profile → sample → explicit assignment → Google Docs/History flow.
 
 Автоматическое biometric matching, voiceprints и embeddings не следуют из требования. Текущий scope — manual listen-and-assign; иная модель требует отдельного privacy/security решения.
 
@@ -317,13 +348,13 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
-## 6. Future scope, не включённый в denominator `120`
+## 6. Future scope, не включённый в denominator `136`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
-Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authenticator и Cloudflare Zero Trust к будущему. TOTP-подтверждение очистки History/Analytics также future hardening и не заменяет текущий обязательный Да/Нет confirmation.
+Status: **⬜ BACKLOG**. Владелец 2026-08-24 разрешил optional TOTP как отдельную следующую Goal: 2FA должна оставаться добровольной и не блокировать вход, пока пользователь её не включил. Cloudflare Zero Trust и TOTP-подтверждение очистки History/Analytics не авторизованы этой Goal.
 
-Эти future criteria исключены из текущего denominator до отдельной авторизации реализации и выбора architecture/credential model.
+Future auth criteria исключены из текущего denominator до отдельной Goal с согласованными enrollment, recovery, disable и credential-storage boundaries.
 
 ## 7. Durable technical и safety constraints
 
@@ -355,18 +386,18 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@c9ac43fc71a97a868db744088c06c69882a555fa`.
-- Exact-main repository CI: run `32738787968`, success.
-- Exact-main Studio/browser CI: run `32706218892`, jobs `studio` и `browser-e2e` success.
-- Studio web deployment: run `32706218830`, success; API, migration и worker корректно skipped для browser-only realtime diff. Migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
-- Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
-- Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
+- Current verified revision: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`.
+- Exact-main repository CI: run `32760830338`, success.
+- Exact-main Studio/browser CI: run `32760830386`, jobs `studio` и `browser-e2e` success.
+- Studio component delivery: web run `32760830341`, migration/API run `32762815131`, worker run `32763111064`, success на exact merge revision; migration head `0024_speaker_identity`.
+- Bounded production speaker-identity LIVE подтвердил owner profile, bounded sample, explicit assignment и persisted Google Docs/History result. Остальные historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Завершить PR/CI review current `PWA-SPEAKER-IDENTITY-01` implementation.
-2. После merge получить отдельную action-time authorization и провести MANUAL_GATED migration `0024_speaker_identity`, затем API/worker/web deployment.
-3. Подтвердить owner profile → bounded listen → explicit assign → exact Google Docs/history flow bounded LIVE без нового provider charge, если существующий source/output доступен.
+1. Реализовать `PWA-AUDIO-PREPARATION-01` как отдельный workspace до `Транскрипций` и закрыть `AP-01..AP-16`.
+2. Провести required CI и applicable additive schema/API/worker/web delivery gates.
+3. Выполнить bounded LIVE на коротких owner-controlled media fixtures без provider call.
+4. После закрытия текущей Goal отдельно согласовать optional TOTP Goal; commercial multi-provider/Russian infrastructure scope остаётся future.
 
 ## 10. Supporting documents
 

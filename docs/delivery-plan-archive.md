@@ -796,6 +796,17 @@ Goal `COLAB-PRODUCTION-COMPLETION-01` завершила canonical Colab batch/r
 - Colab не имеет VPS deployment unit, поэтому `DEPLOY N/A`; reviewed repository revision/launcher и manual runtime составили applicable delivery Evidence.
 - Approved post-deploy metadata writer отсутствовал; closure reconciled при старте следующей authorized code-bearing Goal без отдельного docs-only PR.
 
+## Archived PR #233 speaker identity closure
+
+Goal `PWA-SPEAKER-IDENTITY-01` завершена 2026-08-24.
+
+- Base: `main@c9ac43fc71a97a868db744088c06c69882a555fa`; merge commit PR `#233`: `5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`.
+- Exact-main repository CI `32760830338` и Studio/browser CI `32760830386` завершились success.
+- Worker drain `32762666106`, protected migration/API release `32762815131` и worker deployment `32763111064` завершились success; production schema достигла `0024_speaker_identity`.
+- Bounded synthetic two-speaker LIVE завершил diarized job без повторного canary, создал два owner profiles, отдал bounded samples и persisted explicit label-to-profile assignments в exact Google Docs и History metadata.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`; `PWA-SPEAKER-IDENTITY-01 5/5`.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal. После проверки ancestry merged branch была удалена, local `main` синхронизирован с exact merge SHA.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
