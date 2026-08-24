@@ -5,13 +5,13 @@ VoiceOps — система транскрибации с двумя production-
 1. **Google Colab** — batch-транскрибации в Google Docs и realtime-транскрибация в окне браузера.
 2. **Studio PWA** — развиваемое web-приложение с batch и realtime, авторизацией, проектами, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
 
-Colab batch используется около четырёх месяцев и в целом стабилен. Colab realtime работает, но иногда теряет browser tab capture и сейчас имеет более низкий приоритет. Studio PWA уже содержит значительную working surface, однако весь новый product scope ещё не стабилен и не завершён.
+Colab batch используется около четырёх месяцев и в целом стабилен. Текущая рабочая ветка завершает оставшиеся batch-функции и усиливает lifecycle browser capture в Colab realtime; непроверенные runtime-сценарии не считаются готовыми до bounded LIVE validation. Studio PWA уже содержит значительную working surface, однако весь product scope ещё не завершён.
 
-Актуальная независимо пересчитанная готовность на baseline `main@f3a3f33`:
+Актуальная независимо пересчитанная готовность на baseline `main@ebbba50` с отдельно отмеченным tested working-branch Evidence:
 
-- Google Colab: **75,9% (`22/29`)**.
-- Studio PWA: **70,0% (`56/80`)**.
-- весь проект: **71,6% (`78/109`)**.
+- Google Colab: **86,2% (`25/29`)**.
+- Studio PWA: **94,5% (`86/91`)**.
+- весь проект: **92,5% (`111/120`)**.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
@@ -35,7 +35,7 @@ npm run build
 git diff --check
 ```
 
-Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Realtime Colab проверяется по отдельному runbook. Studio production operations выполняются только по project CI/CD contract и operational runbook.
+Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Studio production operations выполняются только по project CI/CD contract и operational runbook.
 
 ## Canonical и operational документы
 

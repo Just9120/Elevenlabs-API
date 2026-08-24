@@ -385,7 +385,7 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
     assert "Virtual input / system audio device" not in page
     assert "navigator.mediaDevices.getUserMedia" in js
     assert "navigator.mediaDevices.getDisplayMedia" in js
-    assert "fetch('/session-config.json', {cache: 'no-store'})" in js
+    assert "fetch('/session-config.json', {cache: 'no-store', signal: controller.signal})" in js
     assert "new WebSocket(wsUrl)" in js
     assert "new WebSocket(CONFIG.wsUrl)" not in js
     assert "message_type: 'input_audio_chunk'" in js
@@ -548,13 +548,65 @@ def test_realtime_stop_during_pending_microphone_permission_stops_stale_stream_b
 def test_realtime_mixed_source_stale_acquisition_cleanup_and_source_reset() -> None:
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
-    assert "function registerCapturedStream(stream)" in js
+    assert "function registerCapturedStream(stream, sourceLabel)" in js
     assert "attempt.mediaStreams.push(stream); streams.push(stream); return stream;" in js
-    assert "if (hasDisplayAudio()) registerCapturedStream(await getDisplayAudioStream(attempt));" in js
-    assert "if (hasInputAudio()) registerCapturedStream(await getInputAudioStream(attempt));" in js
+    assert "if (hasDisplayAudio()) registerCapturedStream(await getDisplayAudioStream(attempt), 'Аудио вкладки / экрана');" in js
+    assert "if (hasInputAudio()) registerCapturedStream(await getInputAudioStream(attempt), 'Микрофон / аудиовход');" in js
     assert "catch (err) { stopStreams(streams); throw err; }" in js
     assert "function resetUiAfterAttempt()" in js
     assert "setSourceControlsDisabled(false); updateSourceUi();" in js
+
+
+def test_realtime_source_track_end_stops_entire_attempt_and_removes_listeners() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "trackEndListeners: []" in js
+    assert "sourceEndHandled: false" in js
+    assert "function handleCapturedTrackEnded(attempt, sourceLabel)" in js
+    assert "track.addEventListener('ended', listener, {once: true})" in js
+    assert "attempt.trackEndListeners.push({track, listener})" in js
+    assert "if (track.readyState === 'ended') queueMicrotask(listener)" in js
+    assert "attempt.sourceEndHandled = true;" in js
+    assert "sourceLabel + ' завершил передачу." in js
+    assert "item.track.removeEventListener('ended', item.listener)" in js
+    assert js.index("removeEventListener('ended'") < js.index("stopStreams(attempt.mediaStreams)")
+    assert "try { attempt.ws.close(1000, socketCloseReason); } catch (e) {}" in js
+
+
+def test_realtime_session_and_websocket_open_have_bounded_timeouts() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "const WEBSOCKET_OPEN_TIMEOUT_MS = 15000" in js
+    assert "const SESSION_CONFIG_TIMEOUT_MS = 15000" in js
+    assert "const controller = new AbortController()" in js
+    assert "signal: controller.signal" in js
+    assert "attempt.sessionConfigAbortController.abort()" in js
+    assert "Превышено время ожидания подготовки realtime-сессии" in js
+    assert "attempt.websocketOpenTimer = setTimeout" in js
+    assert "Превышено время ожидания WebSocket" in js
+    assert "if (attempt.websocketOpenTimer) clearTimeout(attempt.websocketOpenTimer)" in js
+
+
+def test_realtime_websocket_backpressure_fails_closed_and_releases_capture() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+    send_block = js[js.index("function sendAudioProcessChunk"):js.index("function connectAudioProcessor")]
+
+    assert "const MAX_WEBSOCKET_BUFFERED_BYTES = 1024 * 1024" in js
+    assert "attempt.ws.bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES" in send_block
+    assert "attempt.cancelled = true" in send_block
+    assert "WebSocket не успевает отправлять аудио" in send_block
+    assert send_block.index("bufferedAmount") < send_block.index("attempt.ws.send")
+
+
+def test_realtime_microphone_requests_voice_processing_as_ideal_constraints() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+    constraints = js[js.index("function microphoneConstraints"):js.index("async function getDisplayAudioStream")]
+
+    assert "echoCancellation: {ideal: true}" in constraints
+    assert "noiseSuppression: {ideal: true}" in constraints
+    assert "autoGainControl: {ideal: true}" in constraints
+    assert "channelCount: {ideal: 1}" in constraints
+    assert "audio.deviceId = {exact: inputDeviceEl.value}" in constraints
 
 
 def test_realtime_browser_prompt_cancelled_without_websocket_creation_is_ready() -> None:
@@ -571,7 +623,9 @@ def test_realtime_stale_old_attempt_cannot_affect_newer_attempt_or_callbacks() -
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
     assert "currentAttempt && currentAttempt.id === attempt.id" in js
-    assert "if (!isAttemptActive(attempt)) return; setStatus(STATUS.websocketOpen)" in js
+    open_block = js[js.index("function handleWebSocketOpen"):js.index("function handleWebSocketError")]
+    assert "if (!isAttemptActive(attempt)) return;" in open_block
+    assert "setStatus(STATUS.websocketOpen);" in open_block
     assert "function handleWebSocketClose(attempt, event)" in js
     assert js.index("if (!ownsCurrentUi(attempt)) return;", js.index("function handleWebSocketClose")) < js.index("if (!isAttemptActive(attempt) && !attempt.userStopRequested) return;", js.index("function handleWebSocketClose")) < js.index("const expected = attempt.userStopRequested", js.index("function handleWebSocketClose"))
     assert "function handleWebSocketMessage(attempt, event)" in js
@@ -586,7 +640,7 @@ def test_realtime_expected_stop_and_unexpected_close_remain_distinguishable() ->
     assert "WebSocket закрыт после команды пользователя" in js
     assert "Неожиданное закрытие WebSocket" in js
     assert "finalStatus: expected ? STATUS.stopped : STATUS.closed" in js
-    assert "cleanupAttempt(attempt, {closeSocket, finalStatus: STATUS.stopped" in js
+    assert "cleanupAttempt(attempt, {closeSocket, socketCloseReason: 'Остановлено пользователем', finalStatus: STATUS.stopped" in js
 
 
 def test_realtime_partial_text_clears_after_cancellation_failure_and_stop() -> None:
@@ -616,8 +670,8 @@ def test_realtime_active_predicate_invalidates_cancelled_or_cleaned_attempts() -
 def test_realtime_each_stream_registered_before_next_capture_await() -> None:
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
-    display_capture = "registerCapturedStream(await getDisplayAudioStream(attempt));"
-    input_capture = "registerCapturedStream(await getInputAudioStream(attempt));"
+    display_capture = "registerCapturedStream(await getDisplayAudioStream(attempt), 'Аудио вкладки / экрана');"
+    input_capture = "registerCapturedStream(await getInputAudioStream(attempt), 'Микрофон / аудиовход');"
     assert "attempt.mediaStreams.push(stream); streams.push(stream); return stream;" in js
     assert js.index(display_capture) < js.index(input_capture)
 
@@ -647,7 +701,7 @@ def test_realtime_inactive_attempt_catch_precedes_permission_cancellation_ready_
 def test_realtime_stop_then_late_permission_rejection_preserves_stopped_status() -> None:
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
-    stop_cancel = "attempt.userStopRequested = true;\n    attempt.cancelled = true;\n    cleanupAttempt(attempt, {closeSocket, finalStatus: STATUS.stopped"
+    stop_cancel = "attempt.userStopRequested = true;\n    attempt.cancelled = true;\n    cleanupAttempt(attempt, {closeSocket, socketCloseReason: 'Остановлено пользователем', finalStatus: STATUS.stopped"
     inactive_branch = "if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') { cleanupAttempt(attempt); return; }"
     ready_cleanup = "cleanupAttempt(attempt, {finalStatus: STATUS.ready"
     assert stop_cancel in js
@@ -717,7 +771,7 @@ def test_proxy_frontend_javascript_uses_deterministic_config_loader() -> None:
     )
 
     assert "fetch('/config.json', {cache: 'no-store'})" in js
-    assert "fetch('/session-config.json', {cache: 'no-store'})" in js
+    assert "fetch('/session-config.json', {cache: 'no-store', signal: controller.signal})" in js
     assert "_build_realtime_app_javascript" in function_source
     assert ".index(" not in function_source
     assert "javascript[:" not in function_source
@@ -797,8 +851,8 @@ def test_realtime_session_config_stale_attempt_cannot_open_websocket_or_overwrit
     assert "const sessionConfig = await loadRealtimeSessionConfig(attempt); assertAttemptActive(attempt);" in js
     assert "attachWebSocket(attempt, sessionConfig.wsUrl);" in js
     assert js.index("loadRealtimeSessionConfig(attempt)") < js.index("attachWebSocket(attempt, sessionConfig.wsUrl)")
-    assert "const response = await fetch('/session-config.json', {cache: 'no-store'});\n    assertAttemptActive(attempt);" in js
-    assert "const sessionConfig = await response.json();\n    assertAttemptActive(attempt);" in js
+    assert "const response = await fetch('/session-config.json', {cache: 'no-store', signal: controller.signal});\n      assertAttemptActive(attempt);" in js
+    assert "const sessionConfig = await response.json();\n      assertAttemptActive(attempt);" in js
     inactive_branch = "if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') { cleanupAttempt(attempt); return; }"
     assert inactive_branch in js
     assert js.index(inactive_branch) < js.index("const message = isPermissionCancellation(err) ?")

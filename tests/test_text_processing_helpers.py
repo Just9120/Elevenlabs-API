@@ -10,6 +10,7 @@ from the source file.
 from __future__ import annotations
 
 import ast
+import base64
 import hashlib
 import json
 import os
@@ -89,6 +90,12 @@ HELPER_NAMES = {
     "is_manifest_v2",
     "should_skip_by_manifest",
     "parse_iso_datetime",
+    "normalize_authoritative_source_created_at",
+    "extract_embedded_media_creation_candidates",
+    "resolve_source_creation_authority",
+    "with_source_creation_authority",
+    "get_runtime_language_code",
+    "get_language_mode_label",
     "build_existing_google_doc_manifest_signature",
     "get_manifest_entry",
     "classify_existing_google_doc_transcript_standard",
@@ -108,6 +115,8 @@ HELPER_NAMES = {
     "manifest_v2_material_changes_needed",
     "create_manifest_backup",
     "write_active_manifest_v2",
+    "clear_manifest_catalog",
+    "build_manifest_clear_report_text",
     "standardize_manifest_to_v2_for_existing_google_docs",
     "is_existing_google_doc_registry_entry",
     "find_manifest_entries_referencing_google_doc",
@@ -133,6 +142,10 @@ HELPER_NAMES = {
     "build_standardize_manifest_v2_report_text",
     "print_standardize_manifest_v2_report",
     "is_supported_filename",
+    "normalize_local_folder_relative_path",
+    "make_local_folder_upload_state",
+    "accumulate_local_folder_upload_event",
+    "finalize_local_folder_upload",
     "validate_drive_multi_selected_items",
     "summarize_drive_multi_selection",
     "get_drive_source_double_click_action",
@@ -239,6 +252,14 @@ def load_text_helpers() -> dict[str, object]:
                     "OPENAI_PREP_AUDIO_BITRATE",
                     "OPENAI_PREP_AUDIO_CHANNELS",
                     "PROJECT_TEMP_PREFIX",
+                    "SOURCE_CREATION_TAG_KEYS",
+                    "MANIFEST_CLEAR_CONFIRMATION",
+                    "LOCAL_FOLDER_UPLOAD_CHUNK_BYTES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_FILES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES",
+                    "LOCAL_FOLDER_UPLOAD_MAX_RELATIVE_PATH_CHARS",
+                    "LOCAL_FOLDER_UPLOAD_MAX_DEPTH",
                 }:
                     selected_nodes.append(node)
                     break
@@ -257,6 +278,7 @@ def load_text_helpers() -> dict[str, object]:
 
     namespace: dict[str, object] = {
         "hashlib": hashlib,
+        "base64": base64,
         "json": json,
         "datetime": datetime,
         "timedelta": timedelta,
@@ -333,6 +355,12 @@ find_manifest_entries_referencing_google_doc = HELPERS["find_manifest_entries_re
 load_manifest_read_only = HELPERS["load_manifest_read_only"]
 ORIGINAL_LOAD_MANIFEST_READ_ONLY = load_manifest_read_only
 should_skip_by_manifest = HELPERS["should_skip_by_manifest"]
+normalize_authoritative_source_created_at = HELPERS["normalize_authoritative_source_created_at"]
+extract_embedded_media_creation_candidates = HELPERS["extract_embedded_media_creation_candidates"]
+resolve_source_creation_authority = HELPERS["resolve_source_creation_authority"]
+with_source_creation_authority = HELPERS["with_source_creation_authority"]
+get_runtime_language_code = HELPERS["get_runtime_language_code"]
+get_language_mode_label = HELPERS["get_language_mode_label"]
 
 make_manifest_v2_default = HELPERS["make_manifest_v2_default"]
 build_transcript_standard_check = HELPERS["build_transcript_standard_check"]
@@ -340,6 +368,8 @@ build_manifest_v2_from_existing_manifest_and_docs = HELPERS["build_manifest_v2_f
 standardize_manifest_to_v2_for_existing_google_docs = HELPERS["standardize_manifest_to_v2_for_existing_google_docs"]
 comparable_manifest_v2_for_material_change = HELPERS["comparable_manifest_v2_for_material_change"]
 manifest_v2_material_changes_needed = HELPERS["manifest_v2_material_changes_needed"]
+clear_manifest_catalog = HELPERS["clear_manifest_catalog"]
+build_manifest_clear_report_text = HELPERS["build_manifest_clear_report_text"]
 mark_manifest_in_progress = HELPERS["mark_manifest_in_progress"]
 mark_manifest_done = HELPERS["mark_manifest_done"]
 mark_manifest_failed = HELPERS["mark_manifest_failed"]
@@ -349,6 +379,10 @@ DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
 validate_drive_multi_selected_items = HELPERS["validate_drive_multi_selected_items"]
 summarize_drive_multi_selection = HELPERS["summarize_drive_multi_selection"]
+normalize_local_folder_relative_path = HELPERS["normalize_local_folder_relative_path"]
+make_local_folder_upload_state = HELPERS["make_local_folder_upload_state"]
+accumulate_local_folder_upload_event = HELPERS["accumulate_local_folder_upload_event"]
+finalize_local_folder_upload = HELPERS["finalize_local_folder_upload"]
 get_drive_source_double_click_action = HELPERS["get_drive_source_double_click_action"]
 RunTimer = HELPERS["RunTimer"]
 build_startup_timing_summary = HELPERS["build_startup_timing_summary"]
@@ -486,6 +520,60 @@ def test_summarize_drive_multi_selection_is_compact_and_limits_names() -> None:
     assert "- file-9.mp3" in summary
     assert "file-10.mp3" not in summary
     assert "... ещё 2" in summary
+
+
+def test_local_folder_relative_path_normalization_preserves_safe_nested_path() -> None:
+    assert normalize_local_folder_relative_path("Course\\Week 1\\lecture.MP3") == "Course/Week 1/lecture.MP3"
+
+    for unsafe in ["", "/root/audio.mp3", "C:\\private\\audio.mp3", "folder/../audio.mp3", "folder//audio.mp3", "folder/\x00audio.mp3"]:
+        with pytest.raises(ValueError):
+            normalize_local_folder_relative_path(unsafe)
+
+
+def test_local_folder_chunk_accumulator_round_trips_supported_files() -> None:
+    state = make_local_folder_upload_state()
+    payload = b"bounded-audio"
+    path = "Project A/meeting.mp3"
+
+    assert accumulate_local_folder_upload_event(state, {"event": "start", "path": path, "size": len(payload)})["offset"] == 0
+    assert accumulate_local_folder_upload_event(
+        state,
+        {"event": "chunk", "path": path, "offset": 0, "data": base64.b64encode(payload).decode("ascii")},
+    )["offset"] == len(payload)
+    assert accumulate_local_folder_upload_event(state, {"event": "end", "path": path})["size"] == len(payload)
+    assert finalize_local_folder_upload(state) == {path: payload}
+
+
+def test_local_folder_chunk_accumulator_rejects_ambiguous_or_incomplete_transfer() -> None:
+    state = make_local_folder_upload_state()
+    accumulate_local_folder_upload_event(state, {"event": "start", "path": "Folder/Call.mp3", "size": 1})
+    with pytest.raises(ValueError, match="duplicate relative paths"):
+        accumulate_local_folder_upload_event(state, {"event": "start", "path": "folder/call.MP3", "size": 1})
+    with pytest.raises(ValueError, match="не завершена"):
+        finalize_local_folder_upload(state)
+    with pytest.raises(ValueError, match="порядок chunks"):
+        accumulate_local_folder_upload_event(
+            state,
+            {"event": "chunk", "path": "Folder/Call.mp3", "offset": 1, "data": base64.b64encode(b"x").decode("ascii")},
+        )
+
+
+def test_local_folder_ui_and_colab_bridge_static_contract() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    bridge = source.split("def upload_local_folder_from_browser", 1)[1].split("def conflict_mode_result_hint", 1)[0]
+    process_local = source.split("def process_local_uploaded", 1)[1].split("def process_drive_file_input", 1)[0]
+
+    assert '("Компьютер: папка", "local_folder")' in source
+    assert 'elif mode == "local_folder":' in source
+    assert "upload_local_folder_from_browser()" in source
+    assert "webkitdirectory directory multiple" in bridge
+    assert "const chunkBytes = {LOCAL_FOLDER_UPLOAD_CHUNK_BYTES};" in bridge
+    assert ".next()" in bridge
+    assert "colab_output.eval_js" in bridge
+    assert "lastModified" not in bridge
+    assert "webkitRelativePath || file.name" in bridge
+    assert '"selection_mode": source_mode' in process_local
+    assert "source_name=display_name" in process_local
 
 
 def test_drive_source_double_click_action_mapping_is_conservative() -> None:
@@ -668,6 +756,99 @@ def build_legacy_standard_document(title: str = "Call", body: str = "Hello world
 def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
     assert format_transcript_metadata_value(None) == "unknown"
     assert format_transcript_metadata_value("  alpha\n beta  ") == "alpha beta"
+
+
+def test_colab_language_modes_include_english_without_changing_auto_detection() -> None:
+    assert get_runtime_language_code("ru") == "ru"
+    assert get_runtime_language_code("en") == "en"
+    assert get_runtime_language_code("detect") is None
+    assert get_language_mode_label("en") == "English"
+
+
+def test_source_creation_timestamp_requires_timezone_and_normalizes_to_iso_8601_utc() -> None:
+    assert normalize_authoritative_source_created_at("2026-08-24T15:10:11+03:00") == "2026-08-24T12:10:11Z"
+    assert normalize_authoritative_source_created_at("2026-08-24T12:10:11.987Z") == "2026-08-24T12:10:11Z"
+    assert normalize_authoritative_source_created_at("2026-08-24T12:10:11") is None
+    assert normalize_authoritative_source_created_at("") is None
+
+
+def test_source_creation_authority_prefers_embedded_media_then_drive_created_time(monkeypatch) -> None:
+    globals_dict = resolve_source_creation_authority.__globals__
+    monkeypatch.setitem(
+        globals_dict,
+        "extract_embedded_media_creation_candidates",
+        lambda _path: [{"created_at": "2024-01-02T03:04:05Z", "authority": "embedded_media.format.creation_time"}],
+    )
+    assert resolve_source_creation_authority(
+        "media.mp4",
+        {"createdTime": "2025-02-03T04:05:06Z", "modifiedTime": "2099-01-01T00:00:00Z"},
+    ) == {
+        "created_at": "2024-01-02T03:04:05Z",
+        "authority": "embedded_media.format.creation_time",
+        "status": "confirmed",
+    }
+
+    monkeypatch.setitem(globals_dict, "extract_embedded_media_creation_candidates", lambda _path: [])
+    assert resolve_source_creation_authority(
+        "media.mp4",
+        {"createdTime": "2025-02-03T07:05:06+03:00", "modifiedTime": "2099-01-01T00:00:00Z"},
+    ) == {
+        "created_at": "2025-02-03T04:05:06Z",
+        "authority": "google_drive.createdTime",
+        "status": "confirmed",
+    }
+
+
+def test_source_creation_authority_fails_closed_on_conflict_or_missing_authority(monkeypatch) -> None:
+    globals_dict = resolve_source_creation_authority.__globals__
+    monkeypatch.setitem(
+        globals_dict,
+        "extract_embedded_media_creation_candidates",
+        lambda _path: [
+            {"created_at": "2024-01-02T03:04:05Z", "authority": "embedded_media.format.creation_time"},
+            {"created_at": "2024-01-02T04:04:05Z", "authority": "embedded_media.stream:0.creation_time"},
+        ],
+    )
+    assert resolve_source_creation_authority("media.mp4", {"createdTime": "2025-02-03T04:05:06Z"}) == {
+        "created_at": "unknown",
+        "authority": "embedded_media_conflict",
+        "status": "conflict",
+    }
+
+    monkeypatch.setitem(globals_dict, "extract_embedded_media_creation_candidates", lambda _path: [])
+    assert resolve_source_creation_authority(
+        "media.mp4",
+        {"modifiedTime": "2025-02-03T04:05:06Z"},
+    ) == {"created_at": "unknown", "authority": "unavailable", "status": "unavailable"}
+
+
+def test_embedded_source_creation_extractor_accepts_only_creation_tags(monkeypatch) -> None:
+    class Completed:
+        stdout = json.dumps({
+            "format": {"tags": {
+                "creation_time": "2024-01-02T03:04:05Z",
+                "date": "2099-01-01T00:00:00Z",
+            }},
+            "streams": [{"tags": {"com.apple.quicktime.creationdate": "2024-01-02T03:04:05Z"}}],
+        })
+
+    subprocess_module = extract_embedded_media_creation_candidates.__globals__["subprocess"]
+    monkeypatch.setattr(subprocess_module, "run", lambda *_args, **_kwargs: Completed())
+
+    assert extract_embedded_media_creation_candidates("media.mov") == [{
+        "created_at": "2024-01-02T03:04:05Z",
+        "authority": "embedded_media.format.creation_time",
+    }]
+
+
+def test_new_transcript_output_never_uses_job_time_as_source_creation_time() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    function_block = source.split("def upsert_transcript_document(", 1)[1].split("\ndef ", 1)[0]
+
+    assert "created_at=source_created_at" in function_block
+    assert "created_at=utc_now_iso()" not in function_block
+    assert source.count('source_created_at=source_meta.get("source_created_at", "unknown")') == 6
+    assert 'source_created_at=segment_meta.get("source_created_at", "unknown")' in source
 
 
 def test_format_visible_transcript_timestamp_handles_iso_and_visible_values() -> None:
@@ -2249,17 +2430,114 @@ def test_mark_manifest_done_v1_does_not_create_documents_catalog() -> None:
     assert saved
 
 
-def test_mark_manifest_done_without_doc_link_saves_source_without_document() -> None:
+def test_mark_manifest_done_without_confirmed_google_doc_does_not_persist_source() -> None:
     manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
-    HELPERS["save_manifest"] = lambda incoming: None
+    saved = []
+    HELPERS["save_manifest"] = lambda incoming: saved.append(incoming)
 
-    mark_manifest_done(manifest, "source-no-doc", "settings", "Audio", "", "")
+    with pytest.raises(ValueError, match="подтверждённого Google Docs результата"):
+        mark_manifest_done(manifest, "source-no-doc", "settings", "Audio", "", "")
 
-    assert manifest["sources"]["source-no-doc"]["status"] == "done"
-    assert manifest["sources"]["source-no-doc"]["doc_id"] == ""
+    assert "source-no-doc" not in manifest["sources"]
     assert manifest["documents"] == {}
-    assert manifest["summary"]["sources_total"] == 1
-    assert manifest["summary"]["orphan_sources"] == 1
+    assert manifest["summary"]["sources_total"] == 0
+    assert manifest["summary"]["orphan_sources"] == 0
+    assert saved == []
+
+
+def make_non_empty_manifest_for_clear() -> dict:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    HELPERS["save_manifest"] = lambda _incoming: None
+    mark_manifest_done(
+        manifest,
+        "source-a",
+        "settings",
+        "Audio",
+        "Transcript",
+        "https://docs.google.com/document/d/doc-clear/edit",
+    )
+    return manifest
+
+
+def test_manifest_clear_dry_run_is_read_only_and_reports_catalog(monkeypatch) -> None:
+    current = make_non_empty_manifest_for_clear()
+    globals_dict = clear_manifest_catalog.__globals__
+    calls = []
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda force_reload=False: calls.append(("read", force_reload)) or current)
+    monkeypatch.setitem(globals_dict, "load_manifest", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("mutable load")))
+    monkeypatch.setitem(globals_dict, "create_manifest_backup", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("backup")))
+    monkeypatch.setitem(globals_dict, "write_active_manifest_v2", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("write")))
+
+    report = clear_manifest_catalog(dry_run=True)
+
+    assert calls == [("read", True)]
+    assert report["records_total"] == 2
+    assert report["would_create_backup"] is True
+    assert report["would_clear_manifest"] is True
+    assert report["backup_created"] is False
+    assert report["manifest_cleared"] is False
+    assert report["source_files_deleted"] is False
+    assert report["google_docs_deleted"] is False
+
+
+def test_manifest_clear_apply_requires_exact_confirmation_before_read(monkeypatch) -> None:
+    globals_dict = clear_manifest_catalog.__globals__
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("read")))
+
+    with pytest.raises(ValueError, match="ОЧИСТИТЬ MANIFEST"):
+        clear_manifest_catalog(dry_run=False, confirmation_text="очистить")
+
+
+def test_manifest_clear_apply_backs_up_then_writes_empty_v2(monkeypatch) -> None:
+    current = make_non_empty_manifest_for_clear()
+    globals_dict = clear_manifest_catalog.__globals__
+    calls = []
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda force_reload=False: calls.append(("read_only", force_reload)) or current)
+    monkeypatch.setitem(globals_dict, "load_manifest", lambda force_reload=False: calls.append(("read_current", force_reload)) or current)
+    monkeypatch.setitem(
+        globals_dict,
+        "create_manifest_backup",
+        lambda manifest, timestamp: calls.append(("backup", manifest is current, timestamp)) or {"name": f"backup.{timestamp}.json"},
+    )
+    monkeypatch.setitem(
+        globals_dict,
+        "write_active_manifest_v2",
+        lambda manifest: calls.append(("write", manifest)),
+    )
+
+    report = clear_manifest_catalog(
+        dry_run=False,
+        confirmation_text=HELPERS["MANIFEST_CLEAR_CONFIRMATION"],
+    )
+
+    assert [call[0] for call in calls] == ["read_only", "read_current", "backup", "write"]
+    written = calls[-1][1]
+    assert written["version"] == HELPERS["MANIFEST_V2_TARGET_VERSION"]
+    assert written["documents"] == {}
+    assert written["sources"] == {}
+    assert report["backup_created"] is True
+    assert report["manifest_cleared"] is True
+    assert report["manifest_after"]["documents_total"] == 0
+    assert report["manifest_after"]["sources_total"] == 0
+    assert "doc-clear" not in build_manifest_clear_report_text(report)
+
+
+def test_manifest_clear_never_writes_when_backup_fails(monkeypatch) -> None:
+    current = make_non_empty_manifest_for_clear()
+    globals_dict = clear_manifest_catalog.__globals__
+    writes = []
+    monkeypatch.setitem(globals_dict, "load_manifest_read_only", lambda force_reload=False: current)
+    monkeypatch.setitem(globals_dict, "load_manifest", lambda force_reload=False: current)
+    monkeypatch.setitem(globals_dict, "create_manifest_backup", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("backup failed")))
+    monkeypatch.setitem(globals_dict, "write_active_manifest_v2", lambda manifest: writes.append(manifest))
+
+    with pytest.raises(RuntimeError, match="backup failed"):
+        clear_manifest_catalog(
+            dry_run=False,
+            confirmation_text=HELPERS["MANIFEST_CLEAR_CONFIRMATION"],
+        )
+
+    assert writes == []
 
 
 def test_manifest_maintenance_does_not_count_transcription_created_document_as_add() -> None:
@@ -3863,23 +4141,22 @@ def test_user_segmented_and_non_segmented_paths_are_separate_static() -> None:
         segment_index = block.index("if user_segment_plan_text is not None or user_segment_builder_rows is not None:")
         assert segment_index < block.index("conflict_mode_needs_existing_match_before_transcription")
         assert segment_index < block.index("should_skip_by_manifest")
-        assert segment_index < block.index("mark_manifest_in_progress")
 
-    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in local_block
-    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in drive_local_block
-    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in drive_download_block
-    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in local_block
-    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in drive_block
+    runtime_block = source.split("def process_user_segments_for_source", 1)[1].split("# =========================\n# 5) OUTPUT FOLDER PICKER", 1)[0]
+    assert "mark_manifest_in_progress(" not in runtime_block
+    assert "mark_manifest_failed(" not in runtime_block
+    assert runtime_block.count("mark_manifest_done(") == 7
 
 
 
 
-def test_user_segment_failures_use_derived_segment_identity_static() -> None:
+def test_user_segment_failures_do_not_persist_source_before_google_docs_output_static() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
     segment_block = source.split("def process_user_segments_for_source", 1)[1].split("def process_local_uploaded", 1)[0]
     assert "segment_signature = build_user_segment_source_signature" in segment_block
-    assert "mark_manifest_failed(run_ctx.manifest, segment_signature" in segment_block
-    assert "mark_manifest_failed(run_ctx.manifest, original_source_signature" not in segment_block
+    assert "mark_manifest_in_progress(" not in segment_block
+    assert "mark_manifest_failed(" not in segment_block
+    assert segment_block.index("upsert_transcript_document(") < segment_block.index("mark_manifest_done(")
 
 
 def test_user_segment_source_check_uses_safe_branch_before_detailed_identifiers() -> None:

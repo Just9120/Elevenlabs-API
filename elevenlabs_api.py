@@ -14,6 +14,7 @@ import io
 import os
 import re
 import json
+import base64
 import random
 import hashlib
 import mimetypes
@@ -39,7 +40,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 import ipywidgets as widgets
-from IPython.display import display, clear_output, Javascript
+from IPython.display import display, clear_output, Javascript, HTML
 
 from google.colab import auth, files, userdata, drive as colab_drive, output as colab_output
 import google.auth
@@ -356,6 +357,12 @@ TAG_AUDIO_EVENTS = False
 DOC_INSERT_CHUNK_SIZE = 200_000
 PREVIEW_LIMIT = 20
 LARGE_LOCAL_FILE_WARNING_MB = 300
+LOCAL_FOLDER_UPLOAD_CHUNK_BYTES = 128 * 1024
+LOCAL_FOLDER_UPLOAD_MAX_FILES = 500
+LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES = 1024 * 1024 * 1024
+LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+LOCAL_FOLDER_UPLOAD_MAX_RELATIVE_PATH_CHARS = 512
+LOCAL_FOLDER_UPLOAD_MAX_DEPTH = 32
 WAV_RECOMPRESS_THRESHOLD_MB = 300
 WAV_RECOMPRESS_THRESHOLD_BYTES = WAV_RECOMPRESS_THRESHOLD_MB * 1024 * 1024
 OPENAI_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024
@@ -789,6 +796,104 @@ def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+SOURCE_CREATION_TAG_KEYS = (
+    "creation_time",
+    "com.apple.quicktime.creationdate",
+)
+
+
+def normalize_authoritative_source_created_at(value: Optional[str]) -> Optional[str]:
+    """Normalize a timezone-aware source timestamp to strict ISO 8601 UTC."""
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def extract_embedded_media_creation_candidates(input_path: str) -> list[dict]:
+    """Read bounded creation-time tags without logging media metadata."""
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format_tags:stream_tags",
+                "-of", "json",
+                input_path,
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30,
+        )
+        payload = json.loads(result.stdout or "{}")
+    except Exception:
+        return []
+
+    candidates = []
+    scopes = [("format", payload.get("format") or {})]
+    scopes.extend(
+        (f"stream:{index}", stream)
+        for index, stream in enumerate(payload.get("streams") or [])
+        if isinstance(stream, dict)
+    )
+    for scope, item in scopes:
+        tags = item.get("tags") or {}
+        if not isinstance(tags, dict):
+            continue
+        normalized_tags = {str(key).casefold(): value for key, value in tags.items()}
+        for tag_key in SOURCE_CREATION_TAG_KEYS:
+            normalized = normalize_authoritative_source_created_at(normalized_tags.get(tag_key))
+            if normalized:
+                candidates.append({
+                    "created_at": normalized,
+                    "authority": f"embedded_media.{scope}.{tag_key}",
+                })
+
+    unique = {}
+    for candidate in candidates:
+        unique.setdefault(candidate["created_at"], candidate)
+    return [unique[key] for key in sorted(unique)]
+
+
+def resolve_source_creation_authority(input_path: str, source_meta: Optional[dict] = None) -> dict:
+    """Resolve truthful source creation time, preferring embedded media tags."""
+
+    embedded = extract_embedded_media_creation_candidates(input_path)
+    if len(embedded) == 1:
+        return {**embedded[0], "status": "confirmed"}
+    if len(embedded) > 1:
+        return {"created_at": "unknown", "authority": "embedded_media_conflict", "status": "conflict"}
+
+    drive_created_at = normalize_authoritative_source_created_at((source_meta or {}).get("createdTime"))
+    if drive_created_at:
+        return {
+            "created_at": drive_created_at,
+            "authority": "google_drive.createdTime",
+            "status": "confirmed",
+        }
+    return {"created_at": "unknown", "authority": "unavailable", "status": "unavailable"}
+
+
+def with_source_creation_authority(source_meta: Optional[dict], input_path: str) -> dict:
+    enriched = dict(source_meta or {})
+    resolution = resolve_source_creation_authority(input_path, enriched)
+    enriched["source_created_at"] = resolution["created_at"]
+    enriched["source_created_at_authority"] = resolution["authority"]
+    enriched["source_created_at_status"] = resolution["status"]
+    return enriched
+
+
 def make_manifest_default() -> dict:
     return {
         "version": 1,
@@ -851,6 +956,8 @@ def compute_sha256_for_bytes(data: bytes) -> str:
 def get_runtime_language_code(language_mode: str) -> Optional[str]:
     if language_mode == "ru":
         return "ru"
+    if language_mode == "en":
+        return "en"
     if language_mode == "detect":
         return None
     raise ValueError(f"Неизвестный режим языка: {language_mode}")
@@ -859,6 +966,7 @@ def get_runtime_language_code(language_mode: str) -> Optional[str]:
 def get_language_mode_label(language_mode: str) -> str:
     return {
         "ru": "Русский",
+        "en": "English",
         "detect": "Автоопределение",
     }.get(language_mode, language_mode)
 
@@ -1522,6 +1630,9 @@ def mark_manifest_in_progress(manifest: dict, source_signature: str, settings_si
 
 
 def mark_manifest_done(manifest: dict, source_signature: str, settings_signature: str, source_name: str, doc_name: str, doc_link: str, source_meta: Optional[dict] = None):
+    doc_id = extract_google_doc_id_from_url(doc_link)
+    if not doc_id:
+        raise ValueError("Manifest обновляется только после подтверждённого Google Docs результата.")
     entry = get_manifest_entry(manifest, source_signature) or {}
     updated_at = utc_now_iso()
     entry.update({
@@ -1531,7 +1642,7 @@ def mark_manifest_done(manifest: dict, source_signature: str, settings_signature
         "source_name": source_name,
         "doc_name": doc_name,
         "doc_link": doc_link,
-        "doc_id": entry.get("doc_id") or extract_google_doc_id_from_url(doc_link),
+        "doc_id": doc_id,
         "source_meta": source_meta or entry.get("source_meta", {}),
         "finished_at": updated_at,
         "updated_at": updated_at,
@@ -2356,6 +2467,91 @@ def write_active_manifest_v2(manifest_v2: dict) -> None:
         operation_label="drive_file_update",
     )
     MANIFEST_CACHE["data"] = manifest_v2
+
+
+MANIFEST_CLEAR_CONFIRMATION = "ОЧИСТИТЬ MANIFEST"
+
+
+def clear_manifest_catalog(dry_run: bool = True, confirmation_text: str = "") -> dict:
+    """Preview or safely clear the global manifest without deleting source files or Docs."""
+
+    if not dry_run and str(confirmation_text or "").strip() != MANIFEST_CLEAR_CONFIRMATION:
+        raise ValueError(f"Для очистки введите точно: {MANIFEST_CLEAR_CONFIRMATION}")
+
+    current = load_manifest_read_only(force_reload=True)
+    before = summarize_manifest_catalog_for_report(current)
+    records_total = int(before.get("documents_total", 0)) + int(before.get("sources_total", 0))
+    report = {
+        "dry_run": bool(dry_run),
+        "records_total": records_total,
+        "manifest_before": before,
+        "manifest_after": before,
+        "would_create_backup": bool(records_total),
+        "backup_created": False,
+        "backup_name": "",
+        "would_clear_manifest": bool(records_total),
+        "manifest_cleared": False,
+        "source_files_deleted": False,
+        "google_docs_deleted": False,
+    }
+    if dry_run or not records_total:
+        return report
+
+    # Re-read immediately before the write so the backup and cleared catalog use
+    # the same current state rather than a stale preview snapshot.
+    current = load_manifest(force_reload=True)
+    before = summarize_manifest_catalog_for_report(current)
+    records_total = int(before.get("documents_total", 0)) + int(before.get("sources_total", 0))
+    report.update({
+        "records_total": records_total,
+        "manifest_before": before,
+        "would_create_backup": bool(records_total),
+        "would_clear_manifest": bool(records_total),
+    })
+    if not records_total:
+        report["manifest_after"] = before
+        return report
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = create_manifest_backup(current, timestamp)
+    cleared = make_manifest_v2_default(updated_at=utc_now_iso())
+    write_active_manifest_v2(cleared)
+    report.update({
+        "manifest_after": summarize_manifest_catalog_for_report(cleared),
+        "backup_created": True,
+        "backup_name": backup.get("name", ""),
+        "manifest_cleared": True,
+    })
+    return report
+
+
+def build_manifest_clear_report_text(report: dict) -> str:
+    before = report.get("manifest_before") or {}
+    after = report.get("manifest_after") or {}
+    dry_run = bool(report.get("dry_run"))
+    lines = [
+        "=== Очистка manifest ===",
+        f"Режим: {'dry-run, без изменений' if dry_run else 'подтверждённое применение'}",
+        f"Документов в каталоге до операции: {before.get('documents_total', 0)}",
+        f"Источников в каталоге до операции: {before.get('sources_total', 0)}",
+        f"Будет создан backup: {yes_no(bool(report.get('would_create_backup')))}",
+        f"Manifest будет очищен: {yes_no(bool(report.get('would_clear_manifest')))}",
+    ]
+    if not dry_run:
+        lines.extend([
+            f"Backup создан: {yes_no(bool(report.get('backup_created')))}",
+            f"Manifest очищен: {yes_no(bool(report.get('manifest_cleared')))}",
+            f"Документов после операции: {after.get('documents_total', 0)}",
+            f"Источников после операции: {after.get('sources_total', 0)}",
+        ])
+        if report.get("backup_name"):
+            lines.append(f"Backup file: {report['backup_name']}")
+    lines.extend([
+        "Исходные media files удалены: нет",
+        "Google Docs удалены: нет",
+        "=== Конец отчёта ===",
+    ])
+    return "\n".join(lines)
 
 
 def standardize_manifest_to_v2_for_existing_google_docs(
@@ -5092,6 +5288,7 @@ def upsert_transcript_document(
     source_name: str,
     source_mode: str,
     options: TranscriptionRuntimeOptions,
+    source_created_at: str,
     segment_metadata: Optional[dict] = None,
 ) -> dict:
     existing = get_single_existing_doc_match(base_name, docs_index)
@@ -5107,7 +5304,7 @@ def upsert_transcript_document(
             provider_model=options.provider_model_label,
             language=language,
             speakers_enabled=options.separate_speakers,
-            created_at=utc_now_iso(),
+            created_at=source_created_at,
             segment_label=(segment_metadata or {}).get("label"),
             segment_time_range=(segment_metadata or {}).get("range_label"),
             original_source_name=(segment_metadata or {}).get("original_source_name"),
@@ -5307,6 +5504,7 @@ def collect_files_from_drive_folder_id(folder_id: str, recursive: bool = False, 
                 "id": item_id,
                 "name": item_name,
                 "display_name": display_name,
+                "createdTime": item.get("createdTime", ""),
                 "modifiedTime": item.get("modifiedTime", ""),
                 "size": item.get("size", ""),
             })
@@ -5332,6 +5530,7 @@ def resolve_drive_source_input(raw_value: str) -> dict:
             "name": meta["name"],
             "mimeType": meta["mimeType"],
             "webViewLink": meta.get("webViewLink", ""),
+            "createdTime": meta.get("createdTime", ""),
             "modifiedTime": meta.get("modifiedTime", ""),
             "size": meta.get("size", ""),
         }
@@ -5538,6 +5737,213 @@ def warn_about_large_local_uploads(uploaded: dict):
             print(f"- {filename}: {size_mb:.1f} MB")
 
 
+def normalize_local_folder_relative_path(value: str) -> str:
+    raw = str(value or "").replace("\\", "/").strip()
+    if not raw or len(raw) > LOCAL_FOLDER_UPLOAD_MAX_RELATIVE_PATH_CHARS:
+        raise ValueError("Некорректный или слишком длинный relative path локального файла.")
+    if raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
+        raise ValueError("Абсолютные пути локальной папки запрещены.")
+
+    parts = raw.split("/")
+    if len(parts) > LOCAL_FOLDER_UPLOAD_MAX_DEPTH:
+        raise ValueError("Слишком глубокая структура локальной папки.")
+    for part in parts:
+        if part in {"", ".", ".."}:
+            raise ValueError("Relative path содержит небезопасный сегмент.")
+        if any(ord(char) < 32 for char in part):
+            raise ValueError("Relative path содержит управляющие символы.")
+    return "/".join(parts)
+
+
+def make_local_folder_upload_state() -> dict:
+    return {
+        "files": {},
+        "casefold_paths": set(),
+        "declared_total_bytes": 0,
+        "completed_paths": set(),
+    }
+
+
+def accumulate_local_folder_upload_event(state: dict, payload: dict) -> dict:
+    event = str((payload or {}).get("event") or "")
+    relative_path = normalize_local_folder_relative_path((payload or {}).get("path"))
+    files_state = state.setdefault("files", {})
+
+    if event == "start":
+        if len(files_state) >= LOCAL_FOLDER_UPLOAD_MAX_FILES:
+            raise ValueError(f"В локальной папке больше {LOCAL_FOLDER_UPLOAD_MAX_FILES} supported files.")
+        folded = relative_path.casefold()
+        if folded in state.setdefault("casefold_paths", set()):
+            raise ValueError("В локальной папке обнаружены неоднозначные duplicate relative paths.")
+        if not is_supported_filename(relative_path):
+            raise ValueError("Browser передал неподдерживаемый тип файла.")
+        size = int((payload or {}).get("size", -1))
+        if size < 0 or size > LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES:
+            raise ValueError("Локальный файл превышает допустимый bounded upload size.")
+        new_total = int(state.get("declared_total_bytes", 0)) + size
+        if new_total > LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES:
+            raise ValueError("Суммарный размер локальной папки превышает bounded upload limit.")
+        state["declared_total_bytes"] = new_total
+        state["casefold_paths"].add(folded)
+        files_state[relative_path] = {"size": size, "buffer": bytearray()}
+        return {"ok": True, "path": relative_path, "offset": 0}
+
+    item = files_state.get(relative_path)
+    if not item:
+        raise ValueError("Получен chunk без подтверждённого начала файла.")
+
+    if event == "chunk":
+        offset = int((payload or {}).get("offset", -1))
+        if offset != len(item["buffer"]):
+            raise ValueError("Нарушен порядок chunks локального файла.")
+        try:
+            chunk = base64.b64decode(str((payload or {}).get("data") or ""), validate=True)
+        except Exception as error:
+            raise ValueError("Получен повреждённый base64 chunk.") from error
+        if len(chunk) > LOCAL_FOLDER_UPLOAD_CHUNK_BYTES:
+            raise ValueError("Browser chunk превышает допустимый размер.")
+        if len(item["buffer"]) + len(chunk) > item["size"]:
+            raise ValueError("Получено больше bytes, чем объявлено для локального файла.")
+        item["buffer"].extend(chunk)
+        return {"ok": True, "path": relative_path, "offset": len(item["buffer"])}
+
+    if event == "end":
+        if len(item["buffer"]) != item["size"]:
+            raise ValueError("Локальный файл передан не полностью.")
+        state.setdefault("completed_paths", set()).add(relative_path)
+        return {"ok": True, "path": relative_path, "size": item["size"]}
+
+    raise ValueError("Неизвестное событие local folder upload.")
+
+
+def finalize_local_folder_upload(state: dict) -> dict[str, bytes]:
+    files_state = state.get("files") or {}
+    completed = state.get("completed_paths") or set()
+    if not files_state:
+        raise ValueError("В выбранной папке нет supported audio/video files.")
+    if set(files_state) != set(completed):
+        raise ValueError("Передача локальной папки не завершена.")
+    return {
+        relative_path: bytes(item["buffer"])
+        for relative_path, item in sorted(files_state.items(), key=lambda pair: pair[0].casefold())
+    }
+
+
+def upload_local_folder_from_browser() -> dict[str, bytes]:
+    """Upload a user-selected browser folder through a bounded Colab eval_js iterator."""
+
+    session_id = uuid.uuid4().hex
+    namespace_name = f"__elevenlabsLocalFolderUpload_{session_id}"
+    input_id = f"elevenlabs-folder-input-{session_id}"
+    button_id = f"elevenlabs-folder-button-{session_id}"
+    cancel_id = f"elevenlabs-folder-cancel-{session_id}"
+    status_id = f"elevenlabs-folder-status-{session_id}"
+    state = make_local_folder_upload_state()
+    supported_extensions = sorted(SUPPORTED_EXTENSIONS)
+    display(HTML(f"""
+<div style="padding:12px;border:1px solid #dadce0;border-radius:8px;max-width:760px">
+  <input id="{input_id}" type="file" webkitdirectory directory multiple style="display:none">
+  <button id="{button_id}" type="button">Выбрать папку с компьютера</button>
+  <button id="{cancel_id}" type="button">Отменить ожидание</button>
+  <div id="{status_id}" style="margin-top:8px;color:#3c4043">Ожидание выбора папки…</div>
+</div>
+<script>
+(() => {{
+  const namespaceName = {json.dumps(namespace_name)};
+  const supported = new Set({json.dumps(supported_extensions)});
+  const chunkBytes = {LOCAL_FOLDER_UPLOAD_CHUNK_BYTES};
+  const maxFiles = {LOCAL_FOLDER_UPLOAD_MAX_FILES};
+  const maxFileBytes = {LOCAL_FOLDER_UPLOAD_MAX_FILE_BYTES};
+  const maxTotalBytes = {LOCAL_FOLDER_UPLOAD_MAX_TOTAL_BYTES};
+  const input = document.getElementById({json.dumps(input_id)});
+  const button = document.getElementById({json.dumps(button_id)});
+  const cancel = document.getElementById({json.dumps(cancel_id)});
+  const status = document.getElementById({json.dumps(status_id)});
+  const toBase64 = (buffer) => {{
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 0x8000) {{
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
+    }}
+    return btoa(binary);
+  }};
+  const controller = {{
+    iterator: null,
+    async *uploadFiles() {{
+      try {{
+        const selected = await new Promise((resolve) => {{
+          let settled = false;
+          const finishSelection = (value) => {{
+            if (settled) return;
+            settled = true;
+            resolve(value);
+          }};
+          button.addEventListener('click', () => input.click(), {{once: true}});
+          cancel.addEventListener('click', () => finishSelection(null), {{once: true}});
+          input.addEventListener('cancel', () => finishSelection(null), {{once: true}});
+          input.addEventListener('change', () => finishSelection(Array.from(input.files || [])), {{once: true}});
+        }});
+        if (selected === null) return {{action: 'cancelled'}};
+      const files = selected.filter((file) => {{
+        const dot = file.name.lastIndexOf('.');
+        return dot >= 0 && supported.has(file.name.slice(dot).toLowerCase());
+      }});
+      if (!files.length) throw new Error('В выбранной папке нет supported audio/video files.');
+      if (files.length > maxFiles) throw new Error(`Supported files: ${{files.length}}, limit: ${{maxFiles}}.`);
+      const totalBytes = files.reduce((total, file) => total + file.size, 0);
+      if (totalBytes > maxTotalBytes) throw new Error('Суммарный размер папки превышает bounded upload limit.');
+      for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {{
+        const file = files[fileIndex];
+        if (file.size > maxFileBytes) throw new Error(`Файл ${{file.name}} превышает bounded upload limit.`);
+        const path = file.webkitRelativePath || file.name;
+        status.textContent = `Передача ${{fileIndex + 1}}/${{files.length}}: ${{path}}`;
+        yield {{action: 'start', path, size: file.size}};
+        for (let offset = 0; offset < file.size; offset += chunkBytes) {{
+          const buffer = await file.slice(offset, offset + chunkBytes).arrayBuffer();
+          yield {{action: 'chunk', path, offset, data: toBase64(buffer)}};
+        }}
+        yield {{action: 'end', path}};
+      }}
+      status.textContent = `Передано supported files: ${{files.length}}; пропущено unsupported: ${{selected.length - files.length}}.`;
+        button.disabled = true;
+        cancel.disabled = true;
+        return {{action: 'complete', fileCount: files.length, skippedCount: selected.length - files.length}};
+      }} catch (error) {{
+        status.textContent = `Ошибка: ${{error && error.message ? error.message : error}}`;
+        return {{action: 'error', message: String(error && error.message ? error.message : error)}};
+      }}
+    }},
+    async next() {{
+      if (!this.iterator) this.iterator = this.uploadFiles();
+      const result = await this.iterator.next();
+      return result.value || {{action: 'complete'}};
+    }},
+  }};
+  window[namespaceName] = controller;
+}})();
+</script>
+"""))
+    while True:
+        result = colab_output.eval_js(f"window[{json.dumps(namespace_name)}].next()")
+        if not isinstance(result, dict):
+            raise RuntimeError("Не удалось передать локальную папку: invalid browser result")
+        action = result.get("action")
+        if action in {"start", "chunk", "end"}:
+            accumulate_local_folder_upload_event(
+                state,
+                {**result, "event": action},
+            )
+            continue
+        if action == "complete":
+            break
+        if action == "cancelled":
+            raise ValueError("Выбор локальной папки отменён.")
+        if action == "error":
+            raise RuntimeError(f"Не удалось передать локальную папку: {result.get('message', 'unknown browser error')}")
+        raise RuntimeError("Не удалось передать локальную папку: unknown browser action")
+    return finalize_local_folder_upload(state)
+
+
 def conflict_mode_result_hint(conflict_mode: str) -> str:
     mapping = {
         "skip": "Совпадения будут пропущены",
@@ -5601,6 +6007,7 @@ def process_user_segments_for_source(
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
     segment_paths = []
+    original_source_meta = with_source_creation_authority(original_source_meta, input_path)
     try:
         duration_seconds = get_media_duration_seconds(input_path)
     except Exception as e:
@@ -5660,8 +6067,6 @@ def process_user_segments_for_source(
                         skipped.append({"source": segment_source_name, "reason": reason})
                         continue
 
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_in_progress(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, segment_meta)
                 report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация сегмента: {segment['label']}")
                 with timer.measure("user_segment_processing") if timer else nullcontext():
                     with timer.measure("provider_transcription") if timer else nullcontext():
@@ -5682,6 +6087,7 @@ def process_user_segments_for_source(
                         source_name=segment_source_name,
                         source_mode=source_mode,
                         options=run_ctx.options,
+                        source_created_at=segment_meta.get("source_created_at", "unknown"),
                         segment_metadata={**segment, "original_source_name": original_filename},
                     )
                 if result["status"] == "skipped":
@@ -5693,8 +6099,6 @@ def process_user_segments_for_source(
                     print(f"Готово: {result['link']}")
                     append_success(successes, segment_source_name, result)
             except Exception as e:
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_failed(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, str(e), segment_meta)
                 print(f"Ошибка: {segment_source_name} -> {e}")
                 errors.append({"source": segment_source_name, "error": str(e)})
             finally:
@@ -5724,8 +6128,12 @@ def process_local_uploaded(
         report_progress_for_file(progress_callback, idx, total, 0, f"Подготовка: {filename}")
 
         temp_input_path = None
+        display_name = os.path.basename(filename)
         source_signature = build_uploaded_source_signature(filename, file_bytes)
-        source_meta = with_output_folder_context({"type": "uploaded_bytes"}, run_ctx)
+        source_meta = with_output_folder_context({
+            "type": "uploaded_bytes",
+            "selection_mode": source_mode,
+        }, run_ctx)
 
         try:
             if not is_supported_filename(filename):
@@ -5736,6 +6144,7 @@ def process_local_uploaded(
             if user_segment_plan_text is not None or user_segment_builder_rows is not None:
                 print(f"\nОбрабатываю: {filename}")
                 temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
+                source_meta = with_source_creation_authority(source_meta, temp_input_path)
                 return process_user_segments_for_source(
                     input_path=temp_input_path,
                     original_filename=filename,
@@ -5764,8 +6173,7 @@ def process_local_uploaded(
 
             print(f"\nОбрабатываю: {filename}")
             temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
+            source_meta = with_source_creation_authority(source_meta, temp_input_path)
             report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация: {filename}")
 
             with timer.measure("provider_transcription") if timer else nullcontext():
@@ -5784,9 +6192,10 @@ def process_local_uploaded(
                     output_folder_id=run_ctx.output_folder_id,
                     docs_index=run_ctx.docs_index,
                     conflict_mode=run_ctx.conflict_mode,
-                    source_name=filename,
+                    source_name=display_name,
                     source_mode=source_mode,
-                    options=run_ctx.options
+                    options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
                 )
 
             if result["status"] == "skipped":
@@ -5798,7 +6207,7 @@ def process_local_uploaded(
                         run_ctx.manifest,
                         source_signature,
                         run_ctx.settings_signature,
-                        filename,
+                        display_name,
                         result["doc_name"],
                         result["link"],
                         source_meta,
@@ -5807,9 +6216,6 @@ def process_local_uploaded(
                 append_success(successes, filename, result)
 
         except Exception as e:
-            if user_segment_plan_text is None and user_segment_builder_rows is None:
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {filename} -> {e}")
             errors.append({"source": filename, "error": str(e)})
 
@@ -5845,7 +6251,8 @@ def process_drive_file_input(
         file_path = resolved["path"]
         filename = resolved["name"]
         source_signature = build_local_path_source_signature(file_path, filename)
-        source_meta = with_output_folder_context({"type": "local_path", "path": file_path}, run_ctx)
+        source_meta = with_output_folder_context({"type": "local_path"}, run_ctx)
+        source_meta = with_source_creation_authority(source_meta, file_path)
 
         if not is_supported_filename(filename):
             raise ValueError(f"Неподдерживаемое расширение: {Path(file_path).suffix}")
@@ -5882,8 +6289,6 @@ def process_drive_file_input(
                     return successes, errors, skipped
 
             print(f"\nОбрабатываю: {filename}")
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, 1, 1, 1, f"Транскрибация: {filename}")
 
             with timer.measure("provider_transcription") if timer else nullcontext():
@@ -5902,10 +6307,11 @@ def process_drive_file_input(
                 output_folder_id=run_ctx.output_folder_id,
                 docs_index=run_ctx.docs_index,
                 conflict_mode=run_ctx.conflict_mode,
-                source_name=filename,
-                source_mode="drive_file",
-                options=run_ctx.options
-            )
+                    source_name=filename,
+                    source_mode="drive_file",
+                    options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
+                )
 
             if result["status"] == "skipped":
                 print(f"Пропуск: {filename} -> {result['reason']}")
@@ -5916,9 +6322,6 @@ def process_drive_file_input(
                 append_success(successes, file_path, result)
 
         except Exception as e:
-            if user_segment_plan_text is None and user_segment_builder_rows is None:
-                with timer.measure("manifest_write") if timer else nullcontext():
-                    mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {file_path} -> {e}")
             errors.append({"source": file_path, "error": str(e)})
 
@@ -5937,6 +6340,7 @@ def process_drive_file_input(
     source_meta = with_output_folder_context({
         "type": "drive",
         "file_id": resolved["id"],
+        "createdTime": resolved.get("createdTime", ""),
         "modifiedTime": resolved.get("modifiedTime", ""),
         "size": str(resolved.get("size", "")),
     }, run_ctx)
@@ -5952,6 +6356,7 @@ def process_drive_file_input(
             print(f"\nОбрабатываю: {filename}")
             report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
             tmp_path = download_drive_file_to_temp(resolved["id"], filename)
+            source_meta = with_source_creation_authority(source_meta, tmp_path)
             return process_user_segments_for_source(
                 input_path=tmp_path,
                 original_filename=filename,
@@ -5981,7 +6386,7 @@ def process_drive_file_input(
         print(f"\nОбрабатываю: {filename}")
         report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
         tmp_path = download_drive_file_to_temp(resolved["id"], filename)
-        mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
+        source_meta = with_source_creation_authority(source_meta, tmp_path)
         report_progress_for_file(progress_callback, 1, 1, 2, f"Транскрибация: {filename}")
 
         transcript = transcribe_media_path(
@@ -5999,7 +6404,8 @@ def process_drive_file_input(
             conflict_mode=run_ctx.conflict_mode,
             source_name=filename,
             source_mode="drive_file",
-            options=run_ctx.options
+            options=run_ctx.options,
+            source_created_at=source_meta.get("source_created_at", "unknown"),
         )
 
         if result["status"] == "skipped":
@@ -6011,8 +6417,6 @@ def process_drive_file_input(
             append_success(successes, resolved.get("webViewLink") or filename, result)
 
     except Exception as e:
-        if user_segment_plan_text is None and user_segment_builder_rows is None:
-            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
         print(f"Ошибка: {filename} -> {e}")
         errors.append({"source": filename, "error": str(e)})
 
@@ -6048,6 +6452,7 @@ def process_drive_multi_input(
             "type": "drive",
             "selection_mode": "drive_multi",
             "file_id": item["id"],
+            "createdTime": item.get("createdTime", ""),
             "modifiedTime": item.get("modifiedTime", ""),
             "size": str(item.get("size", "")),
         }, run_ctx)
@@ -6070,11 +6475,10 @@ def process_drive_multi_input(
                     skipped.append({"source": display_name, "reason": reason})
                     continue
 
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, source_meta)
             report_progress_for_file(progress_callback, idx, len(selected_files), 1, f"Скачивание из Google Drive: {display_name}")
             with timer.measure("drive_download") if timer else nullcontext():
                 tmp_path = download_drive_file_to_temp(item["id"], filename)
+            source_meta = with_source_creation_authority(source_meta, tmp_path)
             report_progress_for_file(progress_callback, idx, len(selected_files), 2, f"Транскрибация: {display_name}")
 
             with timer.measure("provider_transcription") if timer else nullcontext():
@@ -6096,6 +6500,7 @@ def process_drive_multi_input(
                     source_name=display_name,
                     source_mode="drive_multi",
                     options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
                 )
 
             if result["status"] == "skipped":
@@ -6108,8 +6513,6 @@ def process_drive_multi_input(
                 append_success(successes, display_name, result)
 
         except Exception as e:
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, str(e), source_meta)
             print(f"Ошибка: {display_name} -> {e}")
             errors.append({"source": display_name, "error": str(e)})
 
@@ -6146,7 +6549,8 @@ def process_drive_folder_input(
         for idx, file_path in enumerate(file_list, start=1):
             filename = os.path.basename(file_path)
             source_signature = build_local_path_source_signature(file_path, filename)
-            source_meta = with_output_folder_context({"type": "local_path", "path": file_path}, run_ctx)
+            source_meta = with_output_folder_context({"type": "local_path"}, run_ctx)
+            source_meta = with_source_creation_authority(source_meta, file_path)
             report_progress_for_file(progress_callback, idx, len(file_list), 0, f"Подготовка: {filename}")
 
             print(f"\n[{idx}/{len(file_list)}] {filename}")
@@ -6165,7 +6569,6 @@ def process_drive_folder_input(
                         skipped.append({"source": file_path, "reason": reason})
                         continue
 
-                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
                 report_progress_for_file(progress_callback, idx, len(file_list), 1, f"Транскрибация: {filename}")
                 transcript = transcribe_media_path(
                     input_path=file_path,
@@ -6182,7 +6585,8 @@ def process_drive_folder_input(
                     conflict_mode=run_ctx.conflict_mode,
                     source_name=filename,
                     source_mode="drive_folder",
-                    options=run_ctx.options
+                    options=run_ctx.options,
+                    source_created_at=source_meta.get("source_created_at", "unknown"),
                 )
 
                 if result["status"] == "skipped":
@@ -6194,7 +6598,6 @@ def process_drive_folder_input(
                     append_success(successes, file_path, result)
 
             except Exception as e:
-                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
                 print(f"Ошибка: {file_path} -> {e}")
                 errors.append({"source": file_path, "error": str(e)})
 
@@ -6221,6 +6624,7 @@ def process_drive_folder_input(
         source_meta = with_output_folder_context({
             "type": "drive",
             "file_id": item["id"],
+            "createdTime": item.get("createdTime", ""),
             "modifiedTime": item.get("modifiedTime", ""),
             "size": str(item.get("size", "")),
         }, run_ctx)
@@ -6243,9 +6647,9 @@ def process_drive_folder_input(
                     skipped.append({"source": display_name, "reason": reason})
                     continue
 
-            mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, source_meta)
             report_progress_for_file(progress_callback, idx, len(folder_files), 1, f"Скачивание из Google Drive: {display_name}")
             tmp_path = download_drive_file_to_temp(item["id"], filename)
+            source_meta = with_source_creation_authority(source_meta, tmp_path)
             report_progress_for_file(progress_callback, idx, len(folder_files), 2, f"Транскрибация: {display_name}")
 
             transcript = transcribe_media_path(
@@ -6263,7 +6667,8 @@ def process_drive_folder_input(
                 conflict_mode=run_ctx.conflict_mode,
                 source_name=display_name,
                 source_mode="drive_folder",
-                options=run_ctx.options
+                options=run_ctx.options,
+                source_created_at=source_meta.get("source_created_at", "unknown"),
             )
 
             if result["status"] == "skipped":
@@ -6275,7 +6680,6 @@ def process_drive_folder_input(
                 append_success(successes, display_name, result)
 
         except Exception as e:
-            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, str(e), source_meta)
             print(f"Ошибка: {display_name} -> {e}")
             errors.append({"source": display_name, "error": str(e)})
 
@@ -7282,6 +7686,7 @@ mode_widget = widgets.Dropdown(
     options=[
         ("Компьютер: 1 файл", "local_file"),
         ("Компьютер: несколько файлов", "local_multi"),
+        ("Компьютер: папка", "local_folder"),
         ("Google Drive: 1 файл", "drive_file"),
         ("Google Drive: несколько файлов", "drive_multi"),
         ("Google Drive: папка", "drive_folder"),
@@ -7323,6 +7728,7 @@ provider_widget = widgets.Dropdown(
 language_mode_widget = widgets.Dropdown(
     options=[
         ("Русский", "ru"),
+        ("English", "en"),
         ("Автоопределение", "detect"),
     ],
     value="ru",
@@ -7461,6 +7867,34 @@ standardize_manifest_v2_help_widget = widgets.HTML(
     "</div>"
 )
 
+manifest_clear_dry_run_widget = widgets.Checkbox(
+    value=True,
+    description="Только проверить очистку, не изменять manifest",
+    indent=False,
+    layout=widgets.Layout(width="500px")
+)
+
+manifest_clear_confirmation_widget = widgets.Text(
+    value="",
+    description="Подтверждение:",
+    placeholder=MANIFEST_CLEAR_CONFIRMATION,
+    layout=widgets.Layout(width="620px")
+)
+
+manifest_clear_button = widgets.Button(
+    description="Проверить / очистить manifest",
+    icon="trash",
+    layout=widgets.Layout(width="360px")
+)
+
+manifest_clear_help_widget = widgets.HTML(
+    "<div style='margin-top:6px; color:#5f6368;'>"
+    "Сначала выполните dry-run. Для применения снимите флаг dry-run и введите точно "
+    f"<code>{MANIFEST_CLEAR_CONFIRMATION}</code>. Перед очисткой обязательно создаётся backup. "
+    "Операция очищает только duplicate-protection catalog и не удаляет исходные media files или Google Docs."
+    "</div>"
+)
+
 standardize_existing_docs_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "Стандартизация Google Docs в apply-режиме переписывает выбранные документы на месте. "
@@ -7480,6 +7914,7 @@ check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
 standardize_existing_docs_output_widget = widgets.Output()
 standardize_manifest_v2_output_widget = widgets.Output()
+manifest_clear_output_widget = widgets.Output()
 output_widget = widgets.Output()
 
 standardize_existing_docs_section_widget = widgets.VBox([
@@ -7511,6 +7946,15 @@ standardize_existing_docs_section_widget = widgets.VBox([
     standardize_manifest_v2_button,
     standardize_manifest_v2_help_widget,
     standardize_manifest_v2_output_widget,
+    widgets.HTML(
+        "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
+        "<h4 style='margin:0 0 8px 0;'>Безопасная очистка manifest</h4>"
+    ),
+    manifest_clear_dry_run_widget,
+    manifest_clear_confirmation_widget,
+    manifest_clear_button,
+    manifest_clear_help_widget,
+    manifest_clear_output_widget,
 ])
 
 folder_picker_ui = widgets.VBox(folder_picker_core_widgets + [standardize_existing_docs_section_widget])
@@ -7556,6 +8000,14 @@ def refresh_ui(*args):
             "<span style='color:#8a6d3b;'>Для крупных файлов, особенно сотни МБ и выше, "
             "рекомендуется заранее загрузить их на Google Drive и использовать режим "
             "<b>Google Drive: несколько файлов</b> или <b>Google Drive: папка</b>.</span>"
+        )
+    elif mode == "local_folder":
+        recursive_widget.layout.display = "none"
+        check_source_button.layout.display = "none"
+        help_widget.value = (
+            "<b>Режим:</b> после нажатия <b>Запустить</b> появится browser-native выбор "
+            "<b>целой папки с компьютера</b>. Вложенные supported audio/video files включаются автоматически; "
+            "unsupported files пропускаются. Передача выполняется bounded chunks, абсолютные пути не передаются."
         )
     elif mode == "drive_file":
         recursive_widget.layout.display = "none"
@@ -8223,6 +8675,24 @@ def on_standardize_manifest_v2_clicked(_):
             standardize_manifest_v2_button.disabled = False
 
 
+def on_manifest_clear_clicked(_):
+    manifest_clear_button.disabled = True
+    with manifest_clear_output_widget:
+        clear_output()
+        try:
+            report = clear_manifest_catalog(
+                dry_run=manifest_clear_dry_run_widget.value,
+                confirmation_text=manifest_clear_confirmation_widget.value,
+            )
+            print(build_manifest_clear_report_text(report))
+            if report.get("manifest_cleared"):
+                manifest_clear_confirmation_widget.value = ""
+        except Exception as error:
+            print(f"Ошибка очистки manifest: {error}")
+        finally:
+            manifest_clear_button.disabled = False
+
+
 def collect_runtime_options_from_ui() -> TranscriptionRuntimeOptions:
     return TranscriptionRuntimeOptions(
         provider=provider_widget.value,
@@ -8254,6 +8724,7 @@ def get_source_mode_label(mode: str) -> str:
     mapping = {
         "local_file": "Компьютер: 1 файл",
         "local_multi": "Компьютер: несколько файлов",
+        "local_folder": "Компьютер: папка",
         "drive_file": "Google Drive: 1 файл",
         "drive_multi": "Google Drive: несколько файлов",
         "drive_folder": "Google Drive: папка",
@@ -8262,7 +8733,7 @@ def get_source_mode_label(mode: str) -> str:
 
 
 def get_openai_diarize_chunking_preflight_warning(provider: str, separate_speakers: bool, source_mode: str):
-    source_modes_that_may_chunk = {"local_file", "local_multi", "drive_file", "drive_multi", "drive_folder"}
+    source_modes_that_may_chunk = {"local_file", "local_multi", "local_folder", "drive_file", "drive_multi", "drive_folder"}
     if provider != "openai" or not separate_speakers or source_mode not in source_modes_that_may_chunk:
         return None
 
@@ -8495,6 +8966,21 @@ def on_start_clicked(_):
                     progress_callback=set_progress,
                     timer=timer,
                     source_mode=mode,
+                    )
+
+            elif mode == "local_folder":
+                print("Выбери папку с компьютера через кнопку ниже...")
+                with timer.measure("local_upload_wait"):
+                    uploaded = upload_local_folder_from_browser()
+                warn_about_large_local_uploads(uploaded)
+
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_local_uploaded(
+                        uploaded=uploaded,
+                        run_ctx=run_ctx,
+                        progress_callback=set_progress,
+                        timer=timer,
+                        source_mode=mode,
                     )
 
             elif mode == "drive_file":
@@ -8929,6 +9415,7 @@ check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
 standardize_manifest_v2_button.on_click(on_standardize_manifest_v2_clicked)
+manifest_clear_button.on_click(on_manifest_clear_clicked)
 start_button.on_click(on_start_clicked)
 refresh_user_segment_ui()
 

@@ -4,6 +4,17 @@ This document is historical. Codex and other coding agents must not read it duri
 
 The archive preserves traceability from documents consolidated during `DOCS-AUTHORITY-RESET-01`. It intentionally avoids secrets, production credentials, private account data, transcript bodies, document IDs/URLs, raw provider responses, and raw Google responses.
 
+## Archived `PWA-REALTIME-STABILITY-READINESS-01` delivery — PRs #228–#230
+
+- Final baseline: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`.
+- Outcome: hardened repeated start/stop and stale async cleanup, added static voice-priority mix, then separate browser-only display/microphone source meters and microphone-triggered display ducking without persisting audio or transcript content.
+- Final exact-main CI: repository run `32706218832` ✅; Studio PWA run `32706218892`, jobs `studio` and `browser-e2e` ✅.
+- Deployment: Studio Platform CD run `32706218830` ✅ deployed `studio-web`; API, worker and migration correctly skipped as unaffected.
+- LIVE: owner-controlled ordinary Chrome canary on laptop speakers confirmed both source signals during mixed capture and microphone speech reaching transcription while display playback continued. Partial acoustic/provider masking of simultaneous speech was explicitly accepted as non-critical; no new capture reset was reported.
+- Readiness at closure: `PWA-REALTIME-01 13/13 = 100%`, Studio PWA `86/91 = 94,5%`, project `108/120 = 90,0%`; denominator remained `120`.
+- Cleanup: all three merged Goal branches were ancestor-verified and removed locally/remotely; local `main` fast-forwarded to exact `origin/main`.
+- Metadata limitation: approved post-deploy writer remains absent, so final Evidence was recorded in PR #230 and reconciled by the next authorized Goal instead of a docs-only follow-up PR.
+
 ## Archived `PWA-TRANSCRIPTIONS-UX-AND-LIVE-RECOVERY-01` delivery — PR #222
 
 - Base: `main@dd194c929d957e822ff618df294dc54e72d5971e`.

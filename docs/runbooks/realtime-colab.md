@@ -39,6 +39,8 @@ Still pending:
 - cross-browser validation;
 - runtime confirmation that main API key, one-time token, transcript content, private audio and raw provider payloads are not exposed in logs/output. Ordinary browser denial/cancel before WebSocket creation has partial manual evidence only and does not prove Stop-during-prompt behavior.
 
+Current source-level stability guards do not replace that LIVE evidence: every captured track has an `ended` listener that closes the whole attempt and releases all sources; session-config fetch and WebSocket open each have a 15-second timeout; more than 1 MiB of WebSocket backpressure fails closed; Stop aborts a pending config request; microphone capture requests echo cancellation, noise suppression, automatic gain control and mono as ideal constraints. Automatic reconnect is deliberately absent because every new attempt must obtain a fresh single-use token.
+
 ## 4. Current source-control model
 
 The standalone page has independent source controls:
@@ -104,6 +106,17 @@ Copy this checklist into a runtime report and mark pass/fail/not tested:
 - [ ] Confirm Stop closes WebSocket and releases media tracks.
 - [ ] Confirm no Google Docs, `manifest` or speaker project mutation occurs.
 - [ ] Confirm main API key and one-time token are not visible in browser JS, notebook output, diagnostics or logs.
+
+Representative Windows/Chrome matrix for `CR-06` (bounded minimum):
+
+- [ ] Two sequential microphone-only Start → `session_started` → committed text → Stop cycles without reload.
+- [ ] Two sequential display/tab-audio Start → `session_started` → committed text → Stop cycles without reload.
+- [ ] Two sequential mixed display+microphone Start → `session_started` → committed text → Stop cycles without reload.
+- [ ] While one display session is active, stop sharing from Chrome UI; confirm status becomes closed, all capture indicators clear and the next Start succeeds with a fresh token.
+- [ ] Run one browser permission deny/cancel and one explicit Stop while a permission prompt is pending; confirm no late WebSocket opens and retry remains usable.
+- [ ] For each successful cycle record only mode, pass/fail, WebSocket/session flags, committed-text yes/no and resource-release yes/no; never record transcript text, token, URL or device/account identity.
+
+Any reproducible unexpected capture break in the same mode blocks `CR-06`. A one-off environmental failure may be retried once only after the failure category is recorded safely; repeated failure remains a product gap rather than a passed matrix.
 
 ## 9. Troubleshooting
 
