@@ -22,19 +22,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T08:16:17Z
+- Updated (UTC): 2026-08-24T08:21:14Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `b214a160999ae3ac953f2b57d472fe886a66fa4e`
 - Working branch: `codex/pwa-realtime-source-ducking`
-- Last verified revision: `42e76e1be86f56d1d91e2c35c262715d1cd3efa6` (per-source meters, microphone-triggered ducking, UI guidance, regression coverage and architecture update validated locally).
+- Last verified revision: `735f45ae00b05a4432ebdceb8cc01f9e876a75da` (implementation plus browser-E2E analyser contract validated by TypeScript and ESLint; full E2E rerun pending CI).
 - Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
 - Completed: PR #229 merged as `main@b214a160`; exact-main CI `32696791719`, Studio/browser CI `32696791700` and web deployment `32696791720` passed; API, migration and worker correctly skipped. Static voice-priority gain staging is deployed. Post-deploy Chrome canary on laptop speakers still reproduced microphone speech not being recognized while display playback continued; both sources work separately. Headphones are unavailable, so the owner explicitly authorized continued software diagnosis instead of stopping at that external gate. Commit `42e76e1` inserts non-persistent analysers into each real mixed-source path, exposes separate UI meters, ducks display gain `0.35 → 0.08` on microphone activity with hysteresis recovery and clears all levels/monitor ownership during cleanup.
-- Current step: PR #230 открыт; required checks выполняются для опубликованной source-ducking ветки.
-- Next exact action: дождаться terminal state `checks`, `studio` и `browser-e2e`, разобрать failures/skips и при green gates выполнить merge.
+- Current step: exact-head `browser-e2e` failure диагностирован как неполный `FakeAudioContext`: production `createAnalyser()` отсутствовал в E2E runtime mock. Test contract исправлен и теперь проверяет оба source meters через browser path.
+- Next exact action: push commits `735f45a` и этот checkpoint, затем дождаться нового terminal state всех required checks.
 - Validation and Evidence: focused realtime/UI `46/46` PASS; full Studio `562/562` PASS; full ESLint PASS; TypeScript project build PASS; exact-worktree production PWA build PASS; `git diff --check` PASS. Product numerator remains unchanged until required CI/deploy and a successful representative mixed LIVE canary.
 - Pull Request: #230 — `https://github.com/Just9120/Elevenlabs-API/pull/230`; base `b214a160`, initial published head `e783ec8`.
-- CI/checks: `checks`, `studio` и `browser-e2e` запущены; terminal state ещё не подтверждён.
+- CI/checks: run `32705510656` ещё выполняется; run `32705510663`: `studio` SUCCESS, `browser-e2e` FAILURE из-за missing mock `createAnalyser`, failure artifact uploaded. Исправление добавлено; новый exact-head CI ещё не запущен.
 - Deployment/environment: web deployment `32696791720` succeeded for `b214a160`; migration class for the planned browser-only diff is expected `NONE`.
 - Blockers: none for implementation. Headphones remain unavailable, but the new same-device canary will expose whether microphone samples reach the browser graph during playback.
 - Unverified assumptions: microphone-triggered ducking can reduce provider masking only when Chrome supplies non-zero microphone samples; a zero microphone source meter during playback would instead confirm browser/AEC or device-level suppression. Full-AC epics may still lack required LIVE breadth despite historical deployment records.
