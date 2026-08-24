@@ -16,28 +16,28 @@
   6. `COLAB-REALTIME-01` достигает `6/6`: representative Windows/Chrome microphone/display/mixed sessions, repeated start/stop и permission-cancellation lifecycle проходят bounded LIVE matrix без воспроизводимого capture break.
   7. Secrets, tokens, transcript bodies, private source bytes, Google/provider payloads и raw Drive links не попадают в code, tests, logs, analytics или delivery Evidence.
   8. Relevant focused/full tests и exact-head CI проходят; reviewed exact revision доступна Colab launcher; bounded production LIVE подтверждает batch и realtime либо фиксирует конкретный внешний gate.
-- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE ◐`.
-- **Known blockers/dependencies:** standard browser upload не гарантирует filesystem creation time для local files; targeted audit должен найти truthful authority (например embedded media metadata) либо зафиксировать narrow blocker без fallback на `lastModified`. Финальный batch canary требует owner-approved non-sensitive fixtures, provider quota и одного/нескольких Google Docs outputs. Production manifest clear — stateful/destructive operation и требует отдельной explicit authorization после safe preview/backup. Realtime matrix требует owner-controlled Chrome/Windows permission prompts. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому фактический post-delivery state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ◐`.
+- **Known blockers/dependencies:** standard browser upload не гарантирует filesystem creation time; implementation использует embedded media creation metadata, затем Drive `createdTime`, а при отсутствии/conflict оставляет `unknown` без fallback на `lastModified`. Финальный batch canary требует owner-approved non-sensitive fixtures, provider quota и одного/нескольких Google Docs outputs. Production manifest clear — stateful/destructive operation и требует отдельной explicit authorization после safe preview/backup. Realtime matrix требует owner-controlled Chrome/Windows permission prompts. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому фактический post-delivery state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T08:56:35Z.
+- Updated (UTC): 2026-08-24T10:23:52Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `ebbba50a938feb2d06b2ec59e828834ff204988d`.
 - Working branch: `codex/colab-production-completion`.
-- Last verified revision: `b3e3d3211e1aa44f935cc4f326abafdbd93a03d1` — bounded local-folder intake slice.
+- Last verified revision: `f4d9722ff22f1d8d061cd2682aa3e039cfc0c9b6` — realtime capture lifecycle hardening.
 - Working tree at branch start: clean; local `main = origin/main`; divergence `0/0`; unrelated pre-existing changes absent.
 - Completed: previous realtime Goal reconciled from PRs #228–#230. Exact-main repository CI `32706218832`, Studio/browser CI `32706218892` and web CD `32706218830` passed for `main@ebbba50`; owner-controlled Chrome mixed canary confirmed both source signals and accepted residual simultaneous-speaker masking as non-critical. Three merged realtime branches were safely removed locally/remotely.
-- Current step: targeted realtime hardening реализован: track-ended cleanup, bounded session-config/WebSocket-open timeouts, 1 MiB backpressure stop, abort pending config fetch и voice-processing ideal constraints; fresh Start остаётся единственным retry path для single-use token.
-- Next exact action: выполнить full local validation, проверить branch divergence, синхронизировать readiness/Evidence и подготовить PR exact head.
-- Validation and Evidence: realtime focused suite `61 passed, 1 skipped`; skipped Node syntax case отдельно выполнен bundled Node `--check` и passed. `CR-06` остаётся open до bounded representative Windows/Chrome matrix. Readiness не изменилась: project `111/120`, Colab `25/29`, realtime `5/6`.
+- Current step: весь bounded source/test scope Goal реализован шестью atomic commits; branch divergence после `git fetch origin --prune` — `origin/main...HEAD = 0/6`.
+- Next exact action: зафиксировать final documentation reconciliation, push exact head и создать Pull Request.
+- Validation and Evidence: combined Colab helper/realtime suite `258 passed, 1 skipped`; skipped Node syntax case отдельно выполнен bundled Node `--check` и passed; `scripts/ci_checks.py` и `git diff --check` passed. Полный service-backed pytest локально не считается пройденным из-за отсутствия CI PostgreSQL/Redis/migration environment; exact-head CI остаётся обязательным. `CB-05/21/22` и `CR-06` остаются open до bounded LIVE. Readiness не изменилась: project `111/120`, Colab `25/29`, batch `20/23`, realtime `5/6`.
 - Pull Request: none.
 - CI/checks: not started for this branch.
 - Deployment/environment: Colab has no VPS component deployment; exact reviewed repository revision and launcher `GITHUB_REF` are the applicable delivery identity. Final applicability of `DEPLOY` Evidence will be stated explicitly after targeted topology verification.
-- Blockers: none for safe source/test work. External LIVE and destructive manifest-clear gates are deferred until implementation and CI are ready.
-- Unverified assumptions: local media may or may not contain trustworthy embedded creation metadata; Colab browser folder upload capabilities and path preservation must be tested rather than inferred.
+- Blockers: none for PR/CI. External LIVE and destructive manifest-clear gates remain owner-controlled after merge readiness.
+- Unverified assumptions: representative user media may or may not contain trustworthy embedded creation metadata; actual Colab browser folder transfer/path preservation and Windows/Chrome realtime stability remain unverified until bounded LIVE.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
