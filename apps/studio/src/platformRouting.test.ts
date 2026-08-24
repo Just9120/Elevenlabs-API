@@ -12,6 +12,7 @@ describe("platform routing", () => {
 
   it.each([
     ["/", { page: "dashboard", settingsSection: "account" }],
+    ["/audio", { page: "audio", settingsSection: "account" }],
     ["/transcriptions", { page: "projects", settingsSection: "account" }],
     ["/projects", { page: "projects", settingsSection: "account" }],
     ["/settings", { page: "settings", settingsSection: "account" }],
@@ -35,6 +36,7 @@ describe("platform routing", () => {
 
   it.each([
     ["dashboard", "account", "/"],
+    ["audio", "account", "/audio"],
     ["projects", "account", "/transcriptions"],
     ["settings", "account", "/settings"],
     ["settings", "diagnostics", "/settings/diagnostics"],

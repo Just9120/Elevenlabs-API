@@ -12,6 +12,9 @@ from .audit import audit
 from .diagnostics import write_diagnostic_event
 from .job_retry_recovery import compute_explicit_retry_readiness
 from .models import (
+    AudioPreparationJob,
+    AudioPreparationJobInput,
+    AudioPreparationStatus,
     JobSourceStatus,
     JobStatus,
     Project,
@@ -35,6 +38,7 @@ class SourceDeletionReason(str, Enum):
     queued_job_uses_source = "queued_job_uses_source"
     processing_job_uses_source = "processing_job_uses_source"
     retryable_failed_job_uses_source = "retryable_failed_job_uses_source"
+    audio_preparation_uses_source = "audio_preparation_uses_source"
     project_unavailable = "project_unavailable"
     source_already_deleted = "source_already_deleted"
     unsupported_source_state = "unsupported_source_state"
@@ -91,6 +95,29 @@ def _referencing_jobs(db: Session, source_id: str, *, lock: bool) -> list[Transc
     return list(db.execute(stmt).scalars().all())
 
 
+def _active_audio_preparation_references(db: Session, source_id: str, *, lock: bool) -> list[AudioPreparationJob]:
+    stmt = (
+        select(AudioPreparationJob)
+        .join(AudioPreparationJobInput, AudioPreparationJobInput.job_id == AudioPreparationJob.id)
+        .where(
+            AudioPreparationJobInput.source_id == source_id,
+            AudioPreparationJob.status.in_(
+                (
+                    AudioPreparationStatus.preview_queued,
+                    AudioPreparationStatus.analyzing,
+                    AudioPreparationStatus.preview_ready,
+                    AudioPreparationStatus.queued,
+                    AudioPreparationStatus.processing,
+                )
+            ),
+        )
+        .order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    return list(db.execute(stmt).scalars().all())
+
+
 
 def _no_processing_reference_predicate():
     return ~exists(
@@ -121,6 +148,8 @@ def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_job
             return SourceDeletionReason.processing_job_uses_source
         if job.status == JobStatus.failed and compute_explicit_retry_readiness(db, job, now=now).available:
             return SourceDeletionReason.retryable_failed_job_uses_source
+    if _active_audio_preparation_references(db, source.id, lock=False):
+        return SourceDeletionReason.audio_preparation_uses_source
     return SourceDeletionReason.available
 
 
@@ -132,6 +161,7 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     if project is None or project.owner_user_id != owner_user_id or project.archived_at is not None:
         return None
     jobs = _referencing_jobs(db, source.id, lock=True)
+    _active_audio_preparation_references(db, source.id, lock=True)
     already_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
     reason = deletion_readiness(db, source, now=now, locked_jobs=jobs)
     if reason not in {SourceDeletionReason.available, SourceDeletionReason.source_already_deleted}:

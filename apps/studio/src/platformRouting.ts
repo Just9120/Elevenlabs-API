@@ -1,4 +1,4 @@
-export type Page = "dashboard" | "projects" | "settings";
+export type Page = "dashboard" | "audio" | "projects" | "settings";
 export type SettingsSection = "account" | "diagnostics";
 export type PlatformRoute = { page: Page; settingsSection: SettingsSection };
 
@@ -6,6 +6,8 @@ export function parsePlatformRoute(
   pathname = window.location.pathname,
 ): PlatformRoute {
   switch (pathname) {
+    case "/audio":
+      return { page: "audio", settingsSection: "account" };
     case "/transcriptions":
     case "/projects":
       return { page: "projects", settingsSection: "account" };
@@ -23,6 +25,7 @@ export function platformPathFor(
   page: Page,
   settingsSection: SettingsSection = "account",
 ) {
+  if (page === "audio") return "/audio";
   if (page === "projects") return "/transcriptions";
   if (page === "settings") {
     return settingsSection === "diagnostics"

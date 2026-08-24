@@ -47,7 +47,9 @@ ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
 @pytest.fixture(scope="session", autouse=True)
 def migrated_database():
-    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+    env = os.environ.copy()
+    env.pop("STUDIO_DATABASE_URL", None)
+    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
     yield
 
 @pytest.fixture(autouse=True)
@@ -57,7 +59,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -902,6 +904,74 @@ def test_transcription_workspace_reuses_active_and_never_unarchives_legacy_data(
         assert db.query(AuditEvent).filter_by(
             event_type="transcription_workspace.created"
         ).count() == 1
+    finally:
+        db.close()
+
+
+def test_audio_preparation_api_create_list_detail_and_owner_boundary():
+    email = "audio-preparation-owner@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    workspace = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]
+    db = SessionLocal()
+    try:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        source = Source(
+            project_id=workspace["id"],
+            source_type=SourceType.local_upload,
+            original_filename="meeting.wav",
+            mime_type="audio/wav",
+            size_bytes=1024,
+            s3_bucket="private-test-bucket",
+            s3_object_key="private/test/source",
+            upload_status=SourceUploadStatus.uploaded,
+            uploaded_at=utcnow(),
+            source_created_at=utcnow() - timedelta(days=1),
+            source_created_at_provenance="embedded_media_metadata",
+            expires_at=utcnow() + timedelta(days=1),
+        )
+        db.add(source)
+        db.commit()
+        source_id = source.id
+        owner_id = owner.id
+    finally:
+        db.close()
+    created = client.post(
+        f"/api/projects/{workspace['id']}/audio-preparations",
+        headers=headers,
+        json={
+            "title": "Обработанная встреча",
+            "source_ids": [source_id],
+            "ephemeral_source_ids": [source_id],
+            "manual_order": True,
+            "options": {"preset": "processing_only", "output_format": "wav"},
+            "output_destination": "download",
+            "output_drive_folder_id": None,
+        },
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["status"] == "preview_queued"
+    assert payload["inputs"] == [{"position": 0, "filename": "meeting.wav", "source_type": "local_upload", "ephemeral_reference": True}]
+    assert "private-test-bucket" not in created.text
+    assert "private/test/source" not in created.text
+    listed = client.get(f"/api/projects/{workspace['id']}/audio-preparations")
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()["jobs"]] == [payload["id"]]
+    assert client.get(f"/api/audio-preparations/{payload['id']}").status_code == 200
+    assert client.post(f"/api/audio-preparations/{payload['id']}/start", headers=headers).status_code == 409
+    other_email = "audio-preparation-other@example.com"
+    other_password = admin(other_email)
+    other_client = TestClient(app)
+    login(other_client, other_password, other_email)
+    assert other_client.get(f"/api/audio-preparations/{payload['id']}").status_code == 404
+    db = SessionLocal()
+    try:
+        assert db.get(User, owner_id) is not None
+        persisted = db.get(Source, source_id)
+        assert persisted.expires_at <= utcnow() + timedelta(hours=24, minutes=1)
     finally:
         db.close()
 
@@ -2629,7 +2699,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0024_speaker_identity"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0025_audio_preparation"
 
 
 
@@ -2664,7 +2734,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0024_speaker_identity"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0025_audio_preparation"
 
 
 
@@ -6303,7 +6373,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0024_speaker_identity"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0025_audio_preparation"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
