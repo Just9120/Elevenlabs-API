@@ -22,22 +22,22 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T06:14:39Z
+- Updated (UTC): 2026-08-24T08:06:23Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
-- Base SHA: `d11120c01e8cf1b41c70a192b1ce14da28b09185`
-- Working branch: `codex/pwa-realtime-mixed-capture`
-- Last verified revision: `f410dab134e96e75c40b663c680377db8cf9760f` (mixed-capture voice-priority fix, regression tests and architecture update validated locally).
+- Base SHA: `b214a160999ae3ac953f2b57d472fe886a66fa4e`
+- Working branch: `codex/pwa-realtime-source-ducking`
+- Last verified revision: `b214a160999ae3ac953f2b57d472fe886a66fa4e` (PR #229 merge deployed successfully; new source-meter/ducking fix absent).
 - Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
-- Completed: PR #228 merged as `main@d11120c`; exact-main CI `32668896670`, Studio/browser CI `32668896683` and web deployment `32668896641` passed. Stop/send/repeated-session hardening remains deployed. Owner LIVE matrix confirmed display capture, repeated start/stop, draft recovery and standalone Chrome microphone capture; mixed Chrome session reproduced microphone speech being masked while display audio remained active. Source audit found both tracks connected at unity gain without voice priority, matching the observed loud-source masking risk. Commit `f410dab` now attenuates display audio to `0.35`, retains microphone unity gain, requests ideal mono/echo-cancellation/noise-suppression/automatic-gain-control constraints, documents the acoustic boundary and adds graph/UI regression coverage.
-- Current step: PR #229 открыт; required checks выполняются для опубликованной fix-ветки.
-- Next exact action: дождаться terminal state `checks`, `studio` и `browser-e2e`, разобрать failures/skips и при green gates выполнить merge.
-- Validation and Evidence: focused realtime/UI `46/46` PASS; full Studio `562/562` PASS; full ESLint PASS; TypeScript project build PASS; production PWA build PASS; `git diff --check` PASS. Previous backend realtime `74 passed, 1 skipped`, portable Python `994 passed, 6 skipped` and exact-main CI/CD remain applicable to unchanged backend surfaces. Product numerator is unchanged until required CI/deploy and a successful mixed LIVE canary.
-- Pull Request: #229 — `https://github.com/Just9120/Elevenlabs-API/pull/229`; base `d11120c`, initial published head `5e0b9c0`.
-- CI/checks: `checks`, `studio` и `browser-e2e` запущены; terminal state ещё не подтверждён.
-- Deployment/environment: web deployment `32668896641` succeeded for `d11120c`; mixed fix not deployed. Migration class expected `NONE`.
-- Blockers: none before PR. Final Chrome mixed LIVE canary remains required after deployment.
-- Unverified assumptions: fixed gain staging is expected to prevent display audio from masking near-field speech, but exact laptop speaker/microphone acoustic behavior must be rechecked in production; full-AC epics may still lack required LIVE breadth despite historical deployment records.
+- Completed: PR #229 merged as `main@b214a160`; exact-main CI `32696791719`, Studio/browser CI `32696791700` and web deployment `32696791720` passed; API, migration and worker correctly skipped. Static voice-priority gain staging is deployed. Post-deploy Chrome canary on laptop speakers still reproduced microphone speech not being recognized while display playback continued; both sources work separately. Headphones are unavailable, so the owner explicitly authorized continued software diagnosis instead of stopping at that external gate.
+- Current step: implement browser-only per-source signal evidence and automatic display ducking inside the same PR-06 Goal.
+- Next exact action: extend the mixed Web Audio graph with source analysers, safe source-level callbacks and bounded microphone-triggered display attenuation, then add regression coverage.
+- Validation and Evidence: PR #229 focused realtime/UI `46/46`, full Studio `562/562`, ESLint, TypeScript and production PWA build PASS; PR and exact-main CI/CD SUCCESS. New branch has not yet been validated. Product numerator remains unchanged until a successful representative mixed LIVE canary.
+- Pull Request: #229 merged; new fix PR not created.
+- CI/checks: exact-main required CI passed for `b214a160`; new fix revision absent.
+- Deployment/environment: web deployment `32696791720` succeeded for `b214a160`; migration class for the planned browser-only diff is expected `NONE`.
+- Blockers: none for implementation. Headphones remain unavailable, but the new same-device canary will expose whether microphone samples reach the browser graph during playback.
+- Unverified assumptions: microphone-triggered ducking can reduce provider masking only when Chrome supplies non-zero microphone samples; a zero microphone source meter during playback would instead confirm browser/AEC or device-level suppression. Full-AC epics may still lack required LIVE breadth despite historical deployment records.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
