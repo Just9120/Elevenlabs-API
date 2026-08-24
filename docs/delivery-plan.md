@@ -17,23 +17,23 @@
   7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
   8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
   9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ❌ | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** durable job/output lifecycle потребует additive migration `0025_audio_preparation` и после merge отдельного action-time authorization для worker drain и `MANUAL_GATED` release; production LIVE требует только короткие owner-controlled media fixtures и не расходует provider quota. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** `AP-01..AP-16` и required Evidence подтверждены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; optional TOTP не начинается в этой Goal.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:58:00Z.
+- Updated (UTC): 2026-08-24T21:01:47Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
 - Last verified revision: `30717656fba3d9a077bd71bbeb3201dfe3178861` — CI database isolation и clean-checkout temp-path fixes подтверждены focused tests.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: all `AP-01..AP-16` source-level flows, including separate PWA workspace, local/Drive source selection, editable presets, preview, progress/cancel/recovery heartbeat, S3 retention/download/reuse, idempotent Drive upload and terminal ephemeral cleanup.
-- Current step: PR `#234` открыт; второй repository CI run `32776379492` прошёл 1327 tests и выявил четыре clean-checkout-only failure новых tests из-за отсутствующего repository `temp/`; исправлено commit `3071765` через isolated pytest `tmp_path`.
-- Next exact action: опубликовать second CI fix и дождаться terminal state нового exact-head `CI / checks`, `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`.
-- Validation and Evidence: прежний portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript и Vite production build passed. Database-environment fix: affected set `35/35`, full CI-like collection `1331/1331`, lightweight checks PASS. Clean-checkout temp fix: affected set `5/5`. Run `32775446498` failure был вызван SQLite pollution; run `32776379492` подтвердил его устранение (`1327 passed`) и завершился failure только на четырёх temp-path tests. Studio/browser runs `32775446540` и `32776379467` success для обоих jobs.
-- Pull Request / CI / deployment: `#234` / repository runs `32775446498`, `32776379492` failure; Studio/browser runs `32775446540`, `32776379467` success; second fixed head not pushed / not started.
+- Current step: PR `#234` exact source head `55da4bfad92a192a4006f6f30931e28dbe01ea4d` прошёл все required checks; CI Evidence подтверждён и синхронизируется в PR.
+- Next exact action: опубликовать CI Evidence reconciliation, дождаться required checks docs-only head и выполнить merge при сохранении mergeability.
+- Validation and Evidence: portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript и Vite production build passed. CI recovery additionally confirmed affected sets `35/35` и `5/5`, full collection `1331/1331`, lightweight checks PASS. Exact source head `55da4bf` имеет terminal success: repository run `32776952785` (`checks` 2m32s) и Studio run `32776952788` (`studio` 2m12s, `browser-e2e` 1m33s).
+- Pull Request / CI / deployment: `#234` / `32776952785` success, `32776952788` success / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
 - Preserved pre-existing changes: none.
@@ -47,7 +47,7 @@
 | **Project** | **100% (`136/136`)** | **88,2% (`120/136`)** | `AP-01..AP-16` реализованы; обязательные delivery Evidence ещё открыты. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Batch `23/23`, realtime `6/6`; READY. |
 | **Studio PWA** | **100% (`107/107`)** | **85,0% (`91/107`)** | Все PWA product AC выполнены; delivery Evidence для нового эпика открыты. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **0% (`0/16`)** | 🟦 IN PROGRESS; `SPEC/CODE/TEST ✅`, `CI/DEPLOY/LIVE —`. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **0% (`0/16`)** | 🟦 IN PROGRESS; `SPEC/CODE/TEST/CI ✅`, `DEPLOY/LIVE —`. |
 | `PWA-SPEAKER-IDENTITY-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; PR #233 delivery/LIVE reconciled. |
 | Остальные existing epics | **100% (`115/115`)** | **100% (`115/115`)** | Completion не изменилась; individual Evidence остаётся в project-spec. |
 

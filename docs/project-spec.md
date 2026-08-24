@@ -214,7 +214,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 100% (`16/16`)**. Все product AC реализованы и подтверждены локальными contract/component/portable regression tests; exact-head CI ещё не подтверждён после failure предыдущего head, DEPLOY/LIVE отсутствуют, поэтому эпик не READY.
+Status: **🟦 IN PROGRESS — 100% (`16/16`)**. Все product AC реализованы и подтверждены tests и exact-head CI; DEPLOY/LIVE отсутствуют, поэтому эпик не READY.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
 
@@ -237,7 +237,9 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | ✅ |
 | `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ❌ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+
+Verified CI: source head `55da4bfad92a192a4006f6f30931e28dbe01ea4d`; repository run `32776952785` и Studio/browser run `32776952788` завершились success.
 
 Definition of Done: `16/16`, relevant backend/frontend/migration tests и required exact-head CI green, additive schema release и API/worker/web deployment по applicable gates, bounded owner-controlled LIVE с короткими fixtures, authenticated download и одним Google Drive upload без provider call.
 
