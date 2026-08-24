@@ -321,7 +321,10 @@ def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: st
         event_id = _upsert_event(db, row_values, fp)
         db.commit()
         try:
-            cleanup_expired_diagnostics(session_factory=session_factory)
+            cleanup_expired_diagnostics(
+                session_factory=session_factory,
+                now=now_dt,
+            )
         except Exception:
             LOGGER.warning("diagnostic_cleanup_failed")
         return DiagnosticWriteResult(True, True, event_id=event_id)
