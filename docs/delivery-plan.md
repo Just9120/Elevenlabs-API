@@ -23,17 +23,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:41:00Z.
+- Updated (UTC): 2026-08-24T20:44:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
 - Last verified revision: `29801a0` — committed complete source-level audio-preparation workspace and reliability hardening.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: all `AP-01..AP-16` source-level flows, including separate PWA workspace, local/Drive source selection, editable presets, preview, progress/cancel/recovery heartbeat, S3 retention/download/reuse, idempotent Drive upload and terminal ephemeral cleanup.
-- Current step: publish the validated Goal branch and open one Pull Request.
-- Next exact action: push `codex/pwa-audio-preparation`, create the Goal PR, then wait for every required CI check to reach terminal state.
+- Current step: PR `#234` открыт; обязательные CI checks выполняются на published head.
+- Next exact action: дождаться terminal state `CI / checks`, `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`, затем устранить failures либо оценить merge readiness.
 - Validation and Evidence: portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript and Vite production build passed. Non-portable Windows suite is inapplicable because its bash tests require Linux; CI remains required. Product readiness is now `16/16`, while READY remains gated by CI/DEPLOY/LIVE.
-- Pull Request / CI / deployment: not created / local validation complete / not started.
+- Pull Request / CI / deployment: `#234` / running / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
 - Preserved pre-existing changes: none.
