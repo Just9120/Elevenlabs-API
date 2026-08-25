@@ -412,29 +412,29 @@ test('preparation stays fail-closed without external integrations', async ({
   ).toBeDisabled();
   await expect(
     preparation.getByRole('button', {
-      name: 'Выбрать папку-источник Google Drive для строки 1',
+      name: 'Выбрать папку-источник Google Drive для задачи 1',
     }),
   ).toBeDisabled();
   const localFolderInput = preparation.getByLabel(
-    'Выбрать папку с устройства для строки 1',
+    'Выбрать папку с устройства для задачи 1',
   );
   await expect(localFolderInput).toHaveAttribute('type', 'file');
   await expect(localFolderInput).toHaveAttribute('multiple', '');
   await expect(localFolderInput).toHaveAttribute('webkitdirectory', '');
   await expect(
     preparation.getByRole('button', {
-      name: 'Выбрать папку результата для строки 1',
+      name: 'Выбрать папку результата для задачи 1',
     }),
   ).toBeDisabled();
 
   const readiness = preparation.getByRole('status', {
-    name: 'Готовность строк подготовки',
+    name: 'Готовность задач подготовки',
   });
   await expect(readiness).toContainText('Готово: 0 из 1');
-  await expect(readiness).toContainText('Строка 1: выберите источник');
+  await expect(readiness).toContainText('Задача 1: выберите источник');
 
   const existingSourceSelect = preparation.getByLabel(
-    'Существующий файл для строки 1',
+    'Существующий файл для задачи 1',
   );
   const existingSourceValue = await existingSourceSelect
     .locator('option')
@@ -446,7 +446,7 @@ test('preparation stays fail-closed without external integrations', async ({
   await existingSourceSelect.selectOption(existingSourceValue);
 
   await expect(readiness).toContainText(
-    'Строка 1: выберите папку результата',
+    'Задача 1: выберите папку результата',
   );
   await expect(
     preparation.getByRole('button', { name: 'Проверить задачи (1)' }),

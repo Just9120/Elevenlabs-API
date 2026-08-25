@@ -1605,7 +1605,7 @@ function PreparationPanel({
       block: "nearest",
     });
     setRowAdditionStatus(
-      `Добавлена строка ${recentlyAddedRow.number}. Выберите источник.`,
+      `Добавлена задача ${recentlyAddedRow.number}. Выберите источник.`,
     );
     const highlightTimeout = window.setTimeout(
       () => setRecentlyAddedRow(null),
@@ -1769,31 +1769,31 @@ function PreparationPanel({
   const rowReadinessResults = rows.map((row, index) => {
     const rowNumber = index + 1;
     if (!row.source_id) {
-      return { ready: false, reason: `Строка ${rowNumber}: выберите источник` };
+      return { ready: false, reason: `Задача ${rowNumber}: выберите источник` };
     }
     if (!usableSourceIds.has(row.source_id)) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: выбранный файл больше недоступен`,
+        reason: `Задача ${rowNumber}: выбранный файл больше недоступен`,
       };
     }
     if (!row.output_folder?.folder_id) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: выберите папку результата`,
+        reason: `Задача ${rowNumber}: выберите папку результата`,
       };
     }
     const segmentIssue = composerSegmentPlanIssue(row.segments);
     if (segmentIssue) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: ${segmentIssue}`,
+        reason: `Задача ${rowNumber}: ${segmentIssue}`,
       };
     }
     if (duplicateRowIds.has(row.id)) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: такой источник, папка и диапазон уже добавлены`,
+        reason: `Задача ${rowNumber}: такой источник, папка и диапазон уже добавлены`,
       };
     }
     return { ready: true, reason: "" };
@@ -1846,7 +1846,7 @@ function PreparationPanel({
       : credentialBlocker
         ? credentialBlocker
       : rows.length === 0
-        ? "Добавьте хотя бы одну строку"
+        ? "Добавьте хотя бы одну задачу"
         : batchLimitBlocker
           ? batchLimitBlocker
         : firstReadinessBlocker
@@ -2201,7 +2201,7 @@ function PreparationPanel({
       onReloadSources(project.id);
       outcome = {
         message:
-          "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+          "Файлы Google Drive добавлены в Studio. Выберите их в нужных задачах заново.",
         tone: "notice",
       };
     } catch (err) {
@@ -2802,7 +2802,7 @@ function PreparationPanel({
       applyVerifiedOutputFolder(rowId, outputFolder);
       outcome = {
         message:
-          "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
+          "Папка Google Drive проверена, но прежняя задача больше не открыта. Выберите папку для задачи повторно.",
         tone: "notice",
       };
     } catch (err) {
@@ -2992,7 +2992,7 @@ function PreparationPanel({
       } else if (err instanceof ApiError && err.status === 422) {
         setPreflight(null);
         setMessage(
-          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
+          "Пакет не прошёл проверку. Задачи сохранены — исправьте файлы или папки и отправьте снова.",
         );
       } else if (definitiveClientFailure) {
         setMessage(
@@ -3026,7 +3026,7 @@ function PreparationPanel({
       return;
     }
     if (rows.length === 0) {
-      setMessage("Добавьте хотя бы одну строку подготовки.");
+      setMessage("Добавьте хотя бы одну задачу подготовки.");
       return;
     }
     if (firstReadinessBlocker) {
@@ -3035,7 +3035,7 @@ function PreparationPanel({
     }
     if (invalidSourceRowIds.size > 0) {
       setMessage(
-        "Одна или несколько строк ссылаются на файл, который уже недоступен. Выберите готовый файл заново.",
+        "Одна или несколько задач ссылаются на файл, который уже недоступен. Выберите готовый файл заново.",
       );
       return;
     }
@@ -3088,7 +3088,7 @@ function PreparationPanel({
           response.summary.blocked_count > 0
             ? providerAuthorityBlocked
               ? "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса."
-              : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
+              : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной задачи."
             : "Проверка готова. Сверьте план и подтвердите создание задач.",
         );
         return;
@@ -3851,19 +3851,19 @@ function PreparationPanel({
           <div>
             <h2>Подготовка задач</h2>
             <p className="muted">
-              Одна строка создаёт один элемент мульти-транскрибации: один файл
+              Одна задача создаёт один элемент мульти-транскрибации: один файл
               или фрагмент → один документ в выбранной папке.
             </p>
           </div>
           <div className="composer-add-row">
             <button type="button" className="secondary" onClick={addRow}>
-              Добавить строку
+              Добавить задачу
             </button>
             <span
               className="composer-add-row-status"
               role="status"
               aria-live="polite"
-              aria-label="Результат добавления строки"
+              aria-label="Результат добавления задачи"
             >
               {rowAdditionStatus}
             </span>
@@ -3986,7 +3986,7 @@ function PreparationPanel({
           className="composer-status"
           role="status"
           aria-live="polite"
-          aria-label="Готовность строк подготовки"
+          aria-label="Готовность задач подготовки"
         >
           <b>
             Готово: {completeRowCount} из {rows.length}
@@ -3994,7 +3994,7 @@ function PreparationPanel({
           <span>
             {firstReadinessBlocker
               ? firstReadinessBlocker
-              : "Все строки готовы"}
+              : "Все задачи готовы"}
           </span>
         </div>
         {sourceUploadPolicy?.local_upload_enabled ? (
@@ -4029,7 +4029,7 @@ function PreparationPanel({
           </div>
         )}
         <fieldset className="composer-rows">
-          <legend>Строки подготовки</legend>
+          <legend>Задачи подготовки</legend>
           {!sources.loaded && (
             <button type="button" onClick={() => onLoadSources(project.id)}>
               Загрузить существующие файлы проекта
@@ -4038,7 +4038,7 @@ function PreparationPanel({
           {sources.loaded && usableSources.length === 0 && (
             <section className="empty-state">
               <p>
-                Сначала добавьте хотя бы один готовый файл через строку
+                Сначала добавьте хотя бы один готовый файл в задачу
                 подготовки.
               </p>
             </section>
@@ -4074,7 +4074,7 @@ function PreparationPanel({
                           type="button"
                           onClick={() => moveRow(index, -1)}
                           disabled={index === 0}
-                          aria-label={`Поднять строку ${index + 1}`}
+                          aria-label={`Поднять задачу ${index + 1}`}
                         >
                           Выше
                         </button>
@@ -4082,7 +4082,7 @@ function PreparationPanel({
                           type="button"
                           onClick={() => moveRow(index, 1)}
                           disabled={index === rows.length - 1}
-                          aria-label={`Опустить строку ${index + 1}`}
+                          aria-label={`Опустить задачу ${index + 1}`}
                         >
                           Ниже
                         </button>
@@ -4096,7 +4096,7 @@ function PreparationPanel({
                                 : current,
                             )
                           }
-                          aria-label={`Удалить строку ${index + 1}`}
+                          aria-label={`Удалить задачу ${index + 1}`}
                         >
                           Удалить
                         </button>
@@ -4106,12 +4106,12 @@ function PreparationPanel({
                   <div className="composer-row-grid">
                     <section
                       className="row-source-cell"
-                      aria-label={`Источник строки ${index + 1}`}
+                      aria-label={`Источник задачи ${index + 1}`}
                     >
                       <label>
                         Источник
                         <select
-                          aria-label={`Существующий файл для строки ${index + 1}`}
+                          aria-label={`Существующий файл для задачи ${index + 1}`}
                           value={row.source_id}
                           onChange={(e) => {
                             updateRow(row.id, {
@@ -4150,7 +4150,7 @@ function PreparationPanel({
                         <button
                           type="button"
                           className="secondary"
-                          aria-label={`Выбрать папку-источник Google Drive для строки ${index + 1}`}
+                          aria-label={`Выбрать папку-источник Google Drive для задачи ${index + 1}`}
                           disabled={
                             !driveSourcePickerEnabled ||
                             pickerBusy ||
@@ -4176,13 +4176,13 @@ function PreparationPanel({
                           >
                             <span aria-hidden="true">С устройства</span>
                             <span className="visually-hidden">
-                              Выбрать файлы с устройства для строки {index + 1}
+                              Выбрать файлы с устройства для задачи {index + 1}
                             </span>
                           </label>
                           <input
                             id={`local-source-upload-${row.id}`}
                             className="visually-hidden"
-                            aria-label={`Выбрать файлы с устройства для строки ${index + 1}`}
+                            aria-label={`Выбрать файлы с устройства для задачи ${index + 1}`}
                             type="file"
                             multiple
                             accept={
@@ -4220,7 +4220,7 @@ function PreparationPanel({
                           >
                             <span aria-hidden="true">Папка с устройства</span>
                             <span className="visually-hidden">
-                              Выбрать папку с устройства для строки {index + 1}
+                              Выбрать папку с устройства для задачи {index + 1}
                             </span>
                           </label>
                           <input
@@ -4230,7 +4230,7 @@ function PreparationPanel({
                             }}
                             id={`local-source-folder-${row.id}`}
                             className="visually-hidden"
-                            aria-label={`Выбрать папку с устройства для строки ${index + 1}`}
+                            aria-label={`Выбрать папку с устройства для задачи ${index + 1}`}
                             type="file"
                             multiple
                             accept={
@@ -4282,7 +4282,7 @@ function PreparationPanel({
                             <ResourceExternalLink
                               href={selectedSource.drive_file_url ?? ""}
                               label="Открыть файл"
-                              ariaLabel={`Открыть источник строки ${index + 1} в Google Drive`}
+                              ariaLabel={`Открыть источник задачи ${index + 1} в Google Drive`}
                             />
                           )}
                         </div>
@@ -4306,7 +4306,7 @@ function PreparationPanel({
                           <ResourceExternalLink
                             href={row.output_folder.web_view_url}
                             label="Открыть папку"
-                            ariaLabel={`Открыть папку результата строки ${index + 1} в Google Drive`}
+                            ariaLabel={`Открыть папку результата задачи ${index + 1} в Google Drive`}
                           />
                         )}
                       <button
@@ -4314,7 +4314,7 @@ function PreparationPanel({
                         className="secondary"
                         disabled={!driveSourcePickerEnabled || pickerBusy}
                         onClick={() => void chooseRowFolder(row.id)}
-                        aria-label={`Выбрать папку результата для строки ${index + 1}`}
+                        aria-label={`Выбрать папку результата для задачи ${index + 1}`}
                       >
                         {row.output_folder?.folder_id ? "Изменить" : "Выбрать"}
                       </button>
@@ -4397,10 +4397,18 @@ function PreparationPanel({
                       </details>
                     </div>
                   </div>
-                  <section
+                  <details
                     className="segment-plan-panel"
-                    aria-label={`План фрагментов строки ${index + 1}`}
+                    aria-label={`Фрагментация задачи ${index + 1}`}
                   >
+                    <summary className="segment-plan-summary">
+                      <span>Разделить файл на фрагменты</span>
+                      <span className="muted">
+                        {row.segments.length === 1
+                          ? "Весь файл"
+                          : `${row.segments.length} фрагмента`}
+                      </span>
+                    </summary>
                     <label className="segment-count-control">
                       Количество фрагментов
                       <input
@@ -4423,7 +4431,7 @@ function PreparationPanel({
                             });
                           }
                         }}
-                        aria-label={`Количество фрагментов строки ${index + 1}`}
+                        aria-label={`Количество фрагментов задачи ${index + 1}`}
                       />
                       <small className="muted">
                         Каждый фрагмент станет отдельной задачей и отдельным
@@ -4449,7 +4457,7 @@ function PreparationPanel({
                                   }
                                   inputMode="numeric"
                                   placeholder="0:00"
-                                  aria-label={`Начало фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                  aria-label={`Начало фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                                 />
                               </label>
                               <label>
@@ -4465,7 +4473,7 @@ function PreparationPanel({
                                   }
                                   inputMode="numeric"
                                   placeholder="10:10"
-                                  aria-label={`Конец фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                  aria-label={`Конец фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                                 />
                               </label>
                               <label className="segment-end-toggle">
@@ -4497,7 +4505,7 @@ function PreparationPanel({
                                 }
                                 maxLength={160}
                                 placeholder="Необязательно"
-                                aria-label={`Название фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                aria-label={`Название фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                               />
                               <small className="muted">
                                 Необязательно. Если оставить пустым, Google Docs
@@ -4513,7 +4521,7 @@ function PreparationPanel({
                         {composerSegmentPlanIssue(row.segments)}
                       </p>
                     )}
-                  </section>
+                  </details>
                   {invalidSourceRowIds.has(row.id) && (
                     <p className="error">
                       Выбранный файл больше недоступен. Выберите готовый файл
@@ -4654,7 +4662,7 @@ function PreparationPanel({
                                   { reprocess_existing: reprocess },
                                 );
                               }}
-                              aria-label={`Транскрибировать заново строку ${item.position + 1}`}
+                              aria-label={`Транскрибировать заново задачу ${item.position + 1}`}
                             />
                             <span>
                               Транскрибировать заново — повтор может списать
@@ -4679,7 +4687,7 @@ function PreparationPanel({
         )}
         <div className="composer-footer">
           <div>
-            <b>Строк: {rows.length}</b>
+            <b>Задач: {rows.length}</b>
             <span>Элементов мульти-транскрибации: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
@@ -4755,7 +4763,7 @@ function PreparationPanel({
                 const next = { ...errors };
                 affectedRowIds.forEach((rowId) => {
                   next[rowId] =
-                    "Источник удалён из проекта. Выберите новый файл для этой строки.";
+                    "Источник удалён из Studio. Выберите новый файл для этой задачи.";
                 });
                 return next;
               });
