@@ -11259,12 +11259,12 @@ describe("Studio PWA", () => {
     for (const [, init] of uploadPuts) {
       expect(init).toEqual(
         expect.objectContaining({
-          cache: "no-store",
           credentials: "omit",
-          redirect: "error",
-          referrerPolicy: "no-referrer",
+          headers: { "Content-Type": "audio/ogg" },
+          body: expect.any(File),
         }),
       );
+      expect(init).not.toHaveProperty("duplex");
     }
     expect(
       screen.getByRole("button", {
@@ -11805,7 +11805,7 @@ describe("Studio PWA", () => {
         init?.method === "PUT"
       )
         return new Promise<Response>((resolve) => {
-          releasePut = () => resolve({ ok: true } as Response);
+          releasePut = () => resolve(new Response(null, { status: 200 }));
         });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
