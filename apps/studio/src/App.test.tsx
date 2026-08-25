@@ -21,29 +21,6 @@ import {
   emitPwaDiagnostic,
 } from "./pwaDiagnostics";
 
-vi.mock("./directUpload", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./directUpload")>();
-  return {
-    ...actual,
-    uploadFileWithProgress: vi.fn(
-      async ({ url, method, headers, file, onProgress }) => {
-        onProgress?.({ loadedBytes: 0, totalBytes: file.size, percent: 0 });
-        const response = await fetch(url, {
-          method,
-          headers,
-          body: file,
-          cache: "no-store",
-          credentials: "omit",
-          redirect: "error",
-          referrerPolicy: "no-referrer",
-        });
-        onProgress?.({ loadedBytes: file.size, totalBytes: file.size, percent: 100 });
-        return { ok: response.ok, status: response.status };
-      },
-    ),
-  };
-});
-
 const originalLocation = window.location;
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -11474,7 +11451,7 @@ describe("Studio PWA", () => {
       .mockImplementation(((callback, delay, ...args) =>
         nativeSetTimeout(
           callback,
-          delay === 20_000 ? 1 : (delay as number),
+          delay === 600_000 ? 1 : (delay as number),
           ...args,
         )) as typeof setTimeout);
     try {

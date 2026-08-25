@@ -55,6 +55,7 @@ describe("direct upload transport", () => {
       referrerPolicy: "no-referrer",
       duplex: "half",
     });
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
     expect(updates[0]).toBe(0);
     expect(updates.at(-1)).toBe(100);
   });

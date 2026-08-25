@@ -155,7 +155,8 @@ export function uploadFileWithProgress({
     signal: controller.signal,
     duplex: "half",
   };
-  return fetch(url, requestOptions)
+  return Promise.resolve()
+    .then(() => fetch(url, requestOptions))
     .then((response) => {
       onProgress?.(boundedProgress(file.size, file.size));
       return { ok: response.ok, status: response.status };
