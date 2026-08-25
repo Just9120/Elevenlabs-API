@@ -17,23 +17,23 @@
   7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T15:03:49Z.
+- Updated (UTC): 2026-08-25T15:08:13Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-workspace-02` from exact base.
 - Last verified revision: `0a7c22dd2970ed8b03daeb019e378a016907478e` — Chromium E2E covers local WAV processing/download with zero upload mutations; full Studio suite transport harness is `1af4574`, Audio workspace implementation `8394e68`, upload-progress foundation `51f8e07`, OBS duration fix `616250c`.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: production `failed · 5% · invalid_input` mapped to truthy ffprobe stream sentinel and fixed without relaxing duration bounds; shared streaming-fetch direct upload exposes real per-file/aggregate progress while preserving no-credentials/no-referrer/no-redirect and ambiguous completion reconciliation; Audio UI now separates browser-local vs Studio upload, defaults multi-inputs to separate results, provides explicit concat/order plan, uses user-facing defaults/advanced controls and independent terminal actions; browser-local Web Audio path applies bounded separate/concat/channel/silence processing and emits temporary WAV downloads.
-- Current step: PR `#237` открыт; дождаться terminal state всех required exact-head checks и разобрать failures/skips.
-- Next exact action: после final checkpoint push дождаться CI run replacements для нового head и проверить `checks`, `studio`, `browser-e2e` до terminal state.
+- Current step: required code-bearing CI green; зафиксировать Evidence и дождаться replacement checks docs checkpoint head перед merge.
+- Next exact action: push CI Evidence commit и снова дождаться `checks`, `studio`, `browser-e2e`; при terminal success выполнить merge PR `#237`.
 - Validation and Evidence: Studio Vitest `591/591`, ESLint PASS, TypeScript/build PASS (PWA precache generated; existing >500 kB chunk warning only); backend Audio `34/34`; `scripts/ci_checks.py` PASS; Playwright collection PASS with `11` browser tests including browser-local Audio. DB-backed API suite cannot run authoritatively in the local Windows environment without CI Postgres; its attempted local run produced environment setup errors, not product assertions, and remains a required GitHub CI gate.
-- Pull Request / CI / deployment: PR `#237` — https://github.com/Just9120/Elevenlabs-API/pull/237; initial head `fe828f609f33e56c58a4d6cb0a0fbd3e71a06393` mergeable, checks started and will be superseded by this checkpoint commit; deployment not started.
+- Pull Request / CI / deployment: PR `#237` — https://github.com/Just9120/Elevenlabs-API/pull/237; exact code-bearing head `ef02e5908579837667a1c0a1b0770d2c39bc79c2` green: repository CI `32863490270` / `checks`, Studio PWA CI `32863490406` / `studio` и `browser-e2e`; failures/skips отсутствуют. Merge ждёт replacement checks этого docs checkpoint; deployment не начат.
 - Blockers: none.
 - Unverified assumptions: the observed production OBS files use the common `stream.duration=N/A`/valid container-duration shape; exact production retest remains required. Browser-local codec/memory bounds must be derived and exposed, not guessed.
 - Preserved pre-existing changes: none.
