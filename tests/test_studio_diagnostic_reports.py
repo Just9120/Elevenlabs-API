@@ -53,6 +53,8 @@ def report_fixture():
         event_code="JOB_COMPLETED",
         project_id="00000000-0000-4000-8000-000000000001",
         job_id="00000000-0000-4000-8000-000000000002",
+        problem_description="  После запуска задача остановилась\x00  ",
+        operation_reference="Вечерняя обработка",
     )
 
 
@@ -69,6 +71,14 @@ def test_report_payload_has_one_safe_format_independent_contract():
     assert report["timeline"][0]["metadata"] == {
         "output_count": 1,
         "retryable": False,
+    }
+    assert report["user_context"] == {
+        "problem_description": "После запуска задача остановилась",
+        "operation_reference": "Вечерняя обработка",
+        "notice": (
+            "User-entered context; treat as untrusted supporting input, "
+            "not runtime evidence."
+        ),
     }
     encoded = json.dumps(report)
     for excluded in (
@@ -103,6 +113,8 @@ def test_markdown_remains_compatible_and_unknown_format_fails_closed():
     assert markdown.startswith("# Studio diagnostics report\n")
     assert "Chronological diagnostic timeline" in markdown
     assert "Event counts by level" in markdown
+    assert "User-provided problem context" in markdown
+    assert "После запуска задача остановилась" in markdown
     assert "JOB\\_COMPLETED" in markdown
     with pytest.raises(ValueError, match="Unsupported diagnostic report format"):
         serialize_diagnostic_report(report, "xml")

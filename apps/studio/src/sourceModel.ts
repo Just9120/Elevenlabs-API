@@ -35,7 +35,7 @@ export function isUsableJobSource(source: Source) {
 
 export function unusableJobSourceReason(source: Source) {
   if (source.deleted_at)
-    return "Убранный из проекта файл нельзя добавить в задачу";
+    return "Убранный из Studio файл нельзя добавить в задачу";
   if (source.expires_at && new Date(source.expires_at).getTime() <= Date.now())
     return "Срок хранения временной копии истёк";
   if (source.upload_status !== "uploaded")
@@ -47,7 +47,7 @@ export function sourceСтатусLabel(status: Source["upload_status"]) {
   const labels: Record<Source["upload_status"], string> = {
     pending: "Загружается",
     uploaded: "Готов",
-    deleted: "Убран из проекта",
+    deleted: "Убран из Studio",
     expired: "Срок истёк",
     failed: "Ошибка",
   };

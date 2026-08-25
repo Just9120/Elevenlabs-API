@@ -1,5 +1,10 @@
 export type Page = "dashboard" | "audio" | "projects" | "settings";
-export type SettingsSection = "account" | "diagnostics";
+export type SettingsSection =
+  | "account"
+  | "connections"
+  | "files"
+  | "appearance"
+  | "diagnostics";
 export type PlatformRoute = { page: Page; settingsSection: SettingsSection };
 
 export function parsePlatformRoute(
@@ -13,6 +18,12 @@ export function parsePlatformRoute(
       return { page: "projects", settingsSection: "account" };
     case "/settings":
       return { page: "settings", settingsSection: "account" };
+    case "/settings/connections":
+      return { page: "settings", settingsSection: "connections" };
+    case "/settings/files":
+      return { page: "settings", settingsSection: "files" };
+    case "/settings/appearance":
+      return { page: "settings", settingsSection: "appearance" };
     case "/settings/diagnostics":
       return { page: "settings", settingsSection: "diagnostics" };
     case "/":
@@ -28,9 +39,9 @@ export function platformPathFor(
   if (page === "audio") return "/audio";
   if (page === "projects") return "/transcriptions";
   if (page === "settings") {
-    return settingsSection === "diagnostics"
-      ? "/settings/diagnostics"
-      : "/settings";
+    return settingsSection === "account"
+      ? "/settings"
+      : `/settings/${settingsSection}`;
   }
   return "/";
 }

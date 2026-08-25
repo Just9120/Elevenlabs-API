@@ -1363,6 +1363,8 @@ function PreparationPanel({
   onCsrf,
   jobs,
   sources,
+  requestedSourceId,
+  onRequestedSourceHandled,
   googleConnection,
   googleConnectionState,
   onReloadGoogleConnection,
@@ -1377,10 +1379,6 @@ function PreparationPanel({
   jobMutationNotices,
   beginJobMutation,
   finishJobMutation,
-  pendingSourceDeletions,
-  sourceDeletionNotices,
-  beginSourceDeletion,
-  finishSourceDeletion,
   pendingLocalUploads,
   localUploadNotices,
   beginLocalUpload,
@@ -1396,6 +1394,8 @@ function PreparationPanel({
   onCsrf: (csrf: string) => void;
   jobs: JobState;
   sources: typeof emptySourceState;
+  requestedSourceId: string | null;
+  onRequestedSourceHandled: () => void;
   googleConnection: GoogleConnection | null;
   googleConnectionState: GoogleConnectionReadState;
   onReloadGoogleConnection: () => void;
@@ -1416,13 +1416,6 @@ function PreparationPanel({
     kind: JobMutationKind,
     jobId: string,
     notice?: JobMutationNotice,
-  ) => void;
-  pendingSourceDeletions: ReadonlySet<string>;
-  sourceDeletionNotices: Readonly<Record<string, SourceDeletionNotice>>;
-  beginSourceDeletion: (sourceId: string) => boolean;
-  finishSourceDeletion: (
-    sourceId: string,
-    notice: SourceDeletionNotice,
   ) => void;
   pendingLocalUploads: readonly LocalUploadOperation[];
   localUploadNotices: Readonly<Record<string, LocalUploadNotice>>;
@@ -1605,7 +1598,7 @@ function PreparationPanel({
       block: "nearest",
     });
     setRowAdditionStatus(
-      `Добавлена строка ${recentlyAddedRow.number}. Выберите источник.`,
+      `Добавлена задача ${recentlyAddedRow.number}. Выберите источник.`,
     );
     const highlightTimeout = window.setTimeout(
       () => setRecentlyAddedRow(null),
@@ -1703,9 +1696,35 @@ function PreparationPanel({
       (created) => !sources.items.some((source) => source.id === created.id),
     ),
   ].filter((source) => !removedSourceIds.has(source.id));
-  const visibleSources = { ...sources, items: sourceItems };
   const usableSources = sourceItems.filter(isUsableJobSource);
   const usableSourceIds = new Set(usableSources.map((source) => source.id));
+  useEffect(() => {
+    if (!requestedSourceId || !sources.loaded) return;
+    const requestedSource = usableSources.find(
+      (source) => source.id === requestedSourceId,
+    );
+    if (!requestedSource) {
+      setMessage(
+        "Подготовленный результат больше недоступен. Выберите другой источник.",
+      );
+      onRequestedSourceHandled();
+      return;
+    }
+    setRows((current) => {
+      const emptyIndex = current.findIndex((row) => !row.source_id);
+      if (emptyIndex >= 0) {
+        return current.map((row, index) =>
+          index === emptyIndex ? { ...row, source_id: requestedSourceId } : row,
+        );
+      }
+      return [
+        ...current,
+        { ...newComposerRow(), source_id: requestedSourceId },
+      ];
+    });
+    setMessage("Результат обработки добавлен в новую задачу транскрибации.");
+    onRequestedSourceHandled();
+  }, [requestedSourceId, sources.loaded]);
   const signature = composerSignature(
     rows,
     selectedCredentialId,
@@ -1769,31 +1788,31 @@ function PreparationPanel({
   const rowReadinessResults = rows.map((row, index) => {
     const rowNumber = index + 1;
     if (!row.source_id) {
-      return { ready: false, reason: `Строка ${rowNumber}: выберите источник` };
+      return { ready: false, reason: `Задача ${rowNumber}: выберите источник` };
     }
     if (!usableSourceIds.has(row.source_id)) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: выбранный файл больше недоступен`,
+        reason: `Задача ${rowNumber}: выбранный файл больше недоступен`,
       };
     }
     if (!row.output_folder?.folder_id) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: выберите папку результата`,
+        reason: `Задача ${rowNumber}: выберите папку результата`,
       };
     }
     const segmentIssue = composerSegmentPlanIssue(row.segments);
     if (segmentIssue) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: ${segmentIssue}`,
+        reason: `Задача ${rowNumber}: ${segmentIssue}`,
       };
     }
     if (duplicateRowIds.has(row.id)) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: такой источник, папка и диапазон уже добавлены`,
+        reason: `Задача ${rowNumber}: такой источник, папка и диапазон уже добавлены`,
       };
     }
     return { ready: true, reason: "" };
@@ -1846,7 +1865,7 @@ function PreparationPanel({
       : credentialBlocker
         ? credentialBlocker
       : rows.length === 0
-        ? "Добавьте хотя бы одну строку"
+        ? "Добавьте хотя бы одну задачу"
         : batchLimitBlocker
           ? batchLimitBlocker
         : firstReadinessBlocker
@@ -2201,7 +2220,7 @@ function PreparationPanel({
       onReloadSources(project.id);
       outcome = {
         message:
-          "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+          "Файлы Google Drive добавлены в Studio. Выберите их в нужных задачах заново.",
         tone: "notice",
       };
     } catch (err) {
@@ -2802,7 +2821,7 @@ function PreparationPanel({
       applyVerifiedOutputFolder(rowId, outputFolder);
       outcome = {
         message:
-          "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
+          "Папка Google Drive проверена, но прежняя задача больше не открыта. Выберите папку для задачи повторно.",
         tone: "notice",
       };
     } catch (err) {
@@ -2992,7 +3011,7 @@ function PreparationPanel({
       } else if (err instanceof ApiError && err.status === 422) {
         setPreflight(null);
         setMessage(
-          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
+          "Пакет не прошёл проверку. Задачи сохранены — исправьте файлы или папки и отправьте снова.",
         );
       } else if (definitiveClientFailure) {
         setMessage(
@@ -3026,7 +3045,7 @@ function PreparationPanel({
       return;
     }
     if (rows.length === 0) {
-      setMessage("Добавьте хотя бы одну строку подготовки.");
+      setMessage("Добавьте хотя бы одну задачу подготовки.");
       return;
     }
     if (firstReadinessBlocker) {
@@ -3035,7 +3054,7 @@ function PreparationPanel({
     }
     if (invalidSourceRowIds.size > 0) {
       setMessage(
-        "Одна или несколько строк ссылаются на файл, который уже недоступен. Выберите готовый файл заново.",
+        "Одна или несколько задач ссылаются на файл, который уже недоступен. Выберите готовый файл заново.",
       );
       return;
     }
@@ -3088,7 +3107,7 @@ function PreparationPanel({
           response.summary.blocked_count > 0
             ? providerAuthorityBlocked
               ? "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса."
-              : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
+              : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной задачи."
             : "Проверка готова. Сверьте план и подтвердите создание задач.",
         );
         return;
@@ -3842,6 +3861,14 @@ function PreparationPanel({
           {notice.message}
         </p>
       ))}
+      {sources.error && (
+        <div className="error" role="alert">
+          <p>{sources.error}</p>
+          <button type="button" onClick={() => onReloadSources(project.id)}>
+            Повторить загрузку файлов
+          </button>
+        </div>
+      )}
       <form
         className="job-creator composer"
         onSubmit={createBatch}
@@ -3851,19 +3878,19 @@ function PreparationPanel({
           <div>
             <h2>Подготовка задач</h2>
             <p className="muted">
-              Одна строка создаёт один элемент мульти-транскрибации: один файл
+              Одна задача создаёт один элемент мульти-транскрибации: один файл
               или фрагмент → один документ в выбранной папке.
             </p>
           </div>
           <div className="composer-add-row">
             <button type="button" className="secondary" onClick={addRow}>
-              Добавить строку
+              Добавить задачу
             </button>
             <span
               className="composer-add-row-status"
               role="status"
               aria-live="polite"
-              aria-label="Результат добавления строки"
+              aria-label="Результат добавления задачи"
             >
               {rowAdditionStatus}
             </span>
@@ -3902,7 +3929,9 @@ function PreparationPanel({
                   className="secondary"
                   onClick={() =>
                     window.dispatchEvent(
-                      new CustomEvent("studio:navigate-settings"),
+                      new CustomEvent("studio:navigate-settings", {
+                        detail: { section: "connections" },
+                      }),
                     )
                   }
                 >
@@ -3986,7 +4015,7 @@ function PreparationPanel({
           className="composer-status"
           role="status"
           aria-live="polite"
-          aria-label="Готовность строк подготовки"
+          aria-label="Готовность задач подготовки"
         >
           <b>
             Готово: {completeRowCount} из {rows.length}
@@ -3994,7 +4023,7 @@ function PreparationPanel({
           <span>
             {firstReadinessBlocker
               ? firstReadinessBlocker
-              : "Все строки готовы"}
+              : "Все задачи готовы"}
           </span>
         </div>
         {sourceUploadPolicy?.local_upload_enabled ? (
@@ -4029,16 +4058,16 @@ function PreparationPanel({
           </div>
         )}
         <fieldset className="composer-rows">
-          <legend>Строки подготовки</legend>
+          <legend>Задачи подготовки</legend>
           {!sources.loaded && (
             <button type="button" onClick={() => onLoadSources(project.id)}>
-              Загрузить существующие файлы проекта
+              Загрузить сохранённые файлы Studio
             </button>
           )}
           {sources.loaded && usableSources.length === 0 && (
             <section className="empty-state">
               <p>
-                Сначала добавьте хотя бы один готовый файл через строку
+                Сначала добавьте хотя бы один готовый файл в задачу
                 подготовки.
               </p>
             </section>
@@ -4074,7 +4103,7 @@ function PreparationPanel({
                           type="button"
                           onClick={() => moveRow(index, -1)}
                           disabled={index === 0}
-                          aria-label={`Поднять строку ${index + 1}`}
+                          aria-label={`Поднять задачу ${index + 1}`}
                         >
                           Выше
                         </button>
@@ -4082,7 +4111,7 @@ function PreparationPanel({
                           type="button"
                           onClick={() => moveRow(index, 1)}
                           disabled={index === rows.length - 1}
-                          aria-label={`Опустить строку ${index + 1}`}
+                          aria-label={`Опустить задачу ${index + 1}`}
                         >
                           Ниже
                         </button>
@@ -4096,7 +4125,7 @@ function PreparationPanel({
                                 : current,
                             )
                           }
-                          aria-label={`Удалить строку ${index + 1}`}
+                          aria-label={`Удалить задачу ${index + 1}`}
                         >
                           Удалить
                         </button>
@@ -4106,12 +4135,12 @@ function PreparationPanel({
                   <div className="composer-row-grid">
                     <section
                       className="row-source-cell"
-                      aria-label={`Источник строки ${index + 1}`}
+                      aria-label={`Источник задачи ${index + 1}`}
                     >
                       <label>
                         Источник
                         <select
-                          aria-label={`Существующий файл для строки ${index + 1}`}
+                          aria-label={`Существующий файл для задачи ${index + 1}`}
                           value={row.source_id}
                           onChange={(e) => {
                             updateRow(row.id, {
@@ -4150,7 +4179,7 @@ function PreparationPanel({
                         <button
                           type="button"
                           className="secondary"
-                          aria-label={`Выбрать папку-источник Google Drive для строки ${index + 1}`}
+                          aria-label={`Выбрать папку-источник Google Drive для задачи ${index + 1}`}
                           disabled={
                             !driveSourcePickerEnabled ||
                             pickerBusy ||
@@ -4176,13 +4205,13 @@ function PreparationPanel({
                           >
                             <span aria-hidden="true">С устройства</span>
                             <span className="visually-hidden">
-                              Выбрать файлы с устройства для строки {index + 1}
+                              Выбрать файлы с устройства для задачи {index + 1}
                             </span>
                           </label>
                           <input
                             id={`local-source-upload-${row.id}`}
                             className="visually-hidden"
-                            aria-label={`Выбрать файлы с устройства для строки ${index + 1}`}
+                            aria-label={`Выбрать файлы с устройства для задачи ${index + 1}`}
                             type="file"
                             multiple
                             accept={
@@ -4220,7 +4249,7 @@ function PreparationPanel({
                           >
                             <span aria-hidden="true">Папка с устройства</span>
                             <span className="visually-hidden">
-                              Выбрать папку с устройства для строки {index + 1}
+                              Выбрать папку с устройства для задачи {index + 1}
                             </span>
                           </label>
                           <input
@@ -4230,7 +4259,7 @@ function PreparationPanel({
                             }}
                             id={`local-source-folder-${row.id}`}
                             className="visually-hidden"
-                            aria-label={`Выбрать папку с устройства для строки ${index + 1}`}
+                            aria-label={`Выбрать папку с устройства для задачи ${index + 1}`}
                             type="file"
                             multiple
                             accept={
@@ -4282,7 +4311,7 @@ function PreparationPanel({
                             <ResourceExternalLink
                               href={selectedSource.drive_file_url ?? ""}
                               label="Открыть файл"
-                              ariaLabel={`Открыть источник строки ${index + 1} в Google Drive`}
+                              ariaLabel={`Открыть источник задачи ${index + 1} в Google Drive`}
                             />
                           )}
                         </div>
@@ -4306,7 +4335,7 @@ function PreparationPanel({
                           <ResourceExternalLink
                             href={row.output_folder.web_view_url}
                             label="Открыть папку"
-                            ariaLabel={`Открыть папку результата строки ${index + 1} в Google Drive`}
+                            ariaLabel={`Открыть папку результата задачи ${index + 1} в Google Drive`}
                           />
                         )}
                       <button
@@ -4314,7 +4343,7 @@ function PreparationPanel({
                         className="secondary"
                         disabled={!driveSourcePickerEnabled || pickerBusy}
                         onClick={() => void chooseRowFolder(row.id)}
-                        aria-label={`Выбрать папку результата для строки ${index + 1}`}
+                        aria-label={`Выбрать папку результата для задачи ${index + 1}`}
                       >
                         {row.output_folder?.folder_id ? "Изменить" : "Выбрать"}
                       </button>
@@ -4397,10 +4426,18 @@ function PreparationPanel({
                       </details>
                     </div>
                   </div>
-                  <section
+                  <details
                     className="segment-plan-panel"
-                    aria-label={`План фрагментов строки ${index + 1}`}
+                    aria-label={`Фрагментация задачи ${index + 1}`}
                   >
+                    <summary className="segment-plan-summary">
+                      <span>Разделить файл на фрагменты</span>
+                      <span className="muted">
+                        {row.segments.length === 1
+                          ? "Весь файл"
+                          : `${row.segments.length} фрагмента`}
+                      </span>
+                    </summary>
                     <label className="segment-count-control">
                       Количество фрагментов
                       <input
@@ -4423,7 +4460,7 @@ function PreparationPanel({
                             });
                           }
                         }}
-                        aria-label={`Количество фрагментов строки ${index + 1}`}
+                        aria-label={`Количество фрагментов задачи ${index + 1}`}
                       />
                       <small className="muted">
                         Каждый фрагмент станет отдельной задачей и отдельным
@@ -4449,7 +4486,7 @@ function PreparationPanel({
                                   }
                                   inputMode="numeric"
                                   placeholder="0:00"
-                                  aria-label={`Начало фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                  aria-label={`Начало фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                                 />
                               </label>
                               <label>
@@ -4465,7 +4502,7 @@ function PreparationPanel({
                                   }
                                   inputMode="numeric"
                                   placeholder="10:10"
-                                  aria-label={`Конец фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                  aria-label={`Конец фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                                 />
                               </label>
                               <label className="segment-end-toggle">
@@ -4497,7 +4534,7 @@ function PreparationPanel({
                                 }
                                 maxLength={160}
                                 placeholder="Необязательно"
-                                aria-label={`Название фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                aria-label={`Название фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                               />
                               <small className="muted">
                                 Необязательно. Если оставить пустым, Google Docs
@@ -4513,7 +4550,7 @@ function PreparationPanel({
                         {composerSegmentPlanIssue(row.segments)}
                       </p>
                     )}
-                  </section>
+                  </details>
                   {invalidSourceRowIds.has(row.id) && (
                     <p className="error">
                       Выбранный файл больше недоступен. Выберите готовый файл
@@ -4654,7 +4691,7 @@ function PreparationPanel({
                                   { reprocess_existing: reprocess },
                                 );
                               }}
-                              aria-label={`Транскрибировать заново строку ${item.position + 1}`}
+                              aria-label={`Транскрибировать заново задачу ${item.position + 1}`}
                             />
                             <span>
                               Транскрибировать заново — повтор может списать
@@ -4679,7 +4716,7 @@ function PreparationPanel({
         )}
         <div className="composer-footer">
           <div>
-            <b>Строк: {rows.length}</b>
+            <b>Задач: {rows.length}</b>
             <span>Элементов мульти-транскрибации: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
@@ -4736,51 +4773,6 @@ function PreparationPanel({
           {notice.message}
         </p>
       ))}
-      <details className="sources project-files">
-        <summary className="summary-row">Файлы проекта</summary>
-        <SourcesPanel
-          project={project}
-          csrf={csrf}
-          onCsrf={onCsrf}
-          sources={visibleSources}
-          onReload={onReloadSources}
-          onSourceRemoved={(source) => {
-            const sourceId = source.id;
-            setRemovedSourceIds((current) => new Set(current).add(sourceId));
-            const affectedRowIds = rows
-              .filter((row) => row.source_id === sourceId)
-              .map((row) => row.id);
-            if (affectedRowIds.length > 0) {
-              setRowIntakeErrors((errors) => {
-                const next = { ...errors };
-                affectedRowIds.forEach((rowId) => {
-                  next[rowId] =
-                    "Источник удалён из проекта. Выберите новый файл для этой строки.";
-                });
-                return next;
-              });
-            }
-            setRows((current) =>
-              current.map((row) =>
-                row.source_id === sourceId
-                  ? {
-                      ...row,
-                      source_id: "",
-                      segments: row.segments.map((segment) => ({
-                        ...segment,
-                        reprocess_existing: false,
-                      })),
-                    }
-                  : row,
-              ),
-            );
-          }}
-          pendingDeletionIds={pendingSourceDeletions}
-          deletionNotices={sourceDeletionNotices}
-          beginDeletion={beginSourceDeletion}
-          finishDeletion={finishSourceDeletion}
-        />
-      </details>
       <TranscriptionAnalyticsPanel
         key={project.id}
         projectId={project.id}
@@ -5120,6 +5112,8 @@ function ProjectsPage({
   onCsrf,
   requestedProjectId,
   onRequestedProjectHandled,
+  requestedSourceId,
+  onRequestedSourceHandled,
 }: {
   active: boolean;
   ownerUserId: string;
@@ -5127,6 +5121,8 @@ function ProjectsPage({
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
   onRequestedProjectHandled: () => void;
+  requestedSourceId: string | null;
+  onRequestedSourceHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -5160,36 +5156,6 @@ function ProjectsPage({
   const [jobMutationNotices, setJobMutationNotices] = useState<
     Record<string, JobMutationNotice>
   >({});
-  const pendingSourceDeletionsRef = useRef(new Set<string>());
-  const [pendingSourceDeletions, setPendingSourceDeletions] = useState<
-    Set<string>
-  >(() => new Set());
-  const [sourceDeletionNotices, setSourceDeletionNotices] = useState<
-    Record<string, SourceDeletionNotice>
-  >({});
-  const beginSourceDeletion = (sourceId: string) => {
-    if (pendingSourceDeletionsRef.current.has(sourceId)) return false;
-    pendingSourceDeletionsRef.current.add(sourceId);
-    setPendingSourceDeletions(new Set(pendingSourceDeletionsRef.current));
-    setSourceDeletionNotices((current) => {
-      if (!current[sourceId]) return current;
-      const next = { ...current };
-      delete next[sourceId];
-      return next;
-    });
-    return true;
-  };
-  const finishSourceDeletion = (
-    sourceId: string,
-    notice: SourceDeletionNotice,
-  ) => {
-    if (!pendingSourceDeletionsRef.current.delete(sourceId)) return;
-    setPendingSourceDeletions(new Set(pendingSourceDeletionsRef.current));
-    setSourceDeletionNotices((current) => ({
-      ...current,
-      [sourceId]: notice,
-    }));
-  };
   const localUploadOperationsRef = useRef(
     new Map<string, LocalUploadOperation>(),
   );
@@ -5506,7 +5472,7 @@ function ProjectsPage({
           ...current,
           [projectId]: {
             loading: false,
-            error: "Не удалось загрузить файлы проекта.",
+            error: "Не удалось загрузить сохранённые файлы Studio.",
             loaded: true,
             items: current[projectId]?.items ?? [],
           },
@@ -5694,6 +5660,8 @@ function ProjectsPage({
                   onCsrf={onCsrf}
                   jobs={selectedJobs}
                   sources={selectedSources}
+                  requestedSourceId={requestedSourceId}
+                  onRequestedSourceHandled={onRequestedSourceHandled}
                   googleConnection={googleConnection}
                   googleConnectionState={googleConnectionState}
                   onReloadGoogleConnection={loadGoogleConnection}
@@ -5708,10 +5676,6 @@ function ProjectsPage({
                   jobMutationNotices={jobMutationNotices}
                   beginJobMutation={beginJobMutation}
                   finishJobMutation={finishJobMutation}
-                  pendingSourceDeletions={pendingSourceDeletions}
-                  sourceDeletionNotices={sourceDeletionNotices}
-                  beginSourceDeletion={beginSourceDeletion}
-                  finishSourceDeletion={finishSourceDeletion}
                   pendingLocalUploads={pendingLocalUploads}
                   localUploadNotices={localUploadNotices}
                   beginLocalUpload={beginLocalUpload}
@@ -5816,12 +5780,13 @@ function reportFileName(reportFormat: DiagnosticsReportFormat) {
 }
 async function diagnosticsReportBlob(
   filters: DiagnosticsFilters,
+  context: DiagnosticsReportContext,
   csrf: string,
   onCsrf: (csrf: string) => void,
   reportFormat: DiagnosticsReportFormat,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const body = JSON.stringify(reportPayload(filters));
+  const body = JSON.stringify(reportPayload(filters, context));
   const response = await responseWithCsrfRetry(
     `/diagnostics/report.${reportFormat}`,
     csrf,
@@ -5866,7 +5831,17 @@ type DiagnosticsFilters = {
   projectId: string;
   jobId: string;
 };
-function reportPayload(filters: DiagnosticsFilters) {
+type DiagnosticsReportContext = {
+  problemDescription: string;
+  operationReference: string;
+};
+function reportPayload(
+  filters: DiagnosticsFilters,
+  context: DiagnosticsReportContext = {
+    problemDescription: "",
+    operationReference: "",
+  },
+) {
   const end = new Date();
   const days = Math.min(Math.max(Number(filters.days) || 1, 1), 7);
   const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
@@ -5878,6 +5853,8 @@ function reportPayload(filters: DiagnosticsFilters) {
     event_code: filters.eventCode.trim() || undefined,
     project_id: filters.projectId.trim() || undefined,
     job_id: filters.jobId.trim() || undefined,
+    problem_description: context.problemDescription.trim() || undefined,
+    operation_reference: context.operationReference.trim() || undefined,
   };
 }
 const diagnosticsMetadataKeys = new Set([
@@ -5973,6 +5950,150 @@ function auditLabel(type: string) {
   };
   return labels[type] ?? "Событие безопасности";
 }
+
+function SourceStorageSettings({
+  csrf,
+  onCsrf,
+  active,
+}: {
+  csrf: string;
+  onCsrf: (csrf: string) => void;
+  active: boolean;
+}) {
+  const [workspace, setWorkspace] = useState<Project | null>(null);
+  const [sources, setSources] = useState({ ...emptySourceState });
+  const [workspaceState, setWorkspaceState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const pendingDeletionIdsRef = useRef(new Set<string>());
+  const [pendingDeletionIds, setPendingDeletionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [deletionNotices, setDeletionNotices] = useState<
+    Record<string, SourceDeletionNotice>
+  >({});
+  const loadedOnceRef = useRef(false);
+
+  const loadSources = async (projectId: string) => {
+    setSources((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const items = await requestProjectSourceCollection(projectId);
+      setSources({ loading: false, error: "", loaded: true, items });
+    } catch {
+      setSources((current) => ({
+        ...current,
+        loading: false,
+        loaded: true,
+        error: "Не удалось загрузить сохранённые файлы Studio.",
+      }));
+    }
+  };
+
+  const loadWorkspace = async () => {
+    setWorkspaceState("loading");
+    try {
+      const projects = await requestProjectCollection();
+      const current = projects.find((project) => project.archived_at === null) ?? null;
+      setWorkspace(current);
+      setWorkspaceState("ready");
+      if (current) await loadSources(current.id);
+    } catch {
+      setWorkspace(null);
+      setWorkspaceState("error");
+    }
+  };
+
+  useEffect(() => {
+    if (!active || loadedOnceRef.current) return;
+    loadedOnceRef.current = true;
+    void loadWorkspace();
+  }, [active]);
+
+  const beginDeletion = (sourceId: string) => {
+    if (pendingDeletionIdsRef.current.has(sourceId)) return false;
+    pendingDeletionIdsRef.current.add(sourceId);
+    setPendingDeletionIds(new Set(pendingDeletionIdsRef.current));
+    setDeletionNotices((current) => {
+      if (!current[sourceId]) return current;
+      const next = { ...current };
+      delete next[sourceId];
+      return next;
+    });
+    return true;
+  };
+
+  const finishDeletion = (
+    sourceId: string,
+    notice: SourceDeletionNotice,
+  ) => {
+    pendingDeletionIdsRef.current.delete(sourceId);
+    setPendingDeletionIds(new Set(pendingDeletionIdsRef.current));
+    setDeletionNotices((current) => ({ ...current, [sourceId]: notice }));
+  };
+
+  return (
+    <section aria-labelledby="stored-files-title">
+      <h2 id="stored-files-title">Файлы и хранилище</h2>
+      <p className="muted">
+        Здесь находятся безопасные метаданные файлов, доступных для новых
+        задач. Добавление файлов выполняется непосредственно при подготовке
+        транскрибации или обработке аудио.
+      </p>
+      {workspaceState === "loading" && (
+        <p role="status">Загружаем сохранённые файлы…</p>
+      )}
+      {workspaceState === "error" && (
+        <div className="error" role="alert">
+          <p>Не удалось открыть хранилище файлов.</p>
+          <button type="button" onClick={() => void loadWorkspace()}>
+            Повторить
+          </button>
+        </div>
+      )}
+      {workspaceState === "ready" && !workspace && (
+        <p className="notice">
+          Рабочая область ещё не создана. Откройте транскрибации, чтобы
+          подготовить её.
+        </p>
+      )}
+      {workspaceState === "ready" && workspace && (
+        <SourcesPanel
+          project={workspace}
+          csrf={csrf}
+          onCsrf={onCsrf}
+          sources={sources}
+          onReload={loadSources}
+          onSourceRemoved={(source) =>
+            setSources((current) => ({
+              ...current,
+              items: current.items.filter((item) => item.id !== source.id),
+            }))
+          }
+          pendingDeletionIds={pendingDeletionIds}
+          deletionNotices={deletionNotices}
+          beginDeletion={beginDeletion}
+          finishDeletion={finishDeletion}
+        />
+      )}
+    </section>
+  );
+}
+
+const SETTINGS_SECTION_IDS = [
+  "account",
+  "connections",
+  "files",
+  "appearance",
+  "diagnostics",
+] as const;
+const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
+  account: "Аккаунт",
+  connections: "Подключения",
+  files: "Файлы и хранилище",
+  appearance: "Оформление",
+  diagnostics: "Диагностика",
+};
+
 function SettingsPage({
   user,
   csrf,
@@ -6863,45 +6984,29 @@ function SettingsPage({
   const credentialsUnavailable = credentialsLoading || Boolean(credentialsMessage);  return (
     <section className="card wide">
       <h1 className="page-title">Настройки</h1>
-      <div className="tabs" role="tablist" aria-label="Разделы настроек">
-        <button
-          id="settings-tab-account"
-          type="button"
-          role="tab"
-          aria-controls="settings-panel-account"
-          aria-selected={section === "account"}
-          tabIndex={section === "account" ? 0 : -1}
-          className={section === "account" ? "active" : ""}
-          onClick={() => onSectionChange("account")}
-          onKeyDown={(event) =>
-            navigateTabList(
-              event,
-              ["account", "diagnostics"] as const,
-              onSectionChange,
-            )
-          }
-        >
-          Аккаунт
-        </button>
-        <button
-          id="settings-tab-diagnostics"
-          type="button"
-          role="tab"
-          aria-controls="settings-panel-diagnostics"
-          aria-selected={section === "diagnostics"}
-          tabIndex={section === "diagnostics" ? 0 : -1}
-          className={section === "diagnostics" ? "active" : ""}
-          onClick={() => onSectionChange("diagnostics")}
-          onKeyDown={(event) =>
-            navigateTabList(
-              event,
-              ["account", "diagnostics"] as const,
-              onSectionChange,
-            )
-          }
-        >
-          Диагностика
-        </button>
+      <div
+        className="tabs settings-section-tabs"
+        role="tablist"
+        aria-label="Разделы настроек"
+      >
+        {SETTINGS_SECTION_IDS.map((settingsSection) => (
+          <button
+            key={settingsSection}
+            id={`settings-tab-${settingsSection}`}
+            type="button"
+            role="tab"
+            aria-controls={`settings-panel-${settingsSection}`}
+            aria-selected={section === settingsSection}
+            tabIndex={section === settingsSection ? 0 : -1}
+            className={section === settingsSection ? "active" : ""}
+            onClick={() => onSectionChange(settingsSection)}
+            onKeyDown={(event) =>
+              navigateTabList(event, SETTINGS_SECTION_IDS, onSectionChange)
+            }
+          >
+            {SETTINGS_SECTION_LABELS[settingsSection]}
+          </button>
+        ))}
       </div>
       {section === "diagnostics" ? (
         <div
@@ -6920,32 +7025,37 @@ function SettingsPage({
         </div>
       ) : (
         <div
-          id="settings-panel-account"
+          id={`settings-panel-${section}`}
           role="tabpanel"
-          aria-labelledby="settings-tab-account"
+          aria-labelledby={`settings-tab-${section}`}
         >
-          <h2>Настройки аккаунта</h2>
-          {oauthMessage && (
-            <p className="notice" role="status">
-              {oauthMessage}
-            </p>
+          {section === "account" && (
+            <>
+              <h2>Аккаунт</h2>
+              <section className="account-card">
+                <div>
+                  <b>{user.email}</b>
+                  <span className="muted">Роль: {user.role}</span>
+                </div>
+                <button
+                  className="secondary"
+                  onClick={onLogout}
+                  disabled={logoutPending}
+                >
+                  {logoutPending ? "Выходим…" : "Выйти"}
+                </button>
+              </section>
+              {logoutError && (
+                <p className="error" role="alert">
+                  {logoutError}
+                </p>
+              )}
+            </>
           )}
-          <section className="account-card">
-            <div>
-              <b>{user.email}</b>
-              <span className="muted">{user.role}</span>
-            </div>
-            <button
-              className="secondary"
-              onClick={onLogout}
-              disabled={logoutPending}
-            >
-              {logoutPending ? "Выходим…" : "Выйти"}
-            </button>
-          </section>
-          {logoutError && <p className="error" role="alert">{logoutError}</p>}
-          <h3>Оформление</h3>
-          <section className="card theme-preferences">
+          {section === "appearance" && (
+            <section aria-labelledby="appearance-settings-title">
+              <h2 id="appearance-settings-title">Оформление</h2>
+              <div className="card theme-preferences">
             <label>
               Тема интерфейса
               <select
@@ -6990,9 +7100,17 @@ function SettingsPage({
                 {accentMessage}
               </p>
             )}
-          </section>
-          <h3>Хранение локальных файлов</h3>
-          <section className="card retention-preferences">
+              </div>
+            </section>
+          )}
+          <div hidden={section !== "files"}>
+              <SourceStorageSettings
+                csrf={csrf}
+                onCsrf={onCsrf}
+                active={section === "files"}
+              />
+              <h3>Срок хранения локальных файлов</h3>
+              <section className="card retention-preferences">
             <p>
               Это срок хранения временной копии в приватном объектном
               хранилище (S3/R2) для новых файлов, загруженных с устройства.
@@ -7067,7 +7185,16 @@ function SettingsPage({
                 {retentionMutationNotice.message}
               </p>
             )}
-          </section>
+              </section>
+          </div>
+          {section === "connections" && (
+            <section aria-labelledby="connections-settings-title">
+          <h2 id="connections-settings-title">Подключения</h2>
+          {oauthMessage && (
+            <p className="notice" role="status">
+              {oauthMessage}
+            </p>
+          )}
           <h3>Ключи провайдеров</h3>
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.
@@ -7396,6 +7523,9 @@ function SettingsPage({
             pickerReady={googleConnection?.picker_ready === true}
             maintenanceOauthResult={maintenanceOauthResult}
           />
+            </section>
+          )}
+          {section === "account" && (
           <details className="card security-log">
             <summary className="summary-row">
               <span>Журнал безопасности</span>
@@ -7422,6 +7552,7 @@ function SettingsPage({
               </ul>
             </details>
           </details>
+          )}
         </div>
       )}
     </section>
@@ -7455,6 +7586,12 @@ function DiagnosticsSettings({
     projectId: "",
     jobId: "",
   });
+  const [reportContext, setReportContext] = useState<DiagnosticsReportContext>({
+    problemDescription: "",
+    operationReference: "",
+  });
+  const [reportFormat, setReportFormat] =
+    useState<DiagnosticsReportFormat>("md");
   const [timeline, setTimeline] = useState<DiagnosticsEvent[]>([]);
   const [period, setPeriod] = useState<{ start: string; end: string } | null>(
     null,
@@ -7782,6 +7919,7 @@ function DiagnosticsSettings({
       (signal) =>
         diagnosticsReportBlob(
           filters,
+          reportContext,
           csrf,
           onCsrf,
           reportFormat,
@@ -7877,33 +8015,143 @@ function DiagnosticsSettings({
       </section>
       <section className="card" aria-labelledby="timeline-title">
         <h3 id="timeline-title">События диагностики</h3>
-        <div
+        <form
           className="diagnostics-export"
           aria-labelledby="diagnostics-export-title"
+          onSubmit={applyFilters}
         >
-          <h4 id="diagnostics-export-title">Экспорт диагностики</h4>
+          <h4 id="diagnostics-export-title">
+            Диагностический пакет для анализа
+          </h4>
           <p className="muted">
-            Отчёт в выбранном формате может включать безопасные события PWA,
-            API и фоновой обработки согласно выбранным фильтрам. Аудит
-            безопасности остаётся отдельным разделом и в этот отчёт не входит.
+            Опишите проблему и скачайте sanitized bundle для анализа reasoning
+            model или специалистом. Не вводите пароли, API keys, token values и
+            содержимое транскрипций. Аудит безопасности в пакет не входит.
           </p>
-          <div className="actions">
-            {Object.entries(DIAGNOSTICS_REPORT_FORMATS).map(
-              ([reportFormat, config]) => (
-                <button
-                  key={reportFormat}
-                  type="button"
-                  className="secondary"
-                  disabled={exportPending}
-                  aria-busy={exportPending || undefined}
-                  onClick={() =>
-                    exportReport(reportFormat as DiagnosticsReportFormat)
-                  }
+          <div className="diagnostics-bundle-fields">
+            <label>
+              Что произошло
+              <textarea
+                value={reportContext.problemDescription}
+                maxLength={1000}
+                rows={4}
+                placeholder="Кратко опишите действие, ожидаемый результат и фактическую проблему"
+                onChange={(event) =>
+                  setReportContext((current) => ({
+                    ...current,
+                    problemDescription: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Связанная операция или задача
+              <input
+                value={reportContext.operationReference}
+                maxLength={160}
+                placeholder="Необязательно: название, время или ID"
+                onChange={(event) =>
+                  setReportContext((current) => ({
+                    ...current,
+                    operationReference: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Период
+              <select value={filters.days} onChange={updateFilter("days")}>
+                <option value="1">1 день</option>
+                <option value="3">3 дня</option>
+                <option value="7">7 дней</option>
+              </select>
+            </label>
+            <label>
+              Формат пакета
+              <select
+                value={reportFormat}
+                onChange={(event) =>
+                  setReportFormat(event.target.value as DiagnosticsReportFormat)
+                }
+              >
+                {Object.entries(DIAGNOSTICS_REPORT_FORMATS).map(
+                  ([value, config]) => (
+                    <option key={value} value={value}>
+                      {config.label}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+          </div>
+          <details className="diagnostics-advanced-filters">
+            <summary>Расширенные технические фильтры</summary>
+            <p className="muted">
+              Используйте их только по рекомендации специалиста. Код события и
+              internal IDs не нужны для обычной выгрузки.
+            </p>
+            <div className="diagnostics-filters">
+              <label>
+                Уровень
+                <select value={filters.level} onChange={updateFilter("level")}>
+                  <option value="">Все</option>
+                  <option value="ERROR">Ошибка</option>
+                  <option value="WARNING">Предупреждение</option>
+                  <option value="INFO">Информация</option>
+                  <option value="DEBUG">DEBUG</option>
+                </select>
+              </label>
+              <label>
+                Компонент
+                <select
+                  value={filters.component}
+                  onChange={updateFilter("component")}
                 >
-                  Скачать {config.label}
-                </button>
-              ),
-            )}
+                  <option value="">Все</option>
+                  <option value="web">Веб</option>
+                  <option value="api">API</option>
+                  <option value="worker">Фоновая обработка</option>
+                </select>
+              </label>
+              <label>
+                Код события
+                <input
+                  value={filters.eventCode}
+                  onChange={updateFilter("eventCode")}
+                  placeholder="Например JOB_CREATED"
+                />
+              </label>
+              <label>
+                Internal workspace ID
+                <input
+                  value={filters.projectId}
+                  onChange={updateFilter("projectId")}
+                  placeholder="Необязательно"
+                />
+              </label>
+              <label>
+                Internal task ID
+                <input
+                  value={filters.jobId}
+                  onChange={updateFilter("jobId")}
+                  placeholder="Необязательно"
+                />
+              </label>
+            </div>
+          </details>
+          <div className="actions">
+            <button type="submit" className="secondary">
+              Обновить события
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={exportPending}
+              aria-busy={exportPending || undefined}
+              onClick={() => exportReport(reportFormat)}
+            >
+              Скачать диагностический пакет
+            </button>
           </div>
           {exportState && (
             <p
@@ -7913,63 +8161,6 @@ function DiagnosticsSettings({
               {exportState}
             </p>
           )}
-        </div>
-        <form className="diagnostics-filters" onSubmit={applyFilters}>
-          <label>
-            Период
-            <select value={filters.days} onChange={updateFilter("days")}>
-              <option value="1">1 день</option>
-              <option value="3">3 дня</option>
-              <option value="7">7 дней</option>
-            </select>
-          </label>
-          <label>
-            Уровень
-            <select value={filters.level} onChange={updateFilter("level")}>
-              <option value="">Все</option>
-              <option value="ERROR">Ошибка</option>
-              <option value="WARNING">Предупреждение</option>
-              <option value="INFO">Информация</option>
-              <option value="DEBUG">DEBUG</option>
-            </select>
-          </label>
-          <label>
-            Компонент
-            <select
-              value={filters.component}
-              onChange={updateFilter("component")}
-            >
-              <option value="">Все</option>
-              <option value="web">Веб</option>
-              <option value="api">API</option>
-              <option value="worker">Фоновая обработка</option>
-            </select>
-          </label>
-          <label>
-            Код события
-            <input
-              value={filters.eventCode}
-              onChange={updateFilter("eventCode")}
-              placeholder="Например JOB_CREATED"
-            />
-          </label>
-          <label>
-            Проект
-            <input
-              value={filters.projectId}
-              onChange={updateFilter("projectId")}
-              placeholder="необязательно"
-            />
-          </label>
-          <label>
-            Задача
-            <input
-              value={filters.jobId}
-              onChange={updateFilter("jobId")}
-              placeholder="необязательно"
-            />
-          </label>
-          <button type="submit">Применить фильтры</button>
         </form>
         {period && (
           <p className="muted">
@@ -8180,12 +8371,15 @@ function PlatformShell() {
   const [route, setRoute] = useState<PlatformRoute>(() =>
     (oauthResult || maintenanceOauthResult) &&
     initialRoute.page === "dashboard"
-      ? { page: "settings", settingsSection: "account" }
+      ? { page: "settings", settingsSection: "connections" }
       : initialRoute,
   );
   const page = route.page;
   const settingsSection = route.settingsSection;
   const [requestedProjectId, setRequestedProjectId] = useState<string | null>(
+    null,
+  );
+  const [requestedSourceId, setRequestedSourceId] = useState<string | null>(
     null,
   );
   const [projectsOpened, setProjectsOpened] = useState(false);
@@ -8354,10 +8548,33 @@ function PlatformShell() {
     pushPlatformRoute(nextRoute.page, nextRoute.settingsSection);
   };
   useEffect(() => {
-    const handler = () => navigate("settings");
+    const handler = (event: Event) => {
+      const requestedSection = (
+        event as CustomEvent<{ section?: SettingsSection }>
+      ).detail?.section;
+      navigate(
+        "settings",
+        requestedSection && SETTINGS_SECTION_IDS.includes(requestedSection)
+          ? requestedSection
+          : "account",
+      );
+    };
     window.addEventListener("studio:navigate-settings", handler);
     return () =>
       window.removeEventListener("studio:navigate-settings", handler);
+  }, []);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const sourceId = (event as CustomEvent<{ sourceId?: unknown }>).detail
+        ?.sourceId;
+      if (typeof sourceId !== "string" || sourceId.length === 0) return;
+      setRequestedSourceId(sourceId);
+      setRequestedProjectId(null);
+      navigate("projects");
+    };
+    window.addEventListener("studio:transcribe-source", handler);
+    return () =>
+      window.removeEventListener("studio:transcribe-source", handler);
   }, []);
   useEffect(() => {
     const handlePopState = () => {
@@ -8555,6 +8772,7 @@ function PlatformShell() {
           navigate(nextPage);
           if (nextPage === "projects") {
             setRequestedProjectId(null);
+            setRequestedSourceId(null);
           }
         }}
       />
@@ -8585,6 +8803,8 @@ function PlatformShell() {
               }}
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
+              requestedSourceId={requestedSourceId}
+              onRequestedSourceHandled={() => setRequestedSourceId(null)}
             />
           </div>
         )}

@@ -344,6 +344,8 @@ class DiagnosticReportIn(BaseModel):
     event_code: str|None=Field(default=None, min_length=1, max_length=80)
     project_id: str|None=Field(default=None, min_length=36, max_length=36)
     job_id: str|None=Field(default=None, min_length=36, max_length=36)
+    problem_description: str|None=Field(default=None, max_length=1000)
+    operation_reference: str|None=Field(default=None, max_length=160)
 
 class TranscriptionJobCreateIn(BaseModel):
     source_ids: list[str]=Field(min_length=1, max_length=50)
@@ -2238,6 +2240,8 @@ def _diagnostics_report_response(data: DiagnosticReportIn, pair, db: Session, re
         event_code=data.event_code,
         project_id=data.project_id,
         job_id=data.job_id,
+        problem_description=data.problem_description,
+        operation_reference=data.operation_reference,
     )
     media_type, filename=DIAGNOSTIC_REPORT_OUTPUTS[report_format]
     return FastAPIResponse(

@@ -610,6 +610,15 @@ code {
   border-bottom-color: var(--studio-primary);
   color: var(--studio-primary);
 }
+.settings-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  overflow: visible;
+}
+.settings-section-tabs button {
+  min-width: 0;
+  white-space: normal;
+}
 .tab-panel {
   padding-top: 0.5rem;
 }
@@ -1233,6 +1242,17 @@ code {
   border-radius: 14px;
   background: color-mix(in srgb, var(--studio-primary) 4%, var(--studio-surface));
 }
+.segment-plan-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 700;
+}
+.segment-plan-panel[open] .segment-plan-summary {
+  margin-bottom: 0.75rem;
+}
 .segment-count-control {
   max-width: 20rem;
 }
@@ -1536,7 +1556,7 @@ code {
 
 @media (max-width: 620px) {
   .audio-settings-grid,
-  .audio-source-grid {
+.audio-source-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1550,6 +1570,52 @@ code {
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   gap: 0.75rem;
   align-items: end;
+}
+.audio-saved-sources {
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  background: var(--studio-soft);
+}
+.audio-saved-sources summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.audio-saved-sources[open] summary {
+  margin-bottom: 0.75rem;
+}
+.diagnostics-export,
+.diagnostics-bundle-fields,
+.diagnostics-advanced-filters {
+  display: grid;
+  gap: 0.75rem;
+}
+.diagnostics-bundle-fields {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+.diagnostics-bundle-fields label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  font-weight: 700;
+}
+.diagnostics-bundle-fields label:first-child {
+  grid-column: 1 / -1;
+}
+.diagnostics-bundle-fields input,
+.diagnostics-bundle-fields select,
+.diagnostics-bundle-fields textarea {
+  width: 100%;
+}
+.diagnostics-advanced-filters {
+  padding: 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-soft);
+}
+.diagnostics-advanced-filters summary {
+  cursor: pointer;
+  font-weight: 800;
 }
 .diagnostics-filters label {
   display: grid;

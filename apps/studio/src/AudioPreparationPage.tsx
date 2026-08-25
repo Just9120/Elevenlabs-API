@@ -142,6 +142,16 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     setJob(null);
   }
 
+  function transcribeOutput() {
+    const sourceId = job?.output?.source_id;
+    if (!sourceId) return;
+    window.dispatchEvent(
+      new CustomEvent("studio:transcribe-source", {
+        detail: { sourceId },
+      }),
+    );
+  }
+
   async function pickerSession() {
     return mutate<googlePicker.PickerSession>("/google/picker/session", { method: "POST" });
   }
@@ -240,10 +250,14 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !project}>С устройства</button>
           <input ref={fileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => void addLocalFiles(Array.from(event.target.files || []))} />
         </div>
-        <div className="audio-source-grid">
-          {usable.length === 0 && <p className="notice">Добавьте один или несколько аудио/видеофайлов.</p>}
-          {usable.map((source) => <label key={source.id} className="audio-source-choice"><input type="checkbox" checked={selected.includes(source.id)} onChange={() => toggleSource(source.id)} /><span>{source.original_filename}<small>{source.source_type === "google_drive" ? "Google Drive" : "Временная копия · удалится после операции, максимум через 24 часа"}</small></span></label>)}
-        </div>
+        <details className="audio-saved-sources">
+          <summary>Выбрать из сохранённых файлов Studio</summary>
+          <div className="audio-source-grid">
+            {usable.length === 0 && <p className="notice">Сохранённых файлов пока нет. Добавьте их с устройства или Google Drive.</p>}
+            {usable.map((source) => <label key={source.id} className="audio-source-choice"><input type="checkbox" checked={selected.includes(source.id)} onChange={() => toggleSource(source.id)} /><span>{source.original_filename}<small>{source.source_type === "google_drive" ? "Google Drive" : "Временная копия · удалится после операции, максимум через 24 часа"}</small></span></label>)}
+          </div>
+        </details>
+        {selected.length > 0 && <p className="notice">Выбрано файлов: {selected.length}</p>}
         {selected.length > 1 && <ol className="audio-order-list">{selected.map((id, index) => <li key={id}><span>{sources.find((source) => source.id === id)?.original_filename || "Файл"}</span><button type="button" onClick={() => move(index, -1)} disabled={index === 0}>↑</button><button type="button" onClick={() => move(index, 1)} disabled={index === selected.length - 1}>↓</button></li>)}</ol>}
       </section>
       <section className="card audio-preparation-card">
@@ -260,7 +274,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         <fieldset><legend>Результат</legend><label><input type="radio" checked={destination === "download"} onChange={() => setDestination("download")} /> Скачать</label><label><input type="radio" checked={destination === "google_drive"} onChange={() => setDestination("google_drive")} /> Google Drive</label><button type="button" onClick={chooseOutputFolder} disabled={busy}>Выбрать папку</button>{driveFolder && <span>{driveFolder.name}</span>}</fieldset>
         <button className="primary" type="button" disabled={busy || selected.length === 0 || !title.trim() || (destination === "google_drive" && !driveFolder)} onClick={createPreview}>Проверить и рассчитать</button>
       </section>
-      {job && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2><p><strong>{job.progress.stage}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{format === "copy" && !job.preview.copy_compatible ? " · файлы несовместимы для copy" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={start} disabled={busy || (format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{!terminal.has(job.status) && <button type="button" onClick={cancel} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать результат</a>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput()}>Использовать как новый источник</button>}{job.output?.google_drive_url && <a className="button" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.status === "failed" && <p className="error">Обработка не завершена: {job.error_code || "processing_failed"}</p>}</section>}
+      {job && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2><p><strong>{job.progress.stage}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{format === "copy" && !job.preview.copy_compatible ? " · файлы несовместимы для copy" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={start} disabled={busy || (format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{!terminal.has(job.status) && <button type="button" onClick={cancel} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать результат</a>}{job.output?.source_id && <button className="primary" type="button" onClick={transcribeOutput}>Транскрибировать результат</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput()}>Использовать в новой обработке</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.status === "failed" && <p className="error">Обработка не завершена: {job.error_code || "processing_failed"}</p>}</section>}
     </div>
   );
 }

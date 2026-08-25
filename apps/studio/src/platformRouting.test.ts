@@ -17,6 +17,15 @@ describe("platform routing", () => {
     ["/projects", { page: "projects", settingsSection: "account" }],
     ["/settings", { page: "settings", settingsSection: "account" }],
     [
+      "/settings/connections",
+      { page: "settings", settingsSection: "connections" },
+    ],
+    ["/settings/files", { page: "settings", settingsSection: "files" }],
+    [
+      "/settings/appearance",
+      { page: "settings", settingsSection: "appearance" },
+    ],
+    [
       "/settings/diagnostics",
       { page: "settings", settingsSection: "diagnostics" },
     ],
@@ -39,6 +48,9 @@ describe("platform routing", () => {
     ["audio", "account", "/audio"],
     ["projects", "account", "/transcriptions"],
     ["settings", "account", "/settings"],
+    ["settings", "connections", "/settings/connections"],
+    ["settings", "files", "/settings/files"],
+    ["settings", "appearance", "/settings/appearance"],
     ["settings", "diagnostics", "/settings/diagnostics"],
   ] as const)("builds the %s/%s path", (page, section, expected) => {
     expect(platformPathFor(page, section)).toBe(expected);

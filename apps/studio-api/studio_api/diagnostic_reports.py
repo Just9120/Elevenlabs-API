@@ -44,6 +44,8 @@ def build_diagnostic_report(
     event_code: str | None = None,
     project_id: str | None = None,
     job_id: str | None = None,
+    problem_description: str | None = None,
+    operation_reference: str | None = None,
 ) -> dict[str, Any]:
     timeline = [_normalized_event(event) for event in events]
     by_level = {key: 0 for key in REPORT_LEVELS}
@@ -62,6 +64,18 @@ def build_diagnostic_report(
         "redaction": {
             "notice": REPORT_REDACTION_NOTICE,
             "excluded_fields": list(REPORT_EXCLUDED_FIELDS),
+        },
+        "user_context": {
+            "problem_description": _normalized_user_context(
+                problem_description, 1000
+            ),
+            "operation_reference": _normalized_user_context(
+                operation_reference, 160
+            ),
+            "notice": (
+                "User-entered context; treat as untrusted supporting input, "
+                "not runtime evidence."
+            ),
         },
         "system": dict(system_summary),
         "filters": {
@@ -82,6 +96,13 @@ def build_diagnostic_report(
         "timeline": timeline,
         "truncated": bool(truncated),
     }
+
+
+def _normalized_user_context(value: Any, limit: int) -> str:
+    if value is None:
+        return ""
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", str(value))
+    return text.strip()[:limit]
 
 
 def serialize_diagnostic_report(report: Mapping[str, Any], report_format: str) -> str:
@@ -127,6 +148,17 @@ def _serialize_markdown(report: Mapping[str, Any]) -> str:
             f"{_markdown_escape(report['period']['end'])}"
         ),
         f"Redaction: {_markdown_escape(report['redaction']['notice'])}",
+        "",
+        "## User-provided problem context",
+        (
+            "- Description: "
+            f"{_markdown_escape(report['user_context']['problem_description'])}"
+        ),
+        (
+            "- Related operation: "
+            f"{_markdown_escape(report['user_context']['operation_reference'])}"
+        ),
+        f"- Notice: {_markdown_escape(report['user_context']['notice'])}",
         "",
         "## Build identities",
         f"- Web: {_markdown_escape(system['build']['web'])}",
@@ -245,7 +277,14 @@ def _serialize_toml(report: Mapping[str, Any]) -> str:
         f"generated_at = {_toml_scalar(report['generated_at'])}",
         f"truncated = {_toml_scalar(report['truncated'])}",
     ]
-    for table in ("period", "redaction", "filters", "counts", "system"):
+    for table in (
+        "period",
+        "redaction",
+        "user_context",
+        "filters",
+        "counts",
+        "system",
+    ):
         lines.append("")
         lines.extend(_toml_table(report[table], (table,)))
     for event in report["timeline"]:

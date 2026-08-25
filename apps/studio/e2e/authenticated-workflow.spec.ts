@@ -129,8 +129,9 @@ test('authenticated user opens transcriptions and reads a completed job result',
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();
   await page.getByRole('tab', { name: 'Диагностика' }).click();
+  await page.getByText('Расширенные технические фильтры', { exact: true }).click();
   await page
-    .getByRole('textbox', { name: 'Задача', exact: true })
+    .getByRole('textbox', { name: 'Internal task ID', exact: true })
     .fill(resultJobId);
   const diagnosticsResponsePromise = page.waitForResponse(
     (response) =>
@@ -139,7 +140,7 @@ test('authenticated user opens transcriptions and reads a completed job result',
       response.url().includes(`job_id=${resultJobId}`),
   );
   await page
-    .getByRole('button', { name: 'Применить фильтры', exact: true })
+    .getByRole('button', { name: 'Обновить события', exact: true })
     .click();
   const diagnosticsResponse = await diagnosticsResponsePromise;
   expect(diagnosticsResponse.status()).toBe(200);
@@ -412,29 +413,29 @@ test('preparation stays fail-closed without external integrations', async ({
   ).toBeDisabled();
   await expect(
     preparation.getByRole('button', {
-      name: 'Выбрать папку-источник Google Drive для строки 1',
+      name: 'Выбрать папку-источник Google Drive для задачи 1',
     }),
   ).toBeDisabled();
   const localFolderInput = preparation.getByLabel(
-    'Выбрать папку с устройства для строки 1',
+    'Выбрать папку с устройства для задачи 1',
   );
   await expect(localFolderInput).toHaveAttribute('type', 'file');
   await expect(localFolderInput).toHaveAttribute('multiple', '');
   await expect(localFolderInput).toHaveAttribute('webkitdirectory', '');
   await expect(
     preparation.getByRole('button', {
-      name: 'Выбрать папку результата для строки 1',
+      name: 'Выбрать папку результата для задачи 1',
     }),
   ).toBeDisabled();
 
   const readiness = preparation.getByRole('status', {
-    name: 'Готовность строк подготовки',
+    name: 'Готовность задач подготовки',
   });
   await expect(readiness).toContainText('Готово: 0 из 1');
-  await expect(readiness).toContainText('Строка 1: выберите источник');
+  await expect(readiness).toContainText('Задача 1: выберите источник');
 
   const existingSourceSelect = preparation.getByLabel(
-    'Существующий файл для строки 1',
+    'Существующий файл для задачи 1',
   );
   const existingSourceValue = await existingSourceSelect
     .locator('option')
@@ -446,7 +447,7 @@ test('preparation stays fail-closed without external integrations', async ({
   await existingSourceSelect.selectOption(existingSourceValue);
 
   await expect(readiness).toContainText(
-    'Строка 1: выберите папку результата',
+    'Задача 1: выберите папку результата',
   );
   await expect(
     preparation.getByRole('button', { name: 'Проверить задачи (1)' }),
@@ -475,6 +476,7 @@ test('transcript maintenance stays fail-closed without Google authority', async 
   await navigation
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();
+  await page.getByRole('tab', { name: 'Подключения' }).click();
 
   const maintenance = page.getByRole('region', {
     name: 'Две независимые операции',

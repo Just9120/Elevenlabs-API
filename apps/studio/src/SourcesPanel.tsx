@@ -113,12 +113,12 @@ export function SourcesPanel({
   ) {
     if (storageCleanup === "pending") {
       return source.upload_status === "pending"
-        ? "Файл убран из проекта. Временная копия поставлена в очередь на удаление после завершения окна загрузки."
-        : "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.";
+        ? "Файл убран из Studio. Временная копия поставлена в очередь на удаление после завершения окна загрузки."
+        : "Файл убран из Studio. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.";
     }
     return storageCleanup === "completed"
-      ? "Файл убран из проекта. Временная копия уже удалена из хранилища."
-      : "Файл убран из проекта.";
+      ? "Файл убран из Studio. Временная копия уже удалена из хранилища."
+      : "Файл убран из Studio.";
   }
 
   function applyConfirmedDeletion(
@@ -126,7 +126,6 @@ export function SourcesPanel({
     storageCleanup?: SourceDeletionResponse["storage_cleanup"],
   ) {
     onSourceRemoved?.(source, storageCleanup);
-    onReload(project.id);
   }
 
   async function reconcileAmbiguousDeletion(source: Source) {
@@ -175,7 +174,7 @@ export function SourcesPanel({
           projectId: project.id,
           sourceId: id,
           message: confirmed
-            ? "Файл убран из проекта."
+            ? "Файл убран из Studio."
             : "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
           tone: confirmed ? "notice" : "error",
         };
@@ -207,7 +206,7 @@ export function SourcesPanel({
           projectId: project.id,
           sourceId: id,
           message: confirmed
-            ? "Файл убран из проекта."
+            ? "Файл убран из Studio."
             : "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
           tone: confirmed ? "notice" : "error",
         };
@@ -238,7 +237,7 @@ export function SourcesPanel({
         message:
           reason && messages[reason]
             ? messages[reason]
-            : "Не удалось убрать файл из проекта.",
+            : "Не удалось убрать файл из Studio.",
         tone: "error",
       };
     } finally {
@@ -247,15 +246,15 @@ export function SourcesPanel({
         notice ?? {
           projectId: project.id,
           sourceId: id,
-          message: "Не удалось убрать файл из проекта.",
+          message: "Не удалось убрать файл из Studio.",
           tone: "error",
         },
       );
     }
   }
   return (
-    <section className="sources" aria-label={`Источники ${project.title}`}>
-      <h2>Источники</h2>
+    <section className="sources" aria-label="Сохранённые файлы Studio">
+      <h3>Сохранённые файлы Studio</h3>
       {Object.values(deletionNotices)
         .filter((notice) => notice.projectId === project.id)
         .map((notice) => (
@@ -309,13 +308,13 @@ export function SourcesPanel({
             <button
               type="button"
               onClick={() => deleteSource(source.id)}
-              aria-label={`Убрать из проекта: ${source.original_filename}`}
+              aria-label={`Убрать из Studio: ${source.original_filename}`}
               disabled={pendingDeletionIds.has(source.id)}
               aria-busy={pendingDeletionIds.has(source.id)}
             >
               {pendingDeletionIds.has(source.id)
                 ? "Удаление…"
-                : "Убрать из проекта"}
+                : "Убрать из Studio"}
             </button>
           </div>
           <details>
@@ -331,8 +330,8 @@ export function SourcesPanel({
         </article>
       ))}
       <p className="notice">
-        Добавление файлов выполняется в строках подготовки выше. Этот раздел —
-        только для просмотра безопасных метаданных и удаления файлов из проекта.
+        Этот раздел предназначен для просмотра безопасных метаданных и удаления
+        файлов из Studio. Исходные файлы Google Drive при этом не удаляются.
       </p>
     </section>
   );

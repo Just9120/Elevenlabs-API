@@ -412,11 +412,11 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
         assert client.get("/api/diagnostics/events?start=2026-01-01T00:00:00&end=2026-01-10T00:00:00").status_code == 422
         sysr=client.get("/api/diagnostics/system").json()
         assert set(sysr["build"]) == {"web","api","worker"} and "sqlite" not in str(sysr) and "example.com" not in str(sysr)
-        report=client.post("/api/diagnostics/report.md", json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id}, headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"})
+        report=client.post("/api/diagnostics/report.md", json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id,"problem_description":"Задача не завершилась","operation_reference":"canary 14:20"}, headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"})
         assert report.status_code == 200
         assert report.headers["content-type"].startswith("text/markdown") and "studio-diagnostics-report.md" in report.headers["content-disposition"]
         text=report.text
-        assert "Chronological diagnostic timeline" in text and "Event counts by level" in text and "Secret Project" not in text and "<script" not in text and "http://" not in text and "https://" not in text
+        assert "Chronological diagnostic timeline" in text and "Event counts by level" in text and "Задача не завершилась" in text and "canary 14:20" in text and "Secret Project" not in text and "<script" not in text and "http://" not in text and "https://" not in text
         structured_reports = {}
         for extension, media_type in {
             "json": "application/json",
