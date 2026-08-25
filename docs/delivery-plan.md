@@ -17,25 +17,25 @@
   7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T15:57:06Z.
+- Updated (UTC): 2026-08-25T16:17:43Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@23f3636e914d89e3158f770ecf6828cc10587bff`, verified equal to `origin/main` after fetch.
-- Working branch: `codex/fix-audio-obs-duration-metadata` from exact base; предыдущая merged branch `codex/pwa-audio-workspace-02` сохранена только до Goal closure/cleanup.
-- Last verified revision: `22d3910a755eae2f38e9adf91ba0139f14b2e136` — bounded parser принимает Matroska `DURATION` clock tags и `duration_ts × time_base`, сохраняя numeric/7-day fail-closed bounds; focused Audio backend suite `37/37` PASS.
+- Base branch/SHA: `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`, verified equal to `origin/main` after fetch.
+- Working branch: `codex/fix-audio-obs-packet-duration` from exact base; merged branches `codex/pwa-audio-workspace-02` и `codex/fix-audio-obs-duration-metadata` сохранены только до Goal closure/cleanup.
+- Last verified revision: `5dd0bd99d087dc2a2235a9150122ee1ef88d0032` — fallback декодирует audio stream с bounded FFmpeg progress только если все ffprobe duration metadata отсутствуют; focused Audio backend suite `39/39` PASS и synthetic FFmpeg scan вернул `2.020136s`.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; exact-main CI `32864333001`/`32864333013`, web/API CD `32864332962`, authorized worker drain/deploy/status `32865914275`/`32866007887`/`32866139787` terminal success и `identity_match=yes`. Bounded production LIVE подтвердил browser-local WAV result без console errors, explicit source/mode/order/default/action UX, Settings/Diagnostics/fragmentation regressions. Separate preview обоих сохранённых OBS/MKV sources после rollout независимо завершился `invalid_input` на 5%, что опровергло initial numeric container-duration hypothesis. Hotfix `22d3910` добавляет bounded Matroska clock-tag/time-base duration fallbacks.
-- Current step: отправить hotfix code/docs commits в PR и получить authoritative containerized CI; при green merge/deploy повторить worker drain/deploy и exact production preview/concat LIVE.
-- Next exact action: commit checkpoint, push `codex/fix-audio-obs-duration-metadata`, создать hotfix PR и дождаться required checks.
-- Validation and Evidence: hotfix focused Audio backend `37/37` PASS; `scripts/ci_checks.py` PASS. Полный локальный pytest: `1076 passed`, `7 skipped`, `187 errors` из-за отсутствующего PostgreSQL `127.0.0.1:5432`, плюс `65 failed` в environment-dependent Windows groups; authoritative GitHub CI с PostgreSQL остаётся required gate. Baseline Studio Vitest `591/591`, ESLint/build и authenticated Chromium `11/11` подтверждены PR/main CI.
-- Pull Request / CI / deployment: PR `#237` merged; exact-main web/API/worker deployed. Hotfix PR/CI ещё не созданы; migration не требуется.
-- Blockers: production `AP-10` остаётся failed до hotfix delivery и exact retest; approved post-deploy metadata writer отсутствует.
-- Unverified assumptions: оба production MKV имеют OBS-style duration в strict `DURATION` tag либо `duration_ts/time_base`; hotfix обязан пройти exact source retest, а не считаться достаточным по unit fixture.
+- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`. Первый duration hotfix PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; exact-main CI `32869554338`/`32869552771`, API CD `32869553753`, authorized worker status/drain/deploy/status `32869956723`/`32870056120`/`32870167150`/`32870289349` terminal success, migration skipped и `identity_match=yes`. Bounded production concat retest двух сохранённых OBS/MKV всё ещё завершился `invalid_input` на 5%, то есть metadata-only duration fallbacks недостаточны.
+- Current step: доставить второй bounded fallback для decodable OBS/Matroska без duration metadata, затем повторить exact production preview/concat LIVE.
+- Next exact action: commit code/tests/checkpoint, push `codex/fix-audio-obs-packet-duration`, создать hotfix PR и дождаться required checks.
+- Validation and Evidence: packet-duration fallback focused Audio backend `39/39` PASS; direct synthetic FFmpeg progress scan PASS (`2.020136s`); `scripts/ci_checks.py` PASS. Первый hotfix exact-main CI полностью green. Полный локальный pytest baseline: `1076 passed`, `7 skipped`, `187 errors` из-за отсутствующего PostgreSQL `127.0.0.1:5432`, плюс `65 failed` в environment-dependent Windows groups; authoritative GitHub CI с PostgreSQL остаётся required gate.
+- Pull Request / CI / deployment: PR `#238` merged; exact-main API/worker deployed на `50c5817`. Второй hotfix PR/CI ещё не созданы; migration не требуется.
+- Blockers: production `AP-10` остаётся failed до второго hotfix delivery и exact retest; approved post-deploy metadata writer отсутствует.
+- Unverified assumptions: production OBS/MKV не имеют ни одного пригодного duration metadata field, но audio stream полностью декодируется; fallback обязан пройти exact source retest, а не считаться достаточным по unit fixture.
 - Preserved pre-existing changes: none.
 
 ## Project readiness

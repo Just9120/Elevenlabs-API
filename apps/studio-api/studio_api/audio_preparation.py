@@ -30,6 +30,7 @@ FFPROBE_CLOCK_DURATION_PATTERN = re.compile(
     r"^(?P<hours>[0-9]{1,6}):(?P<minutes>[0-5][0-9]):(?P<seconds>[0-5][0-9](?:\.[0-9]{1,9})?)$"
 )
 FFPROBE_TIME_BASE_PATTERN = re.compile(r"^(?P<numerator>[0-9]{1,12})/(?P<denominator>[1-9][0-9]{0,12})$")
+FFMPEG_PROGRESS_TIME_PATTERN = re.compile(r"^out_time=(?P<duration>[^\r\n]{1,32})$")
 
 
 class AudioPreparationReason(str, Enum):
@@ -223,23 +224,6 @@ def probe_media(
     if not audio_streams:
         raise AudioPreparationError(AudioPreparationReason.invalid_input)
     stream = audio_streams[0]
-    duration = _first_positive_duration(
-        stream.get("duration"),
-        format_payload.get("duration"),
-        *_ffprobe_tag_durations(stream),
-        *_ffprobe_tag_durations(format_payload),
-        _ffprobe_time_base_duration(stream),
-        *(
-            value
-            for candidate in streams
-            if isinstance(candidate, dict) and candidate is not stream
-            for value in (
-                candidate.get("duration"),
-                *_ffprobe_tag_durations(candidate),
-                _ffprobe_time_base_duration(candidate),
-            )
-        ),
-    )
     codec = _bounded_token(stream.get("codec_name"), 40)
     format_name = _bounded_token(format_payload.get("format_name"), 120)
     sample_rate = _positive_int(stream.get("sample_rate"), 384000)
@@ -247,6 +231,28 @@ def probe_media(
     channel_layout = stream.get("channel_layout")
     if channel_layout is not None and (not isinstance(channel_layout, str) or len(channel_layout) > 80):
         raise AudioPreparationError(AudioPreparationReason.invalid_input)
+    try:
+        duration = _first_positive_duration(
+            stream.get("duration"),
+            format_payload.get("duration"),
+            *_ffprobe_tag_durations(stream),
+            *_ffprobe_tag_durations(format_payload),
+            _ffprobe_time_base_duration(stream),
+            *(
+                value
+                for candidate in streams
+                if isinstance(candidate, dict) and candidate is not stream
+                for value in (
+                    candidate.get("duration"),
+                    *_ffprobe_tag_durations(candidate),
+                    _ffprobe_time_base_duration(candidate),
+                )
+            ),
+        )
+    except AudioPreparationError as exc:
+        if exc.reason is not AudioPreparationReason.invalid_input:
+            raise
+        duration = _scan_audio_duration(path, runner=runner)
     return AudioProbe(duration, format_name, codec, sample_rate, channels, channel_layout)
 
 
@@ -509,6 +515,52 @@ def _ffprobe_time_base_duration(stream: dict[str, object]) -> float | None:
     if ticks <= 0 or numerator <= 0:
         return None
     return ticks * numerator / denominator
+
+
+def _scan_audio_duration(path: Path, *, runner: Callable = subprocess.run) -> float:
+    """Decode one audio stream when Matroska metadata has no usable duration.
+
+    OBS captures that were not finalized cleanly can remain decodable while all
+    container, stream and tag duration fields are absent.  FFmpeg's progress
+    protocol reports a bounded clock value without emitting one row per packet.
+    The slow path is used only after the normal ffprobe metadata fallbacks fail.
+    """
+    command = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-xerror",
+        "-nostats",
+        "-stats_period",
+        "30",
+        "-i",
+        str(path),
+        "-map",
+        "0:a:0",
+        "-f",
+        "null",
+        "-",
+        "-progress",
+        "pipe:1",
+    ]
+    try:
+        result = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=FFMPEG_ANALYSIS_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as exc:
+        raise AudioPreparationError(AudioPreparationReason.probe_unavailable) from exc
+    except subprocess.SubprocessError as exc:
+        raise AudioPreparationError(AudioPreparationReason.media_integrity_failed) from exc
+    values = tuple(
+        match.group("duration")
+        for line in (result.stdout or "").splitlines()
+        if (match := FFMPEG_PROGRESS_TIME_PATTERN.fullmatch(line.strip())) is not None
+    )
+    return _first_positive_duration(*reversed(values))
 
 
 def _positive_int(value: object, maximum: int) -> int:
