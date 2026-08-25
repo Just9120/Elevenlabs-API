@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@23f3636e914d89e3158f770ecf6828cc10587bff`. Exact-main repository CI `32864333001`, Studio/browser CI `32864333013`, component CD `32864332962` и manual worker rollout `32865914275` → `32866007887` → `32866139787` подтвердили web/API/worker delivery без migration. Browser-local Audio и связанные UX/IA AC прошли bounded production LIVE, но оба сохранённых OBS/Matroska inputs независимо повторили `invalid_input` на preview; поэтому `AP-10` и общий Goal остаются открыты, а duration-metadata hotfix продолжается в отдельной ветке той же Goal.
+Verified main baseline: `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`. Exact-main repository CI `32869554338`, Studio/browser CI `32869552771`, API CD `32869553753` и manual worker rollout `32869956723` → `32870056120` → `32870167150` → `32870289349` подтвердили API/worker delivery без migration и exact worker image identity. Browser-local Audio и связанные UX/IA AC прошли bounded production LIVE, но metadata-only duration hotfix не закрыл `invalid_input` для двух сохранённых OBS/Matroska inputs; поэтому `AP-10` и общий Goal остаются открыты, а bounded decode-duration fallback продолжается в отдельной ветке той же Goal.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
