@@ -820,6 +820,18 @@ Goal `PWA-AUDIO-PREPARATION-01` завершила canonical Audio Preparation s
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`; `PWA-AUDIO-PREPARATION-01 16/16`, Studio PWA `107/107`, project `136/136`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized Goal. Local `main` clean и синхронизирован, merged branches удалены.
 
+## Archived PR #236 UX/IA polish closure
+
+Goal `PWA-UX-IA-POLISH-01` завершена 2026-08-25.
+
+- Base: `main@16badb0aa4404ae2616a3d46070925b54b043963`; final PR head `86232adf67d6d3fa5fe8b5a6d910ff04dd951bfd`; merge commit PR `#236`: `091e558ebe5c369486056f2ef94f67f99a459ee0`.
+- Exact-head required CI завершился success: repository run `32832630083`; Studio/browser run `32832630155`.
+- Exact-main CI завершился success: repository run `32832907020`; Studio/browser run `32832906999`.
+- Studio Platform CD run `32832907052` развернул web и API; web job `97755369406`, API job `97755621970` завершились success с exact merge revision. Migration была N/A, worker manual-only unit не изменялся.
+- Bounded authenticated LIVE после normal service-worker reload подтвердил task terminology, default-closed fragmentation, пять Settings routes, Files & Storage catalog, simplified diagnostic bundle и Audio source disclosure/terminal actions. Browser console errors не наблюдались; exact click handoff Audio → Transcriptions дополнительно покрыт automated tests, но не был повторно dispatch-нут во встроенном browser из-за CDP timeout.
+- Product denominator не менялся: `PWA-AUDIO-PREPARATION-01 16/16`, Studio PWA `107/107`, project `136/136`; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅` с указанным ограничением handoff observation.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized Goal без docs-only follow-up PR. Local `main` был clean и синхронизирован; merged branch удалена local/remote.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

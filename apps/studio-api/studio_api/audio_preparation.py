@@ -219,7 +219,7 @@ def probe_media(
     if not audio_streams:
         raise AudioPreparationError(AudioPreparationReason.invalid_input)
     stream = audio_streams[0]
-    duration = _positive_duration(stream.get("duration") or format_payload.get("duration"))
+    duration = _first_positive_duration(stream.get("duration"), format_payload.get("duration"))
     codec = _bounded_token(stream.get("codec_name"), 40)
     format_name = _bounded_token(format_payload.get("format_name"), 120)
     sample_rate = _positive_int(stream.get("sample_rate"), 384000)
@@ -437,6 +437,22 @@ def _positive_duration(value: object) -> float:
     if not math.isfinite(duration) or duration <= 0 or duration > MAX_AUDIO_DURATION_SECONDS:
         raise AudioPreparationError(AudioPreparationReason.invalid_input)
     return duration
+
+
+def _first_positive_duration(*values: object) -> float:
+    """Return the first valid ffprobe duration without trusting truthy sentinels.
+
+    Matroska/WebM streams commonly report ``"N/A"`` while the container-level
+    duration remains authoritative.  A truthiness fallback therefore rejects
+    otherwise valid OBS captures before it considers the format duration.
+    """
+    for value in values:
+        try:
+            return _positive_duration(value)
+        except AudioPreparationError as exc:
+            if exc.reason is not AudioPreparationReason.invalid_input:
+                raise
+    raise AudioPreparationError(AudioPreparationReason.invalid_input)
 
 
 def _positive_int(value: object, maximum: int) -> int:

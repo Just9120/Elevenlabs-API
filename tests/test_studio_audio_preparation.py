@@ -79,6 +79,25 @@ def test_probe_uses_allowlisted_command_and_reduces_metadata():
     assert "private" not in repr(result)
 
 
+def test_probe_falls_back_to_container_duration_for_obs_matroska_stream_sentinel():
+    def runner(command, **kwargs):
+        return CompletedProcess(
+            command,
+            0,
+            stdout=(
+                '{"format":{"format_name":"matroska,webm","duration":"12.5"},'
+                '"streams":[{"codec_type":"audio","duration":"N/A","codec_name":"aac",'
+                '"sample_rate":"48000","channels":2,"channel_layout":"stereo"}]}'
+            ),
+            stderr="private",
+        )
+
+    result = probe_media(Path("obs-capture.mkv"), runner=runner)
+
+    assert result.duration_seconds == 12.5
+    assert result.format_name == "matroska,webm"
+
+
 def test_probe_rejects_missing_audio_and_malformed_values():
     def runner(command, **kwargs):
         return CompletedProcess(command, 0, stdout='{"format":{"duration":"4"},"streams":[]}', stderr="")

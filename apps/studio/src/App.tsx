@@ -56,6 +56,13 @@ import {
   type SourceUploadPolicy,
 } from "./sourceUploadPolicy";
 import {
+  DirectUploadAmbiguousError,
+  directUploadTimeoutMs,
+  isSafeDirectUploadCapability,
+  uploadFileWithProgress,
+  type DirectUploadProgress,
+} from "./directUpload";
+import {
   isUsableJobSource,
   sourceСтатусLabel,
   type Source,
@@ -657,15 +664,6 @@ async function requestProjectCollection(
   if (projects === null) throw new Error("invalid_projects_response");
   return projects;
 }
-type UploadInit = {
-  source_id: string;
-  upload: {
-    method: "PUT";
-    url: string;
-    headers: Record<string, string>;
-    expires_in: number;
-  };
-};
 type GoogleConnection = {
   connected: boolean;
   status: "active" | "revoked" | "error" | null;
@@ -677,6 +675,12 @@ type GoogleConnection = {
   picker_configured: boolean;
   picker_scope_ready: boolean;
   reconnect_required: boolean;
+};
+type UploadProgressView = DirectUploadProgress & {
+  filename: string;
+  fileIndex: number;
+  fileCount: number;
+  aggregatePercent: number;
 };
 type GoogleConnectionReadState = "loading" | "ready" | "unavailable";
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
@@ -956,53 +960,6 @@ function localUploadPutFailureMessage(status: number) {
   if (status >= 400 && status < 500)
     return "Хранилище отклонило загрузку. Обновите страницу и повторите; если ошибка вернётся, сообщите администратору время попытки.";
   return "Не удалось загрузить файл во временное хранилище.";
-}
-function isSafeLocalUploadInit(
-  candidate: unknown,
-  expectedContentType: string,
-): candidate is UploadInit {
-  if (!candidate || typeof candidate !== "object") return false;
-  const sourceId = (candidate as { source_id?: unknown }).source_id;
-  const upload = (candidate as { upload?: unknown }).upload;
-  if (
-    typeof sourceId !== "string" ||
-    !sourceId ||
-    sourceId.length > 128 ||
-    /\s/.test(sourceId) ||
-    !upload ||
-    typeof upload !== "object"
-  )
-    return false;
-  const value = upload as Record<string, unknown>;
-  if (
-    value.method !== "PUT" ||
-    !Number.isInteger(value.expires_in) ||
-    (value.expires_in as number) < 60 ||
-    (value.expires_in as number) > 900 ||
-    !value.headers ||
-    typeof value.headers !== "object" ||
-    Array.isArray(value.headers)
-  )
-    return false;
-  const headers = value.headers as Record<string, unknown>;
-  if (
-    Object.keys(headers).length !== 1 ||
-    headers["Content-Type"] !== expectedContentType
-  )
-    return false;
-  if (typeof value.url !== "string") return false;
-  try {
-    const url = new URL(value.url);
-    return (
-      url.protocol === "https:" &&
-      Boolean(url.hostname) &&
-      !url.username &&
-      !url.password &&
-      !url.hash
-    );
-  } catch {
-    return false;
-  }
 }
 function isExpectedCompletedLocalSource(
   candidate: unknown,
@@ -1504,6 +1461,9 @@ function PreparationPanel({
   const [createdSources, setCreatedSources] = useState<Source[]>([]);
   const [rowIntakeStatus, setRowIntakeStatus] = useState<
     Record<string, string>
+  >({});
+  const [rowUploadProgress, setRowUploadProgress] = useState<
+    Record<string, UploadProgressView | undefined>
   >({});
   const [rowIntakeErrors, setRowIntakeErrors] = useState<
     Record<string, string>
@@ -2493,7 +2453,7 @@ function PreparationPanel({
         "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
       );
     }
-    if (!isSafeLocalUploadInit(bounded.value, mimeType)) {
+    if (!isSafeDirectUploadCapability(bounded.value, mimeType)) {
       onReloadSources(project.id);
       throw new Error(
         "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
@@ -2528,8 +2488,11 @@ function PreparationPanel({
     try {
       const successful: Source[] = [];
       const failures: string[] = [];
+      const aggregateTotalBytes = files.reduce((total, file) => total + file.size, 0);
+      let aggregateCompletedBytes = 0;
       setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
-      for (const file of files) {
+      for (const [fileIndex, file] of files.entries()) {
+        const queueLabel = `Файл ${fileIndex + 1} из ${files.length}`;
         if (!isSupportedMediaFile(file, sourceUploadPolicy)) {
           failures.push(
             `${file.name}: тип файла не поддерживается текущими правилами.`,
@@ -2549,7 +2512,7 @@ function PreparationPanel({
         try {
           setRowIntakeStatus((current) => ({
             ...current,
-            [rowId]: `${file.name} — подготовка загрузки…`,
+            [rowId]: `${queueLabel}: ${file.name} — подготовка загрузки…`,
           }));
           const expectedContentType =
             file.type || "application/octet-stream";
@@ -2560,33 +2523,55 @@ function PreparationPanel({
           );
           setRowIntakeStatus((current) => ({
             ...current,
-            [rowId]: `${file.name} — загрузка…`,
+            [rowId]: `${queueLabel}: ${file.name} — загрузка 0%…`,
           }));
-          let put: Response | null = null;
+          let put: { ok: boolean; status: number } | null = null;
           let putIsAmbiguous = false;
           try {
-            const boundedPut = await runBoundedRequest((signal) =>
-              fetch(initiated.upload.url, {
-                method: initiated.upload.method,
-                headers: initiated.upload.headers,
-                body: file,
-                cache: "no-store",
-                credentials: "omit",
-                redirect: "error",
-                referrerPolicy: "no-referrer",
-                signal,
-              }),
-            );
-            if (boundedPut.status === "completed") put = boundedPut.value;
-            else putIsAmbiguous = true;
-          } catch {
+            put = await uploadFileWithProgress({
+              url: initiated.upload.url,
+              method: initiated.upload.method,
+              headers: initiated.upload.headers,
+              file,
+              timeoutMs: directUploadTimeoutMs(initiated.upload.expires_in),
+              onProgress: (progress) => {
+                setRowIntakeStatus((current) => ({
+                  ...current,
+                  [rowId]: `${queueLabel}: ${file.name} — ${progress.percent}% (${formatBytes(progress.loadedBytes)} из ${formatBytes(progress.totalBytes)})`,
+                }));
+                setRowUploadProgress((current) => ({
+                  ...current,
+                  [rowId]: {
+                    ...progress,
+                    filename: file.name,
+                    fileIndex: fileIndex + 1,
+                    fileCount: files.length,
+                    aggregatePercent:
+                      aggregateTotalBytes > 0
+                        ? Math.min(
+                            100,
+                            Math.round(
+                              ((aggregateCompletedBytes + progress.loadedBytes) /
+                                aggregateTotalBytes) *
+                                100,
+                            ),
+                          )
+                        : 0,
+                  },
+                }));
+              },
+            });
+          } catch (reason) {
+            if (!(reason instanceof DirectUploadAmbiguousError)) {
+              throw reason;
+            }
             putIsAmbiguous = true;
           }
           if (putIsAmbiguous) {
             reportLocalUploadPutFailure();
             setRowIntakeStatus((current) => ({
               ...current,
-              [rowId]: `${file.name} — проверяем результат загрузки…`,
+              [rowId]: `${queueLabel}: ${file.name} — проверяем результат загрузки…`,
             }));
             const recovered = await completeLocalUpload(
               initiated.source_id,
@@ -2606,7 +2591,7 @@ function PreparationPanel({
           }
           setRowIntakeStatus((current) => ({
             ...current,
-            [rowId]: `${file.name} — подтверждаем загрузку…`,
+            [rowId]: `${queueLabel}: ${file.name} — подтверждаем загрузку…`,
           }));
           const completed = await completeLocalUpload(
             initiated.source_id,
@@ -2619,6 +2604,8 @@ function PreparationPanel({
           failures.push(
             `${file.name}: ${err instanceof Error ? err.message : "не удалось загрузить файл."}`,
           );
+        } finally {
+          aggregateCompletedBytes += file.size;
         }
       }
       if (successful.length > 0) onReloadSources(project.id);
@@ -2644,6 +2631,7 @@ function PreparationPanel({
         tone: failures.length === 0 ? "notice" : "error",
       };
     } finally {
+      setRowUploadProgress((current) => ({ ...current, [rowId]: undefined }));
       finishLocalUpload(operation, persistentNotice);
     }
   }
@@ -4320,6 +4308,20 @@ function PreparationPanel({
                         <p role="status" className="muted">
                           {rowIntakeStatus[row.id]}
                         </p>
+                      )}
+                      {rowUploadProgress[row.id] && (
+                        <div className="upload-progress" aria-live="polite">
+                          <progress
+                            aria-label={`Общая загрузка файлов для задачи ${index + 1}`}
+                            max="100"
+                            value={rowUploadProgress[row.id]?.aggregatePercent ?? 0}
+                          >
+                            {rowUploadProgress[row.id]?.aggregatePercent ?? 0}%
+                          </progress>
+                          <small>
+                            Общий прогресс: {rowUploadProgress[row.id]?.aggregatePercent ?? 0}%
+                          </small>
+                        </div>
                       )}
                       {rowIntakeErrors[row.id] && (
                         <p className="error">{rowIntakeErrors[row.id]}</p>

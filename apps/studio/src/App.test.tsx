@@ -20,6 +20,7 @@ import {
   configurePwaDiagnosticsSession,
   emitPwaDiagnostic,
 } from "./pwaDiagnostics";
+
 const originalLocation = window.location;
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -11450,7 +11451,7 @@ describe("Studio PWA", () => {
       .mockImplementation(((callback, delay, ...args) =>
         nativeSetTimeout(
           callback,
-          delay === 20_000 ? 1 : (delay as number),
+          delay === 600_000 ? 1 : (delay as number),
           ...args,
         )) as typeof setTimeout);
     try {

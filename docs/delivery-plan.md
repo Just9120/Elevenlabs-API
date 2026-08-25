@@ -2,67 +2,69 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-UX-IA-POLISH-01` — task centered UX и information architecture personal Studio PWA.
-- **State:** `IN_PROGRESS` — scope явно авторизован владельцем 2026-08-25 после серии browser-аннотаций.
-- **Authorization source:** explicit current user instruction «формируй цель и приступай»; durable product scope и denominator — `docs/project-spec.md`.
-- **Scope:** унифицировать terminal actions Audio Preparation; сделать fragmentation явно optional и скрытой по умолчанию; заменить row-centric terminology на task terminology; убрать постоянно отображаемый общий source catalog из рабочих экранов и перенести управление local files/retention в Settings; перестроить Settings на разделы Account, Connections, Files & Storage, Appearance и Diagnostics; упростить основной Diagnostics flow вокруг безопасного diagnostic bundle с advanced technical filters; улучшить Audio Preparation source selection и явный переход результата в transcription flow.
-- **Non-goals:** изменение S3 bucket topology или object migration; client-local FFmpeg/WASM processing; commercial/Russian edition; provider, OAuth, legal или billing scope; TOTP; изменение durable product requirements/AC; CI/CD safety contract или deployment topology.
+- **ID / title:** `PWA-AUDIO-WORKSPACE-02` — production-ready Audio workspace и observable local uploads.
+- **State:** `IN_PROGRESS` — scope авторизован владельцем 2026-08-25 инструкцией «формируй цель и приступай» и последующим явным расширением на все browser-аннотации текущего цикла.
+- **Authorization source:** текущие explicit user instructions; existing durable product scope — `docs/project-spec.md`; новые явно согласованные requirements будут атомарно reconciled в canonical Audio Preparation AC в этой ветке.
+- **Scope:** исправить `invalid_input` для валидных OBS/Matroska inputs и подтвердить multi-file combination; разделить `Google Drive`, browser-local processing и temporary S3 upload; показывать измеримый per-file/aggregate upload progress в Audio и Transcriptions; сделать явный выбор `обработать отдельно`/`склеить`, понятный ordered timeline и metadata-based default order без filename inference; упростить presets/labels/defaults и скрыть advanced silence controls; сделать download, optional Google Drive save и transcription handoff независимыми terminal actions; сохранить regression coverage предыдущей UX/IA Goal.
+- **Non-goals:** S3 bucket split/object migration; commercial/Russian production contour, billing/legal/provider changes; speaker identity; TOTP; CI/CD safety contract; unrelated Settings/Diagnostics redesign beyond regression fixes; destructive production operations.
 - **Goal AC:**
-  1. `Скачать результат` в Audio Preparation выглядит как штатный action control, сохраняя корректную link/download semantics.
-  2. Fragmentation по умолчанию выключена; whole-file task не показывает segment editor; explicit toggle раскрывает editor, а collapse не теряет введённый plan.
-  3. Composer использует task terminology: `Добавить задачу`, `Задача N`, task count и task validation messages; file/folder/multi-source semantics не искажаются.
-  4. Settings имеют понятные responsive sections: `Аккаунт`, `Подключения`, `Файлы и хранилище`, `Оформление`, `Диагностика`, без horizontal overflow.
-  5. Owner local-source catalog, retention и cleanup управляются в `Файлы и хранилище`; устаревший общий block `Файлы проекта` удалён из Transcriptions; per-task source selection сохранён.
-  6. Основной Diagnostics flow формирует sanitized diagnostic bundle по периоду, описанию проблемы, optional operation/task reference и формату; component/level/event code/raw identifiers спрятаны в advanced filters; существующие redaction и safe export не ослаблены.
-  7. Audio Preparation не показывает полный source catalog автоматически: saved sources открываются explicit action; completed output можно скачать, сделать новым source и передать точный owned source в Transcriptions.
-  8. Relevant unit/integration/browser tests, required CI, applicable deployment и bounded LIVE validation проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); migration не ожидается, deployment units определяются фактическим diff; authenticated LIVE session потребуется после merge.
-- **Stop condition:** Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
+  1. Валидный OBS Matroska input с stream duration sentinel (`N/A`) использует валидную container duration; invalid/missing duration по-прежнему fail-closed.
+  2. Несколько sources имеют явный operation mode: отдельные outputs либо один concatenated output; для concat UI показывает numbered order, creation metadata/duration where available, reorder controls и unambiguous summary.
+  3. Device intake разделяет `Обработать на устройстве` без S3 upload и `Загрузить в Studio` с explicit temporary-storage disclosure; unsupported/oversized local cases завершаются понятным bounded failure/fallback.
+  4. Audio и Transcriptions показывают реальный per-file byte/percentage stage и aggregate queue progress при direct S3 upload; stalled/failed upload не выглядит как зависший и не запускает ambiguous duplicate PUT.
+  5. Default Audio plan сохраняет исходный формат; conversion-required options переключают пользователя на explicit WAV/FLAC path без скрытой потери качества.
+  6. Primary settings используют production-facing labels: filename template скрыт из основного flow, long-pause wording относится к аудио/видео, default threshold `-45 dB`, advanced silence values раскрываются только при включённой функции.
+  7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
+  8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
+  9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
+- **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
+- **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T09:33:10Z.
+- Updated (UTC): 2026-08-25T15:08:13Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
-- Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
-- Last verified revision: `86232adf67d6d3fa5fe8b5a6d910ff04dd951bfd` — complete Goal implementation passed all required PR checks.
+- Base branch/SHA: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`, verified equal to `origin/main` after fetch.
+- Working branch: `codex/pwa-audio-workspace-02` from exact base.
+- Last verified revision: `0a7c22dd2970ed8b03daeb019e378a016907478e` — Chromium E2E covers local WAV processing/download with zero upload mutations; full Studio suite transport harness is `1af4574`, Audio workspace implementation `8394e68`, upload-progress foundation `51f8e07`, OBS duration fix `616250c`.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: task oriented composer terminology; default-closed fragmentation disclosure with state preservation; five URL-backed Settings sections; reusable Source catalog moved to Files & Storage and lazy-loaded; source deletion stale-reload race removed; one diagnostic-bundle flow with bounded untrusted problem context and advanced filters; Audio saved-source disclosure, consistent terminal actions and exact owned Source handoff into Transcriptions; visible source-load retry restored in composer.
-- Current step: record terminal required-check evidence, then merge and track applicable production deployment.
-- Next exact action: push this checkpoint-only commit, verify branch protection on its final head, then merge PR #236 when required checks are terminal success.
-- Validation and Evidence: backend diagnostic suites `20/20` passed locally; full Studio Vitest `579/579`, full Studio ESLint, TypeScript/Vite production build and `scripts/ci_checks.py` passed locally. On exact revision `86232ad`, GitHub CI passed full backend `1331/1331`, Studio lint/tests/build/container checks, and all `10/10` authenticated browser scenarios. Earlier failures were fully superseded by the successful exact-head runs.
-- Pull Request / CI / deployment: PR #236 (`86232ad`) is `CLEAN`; `checks` succeeded in run/job `32832269279/97753386353`; `studio` and `browser-e2e` succeeded in run/jobs `32832269445/97753386826` and `32832269445/97753386521`. Merge/deployment not started.
+- Completed: production `failed · 5% · invalid_input` mapped to truthy ffprobe stream sentinel and fixed without relaxing duration bounds; shared streaming-fetch direct upload exposes real per-file/aggregate progress while preserving no-credentials/no-referrer/no-redirect and ambiguous completion reconciliation; Audio UI now separates browser-local vs Studio upload, defaults multi-inputs to separate results, provides explicit concat/order plan, uses user-facing defaults/advanced controls and independent terminal actions; browser-local Web Audio path applies bounded separate/concat/channel/silence processing and emits temporary WAV downloads.
+- Current step: required code-bearing CI green; зафиксировать Evidence и дождаться replacement checks docs checkpoint head перед merge.
+- Next exact action: push CI Evidence commit и снова дождаться `checks`, `studio`, `browser-e2e`; при terminal success выполнить merge PR `#237`.
+- Validation and Evidence: Studio Vitest `591/591`, ESLint PASS, TypeScript/build PASS (PWA precache generated; existing >500 kB chunk warning only); backend Audio `34/34`; `scripts/ci_checks.py` PASS; Playwright collection PASS with `11` browser tests including browser-local Audio. DB-backed API suite cannot run authoritatively in the local Windows environment without CI Postgres; its attempted local run produced environment setup errors, not product assertions, and remains a required GitHub CI gate.
+- Pull Request / CI / deployment: PR `#237` — https://github.com/Just9120/Elevenlabs-API/pull/237; exact code-bearing head `ef02e5908579837667a1c0a1b0770d2c39bc79c2` green: repository CI `32863490270` / `checks`, Studio PWA CI `32863490406` / `studio` и `browser-e2e`; failures/skips отсутствуют. Merge ждёт replacement checks этого docs checkpoint; deployment не начат.
 - Blockers: none.
-- Unverified assumptions: production visual behavior at desktop/mobile widths and authenticated exact-source handoff require post-deploy bounded LIVE validation.
+- Unverified assumptions: the observed production OBS files use the common `stream.duration=N/A`/valid container-duration shape; exact production retest remains required. Browser-local codec/memory bounds must be derived and exposed, not guessed.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Эта Goal улучшает UX существующих completed AC и не меняет canonical denominator; проценты не повышаются выше `100%`, а delivery gates новой Goal учитываются отдельно.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новые owner-authorized annotations декомпозированы в `PC-14` и `AP-17..AP-23`; branch CODE/TEST не считается production completion до delivery/LIVE.
 
-| Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
+| Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Project** | **100% (`136/136`)** | **100% (`136/136`)** | Canonical AC выполнены; новая polishing Goal открыла собственные CODE/TEST/CI/DEPLOY/LIVE gates без изменения product denominator. |
-| **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Batch `23/23`, realtime `6/6`; scope не затронут. |
-| **Studio PWA** | **100% (`107/107`)** | **100% (`107/107`)** | Product AC не изменились; UX Goal `IN_PROGRESS`. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **100% (`16/16`)** | 🟩 READY; PRs #234–#235 и bounded LIVE reconciled в archive. |
-| Остальные existing epics | **100% (`120/120`)** | **100% (`120/120`)** | Completion и denominator не изменились. |
+| **Project** | **93,8% (`135/144`)** | **99,3% (`135/136`)** | Выполненные AC не изменились; denominator вырос на восемь новых atomic AC. |
+| **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
+| **Studio PWA** | **92,2% (`106/115`)** | **99,1% (`106/107`)** | `PC-14` и `AP-17..AP-23` добавлены в denominator; `AP-10` остаётся reopened до LIVE. |
+| `PWA-CORE-01` | **92,9% (`13/14`)** | **100% (`13/13`)** | Новый `PC-14` требует delivery/LIVE upload-progress обоих экранов. |
+| `PWA-AUDIO-PREPARATION-01` | **65,2% (`15/23`)** | **93,8% (`15/16`)** | Снижение более 10 п.п. вызвано не регрессией семи старых AC, а materialized denominator: семь новых Audio AC плюс уже reopened `AP-10`; branch имеет CODE/focused TEST, но production ещё прежний. |
+| Остальные existing PWA epics | **100% (`78/78`)** | **100% (`78/78`)** | Completion и denominator не изменились. |
 
 ## Candidate next Goals
 
-1. `PWA-STORAGE-ISOLATION-01` — разделить reference objects Audio Preparation и transcription intake на разные lifecycle namespaces/buckets только после отдельного architecture decision.
-2. `PWA-LOCAL-AUDIO-PREPARATION-01` — optional browser-local FFmpeg/WASM path без server upload; upstream idea, ещё не canonical requirement.
-3. `PWA-OPTIONAL-TOTP-01` — добровольная TOTP 2FA, disabled by default.
-4. `COMMERCIAL-EDITION-DISCOVERY-01` — отдельный российский production contour, data residency/legal/provider constraints; discovery, не implementation.
+1. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation reference objects и transcription intake на разные lifecycle namespaces/buckets после отдельного architecture decision.
+2. `PWA-OPTIONAL-TOTP-01` — добровольная TOTP 2FA, disabled by default.
+3. `COMMERCIAL-EDITION-DISCOVERY-01` — отдельный российский production contour и legal/data-residency/provider discovery.
 
 ## Risks и boundaries
 
-- Перемещение UI не должно менять owner isolation, retention, cleanup semantics или storage keys.
-- Diagnostic bundle не включает secrets, token values, private storage paths или unrestricted payloads; problem description является user-entered context, а не trusted runtime evidence.
-- Fragmentation off должна сохранять canonical whole-file payload; UI collapse не должен незаметно менять plan.
-- Передача Audio Preparation output в Transcriptions должна ссылаться на exact owned reusable source, не дублировать upload и не обходить source validation.
-- Migration и privileged production operation не планируются; если фактический diff потребует их, нужна отдельная action-time authorization согласно safety contract.
+- Browser-local processing не должен молча отправлять source bytes в API/S3 и не должен обещать codecs, которые браузер не декодирует.
+- Direct S3 progress transport обязан сохранять `credentials=omit`, bounded timeout, allowlisted capability method/headers и reconciliation после ambiguous PUT outcome.
+- Filename не является creation/order authority. При отсутствии trustworthy metadata UI сохраняет explicit user order и сообщает uncertainty.
+- `Без перекодирования` допустимо только для совместимого server-side concat; mono/silence требуют explicit conversion.
+- Download, Drive save и transcription handoff являются независимыми действиями; Drive mutation требует exact user choice и owner grant.
+- Production operation не запускается без required CI/deployment gates и bounded user-controlled LIVE authorization where applicable.
 
 ## Sources of truth
 
@@ -71,4 +73,4 @@
 - Current Goal/checkpoint/readiness: этот документ.
 - CI/CD safety: `docs/ci-cd-rules.md`.
 - Actual architecture: `docs/architecture.md`.
-- Historical evidence: `docs/delivery-plan-archive.md` только для reconciliation.
+- Historical evidence: `docs/delivery-plan-archive.md` only for reconciliation.

@@ -1539,14 +1539,99 @@ code {
 .audio-order-list {
   display: grid;
   gap: 0.5rem;
-  padding-left: 1.5rem;
+  padding-left: 0;
+  list-style: none;
 }
 
 .audio-order-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-soft);
+}
+
+.audio-order-list li > span:nth-child(2) {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audio-order-list small {
+  color: var(--studio-muted);
+}
+
+.audio-order-index {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--studio-primary);
+  color: var(--studio-on-primary);
+  font-weight: 900;
+}
+
+.audio-order-controls,
+.audio-operation-mode,
+.audio-drive-save,
+.audio-selection-plan,
+.audio-advanced-settings,
+.audio-job-result,
+.upload-progress {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.audio-order-controls {
+  grid-template-columns: repeat(2, auto);
+}
+
+.audio-operation-mode,
+.audio-drive-save,
+.audio-selection-plan,
+.audio-advanced-settings,
+.upload-progress {
+  padding: 0.85rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-soft);
+}
+
+.audio-operation-mode label,
+.audio-drive-save label {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.audio-selection-plan h3,
+.audio-job-result h3 {
+  margin: 0;
+}
+
+.audio-advanced-settings summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.audio-job-result {
+  padding-top: 1rem;
+  border-top: 1px solid var(--studio-border);
+}
+
+.audio-job-result:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.warning {
+  margin: 0;
+  color: var(--studio-warning, #d69e2e);
 }
 
 .audio-preparation-card progress {
@@ -1556,8 +1641,17 @@ code {
 
 @media (max-width: 620px) {
   .audio-settings-grid,
-.audio-source-grid {
+  .audio-source-grid {
     grid-template-columns: 1fr;
+  }
+
+  .audio-order-list li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .audio-order-controls {
+    grid-column: 1 / -1;
+    justify-content: end;
   }
 }
 
