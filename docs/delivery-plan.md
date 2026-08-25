@@ -5,7 +5,7 @@
 - **ID / title:** `PWA-AUDIO-WORKSPACE-02` — production-ready Audio workspace и observable local uploads.
 - **State:** `IN_PROGRESS` — scope авторизован владельцем 2026-08-25 инструкцией «формируй цель и приступай» и последующим явным расширением на все browser-аннотации текущего цикла.
 - **Authorization source:** текущие explicit user instructions; existing durable product scope — `docs/project-spec.md`; новые явно согласованные requirements будут атомарно reconciled в canonical Audio Preparation AC в этой ветке.
-- **Scope:** исправить `invalid_input` для валидных OBS/Matroska inputs и подтвердить multi-file combination; разделить `Google Drive`, browser-local processing и temporary S3 upload; показывать измеримый per-file/aggregate upload progress в Audio и Transcriptions; сделать явный выбор `обработать отдельно`/`склеить`, понятный ordered timeline и metadata-based default order без filename inference; упростить presets/labels/defaults и скрыть advanced silence controls; сделать download, optional Google Drive save и transcription handoff независимыми terminal actions; сохранить regression coverage предыдущей UX/IA Goal.
+- **Scope:** исправить `invalid_input` для валидных OBS/Matroska inputs и подтвердить multi-file combination; разделить `Google Drive`, browser-local processing и temporary S3 upload; показывать измеримый per-file/aggregate upload progress в Audio и Transcriptions; сделать явный выбор `обработать отдельно`/`склеить`, понятный ordered timeline и metadata-based default order без filename inference; упростить presets/labels/defaults и скрыть advanced silence controls; сделать download, optional Google Drive save и transcription handoff независимыми terminal actions; добавить прямой переход в Audio workspace с dashboard; сохранить regression coverage предыдущей UX/IA Goal.
 - **Non-goals:** S3 bucket split/object migration; commercial/Russian production contour, billing/legal/provider changes; speaker identity; TOTP; CI/CD safety contract; unrelated Settings/Diagnostics redesign beyond regression fixes; destructive production operations.
 - **Goal AC:**
   1. Валидный OBS Matroska input с stream duration sentinel (`N/A`) использует валидную container duration; invalid/missing duration по-прежнему fail-closed.
@@ -17,25 +17,26 @@
   7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
+  10. Dashboard явно предлагает Audio workspace рядом с транскрибациями и открывает route `/audio` без промежуточного navigation flow.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T17:25:59Z.
+- Updated (UTC): 2026-08-25T17:43:28Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`, verified equal to fetched `origin/main` before branch creation.
-- Working branch: `codex/fix-audio-direct-upload` from exact base; merged branches `codex/pwa-audio-workspace-02`, `codex/fix-audio-obs-duration-metadata` и `codex/fix-audio-obs-packet-duration` сохранены только до Goal closure/cleanup.
-- Last verified revision: `7fbc41e27f95450c2efb2e7885f39664782cfe9a` — direct S3/R2 upload использует один raw-`File` `XMLHttpRequest` PUT с native byte progress, disabled cross-origin credentials, bounded timeout/abort, redirected terminal-response rejection и existing completion reconciliation без automatic PUT replay.
+- Base branch/SHA: `main@77e7250d15903361bd450a1bdf9fc7c805671dbf`, verified equal to fetched `origin/main` before branch creation.
+- Working branch: `codex/fix-dashboard-audio-action` from exact base; merged branches предыдущих PR сохранены только до Goal closure/cleanup.
+- Last verified revision: `91ee17ae4dbd0a2560f3beae9afa90b20aab77ed` — dashboard description и primary action surface включают Audio workspace; новый regression test подтверждает переход на `/audio`.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; packet-duration fallback PR `#239` merged как `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`. Exact-main CI `32871622334`/`32871622307`, API CD `32871620010`, authorized worker status/drain/deploy/status `32871936411`/`32872021556`/`32872102665`/`32872254959` terminal success, migration skipped и `identity_match=yes`. Production retest затем выявил следующий prerequisite defect: Chrome и встроенный Chromium успешно создают pending source, но streaming-fetch PUT не создаёт R2 object; completion получает `sources 4xx`, `source.local_upload.completed` отсутствует.
-- Current step: завершить PR #240, merge и exact-main `studio-web` deployment, затем повторить production LIVE.
-- Next exact action: commit/push CI checkpoint, подтвердить terminal checks нового documentation-only head и merge PR #240.
-- Validation and Evidence: focused transport `5/5` PASS; Audio workspace `6/6` PASS; focused shared Transcriptions upload `1/1` PASS; full Studio Vitest `591/591` PASS; Studio ESLint PASS; TypeScript build PASS; Vite/PWA production build PASS; `scripts/ci_checks.py` PASS; `git diff --check` PASS. PR #240 CI run `32877546464` (`checks`) и Studio run `32877546422` (`studio`, `browser-e2e`) terminal SUCCESS на exact code/checkpoint head; documentation-only Evidence commit требует собственный applicable terminal check перед merge.
-- Pull Request / CI / deployment: PR `#240` mergeable/CLEAN, review blocker отсутствует; code/checkpoint checks green. Новый fix меняет только Studio web/runtime docs, не требует schema migration, API или worker rollout; applicable deployment — `studio-web` после merge.
+- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; PR `#239` merged как `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`; browser-compatible direct-upload PR `#240` merged как `main@77e7250d15903361bd450a1bdf9fc7c805671dbf`. Exact-main CI `32878345979` и Studio PWA CI `32878345989` terminal SUCCESS; Studio Platform CD `32878346042` terminal SUCCESS, deploy log подтверждает update `86b0c98..77e7250`, running web image identity и `/healthz`; API/worker/migration корректно skipped.
+- Current step: доставить небольшое dashboard navigation дополнение отдельным PR, затем выполнить объединённую production LIVE-проверку dashboard action и direct uploads.
+- Next exact action: commit checkpoint, push `codex/fix-dashboard-audio-action`, создать PR и дождаться required checks.
+- Validation and Evidence: dashboard-focused `App.test.tsx` `218/218` PASS; focused Studio ESLint PASS; TypeScript build PASS; Vite/PWA production build PASS; `git diff --check` PASS. Product readiness не изменилась: dashboard action не закрывает новый canonical product AC.
+- Pull Request / CI / deployment: для dashboard дополнения PR ещё не создан; изменение затрагивает только Studio web и не требует schema migration, API или worker rollout; applicable deployment — `studio-web` после merge.
 - Blockers: production `PC-14` и `AP-10` остаются открыты до exact-main web deploy и bounded Chrome LIVE; approved post-deploy metadata writer отсутствует.
-- Unverified assumptions: raw-`File` XHR PUT устранит production R2 failure для реальных OBS/MKV; это подтверждается стандартным browser transport contract и local tests, но не считается LIVE до exact production retest.
+- Unverified assumptions: raw-`File` XHR PUT устранит production R2 failure для реальных OBS/MKV; dashboard action откроется в production после web deploy. Оба пункта требуют bounded production retest.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
