@@ -17,25 +17,25 @@
   7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T16:17:43Z.
+- Updated (UTC): 2026-08-25T17:25:59Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`, verified equal to `origin/main` after fetch.
-- Working branch: `codex/fix-audio-obs-packet-duration` from exact base; merged branches `codex/pwa-audio-workspace-02` и `codex/fix-audio-obs-duration-metadata` сохранены только до Goal closure/cleanup.
-- Last verified revision: `5dd0bd99d087dc2a2235a9150122ee1ef88d0032` — fallback декодирует audio stream с bounded FFmpeg progress только если все ffprobe duration metadata отсутствуют; focused Audio backend suite `39/39` PASS и synthetic FFmpeg scan вернул `2.020136s`.
+- Base branch/SHA: `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`, verified equal to fetched `origin/main` before branch creation.
+- Working branch: `codex/fix-audio-direct-upload` from exact base; merged branches `codex/pwa-audio-workspace-02`, `codex/fix-audio-obs-duration-metadata` и `codex/fix-audio-obs-packet-duration` сохранены только до Goal closure/cleanup.
+- Last verified revision: `7fbc41e27f95450c2efb2e7885f39664782cfe9a` — direct S3/R2 upload использует один raw-`File` `XMLHttpRequest` PUT с native byte progress, disabled cross-origin credentials, bounded timeout/abort, redirected terminal-response rejection и existing completion reconciliation без automatic PUT replay.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`. Первый duration hotfix PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; exact-main CI `32869554338`/`32869552771`, API CD `32869553753`, authorized worker status/drain/deploy/status `32869956723`/`32870056120`/`32870167150`/`32870289349` terminal success, migration skipped и `identity_match=yes`. Bounded production concat retest двух сохранённых OBS/MKV всё ещё завершился `invalid_input` на 5%, то есть metadata-only duration fallbacks недостаточны.
-- Current step: доставить второй bounded fallback для decodable OBS/Matroska без duration metadata, затем повторить exact production preview/concat LIVE.
-- Next exact action: commit code/tests/checkpoint, push `codex/fix-audio-obs-packet-duration`, создать hotfix PR и дождаться required checks.
-- Validation and Evidence: packet-duration fallback focused Audio backend `39/39` PASS; direct synthetic FFmpeg progress scan PASS (`2.020136s`); `scripts/ci_checks.py` PASS. Первый hotfix exact-main CI полностью green. Полный локальный pytest baseline: `1076 passed`, `7 skipped`, `187 errors` из-за отсутствующего PostgreSQL `127.0.0.1:5432`, плюс `65 failed` в environment-dependent Windows groups; authoritative GitHub CI с PostgreSQL остаётся required gate.
-- Pull Request / CI / deployment: PR `#238` merged; exact-main API/worker deployed на `50c5817`. Второй hotfix PR/CI ещё не созданы; migration не требуется.
-- Blockers: production `AP-10` остаётся failed до второго hotfix delivery и exact retest; approved post-deploy metadata writer отсутствует.
-- Unverified assumptions: production OBS/MKV не имеют ни одного пригодного duration metadata field, но audio stream полностью декодируется; fallback обязан пройти exact source retest, а не считаться достаточным по unit fixture.
+- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; packet-duration fallback PR `#239` merged как `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`. Exact-main CI `32871622334`/`32871622307`, API CD `32871620010`, authorized worker status/drain/deploy/status `32871936411`/`32872021556`/`32872102665`/`32872254959` terminal success, migration skipped и `identity_match=yes`. Production retest затем выявил следующий prerequisite defect: Chrome и встроенный Chromium успешно создают pending source, но streaming-fetch PUT не создаёт R2 object; completion получает `sources 4xx`, `source.local_upload.completed` отсутствует.
+- Current step: завершить PR #240, merge и exact-main `studio-web` deployment, затем повторить production LIVE.
+- Next exact action: commit/push CI checkpoint, подтвердить terminal checks нового documentation-only head и merge PR #240.
+- Validation and Evidence: focused transport `5/5` PASS; Audio workspace `6/6` PASS; focused shared Transcriptions upload `1/1` PASS; full Studio Vitest `591/591` PASS; Studio ESLint PASS; TypeScript build PASS; Vite/PWA production build PASS; `scripts/ci_checks.py` PASS; `git diff --check` PASS. PR #240 CI run `32877546464` (`checks`) и Studio run `32877546422` (`studio`, `browser-e2e`) terminal SUCCESS на exact code/checkpoint head; documentation-only Evidence commit требует собственный applicable terminal check перед merge.
+- Pull Request / CI / deployment: PR `#240` mergeable/CLEAN, review blocker отсутствует; code/checkpoint checks green. Новый fix меняет только Studio web/runtime docs, не требует schema migration, API или worker rollout; applicable deployment — `studio-web` после merge.
+- Blockers: production `PC-14` и `AP-10` остаются открыты до exact-main web deploy и bounded Chrome LIVE; approved post-deploy metadata writer отсутствует.
+- Unverified assumptions: raw-`File` XHR PUT устранит production R2 failure для реальных OBS/MKV; это подтверждается стандартным browser transport contract и local tests, но не считается LIVE до exact production retest.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
