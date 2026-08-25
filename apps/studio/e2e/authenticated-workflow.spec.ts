@@ -70,6 +70,30 @@ function trackExternalOrJobMutations(page: Page) {
   return requests;
 }
 
+function browserLocalWavFixture() {
+  const sampleRate = 8_000;
+  const frames = sampleRate / 4;
+  const buffer = Buffer.alloc(44 + frames * 2);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(buffer.length - 8, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(frames * 2, 40);
+  for (let frame = 0; frame < frames; frame += 1) {
+    const sample = Math.round(Math.sin((frame / sampleRate) * Math.PI * 2 * 440) * 8_000);
+    buffer.writeInt16LE(sample, 44 + frame * 2);
+  }
+  return buffer;
+}
+
 test('authenticated user opens transcriptions and reads a completed job result', async ({
   page,
 }) => {
@@ -170,6 +194,51 @@ test('authenticated user opens transcriptions and reads a completed job result',
   await page.getByRole('button', { name: 'Выйти' }).click();
   sharedSessionCookies = null;
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
+});
+
+test('Audio workspace processes a device WAV in-browser without uploading source bytes', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  const uploadMutations: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/local-upload/')) {
+      uploadMutations.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  await navigation
+    .getByRole('button', { name: 'Обработка аудио', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/audio$/);
+  await page
+    .getByLabel('Выбрать файлы для обработки на устройстве')
+    .setInputFiles({
+      name: 'browser-local.wav',
+      mimeType: 'audio/wav',
+      buffer: browserLocalWavFixture(),
+    });
+
+  await expect(
+    page.getByText('Выбрано файлов: 1 · обработка на устройстве'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Формат результата')).toHaveValue('wav');
+  await expect(page.getByLabel('Формат результата')).toBeDisabled();
+  const parameters = page
+    .getByRole('heading', { name: '2. Параметры' })
+    .locator('..');
+  await parameters
+    .getByRole('button', { name: 'Обработать на устройстве', exact: true })
+    .click();
+
+  const localResults = page.getByRole('heading', {
+    name: '3. Локальные результаты',
+  }).locator('..');
+  await expect(localResults).toBeVisible();
+  const download = localResults.getByRole('link', { name: 'Скачать файл' });
+  await expect(download).toHaveAttribute('href', /^blob:/);
+  await expect(download).toHaveAttribute('download', 'Обработанное аудио.wav');
+  expect(uploadMutations).toEqual([]);
 });
 
 test('Live tab captures browser audio and keeps transcript browser-only', async ({
