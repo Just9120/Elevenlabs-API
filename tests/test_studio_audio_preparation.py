@@ -152,11 +152,65 @@ def test_probe_can_use_container_stream_duration_tag_but_rejects_malformed_clock
     )
 
     def runner(command, **kwargs):
+        if command[0] == "ffmpeg":
+            return CompletedProcess(command, 0, stdout="progress=end\n", stderr="private")
         return CompletedProcess(command, 0, stdout=next(payloads), stderr="private")
 
     assert probe_media(Path("obs-capture.mkv"), runner=runner).duration_seconds == pytest.approx(62.5)
     with pytest.raises(AudioPreparationError) as caught:
         probe_media(Path("obs-capture.mkv"), runner=runner)
+    assert caught.value.reason is AudioPreparationReason.invalid_input
+
+
+def test_probe_scans_decodable_audio_when_obs_matroska_has_no_duration_metadata():
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        if command[0] == "ffprobe":
+            return CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    '{"format":{"format_name":"matroska,webm"},'
+                    '"streams":[{"codec_type":"audio","codec_name":"aac",'
+                    '"sample_rate":"48000","channels":2,"channel_layout":"stereo"}]}'
+                ),
+                stderr="private",
+            )
+        return CompletedProcess(
+            command,
+            0,
+            stdout="out_time=00:00:30.000000\nprogress=continue\nout_time=00:10:10.125000\nprogress=end\n",
+            stderr="private",
+        )
+
+    result = probe_media(Path("unfinished-obs-capture.mkv"), runner=runner)
+
+    assert result.duration_seconds == pytest.approx(610.125)
+    assert [call[0][0] for call in calls] == ["ffprobe", "ffmpeg"]
+    assert calls[1][0][calls[1][0].index("-stats_period") + 1] == "30"
+    assert calls[1][1]["timeout"] == 1800
+
+
+def test_probe_rejects_obs_duration_scan_without_bounded_progress_clock():
+    def runner(command, **kwargs):
+        if command[0] == "ffprobe":
+            return CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    '{"format":{"format_name":"matroska,webm"},'
+                    '"streams":[{"codec_type":"audio","codec_name":"aac",'
+                    '"sample_rate":"48000","channels":2}]}'
+                ),
+                stderr="private",
+            )
+        return CompletedProcess(command, 0, stdout="out_time=private\nprogress=end\n", stderr="private")
+
+    with pytest.raises(AudioPreparationError) as caught:
+        probe_media(Path("unfinished-obs-capture.mkv"), runner=runner)
+
     assert caught.value.reason is AudioPreparationReason.invalid_input
 
 
