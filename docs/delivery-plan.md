@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T09:15:29Z.
+- Updated (UTC): 2026-08-25T09:16:53Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
-- Last verified revision: `4a54cac` — complete UX/IA implementation covered by focused backend tests, full frontend unit suite, lint, typecheck/build and lightweight repository checks.
+- Last verified revision: `45b14afec65c2bdaeb670b6529ad6beec36487a8` — complete UX/IA implementation and validation alignment pushed to PR #236.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: task-centric composer terminology; default-closed fragmentation disclosure with state preservation; five URL-backed Settings sections; reusable Source catalog moved to Files & Storage and lazy-loaded; source deletion stale-reload race removed; one diagnostic-bundle flow with bounded untrusted problem context and advanced filters; Audio saved-source disclosure, consistent terminal actions and exact owned Source handoff into Transcriptions; visible source-load retry restored in composer.
-- Current step: commit the final source-status expectation alignment, push the complete Goal branch and open one Pull Request.
-- Next exact action: create a narrow validation-alignment commit, then verify origin divergence and push `codex/pwa-ux-ia-polish`.
+- Current step: required CI is running for PR #236.
+- Next exact action: push this checkpoint update, then wait for terminal state of `checks`, `studio` and `browser-e2e` and analyze every failure/skip.
 - Validation and Evidence: backend diagnostic suites `20/20` passed; full Studio Vitest `579/579` passed; full Studio ESLint passed; TypeScript/Vite production build passed; `scripts/ci_checks.py` passed. A local full pytest attempt was not CI-equivalent because the workflow's PostgreSQL 17, Redis and protected secret fixtures were absent; it produced broad environment/setup failures and was stopped after exceeding the CI test command's 180-second budget. Authoritative full backend and browser-e2e results remain required from GitHub CI.
-- Pull Request / CI / deployment: PR not created; CI/deployment not started.
+- Pull Request / CI / deployment: PR #236 (`45b14af`) open; base `main@16badb0`; `checks`, `studio` and `browser-e2e` started and are `IN_PROGRESS`; merge/deployment not started.
 - Blockers: none.
 - Unverified assumptions: production visual behavior at desktop/mobile widths and authenticated exact-source handoff require post-deploy bounded LIVE validation.
 - Preserved pre-existing changes: none.
