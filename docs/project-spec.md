@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`. Exact-main repository CI `32777664803`, Studio/browser CI `32777664779`, migration `32778661217` и worker deploy `32778896943` подтвердили merged release. Bounded LIVE подтвердил processing/download/Drive upload, но выявил production-only terminal cleanup defect при `autoflush=False`; scoped hotfix проходит отдельный delivery flow.
+Verified main baseline: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`. Exact-main repository CI `32832907020`, Studio/browser CI `32832906999` и CD `32832907052` подтвердили merged release предыдущей UX/IA Goal. Новый owner-controlled Audio walkthrough выявил production `invalid_input` на валидном OBS/Matroska input и материализовал восемь дополнительных atomic product AC; их implementation проходит отдельный delivery flow.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **100% (`107/107`)** | выполненные AC всех PWA-эпиков / все PWA AC; audio-preparation реализован локально `16/16`, delivery Evidence остаётся открытым |
-| Весь проект | **100% (`136/136`)** | все выполненные AC двух продуктов / все AC current scope; READY отдельно зависит от обязательных Evidence gates |
+| Studio PWA | **92,2% (`106/115`)** | выполненные AC всех PWA-эпиков / все PWA AC; `AP-10` не прошёл production LIVE, восемь новых AC ещё не доставлены |
+| Весь проект | **93,8% (`135/144`)** | все выполненные AC двух продуктов / все AC current scope; READY отдельно зависит от обязательных Evidence gates |
 
 ## 3. Общие product rules
 
@@ -110,7 +110,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE ✅`.
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Product AC, current code/tests, exact-main CI и deployment подтверждены; bounded production inspection подтверждает shell/auth/integrations/settings, но LIVE breadth для retention expiry/cleanup остаётся частичным, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 92,9% (`13/14`)**. Существовавшие product AC, exact-main CI и deployment подтверждены; direct-upload progress реализуется в текущей рабочей ветке и ещё не доставлен в production.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -127,8 +127,9 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Product AC, current code/tests,
 | `PC-11` | После expiry local source исчезает из active web UI. | ✅ |
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
+| `PC-14` | Direct local upload в `Обработке аудио` и `Транскрибациях` показывает реальный progress текущего файла в bytes/percent и aggregate queue progress; timeout/network outcome проходит completion reconciliation без автоматического повторного PUT. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 
 UX/UI-аудит production на viewport `390x844` ранее выявил document-level horizontal overflow в Diagnostics; deployed remediation заменила unbounded metadata grid и добавила narrow single-column layout. Read-only production inspection 2026-08-23 подтвердил authenticated shell, три primary navigation controls, active provider credential, Google Drive connection, retention/theme/accent controls и отсутствие browser console warnings/errors. Эмуляция narrow viewport не выявила overflow относительно фактического layout viewport, но не подтверждает production expiry/cleanup lifecycle.
 
@@ -214,7 +215,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 100% (`16/16`)**. Product scope выполнен в hotfix working branch, но production LIVE на исходном merge выявил terminal-cleanup defect; exact hotfix CI/deploy/retest ещё открыты, поэтому эпик не READY.
+Status: **🟦 IN PROGRESS — 65,2% (`15/23`)**. `AP-10` не прошёл новый production walkthrough; семь явно согласованных Audio UX/browser-local AC реализуются в текущей рабочей ветке и ещё не доставлены.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
 
@@ -229,19 +230,26 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-07` | Для stereo input доступен явный mono mode: mixdown, left channel или right channel; недоступный channel mode отклоняется до processing. | ✅ |
 | `AP-08` | Silence processing позволяет задать threshold, минимальную длительность тишины и сколько тишины оставить; значения имеют bounded safe limits. | ✅ |
 | `AP-09` | До mutation пользователь получает preview общей исходной длительности и оценочной длительности после silence processing. | ✅ |
-| `AP-10` | Склейка, silence processing, conversion и переименование могут выполняться отдельно или в комбинации без обязательной последующей транскрибации. | ✅ |
+| `AP-10` | Склейка, silence processing, conversion и переименование могут выполняться отдельно или в комбинации без обязательной последующей транскрибации. | ❌ |
 | `AP-11` | Output filename формируется из безопасного пользовательского имени либо bounded шаблона с доступными date/time/project/title metadata. | ✅ |
 | `AP-12` | Доступны bounded presets для типовых сценариев `Лекция`, `Созвон` и `Только обработать аудио`, причём пользователь видит и может изменить итоговые параметры до запуска. | ✅ |
 | `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. | ✅ |
 | `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. | ✅ |
 | `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | ✅ |
 | `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | ✅ |
+| `AP-17` | Пользователь может обработать device media browser-side без передачи source bytes в API/S3/provider; результат существует только в текущей вкладке и скачивается как WAV. | ❌ |
+| `AP-18` | Browser-local path имеет явные file-count/input-size/decoded-memory bounds и при неподдерживаемом codec/channel/resources выдаёт понятную ошибку с предложением server-side Studio path. | ❌ |
+| `AP-19` | Для нескольких inputs пользователь явно выбирает `Обработать каждый отдельно` (default, отдельный output на source) либо `Склеить в один файл` (один ordered output). | ❌ |
+| `AP-20` | До запуска UI показывает numbered result/concat plan, origin, size и authoritative creation metadata where available, позволяет manual reorder и не использует filename как creation/order authority. | ❌ |
+| `AP-21` | Default plan сохраняет исходный format/container; изменение каналов или пауз требует явного WAV/FLAC conversion path без скрытого перекодирования. | ❌ |
+| `AP-22` | Primary UI использует user-facing scenario/title controls, не показывает technical filename template, называет функцию `Уменьшить длинные паузы в аудио или видео`, использует default `-45 dB` и раскрывает остальные silence parameters только после включения функции. | ❌ |
+| `AP-23` | Download, optional save в явно выбранную Google Drive folder и handoff/reuse в транскрибацию или новую обработку представлены независимыми terminal actions, а не взаимоисключающим выбором результата. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
 
-Verified base delivery: merge `1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`; repository run `32777664803`, Studio/browser run `32777664779`, migration run `32778661217` и worker deploy `32778896943` success. LIVE job `5abd880c-de54-42f2-b55a-0b52b89c19af` подтвердил preview/processing/download/Drive; cleanup canary `73156fa2-9472-484b-bf01-eaf6ce326f64` выявил self-blocking deletion до explicit flush.
+Verified base delivery: PRs `#234–#235`, final merge `16badb0aa4404ae2616a3d46070925b54b043963`; exact-main repository/Studio CI, protected migration `0025_audio_preparation`, API/worker/web rollout и bounded operation `2ad99ead-1c45-4439-8e8a-d64c2bcc3037` подтвердили preview `0:04 → 0:02`, terminal `completed`, download/Drive/reuse и ephemeral cleanup. Новый independent multi-file OBS walkthrough позднее выявил отдельный `invalid_input`, поэтому `AP-10` reopened в текущей Goal.
 
-Definition of Done: `16/16`, relevant backend/frontend/migration tests и required exact-head CI green, additive schema release и API/worker/web deployment по applicable gates, bounded owner-controlled LIVE с короткими fixtures, authenticated download и одним Google Drive upload без provider call.
+Definition of Done: `23/23`, relevant backend/frontend tests и required exact-head CI green, applicable API/worker/web deployment, bounded owner-controlled server concat and browser-local LIVE with short fixtures, authenticated download and optional Google Drive upload without provider call.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -350,7 +358,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
-## 6. Future scope, не включённый в denominator `136`
+## 6. Future scope, не включённый в denominator `144`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
@@ -388,18 +396,18 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`.
-- Exact-main repository CI: run `32777664803`, success.
-- Exact-main Studio/browser CI: run `32777664779`, jobs `studio` и `browser-e2e` success.
-- Studio component delivery: web run `32777664784`, migration/API run `32778661217`, worker run `32778896943`, success на exact merge revision; migration head `0025_audio_preparation`.
-- Bounded production speaker-identity LIVE подтвердил owner profile, bounded sample, explicit assignment и persisted Google Docs/History result. Остальные historical runtime identifiers находятся в delivery archive.
+- Current verified revision: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`.
+- Exact-main repository CI: run `32832907020`, success.
+- Exact-main Studio/browser CI: run `32832906999`, jobs `studio` и `browser-e2e` success.
+- Studio Platform CD run `32832907052` развернул web/API exact merge revision; migration и worker были корректно skipped. Production schema остаётся `0025_audio_preparation`; worker processor был ранее deployed на Audio hotfix `16badb0aa4404ae2616a3d46070925b54b043963`.
+- Новый production Audio walkthrough подтвердил previous UX/IA changes, но server concat plan с OBS/Matroska files завершился `failed · 5% · invalid_input`; текущая Goal устраняет этот drift и реализует новые canonical AC. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Доставить scoped terminal-cleanup hotfix для `PWA-AUDIO-PREPARATION-01` с regression test для production `autoflush=False`.
-2. Провести required exact-hotfix CI и API/worker deployment; schema migration не требуется.
-3. Повторить bounded LIVE ephemeral cleanup canary на коротком owner-controlled fixture без provider call.
-4. После закрытия текущей Goal отдельно согласовать optional TOTP Goal; commercial multi-provider/Russian infrastructure scope остаётся future.
+1. Доставить `PWA-AUDIO-WORKSPACE-02` через один PR и required exact-head CI; schema migration не требуется.
+2. После merge развернуть web/API, выполнить отдельный authorized worker drain/deploy exact merge revision и подтвердить component identities.
+3. Провести bounded owner-controlled LIVE без provider call: browser-local WAV download, visible device-upload progress и отдельный/concat server plan на коротких media fixtures; подтвердить отсутствие повторного PUT и private-data leakage.
+4. Только после closure отдельно согласовывать storage bucket isolation, optional TOTP либо commercial contour; они не входят в текущую Goal.
 
 ## 10. Supporting documents
 
