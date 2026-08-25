@@ -5019,11 +5019,14 @@ function OverviewPage({
         <div>
           <h1 className="page-title">Studio</h1>
           <p>
-            Рабочая панель аккаунта: транскрибации, подключение Drive и
-            готовность ключей.
+            Рабочая панель аккаунта: обработка аудио, транскрибации,
+            подключение Drive и готовность ключей.
           </p>
         </div>
         <div className="actions">
+          <button onClick={() => onNavigate("audio")}>
+            Открыть обработку аудио
+          </button>
           <button className="primary" onClick={onOpenTranscriptions}>
             Открыть транскрибации
           </button>
@@ -5093,9 +5096,12 @@ function OverviewPage({
           <h2>Начать работу</h2>
           <p>
             Рабочая область создаётся автоматически при первом открытии. Затем
-            выберите обычную или Live-транскрибацию.
+            подготовьте аудио либо выберите обычную или Live-транскрибацию.
           </p>
           <div className="actions">
+            <button onClick={() => onNavigate("audio")}>
+              Открыть обработку аудио
+            </button>
             <button className="primary" onClick={onOpenTranscriptions}>
               Открыть транскрибации
             </button>

@@ -2356,6 +2356,22 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("opens audio preparation from the dashboard", async () => {
+    renderApp();
+    await waitForPlatformOverview();
+
+    await userEvent.click(
+      within(await screen.findByRole("banner")).getByRole("button", {
+        name: "Открыть обработку аудио",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Обработка аудио" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/audio");
+  });
+
   it("renders one batch as one ordered multi-transcription with item controls", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
