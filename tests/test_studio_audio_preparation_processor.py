@@ -10,7 +10,7 @@ import sys
 import pytest
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
@@ -54,6 +54,7 @@ def runner(command, **_kwargs):
 def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     now = datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)
     payload = b"reference-audio"
     storage = Storage(payload)
@@ -65,7 +66,7 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path):
         root.mkdir(exist_ok=True)
         yield str(root)
 
-    with Session(engine) as db:
+    with session_factory() as db:
         user = User(id="owner", email="owner@example.test", source_retention_ttl_seconds=86400)
         project = Project(id="project", owner_user_id=user.id, title="Материалы")
         source = Source(id="source", project_id=project.id, source_type=SourceType.local_upload, original_filename="input.flac", mime_type="audio/flac", size_bytes=len(payload), s3_bucket="private", s3_object_key="input", upload_status=SourceUploadStatus.uploaded, source_created_at=datetime(2026, 8, 20, 10, 0), source_created_at_provenance="embedded_media_metadata", expires_at=datetime(2026, 8, 30))
