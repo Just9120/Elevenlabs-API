@@ -62,7 +62,7 @@ describe("source model", () => {
         deleted_at: "2026-07-22T09:30:00Z",
         expires_at: "2026-07-22T09:00:00Z",
       },
-      "Убранный из проекта файл нельзя добавить в задачу",
+      "Убранный из Studio файл нельзя добавить в задачу",
     ],
     [
       { ...uploadedSource, expires_at: "2026-07-22T09:00:00Z" },
@@ -79,7 +79,7 @@ describe("source model", () => {
   it.each([
     ["pending", "Загружается"],
     ["uploaded", "Готов"],
-    ["deleted", "Убран из проекта"],
+    ["deleted", "Убран из Studio"],
     ["expired", "Срок истёк"],
     ["failed", "Ошибка"],
   ] as const)("labels %s status", (status, expected) => {

@@ -22,16 +22,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T09:04:39Z.
+- Updated (UTC): 2026-08-25T09:15:29Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
-- Last verified revision: `f5f5825` — task-centric composer and optional fragmentation covered by focused tests; later UX/IA changes remain uncommitted at this checkpoint.
+- Last verified revision: `4a54cac` — complete UX/IA implementation covered by focused backend tests, full frontend unit suite, lint, typecheck/build and lightweight repository checks.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: task-centric composer terminology; default-closed fragmentation disclosure with state preservation; five URL-backed Settings sections; reusable Source catalog moved to Files & Storage and lazy-loaded; source deletion stale-reload race removed; one diagnostic-bundle flow with bounded untrusted problem context and advanced filters; Audio saved-source disclosure, consistent terminal actions and exact owned Source handoff into Transcriptions; visible source-load retry restored in composer.
-- Current step: complete full local regression/build validation, then create the second atomic implementation commit.
-- Next exact action: rerun the full 217-test App suite plus focused routing/audio/model tests after the final regression fixes.
-- Validation and Evidence: TypeScript typecheck passed; targeted ESLint passed; backend diagnostic suites `20/20` passed; focused frontend routing/audio/composer/Settings/Diagnostics/source-handoff/regression tests passed. Full App suite was run once, all 13 detected regressions were individually corrected and passed focused reruns; clean full rerun remains pending.
+- Current step: commit the final source-status expectation alignment, push the complete Goal branch and open one Pull Request.
+- Next exact action: create a narrow validation-alignment commit, then verify origin divergence and push `codex/pwa-ux-ia-polish`.
+- Validation and Evidence: backend diagnostic suites `20/20` passed; full Studio Vitest `579/579` passed; full Studio ESLint passed; TypeScript/Vite production build passed; `scripts/ci_checks.py` passed. A local full pytest attempt was not CI-equivalent because the workflow's PostgreSQL 17, Redis and protected secret fixtures were absent; it produced broad environment/setup failures and was stopped after exceeding the CI test command's 180-second budget. Authoritative full backend and browser-e2e results remain required from GitHub CI.
 - Pull Request / CI / deployment: PR not created; CI/deployment not started.
 - Blockers: none.
 - Unverified assumptions: production visual behavior at desktop/mobile widths and authenticated exact-source handoff require post-deploy bounded LIVE validation.
