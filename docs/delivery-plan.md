@@ -17,23 +17,23 @@
   7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T17:21:13Z.
+- Updated (UTC): 2026-08-25T17:25:59Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`, verified equal to fetched `origin/main` before branch creation.
 - Working branch: `codex/fix-audio-direct-upload` from exact base; merged branches `codex/pwa-audio-workspace-02`, `codex/fix-audio-obs-duration-metadata` и `codex/fix-audio-obs-packet-duration` сохранены только до Goal closure/cleanup.
 - Last verified revision: `7fbc41e27f95450c2efb2e7885f39664782cfe9a` — direct S3/R2 upload использует один raw-`File` `XMLHttpRequest` PUT с native byte progress, disabled cross-origin credentials, bounded timeout/abort, redirected terminal-response rejection и existing completion reconciliation без automatic PUT replay.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; packet-duration fallback PR `#239` merged как `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`. Exact-main CI `32871622334`/`32871622307`, API CD `32871620010`, authorized worker status/drain/deploy/status `32871936411`/`32872021556`/`32872102665`/`32872254959` terminal success, migration skipped и `identity_match=yes`. Production retest затем выявил следующий prerequisite defect: Chrome и встроенный Chromium успешно создают pending source, но streaming-fetch PUT не создаёт R2 object; completion получает `sources 4xx`, `source.local_upload.completed` отсутствует.
-- Current step: доставить browser-compatible direct-upload fix, затем повторить exact production OBS/MKV upload, concat preview/process и terminal actions.
-- Next exact action: push `codex/fix-audio-direct-upload`, создать PR и дождаться required CI checks.
-- Validation and Evidence: focused transport `5/5` PASS; Audio workspace `6/6` PASS; focused shared Transcriptions upload `1/1` PASS; full Studio Vitest `591/591` PASS; Studio ESLint PASS; TypeScript build PASS; Vite/PWA production build PASS; `scripts/ci_checks.py` PASS; `git diff --check` PASS. Авторитетные CI/deploy нового exact revision ещё не выполнялись.
-- Pull Request / CI / deployment: PR ещё не создан. Новый fix меняет только Studio web/runtime docs, не требует schema migration, API или worker rollout; applicable deployment — `studio-web` после merge.
+- Current step: завершить PR #240, merge и exact-main `studio-web` deployment, затем повторить production LIVE.
+- Next exact action: commit/push CI checkpoint, подтвердить terminal checks нового documentation-only head и merge PR #240.
+- Validation and Evidence: focused transport `5/5` PASS; Audio workspace `6/6` PASS; focused shared Transcriptions upload `1/1` PASS; full Studio Vitest `591/591` PASS; Studio ESLint PASS; TypeScript build PASS; Vite/PWA production build PASS; `scripts/ci_checks.py` PASS; `git diff --check` PASS. PR #240 CI run `32877546464` (`checks`) и Studio run `32877546422` (`studio`, `browser-e2e`) terminal SUCCESS на exact code/checkpoint head; documentation-only Evidence commit требует собственный applicable terminal check перед merge.
+- Pull Request / CI / deployment: PR `#240` mergeable/CLEAN, review blocker отсутствует; code/checkpoint checks green. Новый fix меняет только Studio web/runtime docs, не требует schema migration, API или worker rollout; applicable deployment — `studio-web` после merge.
 - Blockers: production `PC-14` и `AP-10` остаются открыты до exact-main web deploy и bounded Chrome LIVE; approved post-deploy metadata writer отсутствует.
 - Unverified assumptions: raw-`File` XHR PUT устранит production R2 failure для реальных OBS/MKV; это подтверждается стандартным browser transport contract и local tests, но не считается LIVE до exact production retest.
 - Preserved pre-existing changes: none.
