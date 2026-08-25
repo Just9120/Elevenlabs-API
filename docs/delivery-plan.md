@@ -18,7 +18,7 @@
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
   10. Dashboard явно предлагает Audio workspace рядом с транскрибациями и открывает route `/audio` без промежуточного navigation flow.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
@@ -31,10 +31,10 @@
 - Last verified revision: `e65bd65d55218ce8758be737c14f15653b317bda` — long Audio processing выполняет один preview decode и один processing pass, нормализует input timestamps, сообщает FFmpeg progress, использует отдельный bounded output limit и пишет safe failure diagnostic.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: PR `#237`–`#241` merged; current production/main baseline `97cd438616620b09fc74a25a61d7cd8a91a40ab7`. Owner LIVE подтвердил direct upload реальных OBS/MKV, dashboard Audio action и создание preview `137:36 → 129:48`. Production execution трёх MKV завершился failure на прежнем условном checkpoint `45%`; read-only Worker Status run `32883439861`, job `97918200968` подтвердил running/healthy worker без crash/restart.
-- Current step: доставить runtime fix для production long concat failure и получить exact-head CI.
-- Next exact action: commit checkpoint, push `codex/fix-audio-processing-runtime`, создать PR и дождаться required checks.
+- Current step: merge-ready PR `#242`; все required checks terminal SUCCESS для implementation/checkpoint head `0603afc52093e84cdec8a6a7225d70842be9ad69`.
+- Next exact action: зафиксировать CI checkpoint, дождаться required checks metadata-only head и merge PR `#242`.
 - Validation and Evidence: clean-process Audio backend `47/47` PASS; diagnostics `18/18` PASS; Studio Audio component `6/6` PASS; Studio ESLint PASS; TypeScript/Vite/PWA production build PASS; real local FFmpeg progress smoke PASS; Python compileall PASS; `git diff --check` PASS. Full Windows pytest был остановлен после CI time budget: ранние unrelated environment/fixture failures и медленные legacy tests не дали terminal result; authoritative full suite остаётся required CI gate. Product readiness не изменилась до production retest.
-- Pull Request / CI / deployment: PR ещё не создан. Изменение затрагивает Studio web, API и worker; schema migration не требуется. API/web могут идти standard CD, но worker rollout требует отдельного approved drain/deploy operation для exact merged SHA.
+- Pull Request / CI / deployment: PR `#242`; CI run `32885462001` / job `checks` `97924737223` SUCCESS; Studio PWA CI run `32885461983`, jobs `studio` `97924737722` и `browser-e2e` `97924737464` SUCCESS. Единственный skip — failure-artifact upload после successful E2E, expected/non-gating. Изменение затрагивает Studio web, API и worker; schema migration не требуется. API/web могут идти standard CD, но worker rollout требует отдельного approved drain/deploy operation для exact merged SHA.
 - Blockers: `AP-10` остаётся failed до exact-main API/worker/web deployment и bounded production concat LIVE; `PC-14` upload-progress ещё требует отдельного representative Transcriptions LIVE. Approved post-deploy metadata writer отсутствует.
 - Unverified assumptions: прежний terminal failure наиболее вероятно вызван общим `512 MiB` output guard либо OBS timestamp/filter edge; старый runtime не сохранял точный Audio error event. Fix покрывает оба probable пути и добавляет будущий exact safe diagnostic, но root cause текущего исторического запуска остаётся `PROBABLE`, не `VERIFIED`.
 - Preserved pre-existing changes: none.
