@@ -98,6 +98,68 @@ def test_probe_falls_back_to_container_duration_for_obs_matroska_stream_sentinel
     assert result.format_name == "matroska,webm"
 
 
+def test_probe_uses_obs_matroska_duration_tag_when_numeric_durations_are_sentinels():
+    def runner(command, **kwargs):
+        return CompletedProcess(
+            command,
+            0,
+            stdout=(
+                '{"format":{"format_name":"matroska,webm","duration":"N/A"},'
+                '"streams":[{"codec_type":"audio","duration":"N/A","codec_name":"aac",'
+                '"sample_rate":"48000","channels":2,"channel_layout":"stereo",'
+                '"tags":{"DURATION":"00:12:34.567000000"}}]}'
+            ),
+            stderr="private",
+        )
+
+    result = probe_media(Path("obs-capture.mkv"), runner=runner)
+
+    assert result.duration_seconds == pytest.approx(754.567)
+
+
+def test_probe_uses_bounded_time_base_duration_when_obs_tags_are_absent():
+    def runner(command, **kwargs):
+        return CompletedProcess(
+            command,
+            0,
+            stdout=(
+                '{"format":{"format_name":"matroska,webm"},'
+                '"streams":[{"codec_type":"audio","codec_name":"opus","sample_rate":"48000",'
+                '"channels":2,"duration_ts":"15025","time_base":"1/1000"}]}'
+            ),
+            stderr="private",
+        )
+
+    result = probe_media(Path("obs-capture.mkv"), runner=runner)
+
+    assert result.duration_seconds == pytest.approx(15.025)
+
+
+def test_probe_can_use_container_stream_duration_tag_but_rejects_malformed_clock_values():
+    payloads = iter(
+        (
+            (
+                '{"format":{"format_name":"matroska,webm"},"streams":['
+                '{"codec_type":"video","codec_name":"h264","tags":{"DURATION":"00:01:02.5"}},'
+                '{"codec_type":"audio","codec_name":"aac","sample_rate":"48000","channels":2}]}'
+            ),
+            (
+                '{"format":{"format_name":"matroska,webm","tags":{"DURATION":"private"}},'
+                '"streams":[{"codec_type":"audio","codec_name":"aac","sample_rate":"48000",'
+                '"channels":2,"duration_ts":"12","time_base":"broken"}]}'
+            ),
+        )
+    )
+
+    def runner(command, **kwargs):
+        return CompletedProcess(command, 0, stdout=next(payloads), stderr="private")
+
+    assert probe_media(Path("obs-capture.mkv"), runner=runner).duration_seconds == pytest.approx(62.5)
+    with pytest.raises(AudioPreparationError) as caught:
+        probe_media(Path("obs-capture.mkv"), runner=runner)
+    assert caught.value.reason is AudioPreparationReason.invalid_input
+
+
 def test_probe_rejects_missing_audio_and_malformed_values():
     def runner(command, **kwargs):
         return CompletedProcess(command, 0, stdout='{"format":{"duration":"4"},"streams":[]}', stderr="")
