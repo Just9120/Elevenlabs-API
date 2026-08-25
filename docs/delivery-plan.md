@@ -18,25 +18,25 @@
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
   10. Dashboard явно предлагает Audio workspace рядом с транскрибациями и открывает route `/audio` без промежуточного navigation flow.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T17:43:28Z.
+- Updated (UTC): 2026-08-25T18:48:00Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@77e7250d15903361bd450a1bdf9fc7c805671dbf`, verified equal to fetched `origin/main` before branch creation.
-- Working branch: `codex/fix-dashboard-audio-action` from exact base; merged branches предыдущих PR сохранены только до Goal closure/cleanup.
-- Last verified revision: `91ee17ae4dbd0a2560f3beae9afa90b20aab77ed` — dashboard description и primary action surface включают Audio workspace; новый regression test подтверждает переход на `/audio`.
+- Base branch/SHA: `main@97cd438616620b09fc74a25a61d7cd8a91a40ab7`, повторно verified equal to fetched `origin/main` 2026-08-25 перед branch write.
+- Working branch: `codex/fix-audio-processing-runtime` from exact base.
+- Last verified revision: `e65bd65d55218ce8758be737c14f15653b317bda` — long Audio processing выполняет один preview decode и один processing pass, нормализует input timestamps, сообщает FFmpeg progress, использует отдельный bounded output limit и пишет safe failure diagnostic.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; PR `#238` merged как `main@50c5817378c8e77a8bc9d0665e1cceae606d93ca`; PR `#239` merged как `main@86b0c98f5681ae29ecdd1cf3c0d1a2740ee153cd`; browser-compatible direct-upload PR `#240` merged как `main@77e7250d15903361bd450a1bdf9fc7c805671dbf`. Exact-main CI `32878345979` и Studio PWA CI `32878345989` terminal SUCCESS; Studio Platform CD `32878346042` terminal SUCCESS, deploy log подтверждает update `86b0c98..77e7250`, running web image identity и `/healthz`; API/worker/migration корректно skipped.
-- Current step: доставить небольшое dashboard navigation дополнение отдельным PR, затем выполнить объединённую production LIVE-проверку dashboard action и direct uploads.
-- Next exact action: commit checkpoint, push `codex/fix-dashboard-audio-action`, создать PR и дождаться required checks.
-- Validation and Evidence: dashboard-focused `App.test.tsx` `218/218` PASS; focused Studio ESLint PASS; TypeScript build PASS; Vite/PWA production build PASS; `git diff --check` PASS. Product readiness не изменилась: dashboard action не закрывает новый canonical product AC.
-- Pull Request / CI / deployment: для dashboard дополнения PR ещё не создан; изменение затрагивает только Studio web и не требует schema migration, API или worker rollout; applicable deployment — `studio-web` после merge.
-- Blockers: production `PC-14` и `AP-10` остаются открыты до exact-main web deploy и bounded Chrome LIVE; approved post-deploy metadata writer отсутствует.
-- Unverified assumptions: raw-`File` XHR PUT устранит production R2 failure для реальных OBS/MKV; dashboard action откроется в production после web deploy. Оба пункта требуют bounded production retest.
+- Completed: PR `#237`–`#241` merged; current production/main baseline `97cd438616620b09fc74a25a61d7cd8a91a40ab7`. Owner LIVE подтвердил direct upload реальных OBS/MKV, dashboard Audio action и создание preview `137:36 → 129:48`. Production execution трёх MKV завершился failure на прежнем условном checkpoint `45%`; read-only Worker Status run `32883439861`, job `97918200968` подтвердил running/healthy worker без crash/restart.
+- Current step: доставить runtime fix для production long concat failure и получить exact-head CI.
+- Next exact action: commit checkpoint, push `codex/fix-audio-processing-runtime`, создать PR и дождаться required checks.
+- Validation and Evidence: clean-process Audio backend `47/47` PASS; diagnostics `18/18` PASS; Studio Audio component `6/6` PASS; Studio ESLint PASS; TypeScript/Vite/PWA production build PASS; real local FFmpeg progress smoke PASS; Python compileall PASS; `git diff --check` PASS. Full Windows pytest был остановлен после CI time budget: ранние unrelated environment/fixture failures и медленные legacy tests не дали terminal result; authoritative full suite остаётся required CI gate. Product readiness не изменилась до production retest.
+- Pull Request / CI / deployment: PR ещё не создан. Изменение затрагивает Studio web, API и worker; schema migration не требуется. API/web могут идти standard CD, но worker rollout требует отдельного approved drain/deploy operation для exact merged SHA.
+- Blockers: `AP-10` остаётся failed до exact-main API/worker/web deployment и bounded production concat LIVE; `PC-14` upload-progress ещё требует отдельного representative Transcriptions LIVE. Approved post-deploy metadata writer отсутствует.
+- Unverified assumptions: прежний terminal failure наиболее вероятно вызван общим `512 MiB` output guard либо OBS timestamp/filter edge; старый runtime не сохранял точный Audio error event. Fix покрывает оба probable пути и добавляет будущий exact safe diagnostic, но root cause текущего исторического запуска остаётся `PROBABLE`, не `VERIFIED`.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
