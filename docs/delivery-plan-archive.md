@@ -807,6 +807,19 @@ Goal `PWA-SPEAKER-IDENTITY-01` завершена 2026-08-24.
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`; `PWA-SPEAKER-IDENTITY-01 5/5`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal. После проверки ancestry merged branch была удалена, local `main` синхронизирован с exact merge SHA.
 
+## Archived PRs #234–#235 Audio Preparation closure
+
+Goal `PWA-AUDIO-PREPARATION-01` завершила canonical Audio Preparation scope 2026-08-25.
+
+- Implementation PR `#234` merged как `1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`; terminal-cleanup hotfix PR `#235` merged как current main `16badb0aa4404ae2616a3d46070925b54b043963`.
+- Exact-main repository CI runs `32813529065` и `32813529090` завершились success.
+- API deployment run `32813529033`, worker drain `32816893138`, worker deployment `32816951174` и terminal worker status `32818291988` завершились success; running revision identity совпала с exact main.
+- Production schema достигла `0025_audio_preparation`; migration release gate после rollout возвращён в закрытое состояние.
+- Bounded LIVE operation `2ad99ead-1c45-4439-8e8a-d64c2bcc3037` подтвердила preview `0:04 → 0:02`, terminal `completed · 100%`, retained reusable result и удаление ephemeral source после reload.
+- Hotfix устранил production-only cleanup drift при `SessionLocal(autoflush=False)`: terminal state теперь flush-ится до readiness query.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`; `PWA-AUDIO-PREPARATION-01 16/16`, Studio PWA `107/107`, project `136/136`.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized Goal. Local `main` clean и синхронизирован, merged branches удалены.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

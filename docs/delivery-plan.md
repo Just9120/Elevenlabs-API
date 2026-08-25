@@ -2,67 +2,67 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио до транскрибации.
-- **State:** `IN_PROGRESS` — scope явно авторизован владельцем 2026-08-24 решениями реализовать Audacity-like PWA contour и отдельный menu item перед `Транскрипциями`.
-- **Authorization source:** explicit current user instructions 2026-08-24; durable product scope — `AP-01..AP-16` из `docs/project-spec.md`.
-- **Scope:** отдельный owner-scoped PWA workspace `Обработка аудио`; ephemeral reference uploads в S3-compatible storage с terminal cleanup и hard TTL 24 часа; source selection и ordered concat; bounded FFprobe validation; compatible stream-copy concat; WAV/FLAC conversion; mono mix/left/right; configurable silence processing и preview; standalone processing without provider call; safe rename templates и editable presets; durable queue/progress/cancel/recovery; retained S3-compatible output, authenticated download/reuse as source либо explicit upload в выбранную Google Drive folder; cleanup, tests, architecture/docs и полный delivery flow.
-- **Non-goals:** optional TOTP, Cloudflare Zero Trust, STT/provider changes, Colab changes, commercial Russian S3 migration, billing/multi-user и unrelated redesign.
+- **ID / title:** `PWA-UX-IA-POLISH-01` — task-centric UX и information architecture personal Studio PWA.
+- **State:** `IN_PROGRESS` — scope явно авторизован владельцем 2026-08-25 после серии browser-аннотаций.
+- **Authorization source:** explicit current user instruction «формируй цель и приступай»; durable product scope и denominator — `docs/project-spec.md`.
+- **Scope:** унифицировать terminal actions Audio Preparation; сделать fragmentation явно optional и скрытой по умолчанию; заменить row-centric terminology на task-centric; убрать постоянно отображаемый общий source catalog из рабочих экранов и перенести управление local files/retention в Settings; перестроить Settings на разделы Account, Connections, Files & Storage, Appearance и Diagnostics; упростить основной Diagnostics flow вокруг безопасного diagnostic bundle с advanced technical filters; улучшить Audio Preparation source selection и явный переход результата в transcription flow.
+- **Non-goals:** изменение S3 bucket topology или object migration; client-local FFmpeg/WASM processing; commercial/Russian edition; provider, OAuth, legal или billing scope; TOTP; изменение durable product requirements/AC; CI/CD safety contract или deployment topology.
 - **Goal AC:**
-  1. `AP-01..AP-02`: отдельный sidebar/workspace перед `Транскрипциями` выбирает один или несколько доступных owner sources и не требует provider credential/job.
-  2. `AP-03..AP-05`: inputs fail-closed probes, authoritative default order/manual reorder и copy-only concat compatibility работают до mutation.
-  3. `AP-06..AP-08`: exact WAV/FLAC, mono mix/left/right и bounded silence parameters формируют deterministic FFmpeg plan.
-  4. `AP-09`: preview возвращает безопасные aggregate durations и применённые параметры без создания output.
-  5. `AP-10..AP-12`: operations compose independently; safe naming и editable presets показывают exact effective parameters.
-  6. `AP-13`: durable worker-owned state переживает restart и поддерживает progress/cancel без duplicate output.
-  7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
-  8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
-  9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌` — исходный merge и stateful release прошли, но LIVE выявил terminal-cleanup defect; exact hotfix ещё не прошёл CI/deploy/retest.
-- **Known blockers/dependencies:** migration `0025_audio_preparation` уже применена и migration gate отключён; для hotfix требуется новый exact-revision CI, API/worker deploy и повторный bounded cleanup canary. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
-- **Stop condition:** `AP-01..AP-16` и required Evidence подтверждены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; optional TOTP не начинается в этой Goal.
+  1. `Скачать результат` в Audio Preparation выглядит как штатный action control, сохраняя корректную link/download semantics.
+  2. Fragmentation по умолчанию выключена; whole-file task не показывает segment editor; explicit toggle раскрывает editor, а collapse не теряет введённый plan.
+  3. Composer использует task-centric terminology: `Добавить задачу`, `Задача N`, task count и task validation messages; file/folder/multi-source semantics не искажаются.
+  4. Settings имеют понятные responsive sections: `Аккаунт`, `Подключения`, `Файлы и хранилище`, `Оформление`, `Диагностика`, без horizontal overflow.
+  5. Owner local-source catalog, retention и cleanup управляются в `Файлы и хранилище`; устаревший общий block `Файлы проекта` удалён из Transcriptions; task-scoped source selection сохранён.
+  6. Основной Diagnostics flow формирует sanitized diagnostic bundle по периоду, описанию проблемы, optional operation/task reference и формату; component/level/event code/raw identifiers спрятаны в advanced filters; существующие redaction и safe export не ослаблены.
+  7. Audio Preparation не показывает полный source catalog автоматически: saved sources открываются explicit action; completed output можно скачать, сделать новым source и передать точный owned source в Transcriptions.
+  8. Relevant unit/integration/browser tests, required CI, applicable deployment и bounded LIVE validation проходят на exact revision.
+- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); migration не ожидается, deployment units определяются фактическим diff; authenticated LIVE session потребуется после merge.
+- **Stop condition:** Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T05:32:42Z.
+- Updated (UTC): 2026-08-25T08:25:29Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`, verified equal to `origin/main` after fetch.
-- Working branch: `codex/pwa-audio-preparation-cleanup-fix`.
-- Last verified revision: `4515401566f34603d8c76e9fbe40ab4e251a43cd` — terminal-state flush hotfix и production-like regression test подтверждены focused tests.
+- Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
+- Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
+- Last verified revision: `16badb0aa4404ae2616a3d46070925b54b043963` — clean synchronized baseline and completed Audio Preparation delivery.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#234` merged как `1751d34`; exact-main CI, migration `0025`, web/API/worker deployment, preview `0:46 → 0:43`, completed processing, authenticated download и Drive artifact `Audio Preparation LIVE 2026-08-25.flac` подтверждены. LIVE cleanup canary выявил production-only drift: `SessionLocal(autoflush=False)` оставлял terminal job видимым как active во время deletion readiness check.
-- Current step: atomic hotfix commit `4515401` создан в clean isolated branch.
-- Next exact action: push branch, создать Pull Request и дождаться required CI.
-- Validation and Evidence: hotfix focused processor/worker suite `34 passed`; production-like processor regression `3 passed`. Targeted API suite локально не запускалась из-за отсутствующего local PostgreSQL (`127.0.0.1:5432`), поэтому её покрытие остаётся обязательным CI gate. Base exact-main runs `32777664803` и `32777664779` success; migration run `32778661217` и worker deploy `32778896943` success.
-- Pull Request / CI / deployment: merged PR `#234`; hotfix PR not created / hotfix CI pending / base production deployed, hotfix not deployed.
-- Blockers: none для hotfix implementation; CI и production retest являются открытыми gates.
-- Unverified assumptions: physical R2 deletion должен быть подтверждён через исчезновение ephemeral source после terminal state и повторного reload; до hotfix LIVE это не выполнено.
+- Completed: previous `PWA-AUDIO-PREPARATION-01` closure reconciled to archive; browser annotations converted into bounded Goal AC and non-goals.
+- Current step: inspect current component/state/test boundaries and implement focused UX slices.
+- Next exact action: map Transcriptions, Audio Preparation, Settings and Diagnostics components/tests before the first code change.
+- Validation and Evidence: repository/Git/GitHub baseline verified; code changes and tests not started.
+- Pull Request / CI / deployment: PR not created; CI/deployment not started.
+- Blockers: none.
+- Unverified assumptions: exact backend support required for user-supplied diagnostic context must be determined from current export contract; exact deep-link mechanism for prepared source must be determined from router/state implementation.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Denominator вырос с `120` до `136` после explicit authorization `AP-01..AP-16`; это объясняет изменение более чем на 10 процентных пунктов и не является regression существующих функций.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Эта Goal улучшает UX существующих completed AC и не меняет canonical denominator; проценты не повышаются выше `100%`, а delivery gates новой Goal учитываются отдельно.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **100% (`136/136`)** | **100% (`136/136`)** | Denominator не изменился; `AP-16` hotfix реализован локально, обязательные CI/deploy/LIVE gates переоткрыты. |
-| **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Batch `23/23`, realtime `6/6`; READY. |
-| **Studio PWA** | **100% (`107/107`)** | **100% (`107/107`)** | Все PWA product AC выполнены в рабочей ветке; hotfix delivery Evidence открыты. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **100% (`16/16`)** | 🟦 IN PROGRESS; `SPEC/CODE/TEST ✅`, `CI/DEPLOY ◐`, `LIVE ❌`. |
-| `PWA-SPEAKER-IDENTITY-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; PR #233 delivery/LIVE reconciled. |
-| Остальные existing epics | **100% (`115/115`)** | **100% (`115/115`)** | Completion не изменилась; individual Evidence остаётся в project-spec. |
+| **Project** | **100% (`136/136`)** | **100% (`136/136`)** | Canonical AC выполнены; новая polishing Goal открыла собственные CODE/TEST/CI/DEPLOY/LIVE gates без изменения product denominator. |
+| **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Batch `23/23`, realtime `6/6`; scope не затронут. |
+| **Studio PWA** | **100% (`107/107`)** | **100% (`107/107`)** | Product AC не изменились; UX Goal `IN_PROGRESS`. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **100% (`16/16`)** | 🟩 READY; PRs #234–#235 и bounded LIVE reconciled в archive. |
+| Остальные existing epics | **100% (`120/120`)** | **100% (`120/120`)** | Completion и denominator не изменились. |
 
 ## Candidate next Goals
 
-1. `PWA-OPTIONAL-TOTP-01` — добровольная TOTP 2FA, disabled by default; enrollment/recovery/disable/security AC требуют отдельного согласования Goal.
+1. `PWA-STORAGE-ISOLATION-01` — разделить reference objects Audio Preparation и transcription intake на разные lifecycle namespaces/buckets только после отдельного architecture decision.
+2. `PWA-LOCAL-AUDIO-PREPARATION-01` — optional browser-local FFmpeg/WASM path без server upload; upstream idea, ещё не canonical requirement.
+3. `PWA-OPTIONAL-TOTP-01` — добровольная TOTP 2FA, disabled by default.
+4. `COMMERCIAL-EDITION-DISCOVERY-01` — отдельный российский production contour, data residency/legal/provider constraints; discovery, не implementation.
 
 ## Risks и boundaries
 
-- FFmpeg command строится только из allowlisted enums/bounded numbers и передаётся без shell; filenames/paths не становятся command fragments.
-- Preview не является output evidence и не создаёт reusable source.
-- Stream copy допустим только при exact probed compatibility; иначе пользователь выбирает WAV/FLAC conversion.
-- Ephemeral reference objects удаляются при terminal state и имеют hard TTL 24 часа; reusable output retention отделён от reference lifecycle. Cleanup не удаляет transcript/history metadata и не затрагивает arbitrary bucket keys.
-- Provider и Google Docs не вызываются в bounded LIVE этой Goal.
-- MANUAL_GATED migration и worker lifecycle не выполняются без action-time authorization.
+- Перемещение UI не должно менять owner isolation, retention, cleanup semantics или storage keys.
+- Diagnostic bundle не включает secrets, token values, private storage paths или unrestricted payloads; problem description является user-entered context, а не trusted runtime evidence.
+- Fragmentation off должна сохранять canonical whole-file payload; UI collapse не должен незаметно менять plan.
+- Передача Audio Preparation output в Transcriptions должна ссылаться на exact owned reusable source, не дублировать upload и не обходить source validation.
+- Migration и privileged production operation не планируются; если фактический diff потребует их, нужна отдельная action-time authorization согласно safety contract.
 
 ## Sources of truth
 
