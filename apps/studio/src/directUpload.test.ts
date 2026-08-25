@@ -5,63 +5,37 @@ import {
   uploadFileWithProgress,
 } from "./directUpload";
 
-class FakeUploadTarget extends EventTarget {}
-
-class FakeRequest extends EventTarget {
-  static instances: FakeRequest[] = [];
-  readonly upload = new FakeUploadTarget();
-  method = "";
-  url = "";
-  withCredentials = true;
-  timeout = 0;
-  status = 0;
-  headers: Record<string, string> = {};
-  body: File | null = null;
-
-  constructor() {
-    super();
-    FakeRequest.instances.push(this);
-  }
-
-  open(method: string, url: string) {
-    this.method = method;
-    this.url = url;
-  }
-
-  setRequestHeader(name: string, value: string) {
-    this.headers[name] = value;
-  }
-
-  send(body: File) {
-    this.body = body;
-  }
-
-  abort() {
-    this.dispatchEvent(new Event("abort"));
-  }
-}
-
-function progress(loaded: number, total: number) {
-  const event = new Event("progress") as ProgressEvent;
-  Object.defineProperties(event, {
-    lengthComputable: { value: true },
-    loaded: { value: loaded },
-    total: { value: total },
+function fileWithStream(contents: string, name: string, type: string) {
+  const file = new File([contents], name, { type });
+  const bytes = new TextEncoder().encode(contents);
+  Object.defineProperty(file, "stream", {
+    value: () => new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    }),
   });
-  return event;
+  return file;
 }
 
 describe("direct upload transport", () => {
-  beforeEach(() => {
-    FakeRequest.instances = [];
-    vi.stubGlobal("XMLHttpRequest", FakeRequest);
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("uploads without credentials and exposes bounded byte progress", async () => {
-    const file = new File(["1234567890"], "voice.ogg", { type: "audio/ogg" });
+  it("uploads without credentials or redirects and exposes bounded byte progress", async () => {
+    const file = fileWithStream("1234567890", "voice.ogg", "audio/ogg");
     const updates: number[] = [];
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, options?: RequestInit & { duplex?: string }) => {
+      const reader = (options?.body as ReadableStream<Uint8Array>).getReader();
+      while (!(await reader.read()).done) {
+        // Consume the request stream exactly as the browser transport would.
+      }
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const pending = uploadFileWithProgress({
       url: "https://storage.example/presigned",
       method: "PUT",
@@ -70,32 +44,38 @@ describe("direct upload transport", () => {
       timeoutMs: 60_000,
       onProgress: (value) => updates.push(value.percent),
     });
-    const request = FakeRequest.instances[0];
-    expect(request.withCredentials).toBe(false);
-    expect(request.timeout).toBe(60_000);
-    expect(request.headers).toEqual({ "Content-Type": "audio/ogg" });
-    expect(request.body).toBe(file);
-    request.upload.dispatchEvent(progress(4, 10));
-    request.status = 200;
-    request.dispatchEvent(new Event("load"));
-
     await expect(pending).resolves.toEqual({ ok: true, status: 200 });
-    expect(updates).toEqual([0, 40, 100]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options).toMatchObject({
+      method: "PUT",
+      headers: { "Content-Type": "audio/ogg" },
+      credentials: "omit",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      duplex: "half",
+    });
+    expect(updates[0]).toBe(0);
+    expect(updates.at(-1)).toBe(100);
   });
 
   it("classifies timeout as ambiguous and never retries the PUT", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_url: RequestInfo | URL, options?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
     const pending = uploadFileWithProgress({
       url: "https://storage.example/presigned",
       method: "PUT",
       headers: { "Content-Type": "audio/ogg" },
-      file: new File(["voice"], "voice.ogg", { type: "audio/ogg" }),
+      file: fileWithStream("voice", "voice.ogg", "audio/ogg"),
       timeoutMs: 30_000,
     });
-    const request = FakeRequest.instances[0];
-    request.dispatchEvent(new Event("timeout"));
-
-    await expect(pending).rejects.toBeInstanceOf(DirectUploadAmbiguousError);
-    expect(FakeRequest.instances).toHaveLength(1);
+    const rejection = expect(pending).rejects.toBeInstanceOf(DirectUploadAmbiguousError);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("derives a bounded timeout inside the capability lifetime", () => {

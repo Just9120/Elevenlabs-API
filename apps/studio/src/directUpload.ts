@@ -114,52 +114,59 @@ export function uploadFileWithProgress({
   signal,
   onProgress,
 }: DirectUploadRequest): Promise<DirectUploadResult> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    let settled = false;
-
-    const cleanup = () => signal?.removeEventListener("abort", abort);
-    const finish = (callback: () => void) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      callback();
-    };
-    const ambiguous = (message: string) =>
-      finish(() => reject(new DirectUploadAmbiguousError(message)));
-    const abort = () => {
-      request.abort();
-      ambiguous("direct_upload_aborted");
-    };
-
-    request.open(method, url, true);
-    request.withCredentials = false;
-    request.timeout = timeoutMs;
-    for (const [name, value] of Object.entries(headers)) {
-      request.setRequestHeader(name, value);
-    }
-    request.upload.addEventListener("progress", (event) => {
-      const total = event.lengthComputable && event.total > 0 ? event.total : file.size;
-      onProgress?.(boundedProgress(event.loaded, total));
-    });
-    request.addEventListener("load", () => {
-      onProgress?.(boundedProgress(file.size, file.size));
-      finish(() =>
-        resolve({
-          ok: request.status >= 200 && request.status < 300,
-          status: request.status,
-        }),
-      );
-    });
-    request.addEventListener("error", () => ambiguous("direct_upload_network_error"));
-    request.addEventListener("timeout", () => ambiguous("direct_upload_timeout"));
-    request.addEventListener("abort", () => ambiguous("direct_upload_aborted"));
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) {
-      abort();
-      return;
-    }
-    onProgress?.(boundedProgress(0, file.size));
-    request.send(file);
+  if (typeof file.stream !== "function" || typeof ReadableStream !== "function") {
+    return Promise.reject(new Error("direct_upload_progress_unsupported"));
+  }
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) controller.abort(signal.reason);
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort("direct_upload_timeout");
+  }, timeoutMs);
+  let loadedBytes = 0;
+  onProgress?.(boundedProgress(0, file.size));
+  const reader = file.stream().getReader();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(streamController) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        streamController.close();
+        return;
+      }
+      loadedBytes += chunk.value.byteLength;
+      onProgress?.(boundedProgress(loadedBytes, file.size));
+      streamController.enqueue(chunk.value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
   });
+  const requestOptions: RequestInit & { duplex: "half" } = {
+    method,
+    headers,
+    body,
+    cache: "no-store",
+    credentials: "omit",
+    redirect: "error",
+    referrerPolicy: "no-referrer",
+    signal: controller.signal,
+    duplex: "half",
+  };
+  return fetch(url, requestOptions)
+    .then((response) => {
+      onProgress?.(boundedProgress(file.size, file.size));
+      return { ok: response.ok, status: response.status };
+    })
+    .catch(() => {
+      if (timedOut) throw new DirectUploadAmbiguousError("direct_upload_timeout");
+      if (signal?.aborted) throw new DirectUploadAmbiguousError("direct_upload_aborted");
+      throw new DirectUploadAmbiguousError("direct_upload_network_error");
+    })
+    .finally(() => {
+      window.clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+    });
 }
