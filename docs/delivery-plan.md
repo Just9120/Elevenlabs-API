@@ -23,15 +23,15 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T05:31:07Z.
+- Updated (UTC): 2026-08-25T05:32:42Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation-cleanup-fix`.
-- Last verified revision: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c` — merged/deployed production baseline; hotfix working tree покрыт focused tests, commit pending.
+- Last verified revision: `4515401566f34603d8c76e9fbe40ab4e251a43cd` — terminal-state flush hotfix и production-like regression test подтверждены focused tests.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: PR `#234` merged как `1751d34`; exact-main CI, migration `0025`, web/API/worker deployment, preview `0:46 → 0:43`, completed processing, authenticated download и Drive artifact `Audio Preparation LIVE 2026-08-25.flac` подтверждены. LIVE cleanup canary выявил production-only drift: `SessionLocal(autoflush=False)` оставлял terminal job видимым как active во время deletion readiness check.
-- Current step: узкий hotfix добавляет explicit `db.flush()` перед ephemeral cleanup и regression test с production-like `autoflush=False`.
-- Next exact action: создать atomic hotfix commit, push/PR и дождаться required CI.
+- Current step: atomic hotfix commit `4515401` создан в clean isolated branch.
+- Next exact action: push branch, создать Pull Request и дождаться required CI.
 - Validation and Evidence: hotfix focused processor/worker suite `34 passed`; production-like processor regression `3 passed`. Targeted API suite локально не запускалась из-за отсутствующего local PostgreSQL (`127.0.0.1:5432`), поэтому её покрытие остаётся обязательным CI gate. Base exact-main runs `32777664803` и `32777664779` success; migration run `32778661217` и worker deploy `32778896943` success.
 - Pull Request / CI / deployment: merged PR `#234`; hotfix PR not created / hotfix CI pending / base production deployed, hotfix not deployed.
 - Blockers: none для hotfix implementation; CI и production retest являются открытыми gates.
