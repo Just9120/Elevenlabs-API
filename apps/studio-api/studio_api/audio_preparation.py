@@ -405,7 +405,11 @@ def build_ffmpeg_command(
     if options.output_format is AudioOutputFormat.wav:
         command.extend(["-c:a", "pcm_s16le", "-f", "wav"])
     else:
-        command.extend(["-c:a", "flac", "-f", "flac"])
+        # FFmpeg may otherwise promote filtered AAC/Opus input to 24-bit FLAC.
+        # Speech-oriented Studio output is explicitly 16-bit while retaining
+        # the source sample rate, avoiding a much larger file with no useful
+        # precision gain over the lossy source.
+        command.extend(["-c:a", "flac", "-sample_fmt", "s16", "-f", "flac"])
     if creation_time is not None:
         command.extend(["-metadata", f"creation_time={_iso_creation_time(creation_time)}"])
     command.extend(["-y", str(output_path)])

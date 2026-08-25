@@ -19,7 +19,7 @@ function source(id: string, filename: string, createdAt: string | null) {
     uploaded_at: "2026-08-24T20:00:00Z",
     source_created_at: createdAt,
     source_created_at_provenance: createdAt ? "embedded_media_metadata" : null,
-    expires_at: "2026-08-25T20:00:00Z",
+    expires_at: "2027-08-25T20:00:00Z",
     deleted_at: null,
     delete_reason: null,
     created_at: "2026-08-24T20:00:00Z",
@@ -49,7 +49,7 @@ describe("AudioPreparationPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
-      if (url.endsWith("/api/projects/project-id/sources")) return json({ sources: [{ id: "source-id", project_id: "project-id", source_type: "local_upload", original_filename: "meeting.wav", mime_type: "audio/wav", size_bytes: 100, drive_file_url: null, upload_status: "uploaded", uploaded_at: "2026-08-24T20:00:00Z", source_created_at: "2026-08-24T19:00:00Z", source_created_at_provenance: "embedded_media_metadata", expires_at: "2026-08-25T20:00:00Z", deleted_at: null, delete_reason: null, created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" }] });
+      if (url.endsWith("/api/projects/project-id/sources")) return json({ sources: [{ id: "source-id", project_id: "project-id", source_type: "local_upload", original_filename: "meeting.wav", mime_type: "audio/wav", size_bytes: 100, drive_file_url: null, upload_status: "uploaded", uploaded_at: "2026-08-24T20:00:00Z", source_created_at: "2026-08-24T19:00:00Z", source_created_at_provenance: "embedded_media_metadata", expires_at: "2027-08-25T20:00:00Z", deleted_at: null, delete_reason: null, created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" }] });
       if (url.endsWith("/api/projects/project-id/audio-preparations")) return json({ jobs: [] });
       throw new Error(`unexpected request: ${url}`);
     });
@@ -223,5 +223,21 @@ describe("AudioPreparationPage", () => {
     expect(screen.getByLabelText("Формат результата")).toHaveValue("wav");
     expect(screen.getByLabelText("Формат результата")).toBeDisabled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("local-upload/initiate"))).toBe(false);
+  });
+
+  it("discloses the bounded FLAC output precision", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      throw new Error(`unexpected request: ${url}`);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Обработка аудио" });
+
+    await userEvent.selectOptions(screen.getByLabelText("Формат результата"), "flac");
+
+    expect(screen.getByText(/FLAC создаётся в 16-bit.+без lossy-сжатия/i)).toBeInTheDocument();
   });
 });
