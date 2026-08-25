@@ -17,25 +17,25 @@
   7. Download всегда доступен как terminal action; optional Google Drive save/folder и transcription/reuse actions независимы и не представлены как misleading mutually-exclusive radio choice.
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T15:08:13Z.
+- Updated (UTC): 2026-08-25T15:57:06Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`, verified equal to `origin/main` after fetch.
-- Working branch: `codex/pwa-audio-workspace-02` from exact base.
-- Last verified revision: `0a7c22dd2970ed8b03daeb019e378a016907478e` — Chromium E2E covers local WAV processing/download with zero upload mutations; full Studio suite transport harness is `1af4574`, Audio workspace implementation `8394e68`, upload-progress foundation `51f8e07`, OBS duration fix `616250c`.
+- Base branch/SHA: `main@23f3636e914d89e3158f770ecf6828cc10587bff`, verified equal to `origin/main` after fetch.
+- Working branch: `codex/fix-audio-obs-duration-metadata` from exact base; предыдущая merged branch `codex/pwa-audio-workspace-02` сохранена только до Goal closure/cleanup.
+- Last verified revision: `22d3910a755eae2f38e9adf91ba0139f14b2e136` — bounded parser принимает Matroska `DURATION` clock tags и `duration_ts × time_base`, сохраняя numeric/7-day fail-closed bounds; focused Audio backend suite `37/37` PASS.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: production `failed · 5% · invalid_input` mapped to truthy ffprobe stream sentinel and fixed without relaxing duration bounds; shared streaming-fetch direct upload exposes real per-file/aggregate progress while preserving no-credentials/no-referrer/no-redirect and ambiguous completion reconciliation; Audio UI now separates browser-local vs Studio upload, defaults multi-inputs to separate results, provides explicit concat/order plan, uses user-facing defaults/advanced controls and independent terminal actions; browser-local Web Audio path applies bounded separate/concat/channel/silence processing and emits temporary WAV downloads.
-- Current step: required code-bearing CI green; зафиксировать Evidence и дождаться replacement checks docs checkpoint head перед merge.
-- Next exact action: push CI Evidence commit и снова дождаться `checks`, `studio`, `browser-e2e`; при terminal success выполнить merge PR `#237`.
-- Validation and Evidence: Studio Vitest `591/591`, ESLint PASS, TypeScript/build PASS (PWA precache generated; existing >500 kB chunk warning only); backend Audio `34/34`; `scripts/ci_checks.py` PASS; Playwright collection PASS with `11` browser tests including browser-local Audio. DB-backed API suite cannot run authoritatively in the local Windows environment without CI Postgres; its attempted local run produced environment setup errors, not product assertions, and remains a required GitHub CI gate.
-- Pull Request / CI / deployment: PR `#237` — https://github.com/Just9120/Elevenlabs-API/pull/237; exact code-bearing head `ef02e5908579837667a1c0a1b0770d2c39bc79c2` green: repository CI `32863490270` / `checks`, Studio PWA CI `32863490406` / `studio` и `browser-e2e`; failures/skips отсутствуют. Merge ждёт replacement checks этого docs checkpoint; deployment не начат.
-- Blockers: none.
-- Unverified assumptions: the observed production OBS files use the common `stream.duration=N/A`/valid container-duration shape; exact production retest remains required. Browser-local codec/memory bounds must be derived and exposed, not guessed.
+- Completed: PR `#237` merged как `main@23f3636e914d89e3158f770ecf6828cc10587bff`; exact-main CI `32864333001`/`32864333013`, web/API CD `32864332962`, authorized worker drain/deploy/status `32865914275`/`32866007887`/`32866139787` terminal success и `identity_match=yes`. Bounded production LIVE подтвердил browser-local WAV result без console errors, explicit source/mode/order/default/action UX, Settings/Diagnostics/fragmentation regressions. Separate preview обоих сохранённых OBS/MKV sources после rollout независимо завершился `invalid_input` на 5%, что опровергло initial numeric container-duration hypothesis. Hotfix `22d3910` добавляет bounded Matroska clock-tag/time-base duration fallbacks.
+- Current step: отправить hotfix code/docs commits в PR и получить authoritative containerized CI; при green merge/deploy повторить worker drain/deploy и exact production preview/concat LIVE.
+- Next exact action: commit checkpoint, push `codex/fix-audio-obs-duration-metadata`, создать hotfix PR и дождаться required checks.
+- Validation and Evidence: hotfix focused Audio backend `37/37` PASS; `scripts/ci_checks.py` PASS. Полный локальный pytest: `1076 passed`, `7 skipped`, `187 errors` из-за отсутствующего PostgreSQL `127.0.0.1:5432`, плюс `65 failed` в environment-dependent Windows groups; authoritative GitHub CI с PostgreSQL остаётся required gate. Baseline Studio Vitest `591/591`, ESLint/build и authenticated Chromium `11/11` подтверждены PR/main CI.
+- Pull Request / CI / deployment: PR `#237` merged; exact-main web/API/worker deployed. Hotfix PR/CI ещё не созданы; migration не требуется.
+- Blockers: production `AP-10` остаётся failed до hotfix delivery и exact retest; approved post-deploy metadata writer отсутствует.
+- Unverified assumptions: оба production MKV имеют OBS-style duration в strict `DURATION` tag либо `duration_ts/time_base`; hotfix обязан пройти exact source retest, а не считаться достаточным по unit fixture.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
@@ -44,11 +44,11 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Project** | **93,8% (`135/144`)** | **99,3% (`135/136`)** | Выполненные AC не изменились; denominator вырос на восемь новых atomic AC. |
+| **Project** | **98,6% (`142/144`)** | **93,8% (`135/144`)** | `AP-17..AP-23` подтверждены delivery/LIVE; `PC-14` и `AP-10` остаются открыты. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
-| **Studio PWA** | **92,2% (`106/115`)** | **99,1% (`106/107`)** | `PC-14` и `AP-17..AP-23` добавлены в denominator; `AP-10` остаётся reopened до LIVE. |
-| `PWA-CORE-01` | **92,9% (`13/14`)** | **100% (`13/13`)** | Новый `PC-14` требует delivery/LIVE upload-progress обоих экранов. |
-| `PWA-AUDIO-PREPARATION-01` | **65,2% (`15/23`)** | **93,8% (`15/16`)** | Снижение более 10 п.п. вызвано не регрессией семи старых AC, а materialized denominator: семь новых Audio AC плюс уже reopened `AP-10`; branch имеет CODE/focused TEST, но production ещё прежний. |
+| **Studio PWA** | **98,3% (`113/115`)** | **92,2% (`106/115`)** | Семь Audio UX/browser-local AC выполнены; `PC-14` и `AP-10` остаются открыты. |
+| `PWA-CORE-01` | **92,9% (`13/14`)** | **92,9% (`13/14`)** | `PC-14` требует representative production upload-progress обоих экранов; transport/E2E/deploy уже подтверждены. |
+| `PWA-AUDIO-PREPARATION-01` | **95,7% (`22/23`)** | **65,2% (`15/23`)** | Рост более 10 п.п.: `AP-17..AP-23` подтверждены exact-main delivery и bounded browser LIVE; `AP-10` всё ещё failed на production OBS preview. |
 | Остальные existing PWA epics | **100% (`78/78`)** | **100% (`78/78`)** | Completion и denominator не изменились. |
 
 ## Candidate next Goals
