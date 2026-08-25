@@ -33,6 +33,7 @@ from .audio_preparation_service import (
 from .google_connection_access import refresh_user_google_drive_access_token
 from .google_drive import fetch_drive_file_content
 from .google_drive_upload import upload_file_resumable
+from .diagnostics import write_diagnostic_event
 from .models import (
     AudioPreparationJob,
     AudioPreparationStatus,
@@ -93,10 +94,14 @@ def process_claimed_audio_preparation_job(
             options = deserialize_options(job)
             probes: list[AudioProbe] = []
             silence_durations: list[float] = []
-            for path in paths:
+            is_preview = job.status is AudioPreparationStatus.analyzing
+            if is_preview:
+                _checkpoint(db, job, "analyzing", 10)
+            else:
+                _checkpoint(db, job, "materializing", 10)
+            for index, path in enumerate(paths):
                 probes.append(probe_media(path, runner=runner) if runner else probe_media(path))
-                verify_media_integrity(path, runner=runner) if runner else verify_media_integrity(path)
-                if options.silence_enabled:
+                if is_preview and options.silence_enabled:
                     silence_durations.extend(
                         analyze_silence(
                             path,
@@ -111,6 +116,10 @@ def process_claimed_audio_preparation_job(
                             minimum_seconds=options.silence_min_duration_seconds,
                         )
                     )
+                elif is_preview:
+                    verify_media_integrity(path, runner=runner) if runner else verify_media_integrity(path)
+                if is_preview:
+                    _checkpoint(db, job, "analyzing", 10 + round(((index + 1) / len(paths)) * 80))
             preview = build_preview(probes, silence_durations, options)
             if job.status is AudioPreparationStatus.analyzing:
                 complete_audio_preview(
@@ -127,7 +136,7 @@ def process_claimed_audio_preparation_job(
             if job.status is not AudioPreparationStatus.processing:
                 raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
             _require_not_cancelled(db, job)
-            _checkpoint(db, job, "processing", 45)
+            _checkpoint(db, job, "processing", 20)
             creation_time = _earliest_creation_time(job) or _naive_utc(operation_now)
             extension = _output_extension(job, options, paths)
             output_path = root / f"processed-output.{extension}"
@@ -146,12 +155,38 @@ def process_claimed_audio_preparation_job(
                 concat_list_path=concat_path,
                 creation_time=creation_time,
             )
-            run_processing(command, runner=runner) if runner else run_processing(command)
+            expected_duration_seconds = max(
+                1.0,
+                (job.estimated_output_duration_ms or job.total_input_duration_ms or 1000) / 1000,
+            )
+            last_processing_percent = 20
+
+            def report_processing_progress(ratio: float) -> None:
+                nonlocal last_processing_percent
+                percent = min(80, 20 + round(max(0.0, min(1.0, ratio)) * 60))
+                if percent >= last_processing_percent + 2 or percent == 80:
+                    _checkpoint(db, job, "processing", percent)
+                    last_processing_percent = percent
+
+            if runner:
+                run_processing(command, runner=runner)
+            else:
+                run_processing(
+                    command,
+                    expected_duration_seconds=expected_duration_seconds,
+                    progress_callback=report_processing_progress,
+                )
             _require_not_cancelled(db, job)
             output_probe = probe_media(output_path, runner=runner) if runner else probe_media(output_path)
             output_size = output_path.stat().st_size
-            if output_size <= 0 or output_size > settings.source_max_upload_bytes:
+            if output_size <= 0:
                 raise AudioPreparationError(AudioPreparationReason.processing_failed)
+            if output_size > getattr(
+                settings,
+                "audio_preparation_max_output_bytes",
+                settings.source_max_upload_bytes,
+            ):
+                raise AudioPreparationError(AudioPreparationReason.output_too_large)
             _checkpoint(db, job, "storing", 85)
             output_filename = render_output_filename(
                 options,
@@ -203,6 +238,7 @@ def process_claimed_audio_preparation_job(
             db.commit()
             return AudioProcessingResult(job.id, "completed", "completed", True)
     except (AudioPreparationError, AudioPreparationServiceError) as exc:
+        failure_stage = job.current_stage
         db.rollback()
         reason = getattr(getattr(exc, "reason", None), "value", "processing_failed")
         try:
@@ -227,10 +263,12 @@ def process_claimed_audio_preparation_job(
             if failed_job is not None:
                 _request_ephemeral_cleanup(db, failed_job, operation_now)
             db.commit()
+            _record_failure_diagnostic(failed_job, reason, failure_stage)
         except Exception:
             db.rollback()
         raise
     except Exception as exc:
+        failure_stage = job.current_stage
         db.rollback()
         try:
             fail_audio_preparation_job(
@@ -245,6 +283,7 @@ def process_claimed_audio_preparation_job(
             if failed_job is not None:
                 _request_ephemeral_cleanup(db, failed_job, operation_now)
             db.commit()
+            _record_failure_diagnostic(failed_job, "processing_failed", failure_stage)
         except Exception:
             db.rollback()
         raise AudioPreparationError(AudioPreparationReason.processing_failed) from exc
@@ -397,6 +436,23 @@ def _checkpoint(db, job, stage, percent):
     job.current_stage = stage
     job.progress_percent = percent
     db.commit()
+
+
+def _record_failure_diagnostic(job, reason, stage):
+    if job is None:
+        return
+    write_diagnostic_event(
+        owner_user_id=job.owner_user_id,
+        component="worker",
+        event_code="AUDIO_PREPARATION_FAILED",
+        project_id=job.project_id,
+        job_id=job.id,
+        metadata={
+            "error_code": reason if reason in {item.value for item in AudioPreparationReason} else "processing_failed",
+            "stage": stage if stage in {"analyzing", "materializing", "processing", "storing", "google_drive_upload", "failed"} else "failed",
+            "input_count": len(job.inputs),
+        },
+    )
 
 
 def _earliest_creation_time(job) -> datetime | None:

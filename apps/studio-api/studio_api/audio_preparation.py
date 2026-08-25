@@ -4,6 +4,7 @@ import json
 import math
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -43,6 +44,7 @@ class AudioPreparationReason(str, Enum):
     channel_unavailable = "channel_unavailable"
     processing_failed = "processing_failed"
     processing_timeout = "processing_timeout"
+    output_too_large = "output_too_large"
 
 
 class AudioPreparationError(RuntimeError):
@@ -289,6 +291,7 @@ def analyze_silence(
         "ffmpeg",
         "-v",
         "info",
+        "-xerror",
         "-i",
         str(path),
         "-af",
@@ -390,7 +393,8 @@ def build_ffmpeg_command(
                 f"stop_silence={_number(options.silence_keep_duration_seconds)}"
             )
         label = f"a{index}"
-        filters.append(f"[{index}:a:0]{','.join(chain) if chain else 'anull'}[{label}]")
+        chain.append("asetpts=PTS-STARTPTS")
+        filters.append(f"[{index}:a:0]{','.join(chain)}[{label}]")
         labels.append(f"[{label}]")
     if len(labels) > 1:
         filters.append(f"{''.join(labels)}concat=n={len(labels)}:v=0:a=1[outa]")
@@ -408,7 +412,20 @@ def build_ffmpeg_command(
     return command
 
 
-def run_processing(command: Sequence[str], *, runner: Callable = subprocess.run) -> None:
+def run_processing(
+    command: Sequence[str],
+    *,
+    runner: Callable = subprocess.run,
+    expected_duration_seconds: float | None = None,
+    progress_callback: Callable[[float], None] | None = None,
+) -> None:
+    if runner is subprocess.run and progress_callback is not None and expected_duration_seconds:
+        _run_processing_with_progress(
+            command,
+            expected_duration_seconds=expected_duration_seconds,
+            progress_callback=progress_callback,
+        )
+        return
     try:
         runner(list(command), capture_output=True, check=True, timeout=FFMPEG_PROCESS_TIMEOUT_SECONDS)
     except FileNotFoundError as exc:
@@ -417,6 +434,72 @@ def run_processing(command: Sequence[str], *, runner: Callable = subprocess.run)
         raise AudioPreparationError(AudioPreparationReason.processing_timeout) from exc
     except subprocess.SubprocessError as exc:
         raise AudioPreparationError(AudioPreparationReason.processing_failed) from exc
+
+
+def _run_processing_with_progress(
+    command: Sequence[str],
+    *,
+    expected_duration_seconds: float,
+    progress_callback: Callable[[float], None],
+) -> None:
+    progress_command = list(command[:-2]) + [
+        "-nostdin",
+        "-nostats",
+        "-stats_period",
+        "5",
+        "-progress",
+        "pipe:1",
+    ] + list(command[-2:])
+    timed_out = threading.Event()
+    process = None
+
+    def terminate_on_timeout() -> None:
+        timed_out.set()
+        if process is not None:
+            process.kill()
+
+    timer = threading.Timer(FFMPEG_PROCESS_TIMEOUT_SECONDS, terminate_on_timeout)
+    try:
+        process = subprocess.Popen(
+            progress_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        timer.start()
+        assert process.stdout is not None
+        for raw_line in process.stdout:
+            line = raw_line.strip()
+            match = FFMPEG_PROGRESS_TIME_PATTERN.fullmatch(line)
+            if match is not None:
+                try:
+                    current = _positive_duration(match.group("duration"))
+                except AudioPreparationError:
+                    continue
+                progress_callback(min(0.99, current / expected_duration_seconds))
+            elif line == "progress=end":
+                progress_callback(1.0)
+        return_code = process.wait()
+    except FileNotFoundError as exc:
+        raise AudioPreparationError(AudioPreparationReason.probe_unavailable) from exc
+    except OSError as exc:
+        raise AudioPreparationError(AudioPreparationReason.processing_failed) from exc
+    except Exception:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait()
+        raise
+    finally:
+        timer.cancel()
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+    if timed_out.is_set():
+        raise AudioPreparationError(AudioPreparationReason.processing_timeout)
+    if return_code != 0:
+        raise AudioPreparationError(AudioPreparationReason.processing_failed)
 
 
 def render_output_filename(

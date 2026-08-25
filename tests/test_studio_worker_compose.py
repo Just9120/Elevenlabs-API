@@ -45,6 +45,7 @@ def test_studio_worker_compose_contract():
         assert "/run/studio-runtime-secrets/studio_credential_master_key" in service
         assert "/run/studio-runtime-secrets:mode=0711,uid=0,gid=0" in service
         assert "_FILE: /run/secrets/" not in service
+        assert "STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES: ${STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES:-2147483647}" in service
     assert text.rsplit("volumes:", 1)[1].count("studio-postgres-data:") == 1
 
 
@@ -52,6 +53,7 @@ def test_env_example_worker_defaults_once():
     text=ENV.read_text()
     for line in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS=5", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5", "STUDIO_WORKER_LEASE_TTL_SECONDS=3600"]:
         assert text.count(line) == 1
+    assert text.count("STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES=2147483647") == 1
 
 
 def test_heartbeat_config_is_worker_only():
