@@ -51,11 +51,12 @@ def runner(command, **_kwargs):
     return SimpleNamespace(stdout="", stderr="")
 
 
-def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path):
+def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     now = datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("studio_api.audio_preparation_processor.utcnow", lambda: now)
     payload = b"reference-audio"
     storage = Storage(payload)
     settings = SimpleNamespace(source_s3_bucket="private", source_max_upload_bytes=1024 * 1024)
@@ -152,13 +153,14 @@ def test_expired_active_lease_is_reclaimed():
         assert reclaimed.lease_generation == first_generation + 1
 
 
-def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference(tmp_path):
+def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference(tmp_path, monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     payload = b"reference-audio"
     storage = Storage(payload)
     settings = SimpleNamespace(source_s3_bucket="private", source_max_upload_bytes=1024 * 1024)
     now = datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("studio_api.audio_preparation_processor.utcnow", lambda: now)
 
     @contextmanager
     def temp_directory_factory(prefix):

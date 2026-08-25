@@ -310,7 +310,10 @@ def test_conversion_command_composes_channel_silence_concat_and_exact_codec(mono
     assert "silenceremove=" in filter_value
     assert filter_value.count("asetpts=PTS-STARTPTS") == 2
     assert "concat=n=2:v=0:a=1[outa]" in filter_value
-    assert command[-6:] == ["-c:a", "flac", "-f", "flac", "-y", "out.flac"]
+    assert command[-8:] == [
+        "-c:a", "flac", "-sample_fmt", "s16", "-f", "flac", "-y", "out.flac",
+    ]
+    assert "-ar" not in command
     assert "shell" not in command
 
 

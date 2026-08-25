@@ -5,7 +5,7 @@
 - **ID / title:** `PWA-AUDIO-WORKSPACE-02` — production-ready Audio workspace и observable local uploads.
 - **State:** `IN_PROGRESS` — scope авторизован владельцем 2026-08-25 инструкцией «формируй цель и приступай» и последующим явным расширением на все browser-аннотации текущего цикла.
 - **Authorization source:** текущие explicit user instructions; existing durable product scope — `docs/project-spec.md`; новые явно согласованные requirements будут атомарно reconciled в canonical Audio Preparation AC в этой ветке.
-- **Scope:** исправить `invalid_input` для валидных OBS/Matroska inputs и подтвердить multi-file combination; разделить `Google Drive`, browser-local processing и temporary S3 upload; показывать измеримый per-file/aggregate upload progress в Audio и Transcriptions; сделать явный выбор `обработать отдельно`/`склеить`, понятный ordered timeline и metadata-based default order без filename inference; упростить presets/labels/defaults и скрыть advanced silence controls; сделать download, optional Google Drive save и transcription handoff независимыми terminal actions; добавить прямой переход в Audio workspace с dashboard; сохранить regression coverage предыдущей UX/IA Goal.
+- **Scope:** исправить `invalid_input` для валидных OBS/Matroska inputs и подтвердить multi-file combination; разделить `Google Drive`, browser-local processing и temporary S3 upload; показывать измеримый per-file/aggregate upload progress в Audio и Transcriptions; сделать явный выбор `обработать отдельно`/`склеить`, понятный ordered timeline и metadata-based default order без filename inference; упростить presets/labels/defaults и скрыть advanced silence controls; сделать download, optional Google Drive save и transcription handoff независимыми terminal actions; добавить прямой переход в Audio workspace с dashboard; нормализовать server-side FLAC в явный 16-bit output с сохранением исходной sample rate и раскрыть формат пользователю; сохранить regression coverage предыдущей UX/IA Goal.
 - **Non-goals:** S3 bucket split/object migration; commercial/Russian production contour, billing/legal/provider changes; speaker identity; TOTP; CI/CD safety contract; unrelated Settings/Diagnostics redesign beyond regression fixes; destructive production operations.
 - **Goal AC:**
   1. Валидный OBS Matroska input с stream duration sentinel (`N/A`) использует валидную container duration; invalid/missing duration по-прежнему fail-closed.
@@ -18,25 +18,26 @@
   8. Server и browser-local paths сохраняют owner/security boundaries, не включают private bytes/paths в diagnostics и не ослабляют existing source validation/retention/cleanup semantics.
   9. Relevant backend/frontend/browser tests, required exact-head CI, applicable API/worker/web deployment и bounded owner-controlled LIVE проходят; прошлые Settings/Diagnostics/fragmentation flows не регрессируют.
   10. Dashboard явно предлагает Audio workspace рядом с транскрибациями и открывает route `/audio` без промежуточного navigation flow.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
+  11. Server-side FLAC не повышается неявно до 24-bit после FFmpeg filters: output использует 16-bit, сохраняет исходную sample rate, UI раскрывает параметры, focused probe подтверждает sample format и заметное уменьшение размера.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ◐`.
 - **Known blockers/dependencies:** browser-local decoding зависит от поддерживаемых браузером codecs и device memory; production concat retest потребует owner-controlled source selection; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Migration сейчас не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T18:48:00Z.
+- Updated (UTC): 2026-08-25T21:09:56Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@97cd438616620b09fc74a25a61d7cd8a91a40ab7`, повторно verified equal to fetched `origin/main` 2026-08-25 перед branch write.
-- Working branch: `codex/fix-audio-processing-runtime` from exact base.
-- Last verified revision: `e65bd65d55218ce8758be737c14f15653b317bda` — long Audio processing выполняет один preview decode и один processing pass, нормализует input timestamps, сообщает FFmpeg progress, использует отдельный bounded output limit и пишет safe failure diagnostic.
+- Base branch/SHA: `main@bffbdb11b882701226898b9f7d03062fd69b2679`, verified equal to fetched `origin/main` 2026-08-25 перед новой branch write.
+- Working branch: `codex/fix-flac-output-size` from exact base.
+- Last verified revision: `f304ae5fbfd73819d593261a135e29775390c781` — FLAC conversion явно использует `s16` при сохранении исходной sample rate, UI раскрывает contract, focused backend/frontend/FFmpeg validation проходит.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#237`–`#241` merged; current production/main baseline `97cd438616620b09fc74a25a61d7cd8a91a40ab7`. Owner LIVE подтвердил direct upload реальных OBS/MKV, dashboard Audio action и создание preview `137:36 → 129:48`. Production execution трёх MKV завершился failure на прежнем условном checkpoint `45%`; read-only Worker Status run `32883439861`, job `97918200968` подтвердил running/healthy worker без crash/restart.
-- Current step: merge-ready PR `#242`; все required checks terminal SUCCESS для implementation/checkpoint head `0603afc52093e84cdec8a6a7225d70842be9ad69`.
-- Next exact action: зафиксировать CI checkpoint, дождаться required checks metadata-only head и merge PR `#242`.
-- Validation and Evidence: clean-process Audio backend `47/47` PASS; diagnostics `18/18` PASS; Studio Audio component `6/6` PASS; Studio ESLint PASS; TypeScript/Vite/PWA production build PASS; real local FFmpeg progress smoke PASS; Python compileall PASS; `git diff --check` PASS. Full Windows pytest был остановлен после CI time budget: ранние unrelated environment/fixture failures и медленные legacy tests не дали terminal result; authoritative full suite остаётся required CI gate. Product readiness не изменилась до production retest.
-- Pull Request / CI / deployment: PR `#242`; CI run `32885462001` / job `checks` `97924737223` SUCCESS; Studio PWA CI run `32885461983`, jobs `studio` `97924737722` и `browser-e2e` `97924737464` SUCCESS. Единственный skip — failure-artifact upload после successful E2E, expected/non-gating. Изменение затрагивает Studio web, API и worker; schema migration не требуется. API/web могут идти standard CD, но worker rollout требует отдельного approved drain/deploy operation для exact merged SHA.
-- Blockers: `AP-10` остаётся failed до exact-main API/worker/web deployment и bounded production concat LIVE; `PC-14` upload-progress ещё требует отдельного representative Transcriptions LIVE. Approved post-deploy metadata writer отсутствует.
-- Unverified assumptions: прежний terminal failure наиболее вероятно вызван общим `512 MiB` output guard либо OBS timestamp/filter edge; старый runtime не сохранял точный Audio error event. Fix покрывает оба probable пути и добавляет будущий exact safe diagnostic, но root cause текущего исторического запуска остаётся `PROBABLE`, не `VERIFIED`.
+- Completed: PR `#242` merged как `main@bffbdb11b882701226898b9f7d03062fd69b2679`; exact-main CI `32886126936`/`32886126975`, component CD `32886126962` и worker drain/deploy/status `32894632672`/`32894727612`/`32894867214` successful. Owner production concat `9010f902-145b-4ef0-bfef-0416a20daeaf` на трёх OBS/MKV завершился `completed` (`137:36 → 129:48`) и закрыл `AP-10`. Полученный FLAC больше `600 MB`; exact code и local FFmpeg probe подтвердили output `s32`/24-bit при неявном sample format.
+- Current step: PR `#243` открыт из `codex/fix-flac-output-size`; required exact-head CI выполняется.
+- Next exact action: дождаться terminal state всех required checks PR `#243`, проанализировать failures/skips и при green gates выполнить merge.
+- Validation and Evidence: backend Audio command/processor tests `32/32` PASS; Studio Audio component `7/7` PASS после устранения календарно-зависимых expired fixtures; Studio ESLint PASS; TypeScript/Vite/PWA production build PASS с existing non-blocking chunk-size warning; Python compileall PASS; `git diff --check` PASS. Real FFmpeg smoke подтвердил fixed output `s16`, `48 kHz`, mono и уменьшение `284343 → 95292` bytes на одинаковом input. CI ещё не запущен.
+- Pull Request / CI / deployment: PR `#243` — `https://github.com/Just9120/Elevenlabs-API/pull/243`; required checks pending. Изменение затрагивает Studio web, API и worker; schema migration не требуется. После merge web/API идут standard CD, worker rollout требует отдельного approved drain/deploy exact merged SHA.
+- Blockers: `AP-24` требует exact-head CI, merge, API/web/worker delivery и bounded LIVE sample-format/size confirmation; `PC-14` upload-progress ещё требует отдельного representative Transcriptions LIVE. Approved post-deploy metadata writer отсутствует.
+- Unverified assumptions: уменьшение конкретного 129:48 production output зависит от signal/noise content; local representative smoke дал почти трёхкратное уменьшение, но точный production ratio до LIVE не подтверждён.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
@@ -45,11 +46,11 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Project** | **98,6% (`142/144`)** | **93,8% (`135/144`)** | `AP-17..AP-23` подтверждены delivery/LIVE; `PC-14` и `AP-10` остаются открыты. |
+| **Project** | **98,6% (`143/145`)** | **98,6% (`142/144`)** | `AP-10` подтверждён LIVE; denominator вырос на owner-authorized `AP-24`, который вместе с `PC-14` остаётся открытым. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
-| **Studio PWA** | **98,3% (`113/115`)** | **92,2% (`106/115`)** | Семь Audio UX/browser-local AC выполнены; `PC-14` и `AP-10` остаются открыты. |
+| **Studio PWA** | **98,3% (`114/116`)** | **98,3% (`113/115`)** | `AP-10` выполнен; denominator вырос на `AP-24`, открыты `PC-14` и `AP-24`. |
 | `PWA-CORE-01` | **92,9% (`13/14`)** | **92,9% (`13/14`)** | `PC-14` требует representative production upload-progress обоих экранов; transport/E2E/deploy уже подтверждены. |
-| `PWA-AUDIO-PREPARATION-01` | **95,7% (`22/23`)** | **65,2% (`15/23`)** | Рост более 10 п.п.: `AP-17..AP-23` подтверждены exact-main delivery и bounded browser LIVE; `AP-10` всё ещё failed на production OBS preview. |
+| `PWA-AUDIO-PREPARATION-01` | **95,8% (`23/24`)** | **95,7% (`22/23`)** | `AP-10` закрыт production concat; denominator вырос на новый `AP-24`, открытый до delivery/LIVE 16-bit FLAC. |
 | Остальные existing PWA epics | **100% (`78/78`)** | **100% (`78/78`)** | Completion и denominator не изменились. |
 
 ## Candidate next Goals
