@@ -17,25 +17,25 @@
   7. `AP-14..AP-15`: completed output хранится по retention policy, owner-authenticated download/reuse и explicit Google Drive upload не раскрывают storage/token identity.
   8. `AP-16`: ephemeral references удаляются при terminal state и не живут более 24 часов; temporary files и failed partial output удаляются; DTO/logs/diagnostics исключают bytes/private paths/object keys.
   9. Relevant migration/backend/frontend/browser tests, full required CI, deployment и bounded LIVE проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** durable job/output lifecycle потребует additive migration `0025_audio_preparation` и после merge отдельного action-time authorization для worker drain и `MANUAL_GATED` release; production LIVE требует только короткие owner-controlled media fixtures и не расходует provider quota. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌` — исходный merge и stateful release прошли, но LIVE выявил terminal-cleanup defect; exact hotfix ещё не прошёл CI/deploy/retest.
+- **Known blockers/dependencies:** migration `0025_audio_preparation` уже применена и migration gate отключён; для hotfix требуется новый exact-revision CI, API/worker deploy и повторный bounded cleanup canary. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** `AP-01..AP-16` и required Evidence подтверждены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; optional TOTP не начинается в этой Goal.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T21:01:47Z.
+- Updated (UTC): 2026-08-25T05:32:42Z.
 - Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
-- Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: `30717656fba3d9a077bd71bbeb3201dfe3178861` — CI database isolation и clean-checkout temp-path fixes подтверждены focused tests.
+- Base branch/SHA: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`, verified equal to `origin/main` after fetch.
+- Working branch: `codex/pwa-audio-preparation-cleanup-fix`.
+- Last verified revision: `4515401566f34603d8c76e9fbe40ab4e251a43cd` — terminal-state flush hotfix и production-like regression test подтверждены focused tests.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: all `AP-01..AP-16` source-level flows, including separate PWA workspace, local/Drive source selection, editable presets, preview, progress/cancel/recovery heartbeat, S3 retention/download/reuse, idempotent Drive upload and terminal ephemeral cleanup.
-- Current step: PR `#234` exact source head `55da4bfad92a192a4006f6f30931e28dbe01ea4d` прошёл все required checks; CI Evidence подтверждён и синхронизируется в PR.
-- Next exact action: опубликовать CI Evidence reconciliation, дождаться required checks docs-only head и выполнить merge при сохранении mergeability.
-- Validation and Evidence: portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript и Vite production build passed. CI recovery additionally confirmed affected sets `35/35` и `5/5`, full collection `1331/1331`, lightweight checks PASS. Exact source head `55da4bf` имеет terminal success: repository run `32776952785` (`checks` 2m32s) и Studio run `32776952788` (`studio` 2m12s, `browser-e2e` 1m33s).
-- Pull Request / CI / deployment: `#234` / `32776952785` success, `32776952788` success / not started.
-- Blockers: none for local implementation. Production stateful release remains future action-time gate.
-- Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
+- Completed: PR `#234` merged как `1751d34`; exact-main CI, migration `0025`, web/API/worker deployment, preview `0:46 → 0:43`, completed processing, authenticated download и Drive artifact `Audio Preparation LIVE 2026-08-25.flac` подтверждены. LIVE cleanup canary выявил production-only drift: `SessionLocal(autoflush=False)` оставлял terminal job видимым как active во время deletion readiness check.
+- Current step: atomic hotfix commit `4515401` создан в clean isolated branch.
+- Next exact action: push branch, создать Pull Request и дождаться required CI.
+- Validation and Evidence: hotfix focused processor/worker suite `34 passed`; production-like processor regression `3 passed`. Targeted API suite локально не запускалась из-за отсутствующего local PostgreSQL (`127.0.0.1:5432`), поэтому её покрытие остаётся обязательным CI gate. Base exact-main runs `32777664803` и `32777664779` success; migration run `32778661217` и worker deploy `32778896943` success.
+- Pull Request / CI / deployment: merged PR `#234`; hotfix PR not created / hotfix CI pending / base production deployed, hotfix not deployed.
+- Blockers: none для hotfix implementation; CI и production retest являются открытыми gates.
+- Unverified assumptions: physical R2 deletion должен быть подтверждён через исчезновение ephemeral source после terminal state и повторного reload; до hotfix LIVE это не выполнено.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
@@ -44,10 +44,10 @@
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **100% (`136/136`)** | **88,2% (`120/136`)** | `AP-01..AP-16` реализованы; обязательные delivery Evidence ещё открыты. |
+| **Project** | **100% (`136/136`)** | **100% (`136/136`)** | Denominator не изменился; `AP-16` hotfix реализован локально, обязательные CI/deploy/LIVE gates переоткрыты. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Batch `23/23`, realtime `6/6`; READY. |
-| **Studio PWA** | **100% (`107/107`)** | **85,0% (`91/107`)** | Все PWA product AC выполнены; delivery Evidence для нового эпика открыты. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **0% (`0/16`)** | 🟦 IN PROGRESS; `SPEC/CODE/TEST/CI ✅`, `DEPLOY/LIVE —`. |
+| **Studio PWA** | **100% (`107/107`)** | **100% (`107/107`)** | Все PWA product AC выполнены в рабочей ветке; hotfix delivery Evidence открыты. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`16/16`)** | **100% (`16/16`)** | 🟦 IN PROGRESS; `SPEC/CODE/TEST ✅`, `CI/DEPLOY ◐`, `LIVE ❌`. |
 | `PWA-SPEAKER-IDENTITY-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; PR #233 delivery/LIVE reconciled. |
 | Остальные existing epics | **100% (`115/115`)** | **100% (`115/115`)** | Completion не изменилась; individual Evidence остаётся в project-spec. |
 

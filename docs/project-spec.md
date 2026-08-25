@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`. Exact-main repository CI `32760830338`, Studio/browser CI `32760830386` и component delivery chain подтвердили текущий merged code. Новая явно авторизованная Goal `PWA-AUDIO-PREPARATION-01` расширяет canonical scope на `AP-01..AP-16`; эти AC ещё не выполнены и увеличивают denominator.
+Verified main baseline: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`. Exact-main repository CI `32777664803`, Studio/browser CI `32777664779`, migration `32778661217` и worker deploy `32778896943` подтвердили merged release. Bounded LIVE подтвердил processing/download/Drive upload, но выявил production-only terminal cleanup defect при `autoflush=False`; scoped hotfix проходит отдельный delivery flow.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -214,7 +214,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 100% (`16/16`)**. Все product AC реализованы и подтверждены tests и exact-head CI; DEPLOY/LIVE отсутствуют, поэтому эпик не READY.
+Status: **🟦 IN PROGRESS — 100% (`16/16`)**. Product scope выполнен в hotfix working branch, но production LIVE на исходном merge выявил terminal-cleanup defect; exact hotfix CI/deploy/retest ещё открыты, поэтому эпик не READY.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
 
@@ -237,9 +237,9 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. | ✅ |
 | `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
 
-Verified CI: source head `55da4bfad92a192a4006f6f30931e28dbe01ea4d`; repository run `32776952785` и Studio/browser run `32776952788` завершились success.
+Verified base delivery: merge `1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`; repository run `32777664803`, Studio/browser run `32777664779`, migration run `32778661217` и worker deploy `32778896943` success. LIVE job `5abd880c-de54-42f2-b55a-0b52b89c19af` подтвердил preview/processing/download/Drive; cleanup canary `73156fa2-9472-484b-bf01-eaf6ce326f64` выявил self-blocking deletion до explicit flush.
 
 Definition of Done: `16/16`, relevant backend/frontend/migration tests и required exact-head CI green, additive schema release и API/worker/web deployment по applicable gates, bounded owner-controlled LIVE с короткими fixtures, authenticated download и одним Google Drive upload без provider call.
 
@@ -388,17 +388,17 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`.
-- Exact-main repository CI: run `32760830338`, success.
-- Exact-main Studio/browser CI: run `32760830386`, jobs `studio` и `browser-e2e` success.
-- Studio component delivery: web run `32760830341`, migration/API run `32762815131`, worker run `32763111064`, success на exact merge revision; migration head `0024_speaker_identity`.
+- Current verified revision: `main@1751d34ce44a33b8d9f28bff8642fe8d62fe7e4c`.
+- Exact-main repository CI: run `32777664803`, success.
+- Exact-main Studio/browser CI: run `32777664779`, jobs `studio` и `browser-e2e` success.
+- Studio component delivery: web run `32777664784`, migration/API run `32778661217`, worker run `32778896943`, success на exact merge revision; migration head `0025_audio_preparation`.
 - Bounded production speaker-identity LIVE подтвердил owner profile, bounded sample, explicit assignment и persisted Google Docs/History result. Остальные historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Реализовать `PWA-AUDIO-PREPARATION-01` как отдельный workspace до `Транскрипций` и закрыть `AP-01..AP-16`.
-2. Провести required CI и applicable additive schema/API/worker/web delivery gates.
-3. Выполнить bounded LIVE на коротких owner-controlled media fixtures без provider call.
+1. Доставить scoped terminal-cleanup hotfix для `PWA-AUDIO-PREPARATION-01` с regression test для production `autoflush=False`.
+2. Провести required exact-hotfix CI и API/worker deployment; schema migration не требуется.
+3. Повторить bounded LIVE ephemeral cleanup canary на коротком owner-controlled fixture без provider call.
 4. После закрытия текущей Goal отдельно согласовать optional TOTP Goal; commercial multi-provider/Russian infrastructure scope остаётся future.
 
 ## 10. Supporting documents

@@ -195,6 +195,10 @@ def process_claimed_audio_preparation_job(
             job.finished_at = _naive_utc(operation_now)
             job.lease_owner_id = None
             job.lease_expires_at = None
+            # SessionLocal disables autoflush. Persist the terminal job state before
+            # deletion readiness checks so the job does not block its own ephemeral
+            # input cleanup as an apparently active processing reference.
+            db.flush()
             _request_ephemeral_cleanup(db, job, operation_now)
             db.commit()
             return AudioProcessingResult(job.id, "completed", "completed", True)
