@@ -16,23 +16,23 @@
   6. Основной Diagnostics flow формирует sanitized diagnostic bundle по периоду, описанию проблемы, optional operation/task reference и формату; component/level/event code/raw identifiers спрятаны в advanced filters; существующие redaction и safe export не ослаблены.
   7. Audio Preparation не показывает полный source catalog автоматически: saved sources открываются explicit action; completed output можно скачать, сделать новым source и передать точный owned source в Transcriptions.
   8. Relevant unit/integration/browser tests, required CI, applicable deployment и bounded LIVE validation проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); migration не ожидается, deployment units определяются фактическим diff; authenticated LIVE session потребуется после merge.
 - **Stop condition:** Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T09:28:39Z.
+- Updated (UTC): 2026-08-25T09:33:10Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
-- Last verified revision: `7d765fc91db1b3f65724f08ce648b4c2fd2a773e` — first CI regression fixes pushed to PR #236; subsequent browser failure below was analyzed against this exact revision.
+- Last verified revision: `86232adf67d6d3fa5fe8b5a6d910ff04dd951bfd` — complete Goal implementation passed all required PR checks.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: task oriented composer terminology; default-closed fragmentation disclosure with state preservation; five URL-backed Settings sections; reusable Source catalog moved to Files & Storage and lazy-loaded; source deletion stale-reload race removed; one diagnostic-bundle flow with bounded untrusted problem context and advanced filters; Audio saved-source disclosure, consistent terminal actions and exact owned Source handoff into Transcriptions; visible source-load retry restored in composer.
-- Current step: align the transcript-maintenance browser scenario with its new Settings section and start another exact-head required-check cycle.
-- Next exact action: commit and push the focused E2E navigation fix, then wait for terminal state of `checks`, `studio` and `browser-e2e` on the new exact head.
-- Validation and Evidence: backend diagnostic suites `20/20` passed; full Studio Vitest `579/579` passed; full Studio ESLint passed; TypeScript/Vite production build passed; `scripts/ci_checks.py` passed. The security sentinel regression now passes locally. Targeted E2E ESLint and Playwright static discovery (`10` tests) pass after aligning both Diagnostics and transcript-maintenance navigation with the new Settings IA. A local full pytest attempt was not CI-equivalent because the workflow's PostgreSQL 17, Redis and protected secret fixtures were absent; authoritative full backend and browser-e2e reruns remain required from GitHub CI.
-- Pull Request / CI / deployment: PR #236 (`7d765fc`) open; `studio` succeeded in run/job `32831915911/97752300617`; `browser-e2e` passed the repaired Diagnostics scenario and the next two scenarios, then failed in run/job `32831915911/97752300831` because transcript maintenance moved to `Подключения` while the test stayed on default `Аккаунт`; `checks` remained in progress when the focused replacement commit was prepared. Merge/deployment not started.
+- Current step: record terminal required-check evidence, then merge and track applicable production deployment.
+- Next exact action: push this checkpoint-only commit, verify branch protection on its final head, then merge PR #236 when required checks are terminal success.
+- Validation and Evidence: backend diagnostic suites `20/20` passed locally; full Studio Vitest `579/579`, full Studio ESLint, TypeScript/Vite production build and `scripts/ci_checks.py` passed locally. On exact revision `86232ad`, GitHub CI passed full backend `1331/1331`, Studio lint/tests/build/container checks, and all `10/10` authenticated browser scenarios. Earlier failures were fully superseded by the successful exact-head runs.
+- Pull Request / CI / deployment: PR #236 (`86232ad`) is `CLEAN`; `checks` succeeded in run/job `32832269279/97753386353`; `studio` and `browser-e2e` succeeded in run/jobs `32832269445/97753386826` and `32832269445/97753386521`. Merge/deployment not started.
 - Blockers: none.
 - Unverified assumptions: production visual behavior at desktop/mobile widths and authenticated exact-source handoff require post-deploy bounded LIVE validation.
 - Preserved pre-existing changes: none.
