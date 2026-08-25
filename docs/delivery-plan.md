@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T09:24:10Z.
+- Updated (UTC): 2026-08-25T09:28:39Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
-- Last verified revision: `9395693b2f1aaf4fc59f7755f0022a7047db645e` — complete UX/IA implementation and PR checkpoint pushed to PR #236; CI failures below were analyzed against this exact revision.
+- Last verified revision: `7d765fc91db1b3f65724f08ce648b4c2fd2a773e` — first CI regression fixes pushed to PR #236; subsequent browser failure below was analyzed against this exact revision.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: task oriented composer terminology; default-closed fragmentation disclosure with state preservation; five URL-backed Settings sections; reusable Source catalog moved to Files & Storage and lazy-loaded; source deletion stale-reload race removed; one diagnostic-bundle flow with bounded untrusted problem context and advanced filters; Audio saved-source disclosure, consistent terminal actions and exact owned Source handoff into Transcriptions; visible source-load retry restored in composer.
-- Current step: fix the two exact-revision CI regressions and start a clean required-check cycle.
-- Next exact action: commit and push the focused CI fixes, then wait for terminal state of `checks`, `studio` and `browser-e2e` on the new exact head.
-- Validation and Evidence: backend diagnostic suites `20/20` passed; full Studio Vitest `579/579` passed; full Studio ESLint passed; TypeScript/Vite production build passed; `scripts/ci_checks.py` passed. Targeted ESLint and Playwright static discovery (`10` tests) pass after aligning the authenticated Diagnostics workflow with the new advanced-filter UI. A local full pytest attempt was not CI-equivalent because the workflow's PostgreSQL 17, Redis and protected secret fixtures were absent; authoritative full backend and browser-e2e reruns remain required from GitHub CI.
-- Pull Request / CI / deployment: PR #236 (`9395693`) open; `studio` succeeded in run `32831163351`; `browser-e2e` failed in run/job `32831163351/97750134844` because it still selected removed Diagnostics labels; `checks` failed in run/job `32831163337/97750010182` with `1330 passed, 1 failed` because new architecture wording accidentally contained the security sentinel substring. Both causes have focused local fixes; merge/deployment not started.
+- Current step: align the transcript-maintenance browser scenario with its new Settings section and start another exact-head required-check cycle.
+- Next exact action: commit and push the focused E2E navigation fix, then wait for terminal state of `checks`, `studio` and `browser-e2e` on the new exact head.
+- Validation and Evidence: backend diagnostic suites `20/20` passed; full Studio Vitest `579/579` passed; full Studio ESLint passed; TypeScript/Vite production build passed; `scripts/ci_checks.py` passed. The security sentinel regression now passes locally. Targeted E2E ESLint and Playwright static discovery (`10` tests) pass after aligning both Diagnostics and transcript-maintenance navigation with the new Settings IA. A local full pytest attempt was not CI-equivalent because the workflow's PostgreSQL 17, Redis and protected secret fixtures were absent; authoritative full backend and browser-e2e reruns remain required from GitHub CI.
+- Pull Request / CI / deployment: PR #236 (`7d765fc`) open; `studio` succeeded in run/job `32831915911/97752300617`; `browser-e2e` passed the repaired Diagnostics scenario and the next two scenarios, then failed in run/job `32831915911/97752300831` because transcript maintenance moved to `Подключения` while the test stayed on default `Аккаунт`; `checks` remained in progress when the focused replacement commit was prepared. Merge/deployment not started.
 - Blockers: none.
 - Unverified assumptions: production visual behavior at desktop/mobile widths and authenticated exact-source handoff require post-deploy bounded LIVE validation.
 - Preserved pre-existing changes: none.
