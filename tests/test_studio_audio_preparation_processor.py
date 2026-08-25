@@ -93,6 +93,47 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path):
         assert source.storage_cleanup_status.value == "pending"
 
 
+def test_processing_reuses_preview_validation_instead_of_decoding_inputs_again(tmp_path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 8, 25, 18, 0, tzinfo=timezone.utc)
+    payload = b"reference-audio"
+    storage = Storage(payload)
+    settings = SimpleNamespace(source_s3_bucket="private", source_max_upload_bytes=1024 * 1024)
+    calls = []
+
+    def recording_runner(command, **kwargs):
+        calls.append(command)
+        return runner(command, **kwargs)
+
+    @contextmanager
+    def temp_directory_factory(prefix):
+        root = tmp_path / prefix
+        root.mkdir(exist_ok=True)
+        yield str(root)
+
+    with Session(engine) as db:
+        user = User(id="owner", email="owner@example.test")
+        project = Project(id="project", owner_user_id=user.id, title="Материалы")
+        source = Source(id="source", project_id=project.id, source_type=SourceType.local_upload, original_filename="input.flac", mime_type="audio/flac", size_bytes=len(payload), s3_bucket="private", s3_object_key="input", upload_status=SourceUploadStatus.uploaded, expires_at=datetime(2026, 8, 30))
+        db.add_all([user, project, source]); db.commit()
+        job = create_audio_preparation_job(db, owner_user_id=user.id, project_id=project.id, title="Запись", source_ids=[source.id], ephemeral_source_ids=set(), manual_order=True, options_payload={"preset": "processing_only", "output_format": "flac"}, output_destination="download", output_folder=None, now=now)
+        db.commit()
+
+        preview_claim = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=now, lease_ttl=timedelta(minutes=10)); db.commit()
+        process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=preview_claim.lease_generation, settings=settings, now=now, storage_factory=lambda _settings: storage, runner=recording_runner, temp_directory_factory=temp_directory_factory)
+        preview_integrity_calls = sum(command[-1] == "-" for command in calls if command[0] == "ffmpeg")
+        assert preview_integrity_calls == 1
+
+        start_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id); db.commit()
+        process_claim = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=now + timedelta(minutes=1), lease_ttl=timedelta(minutes=10)); db.commit()
+        calls.clear()
+        process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=process_claim.lease_generation, settings=settings, now=now + timedelta(minutes=1), storage_factory=lambda _settings: storage, runner=recording_runner, temp_directory_factory=temp_directory_factory)
+
+        assert sum(command[-1] == "-" for command in calls if command[0] == "ffmpeg") == 0
+        assert sum(command[-1] != "-" for command in calls if command[0] == "ffmpeg") == 1
+
+
 def test_expired_active_lease_is_reclaimed():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)

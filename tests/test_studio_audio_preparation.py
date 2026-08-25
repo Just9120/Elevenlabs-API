@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from subprocess import CompletedProcess
+from io import StringIO
 import sys
 
 import pytest
@@ -21,6 +22,7 @@ from studio_api.audio_preparation import (
     normalize_options,
     probe_media,
     render_output_filename,
+    run_processing,
     verify_media_integrity,
 )
 
@@ -237,7 +239,10 @@ def test_integrity_check_decodes_audio_without_shell():
 
 
 def test_silence_analysis_parses_only_bounded_scalar_durations():
+    calls = []
+
     def runner(command, **kwargs):
+        calls.append(command)
         return CompletedProcess(
             command,
             0,
@@ -246,6 +251,7 @@ def test_silence_analysis_parses_only_bounded_scalar_durations():
         )
 
     assert analyze_silence(Path("private.wav"), threshold_db=-40, minimum_seconds=1, runner=runner) == (2.4, 5.0)
+    assert "-xerror" in calls[0]
 
 
 def test_preview_sums_duration_estimates_truncated_silence_and_copy_compatibility():
@@ -302,9 +308,43 @@ def test_conversion_command_composes_channel_silence_concat_and_exact_codec(mono
     if expected_filter is not None:
         assert expected_filter in filter_value
     assert "silenceremove=" in filter_value
+    assert filter_value.count("asetpts=PTS-STARTPTS") == 2
     assert "concat=n=2:v=0:a=1[outa]" in filter_value
     assert command[-6:] == ["-c:a", "flac", "-f", "flac", "-y", "out.flac"]
     assert "shell" not in command
+
+
+def test_processing_reports_bounded_ffmpeg_progress(monkeypatch):
+    class Process:
+        def __init__(self):
+            self.stdout = StringIO(
+                "out_time=00:00:10.000000\nprogress=continue\n"
+                "out_time=00:01:40.000000\nprogress=end\n"
+            )
+        def wait(self): return 0
+        def poll(self): return 0
+        def kill(self): raise AssertionError("successful process must not be killed")
+
+    captured = {}
+
+    def popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return Process()
+
+    monkeypatch.setattr("studio_api.audio_preparation.subprocess.Popen", popen)
+    progress = []
+    run_processing(
+        ["ffmpeg", "-v", "error", "-i", "input.wav", "-y", "output.flac"],
+        expected_duration_seconds=100,
+        progress_callback=progress.append,
+    )
+
+    assert progress == [0.1, 0.99, 1.0]
+    assert captured["command"][-8:] == [
+        "-nostdin", "-nostats", "-stats_period", "5", "-progress", "pipe:1", "-y", "output.flac"
+    ]
+    assert captured["kwargs"]["stderr"] == -3
 
 
 def test_render_filename_uses_only_allowlisted_metadata_and_extension():

@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .config import get_settings
 from .db import SessionLocal
-from .models import DiagnosticComponent, DiagnosticEvent, DiagnosticLevel, Project, TranscriptionJob, User
+from .models import AudioPreparationJob, DiagnosticComponent, DiagnosticEvent, DiagnosticLevel, Project, TranscriptionJob, User
 
 LOGGER = logging.getLogger("studio_api.diagnostics")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -93,6 +93,11 @@ REALTIME_CAPABILITY_FAILURE_REASONS = frozenset({
     "provider_timeout",
     "malformed_provider_response",
 })
+AUDIO_PREPARATION_ERROR_CODES = frozenset({
+    "invalid_options", "invalid_input", "probe_unavailable", "probe_failed", "media_integrity_failed",
+    "copy_incompatible", "channel_unavailable", "processing_failed", "processing_timeout", "output_too_large",
+})
+AUDIO_PREPARATION_STAGES = frozenset({"analyzing", "materializing", "processing", "storing", "google_drive_upload", "failed"})
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:
     return MetaRule(kind, min, max, choices, required)
@@ -140,6 +145,7 @@ REGISTRY: dict[str, EventDef] = {
     "GOOGLE_PICKER_SESSION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=GOOGLE_PICKER_SESSION_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "REALTIME_CAPABILITY_ISSUED": EventDef(frozenset({"api"}), "INFO", {"model": R("enum", choices=frozenset({"scribe_v2_realtime"}), required=True), "expires_in_seconds": R("int", min=1, max=900, required=True)}),
     "REALTIME_CAPABILITY_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=REALTIME_CAPABILITY_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
+    "AUDIO_PREPARATION_FAILED": EventDef(frozenset({"worker"}), "ERROR", {"error_code": R("enum", choices=AUDIO_PREPARATION_ERROR_CODES, required=True), "stage": R("enum", choices=AUDIO_PREPARATION_STAGES, required=True), "input_count": R("int", min=1, max=50, required=True)}),
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_UNHANDLED_EXCEPTION": EventDef(frozenset({"api"}), "ERROR", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=frozenset({"5xx"}), required=True)}),
     "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
@@ -276,7 +282,7 @@ def _scope_valid(db, owner_user_id: str, project_id: str | None, job_id: str | N
         if project is None or project.owner_user_id != owner_user_id:
             return False
     if job_id is not None:
-        job = db.get(TranscriptionJob, job_id)
+        job = db.get(TranscriptionJob, job_id) or db.get(AudioPreparationJob, job_id)
         if job is None or job.owner_user_id != owner_user_id:
             return False
         if project_id is not None and job.project_id != project_id:
