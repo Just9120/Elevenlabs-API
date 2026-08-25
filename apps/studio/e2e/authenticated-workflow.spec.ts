@@ -129,8 +129,9 @@ test('authenticated user opens transcriptions and reads a completed job result',
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();
   await page.getByRole('tab', { name: 'Диагностика' }).click();
+  await page.getByText('Расширенные технические фильтры', { exact: true }).click();
   await page
-    .getByRole('textbox', { name: 'Задача', exact: true })
+    .getByRole('textbox', { name: 'Internal task ID', exact: true })
     .fill(resultJobId);
   const diagnosticsResponsePromise = page.waitForResponse(
     (response) =>
@@ -139,7 +140,7 @@ test('authenticated user opens transcriptions and reads a completed job result',
       response.url().includes(`job_id=${resultJobId}`),
   );
   await page
-    .getByRole('button', { name: 'Применить фильтры', exact: true })
+    .getByRole('button', { name: 'Обновить события', exact: true })
     .click();
   const diagnosticsResponse = await diagnosticsResponsePromise;
   expect(diagnosticsResponse.status()).toBe(200);
