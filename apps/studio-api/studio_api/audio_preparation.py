@@ -26,6 +26,10 @@ TEMPLATE_FIELD_PATTERN = re.compile(r"\{([a-z]+)\}")
 SILENCE_END_PATTERN = re.compile(
     r"silence_end:\s*(?P<end>[0-9]+(?:\.[0-9]+)?)\s*\|\s*silence_duration:\s*(?P<duration>[0-9]+(?:\.[0-9]+)?)"
 )
+FFPROBE_CLOCK_DURATION_PATTERN = re.compile(
+    r"^(?P<hours>[0-9]{1,6}):(?P<minutes>[0-5][0-9]):(?P<seconds>[0-5][0-9](?:\.[0-9]{1,9})?)$"
+)
+FFPROBE_TIME_BASE_PATTERN = re.compile(r"^(?P<numerator>[0-9]{1,12})/(?P<denominator>[1-9][0-9]{0,12})$")
 
 
 class AudioPreparationReason(str, Enum):
@@ -219,7 +223,23 @@ def probe_media(
     if not audio_streams:
         raise AudioPreparationError(AudioPreparationReason.invalid_input)
     stream = audio_streams[0]
-    duration = _first_positive_duration(stream.get("duration"), format_payload.get("duration"))
+    duration = _first_positive_duration(
+        stream.get("duration"),
+        format_payload.get("duration"),
+        *_ffprobe_tag_durations(stream),
+        *_ffprobe_tag_durations(format_payload),
+        _ffprobe_time_base_duration(stream),
+        *(
+            value
+            for candidate in streams
+            if isinstance(candidate, dict) and candidate is not stream
+            for value in (
+                candidate.get("duration"),
+                *_ffprobe_tag_durations(candidate),
+                _ffprobe_time_base_duration(candidate),
+            )
+        ),
+    )
     codec = _bounded_token(stream.get("codec_name"), 40)
     format_name = _bounded_token(format_payload.get("format_name"), 120)
     sample_rate = _positive_int(stream.get("sample_rate"), 384000)
@@ -430,6 +450,16 @@ def _bounded_number(value: object, bounds: tuple[float, float]) -> float:
 
 
 def _positive_duration(value: object) -> float:
+    if isinstance(value, str):
+        match = FFPROBE_CLOCK_DURATION_PATTERN.fullmatch(value.strip())
+        if match is not None:
+            duration = (
+                int(match.group("hours")) * 3600
+                + int(match.group("minutes")) * 60
+                + float(match.group("seconds"))
+            )
+            if math.isfinite(duration) and 0 < duration <= MAX_AUDIO_DURATION_SECONDS:
+                return duration
     try:
         duration = float(value)
     except (TypeError, ValueError) as exc:
@@ -453,6 +483,32 @@ def _first_positive_duration(*values: object) -> float:
             if exc.reason is not AudioPreparationReason.invalid_input:
                 raise
     raise AudioPreparationError(AudioPreparationReason.invalid_input)
+
+
+def _ffprobe_tag_durations(payload: dict[str, object]) -> tuple[object, ...]:
+    tags = payload.get("tags")
+    if not isinstance(tags, dict):
+        return ()
+    return tuple(value for key, value in tags.items() if isinstance(key, str) and key.upper() == "DURATION")
+
+
+def _ffprobe_time_base_duration(stream: dict[str, object]) -> float | None:
+    duration_ts = stream.get("duration_ts")
+    time_base = stream.get("time_base")
+    if isinstance(duration_ts, bool) or not isinstance(time_base, str):
+        return None
+    match = FFPROBE_TIME_BASE_PATTERN.fullmatch(time_base.strip())
+    if match is None:
+        return None
+    try:
+        ticks = int(duration_ts)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    numerator = int(match.group("numerator"))
+    denominator = int(match.group("denominator"))
+    if ticks <= 0 or numerator <= 0:
+        return None
+    return ticks * numerator / denominator
 
 
 def _positive_int(value: object, maximum: int) -> int:
