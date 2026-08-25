@@ -702,7 +702,24 @@ async function reviewAndConfirmBatch() {
 async function openSettingsPage() {
   await openPlatformNavPage("Настройки");
   expect(
-    await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+    await screen.findByRole("heading", { name: "Аккаунт" }),
+  ).toBeInTheDocument();
+}
+
+async function openSettingsSection(
+  name:
+    | "Аккаунт"
+    | "Подключения"
+    | "Файлы и хранилище"
+    | "Оформление"
+    | "Диагностика",
+) {
+  await openSettingsPage();
+  if (name !== "Аккаунт") {
+    await userEvent.click(screen.getByRole("tab", { name }));
+  }
+  expect(
+    await screen.findByRole("heading", { name }),
   ).toBeInTheDocument();
 }
 
@@ -1296,11 +1313,13 @@ describe("Studio PWA", () => {
 
   it("exposes clear provider limits and keyboard-operable settings tabs", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
 
     expect(
       screen.getByRole("heading", { name: "Настройки", level: 1 }),
     ).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    await userEvent.click(screen.getByRole("tab", { name: "Подключения" }));
     expect(
       screen.getByText(/транскрибации выполняются только через ElevenLabs/i),
     ).toBeInTheDocument();
@@ -1322,7 +1341,7 @@ describe("Studio PWA", () => {
 
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {
     renderApp();
-    await openProjectsPage();
+    await openSettingsSection("Файлы и хранилище");
 
     expect(screen.queryByText("Папка по умолчанию")).not.toBeInTheDocument();
     expect(
@@ -1331,7 +1350,6 @@ describe("Studio PWA", () => {
       }),
     ).not.toBeInTheDocument();
 
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const sourceLink = await screen.findByRole("link", {
       name: "Открыть файл в Google Drive в новой вкладке",
     });
@@ -1344,11 +1362,11 @@ describe("Studio PWA", () => {
     expect(
       screen
         .getByRole("button", {
-          name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+          name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
         })
         .closest(".resource-actions"),
     ).not.toBeNull();
-    expect(screen.getAllByText("Убрать из проекта")).toHaveLength(2);
+    expect(screen.getAllByText("Убрать из Studio")).toHaveLength(2);
     expect(
       screen.queryByRole("button", { name: "Удалить" }),
     ).not.toBeInTheDocument();
@@ -1359,7 +1377,7 @@ describe("Studio PWA", () => {
       screen.getByText("Временную копию удалит фоновая очистка Studio."),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Хранится до:/)).toBeInTheDocument();
     expect(
@@ -1463,10 +1481,9 @@ describe("Studio PWA", () => {
       },
     );
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     const removeButton = await screen.findByRole("button", {
-      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+      name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
     });
     await userEvent.click(removeButton);
     await waitFor(() =>
@@ -1493,7 +1510,6 @@ describe("Studio PWA", () => {
         name: "Открыть файл в Google Drive в новой вкладке",
       }),
     ).not.toBeInTheDocument();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(screen.queryByText(/Лекция 1\. Личность/)).not.toBeInTheDocument();
   });
 
@@ -1504,10 +1520,9 @@ describe("Studio PWA", () => {
       throw new Error("confirm unavailable");
     });
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     await userEvent.click(
-      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -1519,11 +1534,10 @@ describe("Studio PWA", () => {
   it("confirms source removal text and sends at most one DELETE", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+        name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
       }),
     );
     expect(confirm).toHaveBeenCalledWith(
@@ -1537,7 +1551,7 @@ describe("Studio PWA", () => {
 
     confirm.mockReturnValue(true);
     await userEvent.click(
-      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     );
     expect(confirm).toHaveBeenLastCalledWith(
       "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.",
@@ -1575,10 +1589,9 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     const removeButton = screen.getByRole("button", {
-      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+      name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
     });
 
     vi.useFakeTimers();
@@ -1611,7 +1624,7 @@ describe("Studio PWA", () => {
             url === "/api/sources/s1" && init?.method === "DELETE",
         ),
       ).toHaveLength(1);
-      expect(screen.getByText("Файл убран из проекта.")).toBeInTheDocument();
+      expect(screen.getByText("Файл убран из Studio.")).toBeInTheDocument();
       expect(
         screen.queryByText("Лекция 1. Личность как психологическое явление.flac"),
       ).not.toBeInTheDocument();
@@ -1630,10 +1643,9 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     const removeButton = screen.getByRole("button", {
-      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+      name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
     });
     await userEvent.click(removeButton);
 
@@ -1671,14 +1683,13 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     await userEvent.click(
-      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     );
     expect(
       await screen.findByText(
-        "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.",
+        "Файл убран из Studio. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.",
       ),
     ).toBeInTheDocument();
   });
@@ -1706,12 +1717,11 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     expect(await screen.findByText("local-temp.ogg")).toBeInTheDocument();
     failSourceReload = true;
     await userEvent.click(
-      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     );
 
     expect(
@@ -1720,7 +1730,7 @@ describe("Studio PWA", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText("Не удалось загрузить файлы проекта."),
+      await screen.findByText("Не удалось загрузить сохранённые файлы Studio."),
     ).toBeInTheDocument();
     expect(screen.getByText("local-temp.ogg")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw source reload failure");
@@ -1742,10 +1752,9 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     await userEvent.click(
-      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     );
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("job_");
@@ -1836,11 +1845,10 @@ describe("Studio PWA", () => {
       },
     );
     renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await openSettingsSection("Файлы и хранилище");
     await userEvent.click(
       await screen.findByRole("button", {
-        name: "Убрать из проекта: safe-drive.mp4",
+        name: "Убрать из Studio: safe-drive.mp4",
       }),
     );
     expect(
@@ -2121,7 +2129,7 @@ describe("Studio PWA", () => {
     renderApp();
     await openProjectsPage();
     await waitFor(() => expect(resolveFirstProjectsRead).toBeDefined());
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await screen.findByText("Google Drive не подключён");
     await openProjectsPage();
     expect(
@@ -2921,7 +2929,7 @@ describe("Studio PWA", () => {
       "/api/auth/csrf",
       expect.objectContaining({ method: "POST" }),
     );
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await screen.findByText(/Ключи провайдеров/);
     expect(
       screen.getByRole("heading", {
@@ -2940,7 +2948,7 @@ describe("Studio PWA", () => {
 
   it("persists the local-source retention choice through account settings", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
 
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
@@ -3006,7 +3014,7 @@ describe("Studio PWA", () => {
 
     try {
       renderApp();
-      await openSettingsPage();
+      await openSettingsSection("Файлы и хранилище");
       expect(
         await screen.findByText(
           "Не удалось загрузить настройку хранения. Повторите попытку.",
@@ -3033,7 +3041,7 @@ describe("Studio PWA", () => {
     );
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     expect(
       await screen.findByText(
         "Не удалось загрузить настройку хранения. Повторите попытку.",
@@ -3077,7 +3085,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
@@ -3148,7 +3156,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
@@ -3161,7 +3169,7 @@ describe("Studio PWA", () => {
     expect(screen.getByRole("button", { name: "Сохраняем…" })).toBeDisabled();
 
     await openProjectsPage();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     expect(
       await screen.findByRole("button", { name: "Сохраняем…" }),
     ).toBeDisabled();
@@ -3196,7 +3204,7 @@ describe("Studio PWA", () => {
 
     const readsBeforeFinalReopen = preferenceReads;
     await openProjectsPage();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
@@ -3226,7 +3234,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
@@ -3264,7 +3272,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Файлы и хранилище");
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
@@ -3288,7 +3296,7 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     expect(
       await screen.findByText("Google Drive не подключён"),
     ).toBeInTheDocument();
@@ -3348,7 +3356,7 @@ describe("Studio PWA", () => {
       },
     );
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     expect(
       await screen.findByText("Google Drive подключён"),
     ).toBeInTheDocument();
@@ -3383,7 +3391,7 @@ describe("Studio PWA", () => {
       writable: true,
     });
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Подключить Google Drive" }),
     );
@@ -3486,7 +3494,7 @@ describe("Studio PWA", () => {
       },
     );
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Отключить Google Drive" }),
     );
@@ -3535,7 +3543,7 @@ describe("Studio PWA", () => {
 
     try {
       renderApp();
-      await openSettingsPage();
+      await openSettingsSection("Подключения");
       expect(
         await screen.findByText(
           "Не удалось загрузить статус Google Drive. Повторите попытку.",
@@ -3570,7 +3578,7 @@ describe("Studio PWA", () => {
     );
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     expect(
       await screen.findByText(
         "Не удалось загрузить статус Google Drive. Повторите попытку.",
@@ -3611,7 +3619,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     const connect = await screen.findByRole("button", {
       name: "Подключить Google Drive",
     });
@@ -3672,7 +3680,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     const readsBeforeMutation = connectionReads;
     await userEvent.click(
       await screen.findByRole("button", { name: "Подключить Google Drive" }),
@@ -3725,7 +3733,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     const disconnect = await screen.findByRole("button", {
       name: "Отключить Google Drive",
     });
@@ -3733,7 +3741,7 @@ describe("Studio PWA", () => {
     fireEvent.click(disconnect);
     await waitFor(() => expect(resolveDelete).toBeDefined());
     await openProjectsPage();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     expect(
       await screen.findByRole("button", { name: "Отключить Google Drive" }),
     ).toBeDisabled();
@@ -3763,7 +3771,7 @@ describe("Studio PWA", () => {
 
     const readsBeforeFinalReopen = connectionReads;
     await openProjectsPage();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await screen.findByText("Google Drive не подключён");
     expect(connectionReads).toBe(readsBeforeFinalReopen + 2);
   });
@@ -3793,7 +3801,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     const readsBeforeMutation = connectionReads;
     await userEvent.click(
       await screen.findByRole("button", { name: "Отключить Google Drive" }),
@@ -3835,11 +3843,12 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Подключить Google Drive" }),
     );
     await waitFor(() => expect(resolveStart).toBeDefined());
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
     await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
     expect(
       await screen.findByRole("heading", { name: "Вход" }),
@@ -3858,7 +3867,7 @@ describe("Studio PWA", () => {
   });
   it("supports credential replacement without rendering raw key", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Заменить" }),
     );
@@ -3876,7 +3885,7 @@ describe("Studio PWA", () => {
     const confirm = vi.mocked(window.confirm);
     confirm.mockReturnValue(false);
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
 
     expect(
       await screen.findByText(/Отключение запрещает использовать ключ/),
@@ -3932,7 +3941,7 @@ describe("Studio PWA", () => {
 
   it("creates credentials with raw_value while using credential-specific field names", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Добавить ключ" }),
     );
@@ -3989,7 +3998,7 @@ describe("Studio PWA", () => {
 
     try {
       renderApp();
-      await openSettingsPage();
+      await openSettingsSection("Подключения");
       expect(
         await screen.findByText(
           "Не удалось загрузить ключи провайдеров. Повторите попытку.",
@@ -4016,7 +4025,7 @@ describe("Studio PWA", () => {
     );
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     expect(
       await screen.findByText(
         "Не удалось загрузить ключи провайдеров. Повторите попытку.",
@@ -4045,7 +4054,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Добавить ключ" }),
     );
@@ -4116,7 +4125,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Заменить" }),
     );
@@ -4146,7 +4155,7 @@ describe("Studio PWA", () => {
       503,
     );
     await act(async () => resolveReplace?.(failedResponse));
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     expect(
       await screen.findByText(
         "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново.",
@@ -4191,7 +4200,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Отключить" }),
     );
@@ -4238,7 +4247,7 @@ describe("Studio PWA", () => {
     });
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", { name: "Удалить навсегда" }),
     );
@@ -4273,6 +4282,31 @@ describe("Studio PWA", () => {
     expect(
       screen.queryByRole("button", { name: "Архивировать" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("opens transcriptions with the exact prepared audio source", async () => {
+    renderApp();
+    await waitForPlatformOverview();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("studio:transcribe-source", {
+          detail: { sourceId: "s1" },
+        }),
+      );
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "Транскрибации" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Существующий файл для задачи 1"),
+    ).toHaveValue("s1");
+    expect(
+      screen.getByText(
+        "Результат обработки добавлен в новую задачу транскрибации.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("creates one internal transcription workspace when no active project exists", async () => {
@@ -4570,7 +4604,7 @@ describe("Studio PWA", () => {
 
   it("offers and persists system, light, and dark appearance choices", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Оформление");
     const selector = screen.getByLabelText("Тема интерфейса");
     expect(selector).toHaveValue("system");
     await userEvent.selectOptions(selector, "dark");
@@ -4583,7 +4617,7 @@ describe("Studio PWA", () => {
 
   it("persists and applies the owner accent color without browser storage", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Оформление");
     const selector = await screen.findByLabelText("Цвет интерфейса");
     expect(selector).toHaveValue("blue");
 
@@ -5705,12 +5739,6 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Готовность задач подготовки"),
     ).toHaveTextContent("Готово:");
     expect(
-      screen.getByText(/Файл ещё не готов для задачи/),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Убранный из проекта файл нельзя добавить в задачу/),
-    ).toBeInTheDocument();
-    expect(
       within(screen.getByLabelText("Существующий файл для задачи 1")).getByRole(
         "option",
         { name: /pending-local\.ogg/ },
@@ -6269,196 +6297,23 @@ describe("Studio PWA", () => {
     ).toBeLessThan(document.body.textContent?.indexOf("Existing history") ?? 0);
   });
 
-  it("blocks removed sources immediately while source reload is still pending", async () => {
-    let resolveReload: (value: Response) => void = () => undefined;
-    let sourceListCalls = 0;
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (url: string, init?: RequestInit) => {
-        if (url.endsWith("/api/auth/session"))
-          return json({
-            authenticated: true,
-            user: { email: "user@example.com", role: "admin" },
-          });
-        if (url.endsWith("/api/auth/csrf"))
-          return json({ csrf_token: "csrf-after-refresh" });
-        if (url.endsWith("/api/google/connection"))
-          return json({
-            connected: true,
-            status: "active",
-            google_email: "safe.user@example.com",
-            scopes: "drive.file",
-            connected_at: "2026-07-01T00:00:00Z",
-            revoked_at: null,
-            picker_configured: true,
-            picker_scope_ready: true,
-            picker_ready: true,
-            reconnect_required: false,
-          });
-        if (url.endsWith("/api/credentials"))
-          return json({
-            credentials: [
-              {
-                id: "cred-active",
-                provider: "elevenlabs",
-                label: "Primary STT",
-                status: "active",
-                masked_value: "••••1234",
-                active_version: 2,
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects"))
-          return json({
-            projects: [
-              {
-                id: "p1",
-                title: "Research calls",
-                description: null,
-                created_at: "2026-07-01T00:00:00Z",
-                updated_at: "2026-07-01T00:00:00Z",
-                archived_at: null,
-                output_drive_folder_id: "folder-default",
-                output_drive_folder_url:
-                  "https://drive.google.com/drive/folders/folder-default",
-                output_drive_folder_name: "Default folder",
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
-          return json({ jobs: [] });
-        if (url.endsWith("/api/projects/p1/sources") && !init?.method) {
-          sourceListCalls += 1;
-          if (sourceListCalls > 1)
-            return new Promise((resolve) => {
-              resolveReload = resolve;
-            });
-          return json({
-            sources: [
-              {
-                id: "s1",
-                project_id: "p1",
-                source_type: "local_upload",
-                original_filename: "remove-me.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 10,
-                drive_file_id: null,
-                drive_file_url: null,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:00:00Z",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00Z",
-                updated_at: "2026-07-01T00:00:00Z",
-              },
-              {
-                id: "s2",
-                project_id: "p1",
-                source_type: "local_upload",
-                original_filename: "replacement.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 12,
-                drive_file_id: null,
-                drive_file_url: null,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:00:00Z",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00Z",
-                updated_at: "2026-07-01T00:00:00Z",
-              },
-            ],
-          });
-        }
-        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({
-            ok: true,
-            source_state: "deleted",
-            storage_cleanup: "pending",
-          });
-        if (
-          url.endsWith("/api/projects/p1/jobs/batch") &&
-          init?.method === "POST"
-        )
-          return json({ jobs: [], created_count: 0, replayed: false });
-        return json({ ok: true });
-      },
-    );
+  it("moves saved-file management out of transcriptions and into Settings", async () => {
     renderApp();
     await openSelectedProjectJobs();
-    await chooseExistingSource(1, "remove-me.ogg");
-    await chooseResultFolder(1, "folder-default");
-    await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
-      "Keep title",
-    );
-    expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Убрать из проекта: remove-me.ogg" }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/sources/s1",
-        expect.objectContaining({ method: "DELETE" }),
-      ),
-    );
-    expect(
-      within(
-        screen.getByLabelText("Существующий файл для задачи 1"),
-      ).queryByRole("option", { name: /remove-me.ogg/ }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText(/Источник удалён из Studio/)).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Keep title")).toBeInTheDocument();
-    expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
-    await chooseExistingSource(1, "replacement.ogg");
-    expect(
-      screen.queryByText(/Источник удалён из проекта/),
-    ).not.toBeInTheDocument();
-    await userEvent.selectOptions(
-      screen.getByLabelText("Существующий файл для задачи 1"),
-      "",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Проверить задачи \(\d+\)/ }),
-    );
-    expect(
-      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url, init]) =>
-          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
-      ),
-    ).toBe(false);
-    resolveReload(
-      await json({
-        sources: [
-          {
-            id: "s1",
-            project_id: "p1",
-            source_type: "local_upload",
-            original_filename: "remove-me.ogg",
-            mime_type: "audio/ogg",
-            size_bytes: 10,
-            drive_file_id: null,
-            drive_file_url: null,
-            upload_status: "uploaded",
-            uploaded_at: "2026-07-01T00:00:00Z",
-            expires_at: null,
-            deleted_at: null,
-            delete_reason: null,
-            created_at: "2026-07-01T00:00:00Z",
-            updated_at: "2026-07-01T00:00:00Z",
-          },
-        ],
-      }),
-    );
-    await waitFor(() => expect(sourceListCalls).toBeGreaterThan(1));
-    expect(
-      within(
-        screen.getByLabelText("Существующий файл для задачи 1"),
-      ).queryByRole("option", { name: /remove-me.ogg/ }),
-    ).not.toBeInTheDocument();
-  });
 
+    expect(screen.queryByText("Файлы проекта")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Убрать из Studio:/ }),
+    ).not.toBeInTheDocument();
+
+    await openSettingsSection("Файлы и хранилище");
+    expect(
+      await screen.findByRole("heading", { name: "Сохранённые файлы Studio" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
+    ).toBeInTheDocument();
+  });
   it("row folder verification retries only CSRF rejections and never ordinary failures", async () => {
     const scenarios: Array<{
       name: string;
@@ -8164,7 +8019,7 @@ describe("Studio PWA", () => {
     expect(
       screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeDisabled();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(
       await screen.findByRole("button", {
         name: "Переподключить Google Drive",
@@ -8347,7 +8202,9 @@ describe("Studio PWA", () => {
       });
 
       expect(
-        await screen.findByText("Не удалось загрузить файлы проекта."),
+        await screen.findByText(
+          "Не удалось загрузить сохранённые файлы Studio.",
+        ),
       ).toBeInTheDocument();
       expect(
         await screen.findByText("Не удалось загрузить задачи проекта."),
@@ -8421,7 +8278,9 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     expect(
-      await screen.findByText("Не удалось загрузить файлы проекта."),
+      await screen.findByText(
+        "Не удалось загрузить сохранённые файлы Studio.",
+      ),
     ).toBeInTheDocument();
     expect(
       await screen.findByText("Не удалось загрузить задачи проекта."),
@@ -9077,109 +8936,42 @@ describe("Studio PWA", () => {
     );
   });
 
-  it("keeps source deletion ownership and safe outcomes across project switches", async () => {
-    installFocusedOutputFixture({
-      jobStatus: "processing",
-      includeSecondProject: true,
-    });
+  it("keeps source deletion ownership across Settings section switches", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
+    let resolveDelete: (response: Response) => void = () => undefined;
     let deleteCalls = 0;
-    let deleteSettled = false;
-    let deleteConfirmed = false;
-    let sourceReadsAfterSettlement = 0;
-    const deleteResolvers: Array<(response: Response) => void> = [];
-    const ambiguousNotice =
-      "\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u0444\u0430\u0439\u043b\u0430. \u0421\u043f\u0438\u0441\u043e\u043a \u0444\u0430\u0439\u043b\u043e\u0432 \u043e\u0431\u043d\u043e\u0432\u043b\u0451\u043d; \u043f\u043e\u0434\u043e\u0436\u0434\u0438\u0442\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u0440\u0438 \u043d\u0435\u043e\u0431\u0445\u043e\u0434\u0438\u043c\u043e\u0441\u0442\u0438.";
-    const successNotice = "\u0424\u0430\u0439\u043b \u0443\u0431\u0440\u0430\u043d \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430.";
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/projects/p1/sources" && !init?.method) {
-        if (deleteSettled) sourceReadsAfterSettlement += 1;
-        if (deleteConfirmed) return json({ sources: [] });
-      }
-      if (url === "/api/sources/source-focused" && init?.method === "DELETE") {
+      if (url === "/api/sources/s1" && init?.method === "DELETE") {
         deleteCalls += 1;
         return new Promise<Response>((resolve) => {
-          deleteResolvers.push(resolve);
+          resolveDelete = resolve;
         });
       }
       return defaultFetch?.(url, init) ?? json({});
     });
 
-    await openFocusedJobsList();
-    const removeButton = screen.getByRole("button", {
-      name: "Убрать из проекта: focused-source.mp3",
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    const removeButton = await screen.findByRole("button", {
+      name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
     });
     await userEvent.click(removeButton);
     await waitFor(() => expect(deleteCalls).toBe(1));
 
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
     await userEvent.click(
-      screen.getByRole("button", { name: /Project Two/ }),
+      screen.getByRole("tab", { name: "Файлы и хранилище" }),
     );
-    await screen.findByRole("form", {
-      name: "Композитор пакетных задач",
+    const restoredButton = await screen.findByRole("button", {
+      name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
     });
-    expect(
-      screen.queryByText(
-        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
-      ),
-    ).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Research calls/ }),
-    );
-    const restoredRemoveButton = await screen.findByRole("button", {
-      name: "Убрать из проекта: focused-source.mp3",
-    });
-    expect(restoredRemoveButton).toBeDisabled();
-    expect(restoredRemoveButton).toHaveAttribute("aria-busy", "true");
-    restoredRemoveButton.click();
+    expect(restoredButton).toBeDisabled();
+    restoredButton.click();
     expect(deleteCalls).toBe(1);
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /Project Two/ }),
-    );
-    deleteSettled = true;
     await act(async () => {
-      deleteResolvers[0]?.(await json({ detail: "raw delete failure" }, false, 500));
-    });
-    await waitFor(() => expect(sourceReadsAfterSettlement).toBeGreaterThan(0));
-    expect(
-      screen.queryByText(
-        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
-      ),
-    ).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Research calls/ }),
-    );
-    expect(
-      await screen.findByText(
-        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", {
-        name: "Убрать из проекта: focused-source.mp3",
-      }),
-    ).toBeEnabled();
-    expect(deleteCalls).toBe(1);
-    expect(document.body).not.toHaveTextContent("raw delete failure");
-
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: focused-source.mp3",
-      }),
-    );
-    await waitFor(() => expect(deleteCalls).toBe(2));
-    expect(screen.queryByText(ambiguousNotice)).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Project Two/ }),
-    );
-    deleteConfirmed = true;
-    await act(async () => {
-      deleteResolvers[1]?.(
+      resolveDelete(
         await json({
           ok: true,
           source_state: "deleted",
@@ -9187,20 +8979,13 @@ describe("Studio PWA", () => {
         }),
       );
     });
-    expect(screen.queryByText(successNotice)).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Research calls/ }),
-    );
-    expect(await screen.findByText(successNotice)).toBeInTheDocument();
+    expect(await screen.findByText("Файл убран из Studio.")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", {
-        name: "\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: focused-source.mp3",
+        name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
       }),
     ).not.toBeInTheDocument();
-    expect(deleteCalls).toBe(2);
   });
-
   it("keeps local upload ownership and safe outcomes across project switches", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -10597,7 +10382,7 @@ describe("Studio PWA", () => {
     });
     renderApp();
     expect(
-      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+      await screen.findByRole("heading", { name: "Подключения" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(
@@ -10656,7 +10441,7 @@ describe("Studio PWA", () => {
     renderApp();
 
     expect(
-      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+      await screen.findByRole("heading", { name: "Подключения" }),
     ).toBeInTheDocument();
     expect(
       await screen.findByText(
@@ -10774,7 +10559,7 @@ describe("Studio PWA", () => {
   });
   it("marks BYOK credential forms to avoid saved login autofill", async () => {
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await screen.findByText(/Ключи провайдеров/);
     await userEvent.click(
       screen.getByRole("button", { name: "Добавить ключ" }),
@@ -12628,8 +12413,14 @@ describe("Studio PWA", () => {
 
   it("places Google Drive technical values in a closed details block and repairs security summary markup", async () => {
     renderApp();
-    await openSettingsPage();
-    const technical = await screen.findByText("Технические сведения");
+    await openSettingsSection("Подключения");
+    const googleCard = screen
+      .getByRole("heading", { name: "Google Drive подключён" })
+      .closest("article");
+    expect(googleCard).not.toBeNull();
+    const technical = within(googleCard as HTMLElement).getByText(
+      "Технические сведения",
+    );
     const details = technical.closest("details");
     expect(details).not.toHaveAttribute("open");
     expect(
@@ -12638,6 +12429,7 @@ describe("Studio PWA", () => {
     expect(
       within(details as HTMLElement).getByText(/drive.file/),
     ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
     const securitySummary = screen
       .getByText("Журнал безопасности")
       .closest("summary");
@@ -12712,7 +12504,7 @@ describe("settings diagnostics", () => {
   });
 
   async function openDiagnosticsSettings() {
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
     await screen.findByRole("heading", { name: "Диагностика" });
   }
@@ -12876,7 +12668,7 @@ describe("settings diagnostics", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     renderApp();
-    await openSettingsPage();
+    await openSettingsSection("Подключения");
     await waitFor(() => expect(resolveStale).toBeDefined());
     await userEvent.click(
       await screen.findByRole("button", { name: "Отключить" }),
@@ -13041,24 +12833,46 @@ describe("settings diagnostics", () => {
       screen.getByRole("heading", { name: "События диагностики" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Экспорт диагностики" }),
+      screen.getByRole("heading", {
+        name: "Диагностический пакет для анализа",
+      }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/PWA, API и фоновой обработки/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Аудит безопасности остаётся/)).toBeInTheDocument();
-    expect(screen.getByText(/в этот отчёт не входит/)).toBeInTheDocument();
+    expect(screen.getByText(/sanitized bundle/)).toBeInTheDocument();
+    expect(screen.getByText(/Не вводите пароли/)).toBeInTheDocument();
+    expect(screen.getByText(/Аудит безопасности в пакет не входит/)).toBeInTheDocument();
 
+    await userEvent.type(
+      screen.getByLabelText("Что произошло"),
+      "Тестовый сбой при создании задачи",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Связанная операция или задача"),
+      "Задача 42",
+    );
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
+    await userEvent.click(
+      screen.getByText("Расширенные технические фильтры"),
+    );
     await userEvent.selectOptions(screen.getByLabelText("Уровень"), "INFO");
     await userEvent.selectOptions(screen.getByLabelText("Компонент"), "api");
     await userEvent.type(
       screen.getByLabelText("Код события"),
       "api.request_failed",
     );
-    for (const label of ["Markdown", "JSON", "YAML", "TOML"]) {
+    for (const [label, format] of [
+      ["Markdown", "md"],
+      ["JSON", "json"],
+      ["YAML", "yaml"],
+      ["TOML", "toml"],
+    ]) {
+      await userEvent.selectOptions(
+        screen.getByLabelText("Формат пакета"),
+        format,
+      );
       await userEvent.click(
-        screen.getByRole("button", { name: `Скачать ${label}` }),
+        screen.getByRole("button", {
+          name: "Скачать диагностический пакет",
+        }),
       );
       expect(await screen.findByText(`${label}-отчёт скачан.`)).toBeInTheDocument();
     }
@@ -13078,6 +12892,10 @@ describe("settings diagnostics", () => {
       expect(init?.body).toContain('"level":"INFO"');
       expect(init?.body).toContain('"component":"api"');
       expect(init?.body).toContain('"event_code":"api.request_failed"');
+      expect(init?.body).toContain(
+        '"problem_description":"Тестовый сбой при создании задачи"',
+      );
+      expect(init?.body).toContain('"operation_reference":"Задача 42"');
     }
     expect(
       calledUrls.some(
@@ -13147,7 +12965,7 @@ describe("settings diagnostics", () => {
 
     try {
       const exportButton = screen.getByRole("button", {
-        name: "Скачать Markdown",
+        name: "Скачать диагностический пакет",
       });
       fireEvent.click(exportButton);
       fireEvent.click(exportButton);
@@ -13237,7 +13055,7 @@ describe("settings diagnostics", () => {
     renderApp();
     await openDiagnosticsSettings();
     const exportButton = screen.getByRole("button", {
-      name: "Скачать Markdown",
+      name: "Скачать диагностический пакет",
     });
     await userEvent.click(exportButton);
     await waitFor(() => expect(reportCalls).toBe(1));
@@ -13294,7 +13112,9 @@ describe("settings diagnostics", () => {
     renderApp();
     await openDiagnosticsSettings();
     await userEvent.click(
-      screen.getByRole("button", { name: "Скачать Markdown" }),
+      screen.getByRole("button", {
+        name: "Скачать диагностический пакет",
+      }),
     );
     await waitFor(() => expect(resolveReport).toBeDefined());
     await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
@@ -13327,7 +13147,7 @@ describe("settings diagnostics", () => {
     expect(window.location.pathname).toBe("/transcriptions");
     await userEvent.click(screen.getByRole("button", { name: "Настройки" }));
     expect(
-      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+      await screen.findByRole("heading", { name: "Аккаунт" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
@@ -13337,7 +13157,7 @@ describe("settings diagnostics", () => {
     expect(window.location.pathname).toBe("/settings/diagnostics");
     await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
     expect(
-      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+      await screen.findByRole("heading", { name: "Аккаунт" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     cleanup();
@@ -13353,7 +13173,7 @@ describe("settings diagnostics", () => {
     window.history.pushState({}, "", "/settings");
     fireEvent.popState(window);
     expect(
-      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+      await screen.findByRole("heading", { name: "Аккаунт" }),
     ).toBeInTheDocument();
     cleanup();
 
@@ -13372,7 +13192,7 @@ describe("settings diagnostics", () => {
     window.history.replaceState({}, "", "/settings");
     renderApp();
     expect(
-      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+      await screen.findByRole("heading", { name: "Аккаунт" }),
     ).toBeInTheDocument();
     expect(
       addSpy.mock.calls.filter(([type]) => type === "popstate"),
@@ -13648,11 +13468,14 @@ describe("settings diagnostics", () => {
     diagnosticsEventUrls.length = 0;
 
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
+    await userEvent.click(
+      screen.getByText("Расширенные технические фильтры"),
+    );
     await userEvent.selectOptions(screen.getByLabelText("Уровень"), "INFO");
     await userEvent.selectOptions(screen.getByLabelText("Компонент"), "worker");
     await userEvent.type(screen.getByLabelText("Код события"), "JOB_CREATED");
     await userEvent.click(
-      screen.getByRole("button", { name: "Применить фильтры" }),
+      screen.getByRole("button", { name: "Обновить события" }),
     );
     await waitFor(() => expect(diagnosticsEventUrls).toHaveLength(1));
     const firstParams = new URL(diagnosticsEventUrls[0], "http://localhost")
@@ -13685,7 +13508,9 @@ describe("settings diagnostics", () => {
     expect(sessionStorage.length).toBe(0);
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Скачать Markdown" }),
+      screen.getByRole("button", {
+        name: "Скачать диагностический пакет",
+      }),
     );
     const reportCall = (
       fetch as unknown as ReturnType<typeof vi.fn>
@@ -14271,12 +14096,12 @@ describe("settings diagnostics", () => {
 
     await userEvent.selectOptions(screen.getByLabelText("Уровень"), "ERROR");
     await userEvent.click(
-      screen.getByRole("button", { name: "Применить фильтры" }),
+      screen.getByRole("button", { name: "Обновить события" }),
     );
     await waitFor(() => expect(resolveStale).toBeDefined());
     await userEvent.selectOptions(screen.getByLabelText("Уровень"), "WARNING");
     await userEvent.click(
-      screen.getByRole("button", { name: "Применить фильтры" }),
+      screen.getByRole("button", { name: "Обновить события" }),
     );
     expect(
       await screen.findByText("Не удалось загрузить события."),

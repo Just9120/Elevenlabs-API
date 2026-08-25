@@ -16,25 +16,25 @@
   6. Основной Diagnostics flow формирует sanitized diagnostic bundle по периоду, описанию проблемы, optional operation/task reference и формату; component/level/event code/raw identifiers спрятаны в advanced filters; существующие redaction и safe export не ослаблены.
   7. Audio Preparation не показывает полный source catalog автоматически: saved sources открываются explicit action; completed output можно скачать, сделать новым source и передать точный owned source в Transcriptions.
   8. Relevant unit/integration/browser tests, required CI, applicable deployment и bounded LIVE validation проходят на exact revision.
-- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); migration не ожидается, deployment units определяются фактическим diff; authenticated LIVE session потребуется после merge.
 - **Stop condition:** Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без нового согласования не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-25T08:25:29Z.
+- Updated (UTC): 2026-08-25T09:04:39Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@16badb0aa4404ae2616a3d46070925b54b043963`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-ux-ia-polish`, tracking `origin/main` from exact base.
-- Last verified revision: `16badb0aa4404ae2616a3d46070925b54b043963` — clean synchronized baseline and completed Audio Preparation delivery.
+- Last verified revision: `f5f5825` — task-centric composer and optional fragmentation covered by focused tests; later UX/IA changes remain uncommitted at this checkpoint.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: previous `PWA-AUDIO-PREPARATION-01` closure reconciled to archive; browser annotations converted into bounded Goal AC and non-goals.
-- Current step: inspect current component/state/test boundaries and implement focused UX slices.
-- Next exact action: map Transcriptions, Audio Preparation, Settings and Diagnostics components/tests before the first code change.
-- Validation and Evidence: repository/Git/GitHub baseline verified; code changes and tests not started.
+- Completed: task-centric composer terminology; default-closed fragmentation disclosure with state preservation; five URL-backed Settings sections; reusable Source catalog moved to Files & Storage and lazy-loaded; source deletion stale-reload race removed; one diagnostic-bundle flow with bounded untrusted problem context and advanced filters; Audio saved-source disclosure, consistent terminal actions and exact owned Source handoff into Transcriptions; visible source-load retry restored in composer.
+- Current step: complete full local regression/build validation, then create the second atomic implementation commit.
+- Next exact action: rerun the full 217-test App suite plus focused routing/audio/model tests after the final regression fixes.
+- Validation and Evidence: TypeScript typecheck passed; targeted ESLint passed; backend diagnostic suites `20/20` passed; focused frontend routing/audio/composer/Settings/Diagnostics/source-handoff/regression tests passed. Full App suite was run once, all 13 detected regressions were individually corrected and passed focused reruns; clean full rerun remains pending.
 - Pull Request / CI / deployment: PR not created; CI/deployment not started.
 - Blockers: none.
-- Unverified assumptions: exact backend support required for user-supplied diagnostic context must be determined from current export contract; exact deep-link mechanism for prepared source must be determined from router/state implementation.
+- Unverified assumptions: production visual behavior at desktop/mobile widths and authenticated exact-source handoff require post-deploy bounded LIVE validation.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
