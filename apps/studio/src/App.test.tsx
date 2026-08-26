@@ -571,7 +571,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
 
 async function waitForPlatformOverview() {
   expect(
-    await screen.findByRole("heading", { name: "Studio" }),
+    await screen.findByRole("heading", { name: "VoiceOps Studio" }),
   ).toBeInTheDocument();
   expect(
     screen.getByRole("button", { name: "Обзор", current: "page" }),

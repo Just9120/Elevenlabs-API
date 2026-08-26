@@ -3,17 +3,17 @@
 VoiceOps — система транскрибации с двумя production-продуктами:
 
 1. **Google Colab** — batch-транскрибации в Google Docs и realtime-транскрибация в окне браузера.
-2. **Studio PWA** — web-приложение с отдельной подготовкой WAV/FLAC до транскрибации, batch и realtime, авторизацией, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
+2. **VoiceOps Studio PWA** — web-приложение с отдельной подготовкой WAV/FLAC до транскрибации, batch и realtime, авторизацией, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
 
-Colab batch используется около четырёх месяцев и в целом стабилен. Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
+Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current scope в рабочей ветке `codex/pwa-audio-preparation`:
+Актуальная независимо пересчитанная готовность current scope в рабочей ветке `codex/fix-source-cache-coherency`:
 
 - Google Colab: **100% (`29/29`)**.
-- Studio PWA: **100% (`107/107`)**.
-- весь проект: **100% (`136/136`)**.
+- VoiceOps Studio PWA: **100% (`116/116`)**.
+- весь проект: **100% (`145/145`)**.
 
-Проценты показывают выполнение product AC, а не production readiness. Для нового `PWA-AUDIO-PREPARATION-01` локально подтверждены `SPEC/CODE/TEST`, но `CI/DEPLOY/LIVE` ещё открыты.
+Проценты показывают выполнение product AC, а не production readiness. Текущая Goal исправляет source-list cache coherency и согласует user-visible branding; её `CI/DEPLOY/LIVE` ещё открыты.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
@@ -26,7 +26,7 @@ python scripts/ci_checks.py
 # Python tests
 pytest -q
 
-# Studio PWA
+# VoiceOps Studio PWA
 cd apps/studio
 npm ci
 npm run lint

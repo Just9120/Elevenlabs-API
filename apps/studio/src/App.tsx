@@ -5025,7 +5025,7 @@ function OverviewPage({
     <section className="page dashboard-page">
       <header className="page-header split">
         <div>
-          <h1 className="page-title">Studio</h1>
+          <h1 className="page-title">VoiceOps Studio</h1>
           <p>
             Рабочая панель аккаунта: обработка аудио, транскрибации,
             подключение Drive и готовность ключей.

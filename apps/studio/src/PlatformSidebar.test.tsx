@@ -6,8 +6,8 @@ describe("PlatformSidebar", () => {
   it("renders the platform brand and all navigation destinations", () => {
     render(<PlatformSidebar page="dashboard" onNavigate={vi.fn()} />);
 
-    expect(screen.getByText("Studio PWA")).toHaveTextContent(
-      "Studio PWAТранскрибация",
+    expect(screen.getByText("VoiceOps Studio")).toHaveTextContent(
+      "VoiceOps StudioТранскрибация и обработка аудио",
     );
     expect(
       screen.getByRole("navigation", { name: "Основная навигация" }),
