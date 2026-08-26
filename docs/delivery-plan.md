@@ -13,23 +13,23 @@
   3. Навигационный refresh не сбрасывает подготовленный composer draft, а исчезнувший selected source остаётся fail-closed и не может создать job.
   4. User-visible brand согласован в Sidebar, HTML title и PWA manifest после explicit owner choice точного имени и subtitle.
   5. Focused frontend tests, lint/build, required exact-head CI, applicable web deployment и bounded production LIVE проходят.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Backend/schema/worker changes сейчас не ожидаются.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-26T10:37:31Z.
+- Updated (UTC): 2026-08-26T10:42:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@018b560035e4ff2219c246f734216f76537875ee`, verified equal fetched `origin/main` перед branch write.
 - Working branch: `codex/fix-source-cache-coherency`.
 - Last verified revision: `bfcd1e9dd51e18852919ff84d6eeca5cb173016a` — source cache remediation и user-visible VoiceOps Studio branding.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: предыдущая Goal reconciled/archive; source cache root cause подтверждён. `ProjectsPage` остаётся mounted после первого открытия, а Settings deletion меняет только Settings state. Добавлен authoritative reload при повторной активации; optimistic source снимается с local cache после первого подтверждения exact ID API и больше не воскресает после удаления. Canonical `VoiceOps Studio` и subtitle `Транскрибация и обработка аудио` применены к Sidebar, Dashboard, HTML title, Apple PWA title и manifest; repository/domain/runtime identities не менялись.
-- Current step: local implementation scope завершён; branch готовится к push и Pull Request.
-- Next exact action: push exact branch head, создать PR и дождаться terminal state required checks.
+- Current step: PR `#244` открыт; первый exact-head required CI pass завершён success, checkpoint готовится к final push.
+- Next exact action: push checkpoint commit, дождаться required checks exact final head и при green gates выполнить merge.
 - Validation and Evidence: полный `App.test.tsx` + `sourceModel.test.ts` suite `236/236` PASS; targeted cache regression `12/12` PASS; branding/source smoke `5/5` PASS; manifest JSON parse PASS; Studio ESLint, TypeScript и Vite/PWA production build PASS с existing non-blocking chunk-size warning; repository lightweight `scripts/ci_checks.py` PASS; branch `git diff --check` PASS.
-- Pull Request / CI / deployment: отсутствуют; migration N/A; expected deployment unit — Studio web only.
+- Pull Request / CI / deployment: PR `#244` — `https://github.com/Just9120/Elevenlabs-API/pull/244`; exact head `e928b3c69a25afa4e42483a6fe95510e5d19eea0`, required repository CI run `32959285125` (`checks`) success и Studio run `32959285096` (`studio`, `browser-e2e`) success. Migration/API/worker N/A; expected deployment unit после merge — Studio web only.
 - Blockers: none for local implementation; CI/DEPLOY/LIVE ещё не запускались.
 - Unverified assumptions: browser finding относится к source, удалённому через Settings API. Ручное удаление object напрямую из R2 не покрывается и требует отдельной reconciliation architecture.
 - Preserved pre-existing changes: none.
