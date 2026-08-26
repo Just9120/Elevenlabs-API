@@ -832,6 +832,19 @@ Goal `PWA-UX-IA-POLISH-01` завершена 2026-08-25.
 - Product denominator не менялся: `PWA-AUDIO-PREPARATION-01 16/16`, Studio PWA `107/107`, project `136/136`; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅` с указанным ограничением handoff observation.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized Goal без docs-only follow-up PR. Local `main` был clean и синхронизирован; merged branch удалена local/remote.
 
+## Archived PRs #237–#243 Audio workspace production completion
+
+Goal `PWA-AUDIO-WORKSPACE-02` завершила production UX/runtime stabilization Audio workspace и observable uploads 2026-08-26.
+
+- Базовый implementation chain завершён PR `#237`; OBS/Matroska duration и long-running concat follow-ups доставлены через PR `#238–#242`.
+- Финальный FLAC precision fix PR `#243`: head `0a01c1c3bc11ef4c0e7082caaf30e0e634d1ec35`, merge `018b560035e4ff2219c246f734216f76537875ee`.
+- Required PR-head checks: repository `32899723581`, Studio/browser `32899723679` — success. Exact-main CI: repository `32900076070`, Studio/browser `32900076159` — success.
+- Component CD `32900076101`, worker drain `32904910880`, deploy `32904997797` и status `32905120372` завершились success на exact merge revision; schema migration не требовалась.
+- Production concat `9010f902-145b-4ef0-bfef-0416a20daeaf` подтвердил обработку трёх OBS/MKV (`137:36 → 129:48`). Финальный FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как `s16`, `48 kHz`, mono, `7907.718563` секунд, `334113611` bytes (`318.64 MiB`).
+- Audio и Transcriptions production uploads показали реальный per-file/aggregate progress; Transcriptions прошла стадии `16% → 22% → 30% → 34% → 51% → 74% → ready` без запуска provider job.
+- Product readiness на closure: `PWA-CORE-01 14/14`, `PWA-AUDIO-PREPARATION-01 24/24`, Studio PWA `116/116`, project `145/145`; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`); closure reconciled в начале следующей authorized code-bearing Goal без отдельного docs-only PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

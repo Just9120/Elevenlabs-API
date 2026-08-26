@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@bffbdb11b882701226898b9f7d03062fd69b2679`. Exact-main repository CI `32886126936`, Studio/browser CI `32886126975`, component CD `32886126962` и manual worker rollout `32894632672` → `32894727612` → `32894867214` подтвердили web/API/worker delivery без migration и exact worker image identity. Bounded production concat `9010f902-145b-4ef0-bfef-0416a20daeaf` на трёх реальных OBS/Matroska inputs завершился `completed` (`137:36 → 129:48`) с authenticated download, закрыв `AP-10`. LIVE выявил новый owner-confirmed gap: неявный FFmpeg output promotion создаёт из lossy OBS audio избыточный 24-bit FLAC; `AP-24` добавлен в current scope и остаётся открытым до delivery/LIVE явного 16-bit output contract.
+Verified main baseline: `main@018b560035e4ff2219c246f734216f76537875ee`. PR `#243`, exact-main repository CI `32900076070`, Studio/browser CI `32900076159`, component CD `32900076101` и manual worker drain/deploy/status `32904910880` → `32904997797` → `32905120372` подтвердили exact web/API/worker delivery без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **98,3% (`114/116`)** | выполненные AC всех PWA-эпиков / все PWA AC; `AP-10` подтверждён production LIVE, `AP-24` и `PC-14` остаются открыты |
-| Весь проект | **98,6% (`143/145`)** | все выполненные AC двух продуктов / все AC current scope; denominator вырос на явно согласованный `AP-24`, READY отдельно зависит от обязательных Evidence gates |
+| Studio PWA | **100% (`116/116`)** | выполненные AC всех PWA-эпиков / все PWA AC; `PC-14` и `AP-24` подтверждены production LIVE |
+| Весь проект | **100% (`145/145`)** | все выполненные AC двух продуктов / все AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
 
 ## 3. Общие product rules
 
@@ -110,7 +110,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE ✅`.
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 92,9% (`13/14`)**. Существовавшие product AC, exact-main CI и deployment подтверждены; direct-upload progress реализуется в текущей рабочей ветке и ещё не доставлен в production.
+Status: **🟩 READY — 100% (`14/14`)**. Все product AC, exact-main CI/deployment и bounded production upload-progress обоих workspace подтверждены.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -127,9 +127,9 @@ Status: **🟦 IN PROGRESS — 92,9% (`13/14`)**. Существовавшие p
 | `PC-11` | После expiry local source исчезает из active web UI. | ✅ |
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
-| `PC-14` | Direct local upload в `Обработке аудио` и `Транскрибациях` показывает реальный progress текущего файла в bytes/percent и aggregate queue progress; timeout/network outcome проходит completion reconciliation без автоматического повторного PUT. | ❌ |
+| `PC-14` | Direct local upload в `Обработке аудио` и `Транскрибациях` показывает реальный progress текущего файла в bytes/percent и aggregate queue progress; timeout/network outcome проходит completion reconciliation без автоматического повторного PUT. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 UX/UI-аудит production на viewport `390x844` ранее выявил document-level horizontal overflow в Diagnostics; deployed remediation заменила unbounded metadata grid и добавила narrow single-column layout. Read-only production inspection 2026-08-23 подтвердил authenticated shell, три primary navigation controls, active provider credential, Google Drive connection, retention/theme/accent controls и отсутствие browser console warnings/errors. Эмуляция narrow viewport не выявила overflow относительно фактического layout viewport, но не подтверждает production expiry/cleanup lifecycle.
 
@@ -215,7 +215,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 95,8% (`23/24`)**. `AP-10` подтверждён bounded production concat LIVE на трёх реальных OBS/Matroska inputs; новый owner-authorized `AP-24` остаётся открытым до delivery/LIVE явного 16-bit FLAC output contract.
+Status: **🟩 READY — 100% (`24/24`)**. Полный Audio Preparation scope, включая явный 16-bit FLAC output contract, подтверждён exact-main delivery и bounded production LIVE.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
 
@@ -244,13 +244,15 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-21` | Default plan сохраняет исходный format/container; изменение каналов или пауз требует явного WAV/FLAC conversion path без скрытого перекодирования. | ✅ |
 | `AP-22` | Primary UI использует user-facing scenario/title controls, не показывает technical filename template, называет функцию `Уменьшить длинные паузы в аудио или видео`, использует default `-45 dB` и раскрывает остальные silence parameters только после включения функции. | ✅ |
 | `AP-23` | Download, optional save в явно выбранную Google Drive folder и handoff/reuse в транскрибацию или новую обработку представлены независимыми terminal actions, а не взаимоисключающим выбором результата. | ✅ |
-| `AP-24` | Server-side FLAC создаётся с явной 16-bit sample precision и исходной sample rate, UI раскрывает эти параметры, а FFmpeg filter graph не может неявно повысить output до избыточного 24-bit. | ❌ |
+| `AP-24` | Server-side FLAC создаётся с явной 16-bit sample precision и исходной sample rate, UI раскрывает эти параметры, а FFmpeg filter graph не может неявно повысить output до избыточного 24-bit. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified base delivery: PRs `#234–#235`, final merge `16badb0aa4404ae2616a3d46070925b54b043963`; exact-main repository/Studio CI, protected migration `0025_audio_preparation`, API/worker/web rollout и bounded operation `2ad99ead-1c45-4439-8e8a-d64c2bcc3037` подтвердили preview `0:04 → 0:02`, terminal `completed`, download/Drive/reuse и ephemeral cleanup. PR `#237`, exact-main CI/CD и browser-local production WAV подтвердили новый UX, локальную обработку и независимые actions. Последующий exact worker retest на двух сохранённых OBS/MKV sources дал два независимых `invalid_input` на 5%; initial stream/container numeric-duration fallback оказался недостаточным, поэтому `AP-10` остаётся reopened до hotfix CI/deploy и успешного server concat LIVE.
 
 Latest verified runtime: PR `#242` merged как `main@bffbdb11b882701226898b9f7d03062fd69b2679`; exact-main CI/CD и manual worker rollout подтверждены. Production job `9010f902-145b-4ef0-bfef-0416a20daeaf` обработал три реальных OBS/MKV (`137:36 → 129:48`) до `completed`, download action доступен, client warnings/errors отсутствуют. Полученный FLAC оказался больше `600 MB`; локальная FFmpeg diagnosis подтвердила неявный `s32`/24-bit output и стала основанием для `AP-24`.
+
+Final FLAC remediation: PR `#243` merged как `main@018b560035e4ff2219c246f734216f76537875ee`; exact-main CI/CD и manual worker rollout завершились success. Повторный production output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` имеет `s16`, `48 kHz`, mono, duration `7907.718563` секунд и размер `334113611` bytes (`318.64 MiB`), закрывая `AP-24`.
 
 Definition of Done: `24/24`, relevant backend/frontend tests и required exact-head CI green, applicable API/worker/web deployment, bounded owner-controlled server concat and browser-local LIVE with short fixtures, authenticated download and optional Google Drive upload without provider call.
 

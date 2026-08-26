@@ -64,6 +64,7 @@ import {
 } from "./directUpload";
 import {
   isUsableJobSource,
+  reconcileOptimisticSources,
   sourceСтатусLabel,
   type Source,
 } from "./sourceModel";
@@ -1650,6 +1651,13 @@ function PreparationPanel({
     sessionStorage.removeItem(ELEVENLABS_CREDENTIAL_SESSION_KEY);
     setSelectedCredentialId("");
   }, [credentialsLoading, credentialsError, activeElevenLabsCredentials]);
+  useEffect(() => {
+    if (!sources.loaded || sources.loading || sources.error) return;
+    setCreatedSources((current) => {
+      const pending = reconcileOptimisticSources(current, sources.items);
+      return pending.length === current.length ? current : pending;
+    });
+  }, [sources.loaded, sources.loading, sources.error, sources.items]);
   const sourceItems = [
     ...(Array.isArray(sources.items) ? sources.items : []),
     ...createdSources.filter(
@@ -5157,6 +5165,7 @@ function ProjectsPage({
   >({});
   const requestEpochsRef = useRef(new Map<string, number>());
   const requestControllersRef = useRef(new Map<string, AbortController>());
+  const wasActiveRef = useRef(active);
   const pendingJobMutationsRef = useRef(new Set<string>());
   const [pendingJobMutations, setPendingJobMutations] = useState<Set<string>>(
     () => new Set(),
@@ -5549,6 +5558,12 @@ function ProjectsPage({
     if (!jobs[selectedProject.id]?.loaded && !jobs[selectedProject.id]?.loading)
       loadJobs(selectedProject.id);
   }, [selectedProject?.id]);
+  useEffect(() => {
+    const becameActive = active && !wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (!becameActive || !selectedProject) return;
+    loadSources(selectedProject.id);
+  }, [active, selectedProject?.id]);
   useEffect(() => setTranscriptionMode("batch"), [selectedProject?.id]);
   return (
     <section className="page transcriptions-page">

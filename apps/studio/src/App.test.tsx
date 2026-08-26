@@ -1514,6 +1514,90 @@ describe("Studio PWA", () => {
     expect(screen.queryByText(/Лекция 1\. Личность/)).not.toBeInTheDocument();
   });
 
+  it("refreshes the transcription source picker after a file is removed in Settings", async () => {
+    let sourceAvailable = true;
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1/sources" && !init?.method) {
+        return json({
+          sources: sourceAvailable
+            ? [
+                {
+                  id: "s1",
+                  project_id: "p1",
+                  source_type: "google_drive",
+                  original_filename:
+                    "Лекция 1. Личность как психологическое явление.flac",
+                  mime_type: "audio/flac",
+                  size_bytes: 2048,
+                  drive_file_url:
+                    "https://drive.google.com/file/d/drive-file-1/view",
+                  upload_status: "uploaded",
+                  uploaded_at: "2026-07-01T00:01:00Z",
+                  source_created_at: "2026-07-01T00:00:00Z",
+                  source_created_at_provenance: "google_drive_created_time",
+                  expires_at: null,
+                  deleted_at: null,
+                  delete_reason: null,
+                  created_at: "2026-07-01T00:00:00Z",
+                  updated_at: "2026-07-01T00:00:00Z",
+                },
+              ]
+            : [],
+        });
+      }
+      if (url === "/api/sources/s1" && init?.method === "DELETE") {
+        sourceAvailable = false;
+        return json({
+          ok: true,
+          source_state: "deleted",
+          storage_cleanup: "not_applicable",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const sourceSelect = await screen.findByLabelText(
+      "Существующий файл для задачи 1",
+    );
+    expect(
+      within(sourceSelect).getByRole("option", {
+        name: /Лекция 1\. Личность как психологическое явление\.flac/,
+      }),
+    ).toBeInTheDocument();
+
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
+      }),
+    );
+    expect(
+      await screen.findByText("Источники пока не добавлены."),
+    ).toBeInTheDocument();
+
+    await openProjectsPage();
+    const refreshedSelect = await screen.findByLabelText(
+      "Существующий файл для задачи 1",
+    );
+    await waitFor(() =>
+      expect(
+        within(refreshedSelect).queryByRole("option", {
+          name: /Лекция 1\. Личность как психологическое явление\.flac/,
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources" && !init?.method,
+      ).length,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
 
 
   it("fails source removal closed when confirmation throws", async () => {
