@@ -1,5 +1,6 @@
 import {
   isUsableJobSource,
+  reconcileOptimisticSources,
   sourceСтатусLabel,
   unusableJobSourceReason,
   type Source,
@@ -30,6 +31,26 @@ describe("source model", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("retains a new optimistic source until the API confirms its ID", () => {
+    const optimistic = { ...uploadedSource, id: "optimistic" };
+
+    expect(reconcileOptimisticSources([optimistic], [])).toEqual([
+      optimistic,
+    ]);
+  });
+
+  it("retires an optimistic source after the API confirms its ID", () => {
+    const optimistic = { ...uploadedSource, id: "confirmed" };
+    const authoritative = {
+      ...optimistic,
+      updated_at: "2026-07-22T10:01:00Z",
+    };
+
+    expect(
+      reconcileOptimisticSources([optimistic], [authoritative]),
+    ).toEqual([]);
   });
 
   it.each([

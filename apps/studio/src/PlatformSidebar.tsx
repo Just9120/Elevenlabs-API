@@ -18,7 +18,7 @@ export function PlatformSidebar({
   return (
     <aside className="app-sidebar">
       <div className="brand">
-        Studio PWA<span>Транскрибация</span>
+        VoiceOps Studio<span>Транскрибация и обработка аудио</span>
       </div>
       <nav className="app-nav" aria-label="Основная навигация">
         {platformNav.map(({ id, label, icon: Icon }) => (

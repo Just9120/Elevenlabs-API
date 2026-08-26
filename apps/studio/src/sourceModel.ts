@@ -20,6 +20,14 @@ export type Source = {
   updated_at: string;
 };
 
+export function reconcileOptimisticSources(
+  optimisticSources: Source[],
+  authoritativeSources: Source[],
+) {
+  const confirmedIds = new Set(authoritativeSources.map((source) => source.id));
+  return optimisticSources.filter((source) => !confirmedIds.has(source.id));
+}
+
 export function isUsableJobSource(source: Source) {
   const expiresAt = source.expires_at
     ? new Date(source.expires_at).getTime()
