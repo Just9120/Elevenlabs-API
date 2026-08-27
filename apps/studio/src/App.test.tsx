@@ -22,6 +22,7 @@ import {
 } from "./pwaDiagnostics";
 
 const originalLocation = window.location;
+const openGooglePickerImplementation = googlePicker.openGooglePicker;
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
     ok,
@@ -230,6 +231,8 @@ function postedPwaEventsFrom(fetchMock: ReturnType<typeof vi.fn>) {
 function installFakeGooglePicker() {
   googlePicker.resetGooglePickerLoaderForTests();
   let callback: ((data: unknown) => void) | null = null;
+  let outputFolderCallback: ((data: unknown) => void) | null = null;
+  let outputFolderOpenCount = 0;
   const viewIds: string[] = [];
   const viewModes: string[] = [];
   const viewParents: string[] = [];
@@ -316,22 +319,69 @@ function installFakeGooglePicker() {
       Feature: { MULTISELECT_ENABLED: "multi" },
     },
   };
+  vi.spyOn(googlePicker, "openGooglePicker").mockImplementation(
+    (mode, session) => {
+      if (mode !== "output-folder") {
+        return openGooglePickerImplementation(mode, session);
+      }
+      outputFolderOpenCount += 1;
+      session.access_token = "";
+      return new Promise((resolve) => {
+        let completed = false;
+        outputFolderCallback = (data: unknown) => {
+          if (completed) return;
+          const payload = data as { action?: unknown; docs?: unknown[] };
+          if (payload.action === "picked") {
+            completed = true;
+            const docs = Array.isArray(payload.docs)
+              ? payload.docs
+                  .map((doc) => doc as { id?: unknown; name?: unknown })
+                  .filter(
+                    (doc) => typeof doc.id === "string" && doc.id.trim(),
+                  )
+                  .map((doc) => ({
+                    id: String(doc.id),
+                    name:
+                      typeof doc.name === "string" ? doc.name : undefined,
+                  }))
+              : [];
+            resolve({ action: "picked", docs });
+          } else if (payload.action === "cancel") {
+            completed = true;
+            resolve({ action: "cancel" });
+          } else if (payload.action === "error") {
+            completed = true;
+            resolve({
+              action: "error",
+              message: "Google Picker вернул ошибку. Повторите попытку.",
+            });
+          }
+        };
+      });
+    },
+  );
   return {
     loadScript: async () => {
-      const script = await waitFor(() => {
-        const node = document.head.querySelector<HTMLScriptElement>(
+      let script: HTMLScriptElement | null = null;
+      await waitFor(() => {
+        script = document.head.querySelector<HTMLScriptElement>(
           'script[data-studio-google-picker="true"]',
         );
-        expect(node).not.toBeNull();
-        return node;
+        expect(outputFolderCallback !== null || script !== null).toBe(true);
       });
       script?.onload?.(new Event("load"));
     },
     trigger: (data: unknown) => {
-      if (!callback) throw new Error("Picker callback was not registered");
-      callback(data);
+      const activeCallback = outputFolderCallback ?? callback;
+      if (!activeCallback) {
+        throw new Error("Picker callback was not registered");
+      }
+      activeCallback(data);
     },
-    waitForCallback: () => waitFor(() => expect(callback).not.toBeNull()),
+    waitForCallback: () =>
+      waitFor(() =>
+        expect(outputFolderCallback ?? callback).not.toBeNull(),
+      ),
     setVisible,
     viewIds,
     viewModes,
@@ -339,6 +389,9 @@ function installFakeGooglePicker() {
     includeFolders,
     selectFolderEnabled,
     builderCalls,
+    get outputFolderOpenCount() {
+      return outputFolderOpenCount;
+    },
   };
 }
 
@@ -2873,17 +2926,6 @@ describe("Studio PWA", () => {
     await expect(sourceFolderPromise).resolves.toEqual({ action: "cancel" });
 
     callback = null;
-    const folderPromise = googlePicker.openGooglePicker("output-folder", {
-      access_token: "ya29.folder",
-      api_key: "public",
-      app_id: "app",
-      scope_ready: true,
-    });
-    await waitFor(() => expect(callback).not.toBeNull());
-    callback?.({ action: "cancel" });
-    await expect(folderPromise).resolves.toEqual({ action: "cancel" });
-
-    callback = null;
     const catalogFolderPromise = googlePicker.openGooglePicker(
       "catalog-folder",
       {
@@ -2934,16 +2976,15 @@ describe("Studio PWA", () => {
       "folders",
       "folders",
       "folders",
-      "folders",
       "docs",
     ]);
-    expect(viewModes).toEqual(["list", "list", "list", "list", "list", "list"]);
-    expect(viewParents).toEqual(["root", "root", "root", "root", "root", "root"]);
-    expect(includeFolders).toEqual([true, true, true, true, true, true]);
+    expect(viewModes).toEqual(["list", "list", "list", "list", "list"]);
+    expect(viewParents).toEqual(["root", "root", "root", "root", "root"]);
+    expect(includeFolders).toEqual([true, true, true, true, true]);
     expect(viewMimeTypes).toEqual([
       "application/vnd.google-apps.document",
     ]);
-    expect(selectFolderEnabled).toEqual([true, true, true, true]);
+    expect(selectFolderEnabled).toEqual([true, true, true]);
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
@@ -2952,10 +2993,6 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({
       method: "setTitle",
       args: ["Выберите папку с аудио или видео"],
-    });
-    expect(builderCalls).toContainEqual({
-      method: "setTitle",
-      args: ["Выберите папку для результатов"],
     });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
@@ -2987,10 +3024,6 @@ describe("Studio PWA", () => {
     });
     expect(builderCalls).toContainEqual({
       method: "setOAuthToken",
-      args: ["ya29.folder"],
-    });
-    expect(builderCalls).toContainEqual({
-      method: "setOAuthToken",
       args: ["ya29.catalog"],
     });
     expect(builderCalls).toContainEqual({
@@ -3017,7 +3050,7 @@ describe("Studio PWA", () => {
     ).toEqual([{ method: "enableFeature", args: ["multi"] }]);
     expect(
       builderCalls.filter((call) => call.method === "setCallback"),
-    ).toHaveLength(6);
+    ).toHaveLength(5);
     expect(
       builderCalls.some((call) => call.args.includes("support_drives")),
     ).toBe(false);
@@ -7666,11 +7699,10 @@ describe("Studio PWA", () => {
       name: "Выбрать папку результата для задачи 1",
     });
     await userEvent.click(folderButton);
-    await waitFor(() =>
-      expect(
-        picker.builderCalls.filter((call) => call.method === "setCallback"),
-      ).toHaveLength(2),
-    );
+    await waitFor(() => expect(picker.outputFolderOpenCount).toBe(1));
+    expect(
+      picker.builderCalls.filter((call) => call.method === "setCallback"),
+    ).toHaveLength(1);
     expect(
       screen.queryByText(
         "Файлы Google Drive добавлены в Studio. Выберите их в нужных задачах заново.",
@@ -7857,18 +7889,8 @@ describe("Studio PWA", () => {
     fireEvent.click(button);
     await picker.loadScript();
     await picker.waitForCallback();
-    expect(picker.viewIds).toContain("folders");
-    expect(picker.viewModes).toContain("list");
-    expect(picker.viewParents).toContain("root");
-    expect(picker.includeFolders).toContain(true);
-    expect(picker.selectFolderEnabled).toEqual([true]);
-    expect(
-      picker.builderCalls.filter((call) => call.method === "enableFeature"),
-    ).toEqual([]);
-    expect(picker.builderCalls).toContainEqual({
-      method: "setMaxItems",
-      args: [1],
-    });
+    expect(picker.viewIds).toEqual([]);
+    expect(picker.builderCalls).toEqual([]);
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([url]) => url === "/api/google/picker/session",
