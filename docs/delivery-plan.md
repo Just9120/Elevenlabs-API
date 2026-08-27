@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `PWA-SOURCE-CACHE-01` — authoritative source-list refresh и согласованное product branding.
-- **State:** `IN_PROGRESS` — авторизована текущей owner instruction «продолжай» после production browser findings 2026-08-26.
+- **State:** `PENDING_EXTERNAL_GATE` — implementation merged и deployed; required authenticated production LIVE недоступен в текущем audit context.
 - **Authorization source:** текущие explicit user browser comments и последующая инструкция продолжить; durable product scope — `docs/project-spec.md`.
 - **Scope:** убрать из Transcriptions stale sources после удаления через Settings/Storage; при возврате на уже смонтированный workspace выполнять bounded authoritative reload; не позволять optimistic recently-created cache повторно подмешивать source после успешного ответа API; сохранить composer draft и fail-closed source validation; после выбора владельцем нового имени согласованно обновить user-visible PWA brand в Sidebar, document title и web manifest.
 - **Non-goals:** физическая проверка каждого R2 object через N+1 `HEAD`; автоматическое удаление metadata при transient storage error; repository/package/API/domain rename; S3 bucket split; изменение retention/cleanup semantics; migration; CI/CD safety contract.
@@ -13,25 +13,25 @@
   3. Навигационный refresh не сбрасывает подготовленный composer draft, а исчезнувший selected source остаётся fail-closed и не может создать job.
   4. User-visible brand согласован в Sidebar, HTML title и PWA manifest после explicit owner choice точного имени и subtitle.
   5. Focused frontend tests, lint/build, required exact-head CI, applicable web deployment и bounded production LIVE проходят.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Backend/schema/worker changes сейчас не ожидаются.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
+- **Known blockers/dependencies:** required authenticated production source-delete/navigation LIVE требует owner-controlled session; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Backend/schema/worker changes не требовались.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-26T10:42:00Z.
-- Session mode: authorized Goal implementation.
-- Base branch/SHA: `main@018b560035e4ff2219c246f734216f76537875ee`, verified equal fetched `origin/main` перед branch write.
-- Working branch: `codex/fix-source-cache-coherency`.
-- Last verified revision: `bfcd1e9dd51e18852919ff84d6eeca5cb173016a` — source cache remediation и user-visible VoiceOps Studio branding.
-- Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: предыдущая Goal reconciled/archive; source cache root cause подтверждён. `ProjectsPage` остаётся mounted после первого открытия, а Settings deletion меняет только Settings state. Добавлен authoritative reload при повторной активации; optimistic source снимается с local cache после первого подтверждения exact ID API и больше не воскресает после удаления. Canonical `VoiceOps Studio` и subtitle `Транскрибация и обработка аудио` применены к Sidebar, Dashboard, HTML title, Apple PWA title и manifest; repository/domain/runtime identities не менялись.
-- Current step: PR `#244` открыт; первый exact-head required CI pass завершён success, checkpoint готовится к final push.
-- Next exact action: push checkpoint commit, дождаться required checks exact final head и при green gates выполнить merge.
-- Validation and Evidence: полный `App.test.tsx` + `sourceModel.test.ts` suite `236/236` PASS; targeted cache regression `12/12` PASS; branding/source smoke `5/5` PASS; manifest JSON parse PASS; Studio ESLint, TypeScript и Vite/PWA production build PASS с existing non-blocking chunk-size warning; repository lightweight `scripts/ci_checks.py` PASS; branch `git diff --check` PASS.
-- Pull Request / CI / deployment: PR `#244` — `https://github.com/Just9120/Elevenlabs-API/pull/244`; exact head `e928b3c69a25afa4e42483a6fe95510e5d19eea0`, required repository CI run `32959285125` (`checks`) success и Studio run `32959285096` (`studio`, `browser-e2e`) success. Migration/API/worker N/A; expected deployment unit после merge — Studio web only.
-- Blockers: none for local implementation; CI/DEPLOY/LIVE ещё не запускались.
-- Unverified assumptions: browser finding относится к source, удалённому через Settings API. Ручное удаление object напрямую из R2 не покрывается и требует отдельной reconciliation architecture.
+- Updated (UTC): 2026-08-27T15:37:08Z.
+- Session mode: evidence-based audit/recovery; новая implementation Goal не авторизована.
+- Base branch/SHA: local clean `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`; public GitHub `main` history показывает ту же latest revision. `git fetch` не выполнен из sandbox (`FETCH_HEAD` permission), `gh` authentication invalid (401).
+- Working branch: `codex/repository-audit-2026-08-27`, создана от verified local/public main только для audit metadata.
+- Last verified revision: `18cbd46e9361a66bfbc1f2265d0820aa72aedf50` — merge PR `#244`.
+- Working tree at audit start: clean; unrelated pre-existing changes absent.
+- Completed: PR `#244` merged; source-cache remediation и VoiceOps Studio branding находятся в main. Exact-main repository CI `32959921859` и Studio/browser CI `32959921773` success. Studio Platform CD `32959921827` success, web deployed; API/worker/migration skipped. Public root и `/api/healthz` доступны; production manifest MIME defect зафиксирован отдельным audit finding.
+- Current step: Goal implementation/delivery recovery завершён до external LIVE gate; Goal переведена в `PENDING_EXTERNAL_GATE`.
+- Next exact action: выполнить owner-controlled authenticated production canary без provider call: удалить test source через Settings, вернуться в уже смонтированные `Транскрибации`, подтвердить authoritative empty/changed list, сохранность composer draft и fail-closed selected source.
+- Validation and Evidence: branch до merge — полный frontend cache suite, lint/build и focused tests PASS по checkpoint; exact-main required CI runs success. В текущем аудите `scripts/ci_checks.py` PASS, public health/header checks PASS кроме manifest MIME, `git diff --check` выполняется перед handoff. Full local pytest/npm validation не повторена из-за отсутствующих local dependencies/OneDrive npm environment; это покрыто exact-main CI.
+- Pull Request / CI / deployment: PR `#244` — `https://github.com/Just9120/Elevenlabs-API/pull/244`, merge `18cbd46`; repository CI `32959921859`, Studio/browser CI `32959921773`, Studio Platform CD `32959921827`, all success. Web deploy ✅; API/worker/migration N/A для Goal.
+- Blockers: authenticated production LIVE недоступен; post-deploy metadata writer отсутствует. GitHub settings/push operations недоступны до восстановления `gh` credential.
+- Unverified assumptions: actual production DB role/schema/component image identities; browser finding относится к source, удалённому через Settings API. Ручное удаление object напрямую из R2 не покрывается и требует отдельной reconciliation architecture.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
@@ -40,18 +40,20 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Project** | **100% (`145/145`)** | **98,6% (`143/145`)** | `PC-14` и `AP-24` закрыты exact-main delivery и bounded production LIVE предыдущей Goal. |
+| **Project** | **100% (`145/145`)** | **100% (`145/145`)** | Независимый audit подтвердил прежний AC numerator; изменение `0 pp`. Evidence gates отдельных эпиков учитываются отдельно. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
-| **Studio PWA** | **100% (`116/116`)** | **98,3% (`114/116`)** | Все current product AC выполнены; READY отдельных эпиков по-прежнему gate-ится их обязательным Evidence. |
-| `PWA-CORE-01` | **100% (`14/14`)** | **92,9% (`13/14`)** | Direct upload progress подтверждён production LIVE на Audio и Transcriptions. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`24/24`)** | **95,8% (`23/24`)** | Production FLAC подтвердил exact `s16`, исходные `48 kHz` и уменьшенный output. |
-| Остальные existing epics | **100% (`78/78`)** | **100% (`78/78`)** | Completion и denominator не изменились. |
+| **Studio PWA** | **100% (`116/116`)** | **100% (`116/116`)** | 9/11 PWA epics READY; UX LIVE `—`, Manifest LIVE `◐`. |
+| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
+| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |
+| Остальные existing epics | **100% (`135/135`)** | **100% (`135/135`)** | AC completion не изменился; current audit не отменяет ранее зафиксированные required Evidence. |
 
 ## Candidate next Goals
 
-1. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
-2. `PWA-OPTIONAL-TOTP-01` — добровольная TOTP 2FA, disabled by default.
-3. `COMMERCIAL-EDITION-DISCOVERY-01` — отдельный российский production contour и legal/data-residency/provider discovery.
+1. `PWA-MANIFEST-MIME-01` — standards-compliant `.webmanifest` response после closure текущей Goal; proposed, implementation не авторизована.
+2. `CI-CD-HARDENING-01` — immutable action SHAs и exact deployed revision contract; требует explicit CI/CD policy task.
+3. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
+4. `PWA-OPTIONAL-TOTP-01` — добровольная TOTP 2FA, disabled by default; atomic AC ещё не определены.
+5. `COMMERCIAL-EDITION-DISCOVERY-01` — отдельный российский production contour и legal/data-residency/provider discovery.
 
 ## Risks и boundaries
 

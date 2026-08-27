@@ -7,13 +7,13 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current scope в рабочей ветке `codex/fix-source-cache-coherency`:
+Актуальная независимо пересчитанная готовность current scope для `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`:
 
 - Google Colab: **100% (`29/29`)**.
 - VoiceOps Studio PWA: **100% (`116/116`)**.
 - весь проект: **100% (`145/145`)**.
 
-Проценты показывают выполнение product AC, а не production readiness. Текущая Goal исправляет source-list cache coherency и согласует user-visible branding; её `CI/DEPLOY/LIVE` ещё открыты.
+Проценты показывают выполнение product AC, а не production readiness. Текущая Goal исправила source-list cache coherency и согласовала user-visible branding; merge, exact-main CI и web deployment подтверждены, но authenticated production `LIVE` ещё не выполнен, поэтому Goal находится в `PENDING_EXTERNAL_GATE`.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
@@ -53,6 +53,7 @@ Colab batch запускается вручную через `notebooks/elevenla
 | [docs/runbooks/validation.md](docs/runbooks/validation.md) | Repository и component validation commands. |
 | [docs/runbooks/studio-platform-ops.md](docs/runbooks/studio-platform-ops.md) | Studio rollout и production operations. |
 | [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype и manual runtime validation. |
+| [docs/audits/repository-audit-2026-08-27.md](docs/audits/repository-audit-2026-08-27.md) | Актуальный evidence-based audit; findings, readiness, gaps и proposed next Goal. |
 | [docs/audits/repository-audit-2026-07-26.md](docs/audits/repository-audit-2026-07-26.md) | Исторический dated audit; supporting evidence, не current authority. |
 
 Опциональные `docs/utility/context-bundle-builder.md` и `docs/ai-delivery-infrastructure-plan.md` в текущем repository отсутствуют; их содержание не предполагается.

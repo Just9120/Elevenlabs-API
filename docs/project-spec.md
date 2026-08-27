@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@018b560035e4ff2219c246f734216f76537875ee`. PR `#243`, exact-main repository CI `32900076070`, Studio/browser CI `32900076159`, component CD `32900076101` и manual worker drain/deploy/status `32904910880` → `32904997797` → `32905120372` подтвердили exact web/API/worker delivery без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
+Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#244`, exact-main repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` подтвердили merge, CI и web-only deployment source-cache/branding change; authenticated production LIVE для этой Goal ещё отсутствует. Более ранний exact-main delivery подтвердил web/API/worker Audio scope без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -139,7 +139,7 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
-Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC и exact-head CI подтверждены; DEPLOY и LIVE для текущей ветки ещё не выполнены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC, exact-main CI и web deployment подтверждены; authenticated production LIVE для source-cache/navigation behavior ещё не выполнен, поэтому эпик не `READY`.
 
 `Project` остаётся допустимой внутренней ownership/data boundary, но не является обязательной пользовательской сущностью. Основной user flow начинается с обычной или Live-транскрибации; технический workspace выбирается или создаётся автоматически и не требует ручного lifecycle management.
 
@@ -150,9 +150,9 @@ Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC и exact-head C
 | `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ✅ |
 | `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
 
-Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-head CI: Python `1252/1252`, Studio `539/539`, browser E2E `10/10`, builds и safety markers PASS. Bounded narrow browser fixture также прошёл; production behavior ожидает DEPLOY/LIVE Evidence.
+Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-main repository и Studio/browser CI прошли на `18cbd46`; web deployment подтверждён. Bounded narrow browser fixture также прошёл; authenticated production source-cache/navigation behavior ожидает LIVE Evidence.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
@@ -363,7 +363,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
-## 6. Future scope, не включённый в denominator `144`
+## 6. Future scope, не включённый в denominator `145`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
@@ -401,18 +401,18 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`.
-- Exact-main repository CI: run `32832907020`, success.
-- Exact-main Studio/browser CI: run `32832906999`, jobs `studio` и `browser-e2e` success.
-- Studio Platform CD run `32832907052` развернул web/API exact merge revision; migration и worker были корректно skipped. Production schema остаётся `0025_audio_preparation`; worker processor был ранее deployed на Audio hotfix `16badb0aa4404ae2616a3d46070925b54b043963`.
-- Новый production Audio walkthrough подтвердил previous UX/IA changes, но server concat plan с OBS/Matroska files завершился `failed · 5% · invalid_input`; текущая Goal устраняет этот drift и реализует новые canonical AC. Historical runtime identifiers находятся в delivery archive.
+- Current verified revision: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`.
+- Exact-main repository CI: run `32959921859`, success.
+- Exact-main Studio/browser CI: run `32959921773`, jobs `studio` и `browser-e2e` success.
+- Studio Platform CD run `32959921827` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
+- Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest` фактически отдаётся как `application/octet-stream` вместо `application/manifest+json`; authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Доставить `PWA-AUDIO-WORKSPACE-02` через один PR и required exact-head CI; schema migration не требуется.
-2. После merge развернуть web/API, выполнить отдельный authorized worker drain/deploy exact merge revision и подтвердить component identities.
-3. Провести bounded owner-controlled LIVE без provider call: browser-local WAV download, visible device-upload progress и отдельный/concat server plan на коротких media fixtures; подтвердить отсутствие повторного PUT и private-data leakage.
-4. Только после closure отдельно согласовывать storage bucket isolation, optional TOTP либо commercial contour; они не входят в текущую Goal.
+1. Закрыть external gate текущей `PWA-SOURCE-CACHE-01`: bounded authenticated LIVE после удаления source через Settings и возврата в уже смонтированные `Транскрибации`, без paid/provider call.
+2. Синхронизировать post-deploy metadata approved механизмом; если механизм по-прежнему отсутствует, сохранить explicit blocker и не обходить protections.
+3. После closure отдельно согласовать proposed `PWA-MANIFEST-MIME-01`; implementation не авторизована текущим checkpoint.
+4. Storage isolation, optional TOTP и commercial contour остаются отдельными proposals и не входят в текущую Goal.
 
 ## 10. Supporting documents
 
