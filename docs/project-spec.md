@@ -28,14 +28,14 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#244`, exact-main repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` подтвердили merge, CI и web-only deployment source-cache/branding change; authenticated production LIVE для этой Goal ещё отсутствует. Более ранний exact-main delivery подтвердил web/API/worker Audio scope без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
+Verified main baseline: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`. PR `#245`, exact-main repository CI `33104113256`, Studio/browser CI `33104113243` и Studio Platform CD `33104113313` подтвердили merge, CI и web-only Google Picker deployment; authenticated production LIVE Evidence исправления ещё отсутствует. PR `#244` source-cache/branding также merged/deployed, но его authenticated LIVE остаётся archived external gate. Более ранний exact-main delivery подтвердил web/API/worker Audio scope без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
 
-Current local candidate: `codex/fix-google-picker-ux@60c4ec23bdd4afa6dcbff25633cdd96121b4704f`; его `CODE/TEST` evidence ещё не является exact-head CI, deployment или LIVE evidence.
+Current operational Goal: `REPO-HARDENING-01` на branch `codex/repository-stabilization-01` от verified base `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`; она не меняет product AC/denominator.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **100% (`119/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `3/3` локально подтверждён |
+| Studio PWA | **100% (`119/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `3/3`, CI/DEPLOY подтверждены, LIVE отсутствует |
 | Согласованный current canonical scope | **100% (`148/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
 
 Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
@@ -188,7 +188,7 @@ Verified implementation: Favorites и local folder flow подтверждены
 
 ### Эпик `PWA-GOOGLE-PICKER-UX-01` — viewport и выбор текущей папки
 
-Status: **🟦 IN PROGRESS — 100% (`3/3`)**. Все atomic AC локально выполнены; обязательные exact-head `CI`, `DEPLOY` и authenticated `LIVE` ещё не подтверждены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`3/3`)**. Все atomic AC, exact-main `CI` и web `DEPLOY` подтверждены; authenticated `LIVE` Evidence исправления ещё отсутствует, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -196,9 +196,9 @@ Status: **🟦 IN PROGRESS — 100% (`3/3`)**. Все atomic AC локально
 | `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ✅ |
 | `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
 
-Verified local implementation: `documentScrollLock.ts` блокирует background wheel/touch/scroll, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Поскольку documented Picker callback не предоставляет navigation event/current-folder authority, output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token, folder-only Drive REST listing и сохранённой server-side write verification. Текущая папка становится selection сразу после загрузки и остаётся selectable при loading/empty/error child-list state. Focused terminal-path regressions `6/6`, полный frontend Vitest `603/603`, ESLint, TypeScript, production Vite build и `scripts/ci_checks.py` прошли. Local Python `pytest` не запущен: bundled runtime не содержит module; authenticated browser E2E требует CI services. Owner LIVE 2026-08-27 пока подтверждает только исходные defects, не исправление.
+Verified implementation: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4` блокирует background wheel/touch/scroll через `documentScrollLock.ts`, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Поскольку documented Picker callback не предоставляет navigation event/current-folder authority, output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token, folder-only Drive REST listing и сохранённой server-side write verification. Текущая папка становится selection сразу после загрузки и остаётся selectable при loading/empty/error child-list state. PR `#245`, exact PR/main CI и web deployment прошли. Owner LIVE 2026-08-27 пока подтверждает только исходные defects, не исправление.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -425,19 +425,19 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`.
-- Exact-main repository CI: run `32959921859`, success.
-- Exact-main Studio/browser CI: run `32959921773`, jobs `studio` и `browser-e2e` success.
-- Studio Platform CD run `32959921827` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
+- Current verified revision: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`.
+- Exact-main repository CI: run `33104113256`, success.
+- Exact-main Studio/browser CI: run `33104113243`, jobs `studio` и `browser-e2e` success.
+- Studio Platform CD run `33104113313` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
 - Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest` фактически отдаётся как `application/octet-stream` вместо `application/manifest+json`; authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Завершить current `PWA-GOOGLE-PICKER-UX-01`: провести exact candidate через PR/CI, applicable web deployment и authenticated source/output-folder LIVE.
-2. Не смешивать с Goal изменение OAuth scopes, backend/schema/worker, CI/CD policy или commercial implementation.
-3. Source-cache authenticated LIVE остаётся archived external gate и не считается выполненным.
-4. После closure отдельно приоритизировать `PWA-MANIFEST-MIME-01`; implementation не авторизована.
-5. Storage isolation, optional TOTP и commercial contour остаются отдельными proposals и не входят в текущую Goal.
+1. Выполнить current operational `REPO-HARDENING-01`: documentation truth, bounded manifest MIME remediation и CI efficiency без сокращения quality gates.
+2. Не менять product AC/denominator, OAuth scopes, backend/schema/worker, production CD safety contract или commercial implementation.
+3. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
+4. DB least privilege, exact-revision CD redesign, query bounds/storage isolation и legacy removal остаются отдельными Goals.
+5. Commercial contour включён в durable BACKLOG, но implementation не входит в текущую Goal.
 
 ## 10. Supporting documents
 

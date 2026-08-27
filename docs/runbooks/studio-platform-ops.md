@@ -236,7 +236,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-For the current candidate chain `0017 -> 0018 -> 0019 -> 0020`, first read and verify the exact production revision. Apply only the still-pending direct successors, one approval and one verified backup per run:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through `0025_audio_preparation`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no`.
@@ -272,9 +272,9 @@ the exact current and target revisions, and the captured API image ID:
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio \
 STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
 STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT=__REQUIRED_64_HEX_SNAPSHOT_ID__ \
-STUDIO_EXPECTED_MIGRATION_FROM=0017_google_maintenance_oauth \
-STUDIO_EXPECTED_MIGRATION_TO=0018_job_part_progress \
-STUDIO_EXPECTED_REPOSITORY_HEAD=0020_provider_part_checkpoints \
+STUDIO_EXPECTED_MIGRATION_FROM=__EXACT_CURRENT_PRODUCTION_REVISION__ \
+STUDIO_EXPECTED_MIGRATION_TO=__ONE_DIRECT_ADDITIVE_SUCCESSOR__ \
+STUDIO_EXPECTED_REPOSITORY_HEAD=__EXACT_REVIEWED_REPOSITORY_HEAD__ \
 STUDIO_EXPECTED_API_IMAGE_ID=sha256:__REQUIRED_64_HEX_IMAGE_ID__ \
   scripts/migrate_studio_platform.sh
 ```
@@ -367,7 +367,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Production migration `0017_google_maintenance_oauth` is sufficient for the merged transcript-maintenance feature. Do not apply unrelated candidate `0018_job_part_progress` merely to run a maintenance canary. If the current progress candidate has already merged and is part of the intended release, create and verify a new tagged pre-migration backup and use the protected migration lane before deploying its API/worker consumers.
+- Transcript maintenance was introduced by `0017_google_maintenance_oauth`; do not apply any later unrelated migration merely to run a maintenance canary. Repository history now extends through `0025_audio_preparation`, but actual production revision must be read and checked against the exact deployed API before the canary. Any pending successor requires its own tagged pre-migration backup and protected migration release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -426,7 +426,7 @@ Before any processing rollout or canary, verify without printing sensitive value
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
-- production database revision is known and compared to the exact reviewed repository Alembic head (`0018_job_part_progress` for the current progress candidate);
+- production database revision is known and compared to the exact reviewed repository Alembic head for the intended deployment;
 - exactly one worker instance is intended for the canary.
 
 The host preflight validates current Compose-mounted runtime secret files only
@@ -442,7 +442,7 @@ ad-hoc root commands.
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals the exact reviewed repository head where the deployment is expected to be current (`0018_job_part_progress` for the current progress candidate).
+3. Verify production database revision equals the exact reviewed repository head where the intended deployment is expected to be current.
 4. Deploy web/API only through the approved isolated component deployment model.
 5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
@@ -491,7 +491,7 @@ Output-side-effect uncertainty requires a separate reconciliation item. API/web 
 
 ### Partial-provider continuation
 
-`partial_provider_result` is not automatic retry authority. On candidate `0020`, the owner-scoped job detail may offer one of two explicit actions:
+`partial_provider_result` is not automatic retry authority. On deployments containing migration `0020_provider_part_checkpoints`, the owner-scoped job detail may offer one of two explicit actions:
 
 - continue only missing ElevenLabs parts when an exact contiguous set of encrypted, unexpired completed-part checkpoints validates; or
 - restart the full file only when checkpoints are unavailable and the last durable underlying failure is safely classified as provider authentication rejection, request rejection, or rate limiting.
@@ -647,4 +647,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Current branch Alembic head is `0020_provider_part_checkpoints`. The currently deployed production head must be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through `0025_audio_preparation`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

@@ -8,7 +8,7 @@ unmaintained local deployments are not supported separately.
 The repository has two product contours with different maturity:
 
 - the Google Colab batch workflow is the stable operational baseline;
-- Studio PWA remains in development. Its bounded single-worker/small-source core has one controlled production-live canary, but the wider selected-v1 scope and the `0016` catalog rollout are not generally production-proven.
+- Studio PWA remains in active development. Repository migrations currently extend through `0025_audio_preparation`; multiple bounded features have exact-main CI, component deployment and owner-controlled LIVE records, but several epic LIVE gates, multi-worker behavior and load bounds remain unverified. Current maturity and exact Evidence belong in `docs/project-spec.md` and `docs/delivery-plan.md`, not in this policy.
 
 Realtime Colab is experimental. Source code, CI success, deployment success, and
 production security evidence are different states; none should be inferred from
@@ -81,9 +81,9 @@ Stop testing and report privately if private data or a secret becomes visible.
 The Google Picker access-token and direct-upload presigned-URL flows are accepted
 only as the bounded browser capabilities defined in `docs/project-spec.md`.
 Source code and tests enforce the current no-store, same-origin/CSRF, scope, TTL,
-metadata-verification, and browser-persistence boundaries, but they are not evidence
-that the public CSP/TLS host configuration or the live Picker/upload flows have been
-production-validated.
+metadata-verification, and browser-persistence boundaries. Existing bounded LIVE
+records do not generalize to every Picker/upload path, identity, browser, or future
+revision; exact current evidence remains a separate delivery concern.
 
 ## Security authorities
 
