@@ -429,7 +429,7 @@ Future auth criteria исключены из текущего denominator до �
 - Exact-main repository CI: run `33104113256`, success.
 - Exact-main Studio/browser CI: run `33104113243`, jobs `studio` и `browser-e2e` success.
 - Studio Platform CD run `33104113313` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
-- Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest` фактически отдаётся как `application/octet-stream` вместо `application/manifest+json`; authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
+- Public root и login shell доступны, required security headers присутствуют. На verified production baseline `/manifest.webmanifest` фактически отдаётся как `application/octet-stream` вместо `application/manifest+json`; current `REPO-HARDENING-01` содержит source remediation и regression, но `DEPLOY/LIVE` ещё не подтверждены. Authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 

@@ -5,7 +5,7 @@
 - **ID / title:** `REPO-HARDENING-01` — первая очередь технического долга, documentation truth и CI efficiency.
 - **State:** `IN_PROGRESS` — Goal явно авторизована, exact base проверен, отдельная feature branch создана.
 - **Authorization source:** explicit user instruction 2026-08-27 «формируй общую цель под техдолгу, документам и CI, и приступай»; audit findings — supporting evidence, а не отдельная authorization.
-- **Scope:** восстановить operational metadata после PR `#245`; синхронизировать README, security/processing/runbook facts и placement dated audit; исправить подтверждённый `.webmanifest` MIME defect с regression; ускорить repository и Studio CI через content-addressed caches и эквивалентное более частое service-health polling; pin actions в затронутых CI workflows на verified immutable SHA; выполнить bounded cold/warm benchmark без сокращения validation surface; applicable PR/merge/web delivery/public LIVE.
+- **Scope:** восстановить operational metadata после PR `#245`; синхронизировать README, security/processing/runbook facts и placement dated audit; исправить подтверждённый `.webmanifest` MIME defect с regression; ускорить repository и Studio CI через content-addressed caches и эквивалентное более частое service-health polling; pin все external actions в active workflows на verified immutable SHA без изменения production workflow logic; выполнить bounded cold/warm benchmark без сокращения validation surface; applicable PR/merge/web delivery/public LIVE.
 - **Non-goals:** изменение product requirements/AC или commercial implementation; удаление deprecated/legacy API без usage evidence; big-bang refactor крупных frontend/API modules; DB roles/schema/data migration; pagination/load/multi-worker work; branch protection/rulesets; exact-revision CD redesign; CI/CD safety-contract change; paid/provider/Google mutations; larger/self-hosted runners и новые scheduled workflows.
 - **Goal AC:**
   1. `RH-01`: README и current canonical/operational documents описывают exact merged/runtime state, source priority и current Goal без stale candidate claims; archive не используется как current readiness input.
@@ -13,27 +13,27 @@
   3. `RH-03`: container nginx отдаёт `/manifest.webmanifest` как `application/manifest+json`; focused regression и public post-deploy header check проходят.
   4. `RH-04`: существующие `pytest`, lightweight checks, frontend lint/unit/build, authenticated browser E2E, Compose, image build и secret/non-root validations не удалены и не ослаблены; PR-head и exact-main gates сохраняются.
   5. `RH-05`: pip, exact Playwright browser и Docker layers используют bounded content-addressed caches; PostgreSQL/Redis readiness проверяется чаще при не меньшем total retry window; active cache остаётся не более `4 GiB`.
-  6. `RH-06`: все third-party actions в затронутых CI workflows pinned на verified full commit SHA; permissions не расширены.
+  6. `RH-06`: все external actions в active workflows pinned на verified full commit SHA; permissions и production workflow logic не изменены.
   7. `RH-07`: один заранее разрешённый warm-cache benchmark подтверждает не менее `20%` уменьшения raw runner time representative web-only PR+main validation относительно baseline `14,57 min` (target `<= 11,66 min`); cold-cache regression не превышает `10%`. Если target недостижим без ослабления gates, Goal не объявляется `DONE` и blocker фиксируется.
   8. `RH-08`: local validation, exact PR-head CI, merge, applicable web deployment и public MIME LIVE завершены; failures/skips классифицированы, а product readiness не изменена без изменения atomic AC.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** первый cache run является cold; Goal разрешает ровно один дополнительный controlled warm-cache benchmark после наполнения cache. Account-level billing attribution недоступна текущему `gh` token без дополнительного `user` scope, но repository public и использует только standard `ubuntu-latest`. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T19:56:00Z.
+- Updated (UTC): 2026-08-27T20:24:12Z.
 - Session mode: authorized bounded implementation Goal.
 - Base branch/SHA: fetched `origin/main@8761e86808e8562eff05588f6f60d15dd04dbcf4`; default branch `main`; local `main` совпадал перед branch creation. GitHub auth active для `Just9120` с `repo/workflow` scopes.
 - Working branch: `codex/repository-stabilization-01`; создана от exact base SHA выше.
-- Last verified revision: `8761e86808e8562eff05588f6f60d15dd04dbcf4` — clean merged baseline PR `#245`; exact-main repository CI `33104113256`, Studio CI `33104113243` и web CD `33104113313` success.
+- Last verified revision: `72a672466be897d9347b3f9cfe55ce8917375aa9` — все implementation/documentation slices и local validation ниже.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: Git/GitHub recovery; PR `#245` merge/CI/deploy reconciled; CI step-level baseline measured. Exact web-only PR+main validation baseline is `14,57` raw runner-minutes; full merge cycle including CD is `15,96`. Current Actions cache is `113103350` bytes, unexpired failure artifacts are about `4,4 MB`.
-- Current step: зафиксировать durable Goal и archived state предыдущей Goal первым documentation commit.
-- Next exact action: синхронизировать README/canonical operational metadata и stale documentation claims, затем выполнить link/static checks.
-- Validation and Evidence: repository is public; all declared runners are standard `ubuntu-latest`. PR `#245` and exact-main required jobs passed. No validation for current branch changes yet.
+- Completed: Git/GitHub recovery и PR `#245` reconciliation; documentation consolidation; historical audit move; manifest MIME remediation/regression; all-workflow immutable action pinning; pip/Playwright/BuildKit caches; equivalent 2s/25 service-health polling; PR-only stale-run cancellation. Commits: `98d8062`, `a54935f`, `11b3a47`, `abfc212`, `72a6724`.
+- Current step: зафиксировать final pre-push checkpoint после полной local validation.
+- Next exact action: выполнить один initial push branch, создать PR и дождаться exact-head repository/Studio CI без rerun до классификации результата.
+- Validation and Evidence: isolated Python 3.11 portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite production build PASS, Playwright discovery `11`; all 9 workflow YAML parse PASS; immutable-action/CI-efficiency/browser contracts PASS; authority-document relative links PASS; `scripts/ci_checks.py` и `git diff --check` PASS. Full service-backed pytest, Docker builds/security smoke и authenticated browser E2E остаются exact-head CI gates. Local Docker unavailable. Initial in-place npm failed из-за OneDrive lock; isolated npm 10 validation прошла и не изменила workspace.
 - Pull Request / CI / deployment: branch local only; push/PR отсутствуют; initial push будет выполнен только после полной local validation всего scope.
-- Blockers: отсутствуют для local implementation. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
+- Blockers: отсутствуют для push/PR. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
 - Unverified assumptions: BuildKit/Playwright warm-cache hit rate и final savings должны быть измерены GitHub run evidence; public repo billing rule не доказывает account-level attribution.
 - Preserved pre-existing changes: отсутствуют.
 
