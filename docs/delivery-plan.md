@@ -16,24 +16,24 @@
   6. `RH-06`: все external actions в active workflows pinned на verified full commit SHA; permissions и production workflow logic не изменены.
   7. `RH-07`: один заранее разрешённый warm-cache benchmark подтверждает не менее `20%` уменьшения raw runner time representative web-only PR+main validation относительно baseline `14,57 min` (target `<= 11,66 min`); cold-cache regression не превышает `10%`. Если target недостижим без ослабления gates, Goal не объявляется `DONE` и blocker фиксируется.
   8. `RH-08`: local validation, exact PR-head CI, merge, applicable web deployment и public MIME LIVE завершены; failures/skips классифицированы, а product readiness не изменена без изменения atomic AC.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** первый cache run является cold; Goal разрешает ровно один дополнительный controlled warm-cache benchmark после наполнения cache. Account-level billing attribution недоступна текущему `gh` token без дополнительного `user` scope, но repository public и использует только standard `ubuntu-latest`. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T20:24:12Z.
+- Updated (UTC): 2026-08-27T20:35:42Z.
 - Session mode: authorized bounded implementation Goal.
 - Base branch/SHA: fetched `origin/main@8761e86808e8562eff05588f6f60d15dd04dbcf4`; default branch `main`; local `main` совпадал перед branch creation. GitHub auth active для `Just9120` с `repo/workflow` scopes.
 - Working branch: `codex/repository-stabilization-01`; создана от exact base SHA выше.
-- Last verified revision: `72a672466be897d9347b3f9cfe55ce8917375aa9` — все implementation/documentation slices и local validation ниже.
+- Last verified revision: `07cc12237d17e83fc6092afad58c0d10aecf1241` — initial PR head; functional CI gates green, performance AC требует grouped fix ниже.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: Git/GitHub recovery и PR `#245` reconciliation; documentation consolidation; historical audit move; manifest MIME remediation/regression; all-workflow immutable action pinning; pip/Playwright/BuildKit caches; equivalent 2s/25 service-health polling; PR-only stale-run cancellation. Commits: `98d8062`, `a54935f`, `11b3a47`, `abfc212`, `72a6724`.
-- Current step: зафиксировать final pre-push checkpoint после полной local validation.
-- Next exact action: выполнить один initial push branch, создать PR и дождаться exact-head repository/Studio CI без rerun до классификации результата.
-- Validation and Evidence: isolated Python 3.11 portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite production build PASS, Playwright discovery `11`; all 9 workflow YAML parse PASS; immutable-action/CI-efficiency/browser contracts PASS; authority-document relative links PASS; `scripts/ci_checks.py` и `git diff --check` PASS. Full service-backed pytest, Docker builds/security smoke и authenticated browser E2E остаются exact-head CI gates. Local Docker unavailable. Initial in-place npm failed из-за OneDrive lock; isolated npm 10 validation прошла и не изменила workspace.
-- Pull Request / CI / deployment: branch local only; push/PR отсутствуют; initial push будет выполнен только после полной local validation всего scope.
-- Blockers: отсутствуют для push/PR. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
+- Current step: убрать подтверждённый cold-cache regression одним grouped fix: PR читает base cache, cache export выполняется только non-PR main runs.
+- Next exact action: локально проверить grouped fix, выполнить единственный post-failure batch push и дождаться новых exact-head checks.
+- Validation and Evidence: isolated Python 3.11 portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite production build PASS, Playwright discovery `11`; all 9 workflow YAML parse PASS; immutable-action/CI-efficiency/browser contracts PASS; authority-document relative links PASS; `scripts/ci_checks.py` и `git diff --check` PASS. PR `#246` initial head `07cc122`: repository CI run `33113485943` success (`152s`), Studio run `33113485993` jobs `studio=267s`, `browser-e2e=100s`, все functional gates success. Raw sum `519s / 8,65 min` против PR baseline `433s / 7,22 min`: `+19,9%`, что не проходит cold regression AC `<=10%`; рост локализован в Studio cold BuildKit export. Local Docker unavailable. Initial in-place npm failed из-за OneDrive lock; isolated npm 10 validation прошла и не изменила workspace.
+- Pull Request / CI / deployment: PR `#246`, initial exact-head checks green; merge не выполняется до grouped performance fix и повторной exact-head validation.
+- Blockers: functional blockers отсутствуют; initial cold-cache performance AC не пройден и исправляется в текущем scope. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
 - Unverified assumptions: BuildKit/Playwright warm-cache hit rate и final savings должны быть измерены GitHub run evidence; public repo billing rule не доказывает account-level attribution.
 - Preserved pre-existing changes: отсутствуют.
 

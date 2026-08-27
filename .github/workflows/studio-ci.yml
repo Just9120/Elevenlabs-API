@@ -83,7 +83,7 @@ jobs:
           load: true
           tags: elevenlabs-studio-web:test
           cache-from: type=gha,scope=studio-web
-          cache-to: type=gha,mode=max,scope=studio-web
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=studio-web' || '' }}
           provenance: false
           sbom: false
       - name: Validate platform compose config
@@ -103,7 +103,7 @@ jobs:
           load: true
           tags: elevenlabs-studio-api:test
           cache-from: type=gha,scope=studio-api
-          cache-to: type=gha,mode=max,scope=studio-api
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=studio-api' || '' }}
           provenance: false
           sbom: false
       - name: Verify protected secret bootstrap and non-root runtime

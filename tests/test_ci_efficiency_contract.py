@@ -46,7 +46,10 @@ def test_studio_ci_uses_exact_browser_and_content_addressed_image_caches() -> No
     for component in ("web", "api"):
         assert f"tags: elevenlabs-studio-{component}:test" in STUDIO_CI
         assert f"cache-from: type=gha,scope=studio-{component}" in STUDIO_CI
-        assert f"cache-to: type=gha,mode=max,scope=studio-{component}" in STUDIO_CI
+        assert (
+            "cache-to: ${{ github.event_name != 'pull_request' && "
+            f"'type=gha,mode=max,scope=studio-{component}' || '' }}}}"
+        ) in STUDIO_CI
     assert STUDIO_CI.count("provenance: false") == 2
     assert STUDIO_CI.count("sbom: false") == 2
 
