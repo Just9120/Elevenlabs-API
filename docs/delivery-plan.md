@@ -2,37 +2,37 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-SOURCE-CACHE-01` — authoritative source-list refresh и согласованное product branding.
-- **State:** `PENDING_EXTERNAL_GATE` — implementation merged и deployed; required authenticated production LIVE недоступен в текущем audit context.
-- **Authorization source:** текущие explicit user browser comments и последующая инструкция продолжить; durable product scope — `docs/project-spec.md`.
-- **Scope:** убрать из Transcriptions stale sources после удаления через Settings/Storage; при возврате на уже смонтированный workspace выполнять bounded authoritative reload; не позволять optimistic recently-created cache повторно подмешивать source после успешного ответа API; сохранить composer draft и fail-closed source validation; после выбора владельцем нового имени согласованно обновить user-visible PWA brand в Sidebar, document title и web manifest.
-- **Non-goals:** физическая проверка каждого R2 object через N+1 `HEAD`; автоматическое удаление metadata при transient storage error; repository/package/API/domain rename; S3 bucket split; изменение retention/cleanup semantics; migration; CI/CD safety contract.
+- **ID / title:** `PWA-GOOGLE-PICKER-UX-01` — стабильный viewport и выбор текущей output folder.
+- **State:** `IN_PROGRESS` — Goal явно авторизована и feature branch создана; implementation начата.
+- **Authorization source:** explicit user instruction 2026-08-27 «ставь цель и приступай» после согласования bounded Goal; durable product AC — `PG-01..PG-03` в `docs/project-spec.md`.
+- **Scope:** source-file, source-folder и output-folder Google Picker flows; lock/restore document scroll; viewport-stable modal lifecycle; verified способ выбрать текущую открытую output folder, включая empty folder; focused unit/DOM/browser tests и applicable web delivery/LIVE.
+- **Non-goals:** изменение Google OAuth scopes; общий Drive file manager; source ingestion/storage semantics; provider calls; backend/schema/worker changes; CI/CD safety policy; commercial implementation.
 - **Goal AC:**
-  1. После удаления source в Settings возврат в `Транскрибации` перечитывает owner/project source collection и удалённый source отсутствует в picker без hard reload.
-  2. Optimistic sources используются только до успешной authoritative collection; authoritative empty/changed response не дополняется stale cache.
-  3. Навигационный refresh не сбрасывает подготовленный composer draft, а исчезнувший selected source остаётся fail-closed и не может создать job.
-  4. User-visible brand согласован в Sidebar, HTML title и PWA manifest после explicit owner choice точного имени и subtitle.
-  5. Focused frontend tests, lint/build, required exact-head CI, applicable web deployment и bounded production LIVE проходят.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
-- **Known blockers/dependencies:** required authenticated production source-delete/navigation LIVE требует owner-controlled session; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Backend/schema/worker changes не требовались.
+  1. `PG-01`: Picker не смещается относительно viewport при попытке прокрутки document во всех трёх flows.
+  2. `PG-02`: background scroll заблокирован на всём Picker lifecycle и точно восстановлен после pick/cancel/error/timeout без page jump.
+  3. `PG-03`: текущую output folder можно подтвердить без выбора child, включая отсутствие child folders.
+  4. Focused regression tests воспроизводят оба исходных defect и проходят вместе с applicable lint/build/full frontend suite и exact-head CI.
+  5. Applicable web deployment и owner-controlled authenticated browser LIVE подтверждают source и output-folder flows.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ◐ | TEST — | CI — | DEPLOY ◐ | LIVE ❌`.
+- **Known blockers/dependencies:** стандартный Google Picker API может не предоставлять identity текущей navigated folder отдельным callback; strategy должна быть подтверждена code/API evidence. Authenticated production LIVE требует owner session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T17:40:46Z.
-- Session mode: evidence-based audit/recovery; новая implementation Goal не авторизована.
-- Base branch/SHA: local clean `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`; public GitHub `main` history показывает ту же latest revision. `git fetch` не выполнен из sandbox (`FETCH_HEAD` permission), `gh` authentication invalid (401).
-- Working branch: `codex/repository-audit-2026-08-27`, создана от verified local/public main только для audit metadata.
-- Last verified revision: `18cbd46e9361a66bfbc1f2265d0820aa72aedf50` — merge PR `#244`.
-- Working tree at audit start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#244` merged; source-cache remediation и VoiceOps Studio branding находятся в main. Exact-main repository CI `32959921859` и Studio/browser CI `32959921773` success. Studio Platform CD `32959921827` success, web deployed; API/worker/migration skipped. Public root и `/api/healthz` доступны; production manifest MIME defect зафиксирован отдельным audit finding. Audit correction отделила current canonical AC от полного upstream scope: `275` raw bullets требуют reconciliation. Owner decision `REQ-DEC-001` включил commercial production в durable scope как BACKLOG без implementation authorization. User LIVE + code review добавили Google Picker UX epic `0/3`; current canonical readiness пересчитана как `145/148`.
-- Current step: Goal implementation/delivery recovery завершён до external LIVE gate; Goal переведена в `PENDING_EXTERNAL_GATE`.
-- Next exact action: выполнить owner-controlled authenticated production canary без provider call: удалить test source через Settings, вернуться в уже смонтированные `Транскрибации`, подтвердить authoritative empty/changed list, сохранность composer draft и fail-closed selected source.
-- Validation and Evidence: branch до merge — полный frontend cache suite, lint/build и focused tests PASS по checkpoint; exact-main required CI runs success. В текущем аудите `scripts/ci_checks.py` PASS, public health/header checks PASS кроме manifest MIME, `git diff --check` выполняется перед handoff. Full local pytest/npm validation не повторена из-за отсутствующих local dependencies/OneDrive npm environment; это покрыто exact-main CI.
-- Pull Request / CI / deployment: PR `#244` — `https://github.com/Just9120/Elevenlabs-API/pull/244`, merge `18cbd46`; repository CI `32959921859`, Studio/browser CI `32959921773`, Studio Platform CD `32959921827`, all success. Web deploy ✅; API/worker/migration N/A для Goal.
-- Blockers: authenticated production LIVE недоступен; post-deploy metadata writer отсутствует. GitHub settings/push operations недоступны до восстановления `gh` credential.
-- Unverified assumptions: actual production DB role/schema/component image identities; browser finding относится к source, удалённому через Settings API. Ручное удаление object напрямую из R2 не покрывается и требует отдельной reconciliation architecture.
-- Preserved pre-existing changes: none.
+- Updated (UTC): 2026-08-27T17:52:28Z.
+- Session mode: authorized bounded implementation Goal.
+- Base branch/SHA: verified fetched `origin/main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`; default branch `main`; local `main` совпадает. GitHub auth active для `Just9120` с `repo/workflow` scopes.
+- Working branch: `codex/fix-google-picker-ux`; merge-base с `origin/main` — exact base SHA выше.
+- Last verified revision: `720f04665095591490e28a25d6d9e31d6b8b4838` — audit/spec correction, `scripts/ci_checks.py` и `git diff --check` PASS.
+- Working tree at Goal start: clean; unrelated pre-existing changes absent.
+- Completed: requirement drift принят в canonical `PG-01..PG-03`; readiness пересчитана `145/148`; user authorизовал Goal; `git fetch origin main` подтвердил unchanged base; отдельная feature branch создана.
+- Current step: воспроизвести regressions тестами и подтвердить поддерживаемую implementation strategy для current-folder selection.
+- Next exact action: изучить Google Picker DOM/API boundary и существующий fake, затем добавить failing tests для scroll lifecycle и empty/current output folder.
+- Validation and Evidence: baseline `scripts/ci_checks.py` PASS; AC denominator `145/148`, Colab `29/29`, PWA `116/119`; runtime defects подтверждены owner LIVE, implementation validation ещё не выполнялась.
+- Pull Request / CI / deployment: PR отсутствует; push до полной local validation не выполнялся; CI/DEPLOY для Goal не запускались.
+- Blockers: current-folder identity может отсутствовать в documented Picker callback; authenticated production LIVE зависит от owner session; metadata writer отсутствует.
+- Unverified assumptions: Picker-hosted iframe DOM нельзя безопасно/стабильно модифицировать; `setSelectFolderEnabled(true)` сам по себе не покрывает current-folder behavior.
+- Preserved pre-existing changes: audit/spec commits `172f6af`, `0686a1d`, `46fa05d`, `720f046` созданы в рамках текущей user-requested audit chain и сохранены в feature branch; unrelated user state отсутствует.
 
 ## Project readiness
 
@@ -52,11 +52,10 @@
 ## Candidate next Goals
 
 1. `SPEC-RECONCILIATION-01` — сопоставить все upstream requirements с canonical contract, сформировать эпики/atomic AC и новый denominator; commercial production уже включён owner decision как BACKLOG, implementation продукта не входит.
-2. `PWA-GOOGLE-PICKER-UX-01` — viewport-fixed Picker, background scroll lock и selectable current/empty output folder; implementation не авторизована.
-3. `PWA-MANIFEST-MIME-01` — standards-compliant `.webmanifest` response после closure текущей Goal и reconciliation priority decision.
-4. `CI-CD-HARDENING-01` — immutable action SHAs и exact deployed revision contract; требует explicit CI/CD policy task.
-5. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
-6. `COMMERCIAL-FOUNDATION-01` — единый codebase, изолированные environments и capability boundaries после утверждения reconciled commercial scope.
+2. `PWA-MANIFEST-MIME-01` — standards-compliant `.webmanifest` response после closure текущей Goal и reconciliation priority decision.
+3. `CI-CD-HARDENING-01` — immutable action SHAs и exact deployed revision contract; требует explicit CI/CD policy task.
+4. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
+5. `COMMERCIAL-FOUNDATION-01` — единый codebase, изолированные environments и capability boundaries после утверждения reconciled commercial scope.
 
 ## Risks и boundaries
 
