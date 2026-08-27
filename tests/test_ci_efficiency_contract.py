@@ -58,3 +58,6 @@ def test_only_superseded_pull_request_runs_are_cancelled() -> None:
     expression = "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
     assert expression in CI
     assert expression in STUDIO_CI
+    group_key = "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"
+    assert f"group: ci-{group_key}" in CI
+    assert f"group: studio-ci-{group_key}" in STUDIO_CI

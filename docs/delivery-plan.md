@@ -22,18 +22,18 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T20:35:42Z.
+- Updated (UTC): 2026-08-27T20:41:30Z.
 - Session mode: authorized bounded implementation Goal.
 - Base branch/SHA: fetched `origin/main@8761e86808e8562eff05588f6f60d15dd04dbcf4`; default branch `main`; local `main` совпадал перед branch creation. GitHub auth active для `Just9120` с `repo/workflow` scopes.
 - Working branch: `codex/repository-stabilization-01`; создана от exact base SHA выше.
-- Last verified revision: `07cc12237d17e83fc6092afad58c0d10aecf1241` — initial PR head; functional CI gates green, performance AC требует grouped fix ниже.
+- Last verified revision: `a86eb28388bfa8abfa5c2f0aad868bbc6ce9fd66` — grouped cache fix; functional CI и performance target green, review gate требует concurrency fix ниже.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: Git/GitHub recovery и PR `#245` reconciliation; documentation consolidation; historical audit move; manifest MIME remediation/regression; all-workflow immutable action pinning; pip/Playwright/BuildKit caches; equivalent 2s/25 service-health polling; PR-only stale-run cancellation. Commits: `98d8062`, `a54935f`, `11b3a47`, `abfc212`, `72a6724`.
-- Current step: убрать подтверждённый cold-cache regression одним grouped fix: PR читает base cache, cache export выполняется только non-PR main runs.
-- Next exact action: локально проверить grouped fix, выполнить единственный post-failure batch push и дождаться новых exact-head checks.
-- Validation and Evidence: isolated Python 3.11 portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite production build PASS, Playwright discovery `11`; all 9 workflow YAML parse PASS; immutable-action/CI-efficiency/browser contracts PASS; authority-document relative links PASS; `scripts/ci_checks.py` и `git diff --check` PASS. PR `#246` initial head `07cc122`: repository CI run `33113485943` success (`152s`), Studio run `33113485993` jobs `studio=267s`, `browser-e2e=100s`, все functional gates success. Raw sum `519s / 8,65 min` против PR baseline `433s / 7,22 min`: `+19,9%`, что не проходит cold regression AC `<=10%`; рост локализован в Studio cold BuildKit export. Local Docker unavailable. Initial in-place npm failed из-за OneDrive lock; isolated npm 10 validation прошла и не изменила workspace.
-- Pull Request / CI / deployment: PR `#246`, initial exact-head checks green; merge не выполняется до grouped performance fix и повторной exact-head validation.
-- Blockers: functional blockers отсутствуют; initial cold-cache performance AC не пройден и исправляется в текущем scope. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
+- Completed: Git/GitHub recovery и PR `#245` reconciliation; documentation consolidation; historical audit move; manifest MIME remediation/regression; all-workflow immutable action pinning; pip/Playwright/BuildKit caches; equivalent 2s/25 service-health polling; PR-only stale-run cancellation and main-only BuildKit cache writes. Commits: `98d8062`, `a54935f`, `11b3a47`, `abfc212`, `72a6724`, `07cc122`, `a86eb28`.
+- Current step: закрыть valid review finding: ref-based concurrency может вытеснить pending exact-main run даже при `cancel-in-progress=false`.
+- Next exact action: локально проверить revision-specific non-PR concurrency groups, выполнить grouped review-fix push и дождаться новых exact-head checks/review resolution.
+- Validation and Evidence: isolated Python 3.11 portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite production build PASS, Playwright discovery `11`; all 9 workflow YAML parse PASS; immutable-action/CI-efficiency/browser contracts PASS; authority-document relative links PASS; `scripts/ci_checks.py` и `git diff --check` PASS. PR `#246` initial head `07cc122`: functional gates green, но raw `519s / 8,65 min` не прошёл cold regression AC. Grouped fix head `a86eb28`: repository CI run `33114036739` `134s`, Studio run `33114036741` jobs `studio=96s`, `browser-e2e=92s`, raw sum `322s / 5,37 min`, то есть `25,6%` быстрее PR baseline `433s / 7,22 min`; все checks green. Review thread `PRRT_kwDOSEKZn86c-Hu9` подтвердил exact-main concurrency gap. Local Docker unavailable. Initial in-place npm failed из-за OneDrive lock; isolated npm 10 validation прошла и не изменила workspace.
+- Pull Request / CI / deployment: PR `#246`; merge не выполняется до concurrency fix, новых exact-head checks и resolution review thread.
+- Blockers: текущий review gate не пройден из-за valid exact-main concurrency finding; fix находится в текущем scope. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
 - Unverified assumptions: BuildKit/Playwright warm-cache hit rate и final savings должны быть измерены GitHub run evidence; public repo billing rule не доказывает account-level attribution.
 - Preserved pre-existing changes: отсутствуют.
 

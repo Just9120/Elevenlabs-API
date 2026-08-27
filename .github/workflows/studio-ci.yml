@@ -50,7 +50,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: studio-ci-${{ github.ref }}
+  group: studio-ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
