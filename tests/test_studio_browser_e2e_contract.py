@@ -35,7 +35,11 @@ def test_browser_e2e_uses_real_browser_api_and_isolated_service_state() -> None:
     assert "'tests/test_studio_browser_e2e_contract.py'" in workflow
     assert "npx playwright install --with-deps chromium" in workflow
     assert "npm run test:e2e" in workflow
-    assert "uses: actions/upload-artifact@v7" in workflow
+    assert (
+        "uses: actions/upload-artifact@"
+        "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        in workflow
+    )
     assert "path: apps/studio/test-results" in workflow
     assert "if-no-files-found: warn" in workflow
 

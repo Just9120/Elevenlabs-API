@@ -51,15 +51,17 @@ permissions:
 
 concurrency:
   group: studio-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   studio:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
           cache: npm
@@ -72,7 +74,18 @@ jobs:
         working-directory: apps/studio
       - run: npm run build
         working-directory: apps/studio
-      - run: docker build -t elevenlabs-studio-web:test apps/studio
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build Studio web image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: apps/studio
+          load: true
+          tags: elevenlabs-studio-web:test
+          cache-from: type=gha,scope=studio-web
+          cache-to: type=gha,mode=max,scope=studio-web
+          provenance: false
+          sbom: false
       - name: Validate platform compose config
         run: |
           tmp=$(mktemp -d "$RUNNER_TEMP/studio-compose.XXXXXX")
@@ -83,7 +96,16 @@ jobs:
           cp deploy/studio/.env.example "$tmp/.env"
           printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\nSTUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" "$CREDENTIAL_MASTER_KEY_FILE" >> "$tmp/.env"
           docker compose --env-file "$tmp/.env" -f deploy/studio/compose.platform.yml config >/dev/null
-      - run: docker build -t elevenlabs-studio-api:test apps/studio-api
+      - name: Build Studio API image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: apps/studio-api
+          load: true
+          tags: elevenlabs-studio-api:test
+          cache-from: type=gha,scope=studio-api
+          cache-to: type=gha,mode=max,scope=studio-api
+          provenance: false
+          sbom: false
       - name: Verify protected secret bootstrap and non-root runtime
         run: |
           tmp=$(mktemp -d "$RUNNER_TEMP/studio-secret-bootstrap.XXXXXX")
@@ -136,18 +158,18 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U studio_test -d studio_browser_e2e"
-          --health-interval 10s
+          --health-interval 2s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 25
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 10s
+          --health-interval 2s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 25
     env:
       STUDIO_ENVIRONMENT: test
       STUDIO_DATABASE_SCHEME: postgresql+psycopg
@@ -160,15 +182,24 @@ jobs:
       STUDIO_COOKIE_NAME: studio_e2e_session
       STUDIO_COOKIE_SECURE: 'false'
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@v6
+          cache: pip
+          cache-dependency-path: |
+            apps/studio-api/requirements.txt
+            apps/studio-api/constraints.txt
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
+      - name: Restore exact Playwright Chromium cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('apps/studio/package-lock.json') }}
       - name: Install Studio API dependencies
         run: |
           python -m pip install --upgrade pip
@@ -196,7 +227,7 @@ jobs:
         working-directory: apps/studio
       - name: Upload browser E2E failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: studio-browser-e2e-${{ github.run_id }}
           path: apps/studio/test-results
