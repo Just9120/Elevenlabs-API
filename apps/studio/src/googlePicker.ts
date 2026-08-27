@@ -1,3 +1,5 @@
+import { lockDocumentScroll } from "./documentScrollLock";
+
 export type PickerMode =
   | "sources"
   | "source-folder"
@@ -210,6 +212,7 @@ export async function openGooglePicker(
     let completed = false;
     let picker: PickerInstance | null = null;
     let interactionTimeout: number | null = null;
+    const releaseDocumentScroll = lockDocumentScroll();
     const finish = (result: PickerResult) => {
       if (completed) return;
       completed = true;
@@ -217,6 +220,7 @@ export async function openGooglePicker(
         window.clearTimeout(interactionTimeout);
       }
       token = "";
+      releaseDocumentScroll();
       resolve(result);
     };
     const callback = (data: unknown) => {

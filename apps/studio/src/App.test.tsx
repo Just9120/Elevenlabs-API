@@ -2660,6 +2660,8 @@ describe("Studio PWA", () => {
       )
       ?.onload?.(new Event("load"));
     await waitFor(() => expect(callback).not.toBeNull());
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(document.body.style.overflow).toBe("hidden");
     callback?.({
       action: "picked",
       docs: [{ id: "file-1", name: "Name", mimeType: "audio/mpeg" }],
@@ -2669,20 +2671,24 @@ describe("Studio PWA", () => {
       action: "picked",
       docs: [{ id: "file-1", name: "Name", mimeType: "audio/mpeg" }],
     });
+    expect(document.documentElement.style.overflow).toBe("");
+    expect(document.body.style.overflow).toBe("");
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(document.body.textContent).not.toContain("ya29.secret");
 
     callback = null;
-    const cancelPromise = googlePicker.openGooglePicker("output-folder", {
+    const cancelPromise = googlePicker.openGooglePicker("source-folder", {
       access_token: "ya29.cancel",
       api_key: "public",
       app_id: "app",
       scope_ready: true,
     });
     await waitFor(() => expect(callback).not.toBeNull());
+    expect(document.body.style.overflow).toBe("hidden");
     callback?.({ action: "cancel" });
     await expect(cancelPromise).resolves.toEqual({ action: "cancel" });
+    expect(document.body.style.overflow).toBe("");
 
     callback = null;
     const errorPromise = googlePicker.openGooglePicker("sources", {
@@ -2692,11 +2698,13 @@ describe("Studio PWA", () => {
       scope_ready: true,
     });
     await waitFor(() => expect(callback).not.toBeNull());
+    expect(document.body.style.overflow).toBe("hidden");
     callback?.({ action: "error", raw: "raw-google-payload" });
     await expect(errorPromise).resolves.toEqual({
       action: "error",
       message: "Google Picker вернул ошибку. Повторите попытку.",
     });
+    expect(document.body.style.overflow).toBe("");
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
@@ -7269,6 +7277,7 @@ describe("Studio PWA", () => {
       ).toBeInTheDocument();
       expect(picker.setVisible).toHaveBeenNthCalledWith(1, true);
       expect(picker.setVisible).toHaveBeenNthCalledWith(2, false);
+      expect(document.body.style.overflow).toBe("");
       expect(button).toBeEnabled();
 
       picker.trigger({ action: "picked", docs: [{ id: "late-file" }] });

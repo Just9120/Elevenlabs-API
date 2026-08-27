@@ -19,16 +19,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T17:52:28Z.
+- Updated (UTC): 2026-08-27T18:04:11Z.
 - Session mode: authorized bounded implementation Goal.
 - Base branch/SHA: verified fetched `origin/main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`; default branch `main`; local `main` совпадает. GitHub auth active для `Just9120` с `repo/workflow` scopes.
 - Working branch: `codex/fix-google-picker-ux`; merge-base с `origin/main` — exact base SHA выше.
 - Last verified revision: `720f04665095591490e28a25d6d9e31d6b8b4838` — audit/spec correction, `scripts/ci_checks.py` и `git diff --check` PASS.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: requirement drift принят в canonical `PG-01..PG-03`; readiness пересчитана `145/148`; user authorизовал Goal; `git fetch origin main` подтвердил unchanged base; отдельная feature branch создана.
-- Current step: воспроизвести regressions тестами и подтвердить поддерживаемую implementation strategy для current-folder selection.
-- Next exact action: изучить Google Picker DOM/API boundary и существующий fake, затем добавить failing tests для scroll lifecycle и empty/current output folder.
-- Validation and Evidence: baseline `scripts/ci_checks.py` PASS; AC denominator `145/148`, Colab `29/29`, PWA `116/119`; runtime defects подтверждены owner LIVE, implementation validation ещё не выполнялась.
+- Completed: requirement drift принят в canonical `PG-01..PG-03`; user authorизовал Goal; exact base/branch зафиксированы. `PG-01/PG-02` реализованы общим document scroll lock с idempotent terminal cleanup для native Picker.
+- Current step: реализовать `PG-03` через bounded app-owned output-folder browser, потому что documented Picker API не даёт navigation/current-folder callback.
+- Next exact action: добавить Drive folder-list model/dialog и regression, где после входа в empty folder `Выбрать эту папку` остаётся active и возвращает exact folder ID.
+- Validation and Evidence: `documentScrollLock.test.ts` 2/2 PASS; focused `App.test.tsx` Picker callback/timeout 2/2 PASS; focused ESLint PASS; baseline `scripts/ci_checks.py` PASS. Current AC: canonical `147/148`, Colab `29/29`, PWA `118/119`.
 - Pull Request / CI / deployment: PR отсутствует; push до полной local validation не выполнялся; CI/DEPLOY для Goal не запускались.
 - Blockers: current-folder identity может отсутствовать в documented Picker callback; authenticated production LIVE зависит от owner session; metadata writer отсутствует.
 - Unverified assumptions: Picker-hosted iframe DOM нельзя безопасно/стабильно модифицировать; `setSelectFolderEnabled(true)` сам по себе не покрывает current-folder behavior.
@@ -40,11 +40,11 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Current canonical scope** | **98,0% (`145/148`)** | **100% (`145/145`)** | Три пропущенных Google Picker UX AC добавлены из upstream и подтверждены user LIVE/code gap; изменение `−2,0 pp`. |
+| **Current canonical scope** | **99,3% (`147/148`)** | **98,0% (`145/148`)** | `PG-01/PG-02` выполнены локально; изменение `+1,3 pp`. Это не percentage полного upstream scope. |
 | **Full upstream scope** | **N/A — `SPEC RECONCILIATION REQUIRED`** | **N/A** | Commercial production включён owner decision 2026-08-27 как BACKLOG без implementation authorization; `275` raw list-item requirements ещё не преобразованы в согласованные atomic AC, denominator отсутствует. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
-| **Studio PWA** | **97,5% (`116/119`)** | **100% (`116/116`)** | 9/12 PWA epics READY; Google Picker UX `0/3`, Transcriptions UX LIVE `—`, Manifest LIVE `◐`. |
-| `PWA-GOOGLE-PICKER-UX-01` | **0% (`0/3`)** | **N/A** | Modal scroll/viewport и current-folder selection requirements присутствуют upstream, воспроизведены owner LIVE и отсутствуют в behavioral tests/code contract. |
+| **Studio PWA** | **99,2% (`118/119`)** | **97,5% (`116/119`)** | 9/12 PWA epics READY; Google Picker UX `2/3`, Transcriptions UX LIVE `—`, Manifest LIVE `◐`. |
+| `PWA-GOOGLE-PICKER-UX-01` | **66,7% (`2/3`)** | **0% (`0/3`)** | Scroll/viewport lifecycle code и focused tests PASS; current/empty output-folder selection остаётся open. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |
 | Остальные existing epics | **100% (`135/135`)** | **100% (`135/135`)** | AC completion не изменился; current audit не отменяет ранее зафиксированные required Evidence. |

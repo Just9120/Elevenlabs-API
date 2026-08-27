@@ -10,11 +10,11 @@ Colab batch используется около четырёх месяцев и
 Актуальная независимо пересчитанная готовность current scope для `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`:
 
 - Google Colab: **100% (`29/29`)**.
-- VoiceOps Studio PWA: **97,5% (`116/119`)**.
-- согласованный current canonical scope: **98,0% (`145/148`)**.
+- VoiceOps Studio PWA: **99,2% (`118/119`)**.
+- согласованный current canonical scope: **99,3% (`147/148`)**.
 - полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
 
-`145/148` не означает готовность всей заявленной product vision: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. Три Google Picker UX requirements добавлены после подтверждённого user LIVE/code gap: viewport-fixed modal, background scroll lock и выбор текущей target folder без обязательного выбора дочерней папки. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Текущая delivery Goal исправила source-list cache coherency и согласовала user-visible branding; merge, exact-main CI и web deployment подтверждены, но authenticated production `LIVE` ещё не выполнен, поэтому Goal находится в `PENDING_EXTERNAL_GATE`.
+`147/148` не означает готовность всей заявленной product vision: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. В текущей `PWA-GOOGLE-PICKER-UX-01` локально реализованы viewport-stable Picker и background scroll lifecycle; выбор текущей/empty target folder остаётся `0/1`. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Предыдущая source-cache Goal merged/deployed, но её owner-controlled authenticated `LIVE` остаётся отдельным archived external gate.
 
 Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. До завершения atomic decomposition общий project percentage остаётся `N/A`.
 

@@ -33,8 +33,8 @@ Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#24
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **97,5% (`116/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `0/3` подтверждён как current gap |
-| Согласованный current canonical scope | **98,0% (`145/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
+| Studio PWA | **99,2% (`118/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `2/3` локально подтверждён |
+| Согласованный current canonical scope | **99,3% (`147/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
 
 Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
 
@@ -186,17 +186,17 @@ Verified implementation: Favorites и local folder flow подтверждены
 
 ### Эпик `PWA-GOOGLE-PICKER-UX-01` — viewport и выбор текущей папки
 
-Status: **⬜ BACKLOG — 0% (`0/3`)**. Upstream requirements и user LIVE observation подтверждают три обязательных UX behavior; current code/tests их не обеспечивают. Implementation этой remediation отдельно не авторизована и не начата.
+Status: **🟦 IN PROGRESS — 66,7% (`2/3`)**. Goal авторизована 2026-08-27; scroll/viewport slice реализован и подтверждён focused tests, current-folder selection остаётся открытым.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ❌ |
-| `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ❌ |
+| `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ✅ |
+| `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ✅ |
 | `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST — | CI — | DEPLOY ◐ | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY ◐ | LIVE ❌`.
 
-Verified gap: `apps/studio/src/googlePicker.ts` задаёт initial size и `setSelectFolderEnabled(true)`, но не lock-ит document scroll, не восстанавливает scroll state и получает только `docs[]` terminal callback без authority текущей открытой folder. Existing tests подтверждают builder calls/size, но не background scroll, viewport anchoring или selection текущей empty folder. Owner LIVE 2026-08-27 воспроизвёл drift как для выбора source, так и target folder.
+Verified implementation/gap: `documentScrollLock.ts` блокирует background wheel/touch/scroll, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Focused Vitest подтверждает lock nesting и `picked/cancel/error/timeout`. `PG-03` всё ещё не выполнен: documented Picker callback не предоставляет navigation event/current-folder authority, а current code получает только selected `docs[]`. Owner LIVE 2026-08-27 воспроизвёл оба исходных defect.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -431,10 +431,10 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 9. Current critical path
 
-1. Закрыть external gate текущей `PWA-SOURCE-CACHE-01`: bounded authenticated LIVE после удаления source через Settings и возврата в уже смонтированные `Транскрибации`, без paid/provider call.
-2. Синхронизировать post-deploy metadata approved механизмом; если механизм по-прежнему отсутствует, сохранить explicit blocker и не обходить protections.
-3. После closure отдельно согласовать proposed `PWA-GOOGLE-PICKER-UX-01`; implementation не авторизована текущим checkpoint.
-4. Затем отдельно приоритизировать `PWA-MANIFEST-MIME-01`; implementation также не авторизована.
+1. Завершить current `PWA-GOOGLE-PICKER-UX-01`: реализовать и проверить `PG-03`, затем full local validation, PR/exact-head CI и applicable web DEPLOY/LIVE.
+2. Не смешивать с Goal изменение OAuth scopes, backend/schema/worker, CI/CD policy или commercial implementation.
+3. Source-cache authenticated LIVE остаётся archived external gate и не считается выполненным.
+4. После closure отдельно приоритизировать `PWA-MANIFEST-MIME-01`; implementation не авторизована.
 5. Storage isolation, optional TOTP и commercial contour остаются отдельными proposals и не входят в текущую Goal.
 
 ## 10. Supporting documents
