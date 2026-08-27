@@ -7,14 +7,14 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current product scope для verified `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`:
+Актуальная независимо пересчитанная готовность current product scope для verified `main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd`:
 
 - Google Colab: **100% (`29/29`)**.
 - VoiceOps Studio PWA: **100% (`119/119`)**.
 - согласованный current canonical scope: **100% (`148/148`)**.
 - полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
 
-`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. `PWA-GOOGLE-PICKER-UX-01` имеет `3/3`, exact-main CI и web deployment после PR `#245`, но authenticated production LIVE исправления ещё не зафиксировано. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Source-cache LIVE также остаётся отдельным archived external gate.
+`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. `PWA-GOOGLE-PICKER-UX-01` имеет `3/3`, exact-main CI и web deployment после PR `#245`, но authenticated production LIVE исправления ещё не зафиксировано. PR `#246` синхронизировал documentation truth, исправил public webmanifest MIME, усилил и ускорил CI; production header подтверждён как `application/manifest+json`. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Source-cache LIVE также остаётся отдельным archived external gate.
 
 Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. До завершения atomic decomposition общий project percentage остаётся `N/A`.
 

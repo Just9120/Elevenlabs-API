@@ -33,6 +33,8 @@ def test_browser_e2e_uses_real_browser_api_and_isolated_service_state() -> None:
     assert "alembic -c apps/studio-api/alembic.ini upgrade head" in workflow
     assert "python tests/support/studio_browser_e2e_seed.py" in workflow
     assert "'tests/test_studio_browser_e2e_contract.py'" in workflow
+    assert "id: playwright-cache" in workflow
+    assert "if: steps.playwright-cache.outputs.cache-hit != 'true'" in workflow
     assert "npx playwright install --with-deps chromium" in workflow
     assert "npm run test:e2e" in workflow
     assert (

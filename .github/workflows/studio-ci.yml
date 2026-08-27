@@ -196,6 +196,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
       - name: Restore exact Playwright Chromium cache
+        id: playwright-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -219,7 +220,8 @@ jobs:
         run: alembic -c apps/studio-api/alembic.ini upgrade head
       - name: Seed isolated browser E2E state
         run: python tests/support/studio_browser_e2e_seed.py
-      - name: Install Chromium
+      - name: Install Chromium on exact cache miss
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
         working-directory: apps/studio
       - name: Run authenticated browser E2E
