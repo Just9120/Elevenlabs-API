@@ -7,13 +7,16 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current scope в рабочей ветке `codex/fix-source-cache-coherency`:
+Актуальная независимо пересчитанная готовность current scope для working branch `codex/fix-google-picker-ux@60c4ec23bdd4afa6dcbff25633cdd96121b4704f` (base `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`):
 
 - Google Colab: **100% (`29/29`)**.
-- VoiceOps Studio PWA: **100% (`116/116`)**.
-- весь проект: **100% (`145/145`)**.
+- VoiceOps Studio PWA: **100% (`119/119`)**.
+- согласованный current canonical scope: **100% (`148/148`)**.
+- полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
 
-Проценты показывают выполнение product AC, а не production readiness. Текущая Goal исправляет source-list cache coherency и согласует user-visible branding; её `CI/DEPLOY/LIVE` ещё открыты.
+`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. В текущей `PWA-GOOGLE-PICKER-UX-01` локально выполнены `3/3` AC, но exact-head CI, deployment и authenticated production LIVE ещё не подтверждены. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Предыдущая source-cache Goal merged/deployed, но её owner-controlled authenticated `LIVE` остаётся отдельным archived external gate.
+
+Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. До завершения atomic decomposition общий project percentage остаётся `N/A`.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
@@ -53,6 +56,7 @@ Colab batch запускается вручную через `notebooks/elevenla
 | [docs/runbooks/validation.md](docs/runbooks/validation.md) | Repository и component validation commands. |
 | [docs/runbooks/studio-platform-ops.md](docs/runbooks/studio-platform-ops.md) | Studio rollout и production operations. |
 | [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype и manual runtime validation. |
+| [docs/audits/repository-audit-2026-08-27.md](docs/audits/repository-audit-2026-08-27.md) | Актуальный evidence-based audit; findings, readiness, gaps и proposed next Goal. |
 | [docs/audits/repository-audit-2026-07-26.md](docs/audits/repository-audit-2026-07-26.md) | Исторический dated audit; supporting evidence, не current authority. |
 
 Опциональные `docs/utility/context-bundle-builder.md` и `docs/ai-delivery-infrastructure-plan.md` в текущем repository отсутствуют; их содержание не предполагается.

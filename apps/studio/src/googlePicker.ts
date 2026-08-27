@@ -1,3 +1,6 @@
+import { lockDocumentScroll } from "./documentScrollLock";
+import { openGoogleDriveFolderPicker } from "./GoogleDriveFolderPickerDialog";
+
 export type PickerMode =
   | "sources"
   | "source-folder"
@@ -64,7 +67,6 @@ const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
 const SOURCE_FOLDER_PICKER_TITLE = "Выберите папку с аудио или видео";
-const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
 const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
 const TRANSCRIPT_FOLDER_PICKER_TITLE =
   "Выберите папку с транскриптами";
@@ -186,9 +188,11 @@ export async function openGooglePicker(
   mode: PickerMode,
   session: PickerSession,
 ): Promise<PickerResult> {
+  if (mode === "output-folder") {
+    return openGoogleDriveFolderPicker(session);
+  }
   const folderMode =
     mode === "source-folder" ||
-    mode === "output-folder" ||
     mode === "catalog-folder" ||
     mode === "transcript-folder";
   const documentMode = mode === "transcript-document";
@@ -210,6 +214,7 @@ export async function openGooglePicker(
     let completed = false;
     let picker: PickerInstance | null = null;
     let interactionTimeout: number | null = null;
+    const releaseDocumentScroll = lockDocumentScroll();
     const finish = (result: PickerResult) => {
       if (completed) return;
       completed = true;
@@ -217,6 +222,7 @@ export async function openGooglePicker(
         window.clearTimeout(interactionTimeout);
       }
       token = "";
+      releaseDocumentScroll();
       resolve(result);
     };
     const callback = (data: unknown) => {
@@ -262,9 +268,7 @@ export async function openGooglePicker(
           ? TRANSCRIPT_FOLDER_PICKER_TITLE
           : mode === "catalog-folder"
             ? CATALOG_FOLDER_PICKER_TITLE
-            : folderMode
-              ? OUTPUT_FOLDER_PICKER_TITLE
-              : SOURCE_PICKER_TITLE,
+            : SOURCE_PICKER_TITLE,
       );
       builder.setOrigin(window.location.origin);
       builder.setMaxItems(folderMode || documentMode ? 1 : 50);

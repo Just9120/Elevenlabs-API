@@ -845,6 +845,18 @@ Goal `PWA-AUDIO-WORKSPACE-02` завершила production UX/runtime stabiliza
 - Product readiness на closure: `PWA-CORE-01 14/14`, `PWA-AUDIO-PREPARATION-01 24/24`, Studio PWA `116/116`, project `145/145`; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`); closure reconciled в начале следующей authorized code-bearing Goal без отдельного docs-only PR.
 
+## Archived PR #244 source-cache/branding external-gate checkpoint
+
+Goal `PWA-SOURCE-CACHE-01` была merged и deployed 2026-08-27, но осталась в `PENDING_EXTERNAL_GATE` из-за отсутствующего authenticated owner LIVE.
+
+- Base chain завершён PR `#244`, merge `18cbd46e9361a66bfbc1f2265d0820aa72aedf50`.
+- Exact-main repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` — success; web deployed, API/worker/migration N/A.
+- Source-cache remediation и user-visible VoiceOps Studio branding находятся в main.
+- Required Goal Evidence на перенос: `SPEC/CODE/TEST/CI/DEPLOY ✅ | LIVE —`.
+- Remaining external gate: удалить test source через Settings в authenticated owner session, вернуться в уже смонтированные `Транскрибации` и подтвердить authoritative list, сохранность draft и fail-closed selected source без provider call.
+- Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- Explicit user instruction 2026-08-27 «ставь цель и приступай» отдельно авторизовала переход к `PWA-GOOGLE-PICKER-UX-01`; это не превращает отсутствующий source-cache LIVE в success.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

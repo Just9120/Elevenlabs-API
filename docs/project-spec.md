@@ -28,13 +28,23 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@018b560035e4ff2219c246f734216f76537875ee`. PR `#243`, exact-main repository CI `32900076070`, Studio/browser CI `32900076159`, component CD `32900076101` и manual worker drain/deploy/status `32904910880` → `32904997797` → `32905120372` подтвердили exact web/API/worker delivery без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
+Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#244`, exact-main repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` подтвердили merge, CI и web-only deployment source-cache/branding change; authenticated production LIVE для этой Goal ещё отсутствует. Более ранний exact-main delivery подтвердил web/API/worker Audio scope без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
+
+Current local candidate: `codex/fix-google-picker-ux@60c4ec23bdd4afa6dcbff25633cdd96121b4704f`; его `CODE/TEST` evidence ещё не является exact-head CI, deployment или LIVE evidence.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **100% (`116/116`)** | выполненные AC всех PWA-эпиков / все PWA AC; `PC-14` и `AP-24` подтверждены production LIVE |
-| Весь проект | **100% (`145/145`)** | все выполненные AC двух продуктов / все AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
+| Studio PWA | **100% (`119/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `3/3` локально подтверждён |
+| Согласованный current canonical scope | **100% (`148/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
+
+Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
+
+### Commercial scope decision
+
+Owner decision от 2026-08-27: отдельный commercial production для российских пользователей **включён в durable product scope**, но implementation сейчас **не авторизована**. До завершения `SPEC-RECONCILIATION-01` commercial contour имеет lifecycle state **⬜ BACKLOG** и modifier **⛔ BLOCKED (SPEC decomposition / external legal decisions)**.
+
+Обязательная scope boundary для будущей atomic decomposition берётся из upstream commercial section без silent omission: российская infrastructure/data localization; independent environment/resources; registration/auth/TOTP; personal-data lifecycle; cross-border/provider legal gates; replaceable Russian STT production path; quotas/cost accounting; queue fairness; payments/subscriptions/fiscalization; unit economics; least privilege/RLS/audit/backup controls; notifications; legal readiness. Эти категории не считаются выполненными и пока не образуют числовой denominator. Product implementation, CI/CD или production changes этим решением не разрешены.
 
 ## 3. Общие product rules
 
@@ -139,7 +149,7 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
-Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC и exact-head CI подтверждены; DEPLOY и LIVE для текущей ветки ещё не выполнены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC, exact-main CI и web deployment подтверждены; authenticated production LIVE для source-cache/navigation behavior ещё не выполнен, поэтому эпик не `READY`.
 
 `Project` остаётся допустимой внутренней ownership/data boundary, но не является обязательной пользовательской сущностью. Основной user flow начинается с обычной или Live-транскрибации; технический workspace выбирается или создаётся автоматически и не требует ручного lifecycle management.
 
@@ -150,9 +160,9 @@ Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC и exact-head C
 | `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ✅ |
 | `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
 
-Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-head CI: Python `1252/1252`, Studio `539/539`, browser E2E `10/10`, builds и safety markers PASS. Bounded narrow browser fixture также прошёл; production behavior ожидает DEPLOY/LIVE Evidence.
+Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-main repository и Studio/browser CI прошли на `18cbd46`; web deployment подтверждён. Bounded narrow browser fixture также прошёл; authenticated production source-cache/navigation behavior ожидает LIVE Evidence.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
@@ -175,6 +185,20 @@ Status: **🟩 READY — 100% (`11/11`)**. Exact `drive.file + drive.readonly`, 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified implementation: Favorites и local folder flow подтверждены. `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8` использует exact `drive.file + drive.readonly`, требует reconnect для старых grants, отдельно gate-ит source-folder traversal по `drive.readonly` и отклоняет full `drive`/unrelated scopes. Exact-main CI, web deployment, оба OAuth reconnect и bounded LIVE подтвердили рекурсивный import девяти supported Drive files в девять composer rows без запуска provider job. Первая поздно выбранная verified target folder заполняет только unassigned rows, последующий per-row override сохраняется; все девять строк сохранили `До конца файла` и достигли ready state.
+
+### Эпик `PWA-GOOGLE-PICKER-UX-01` — viewport и выбор текущей папки
+
+Status: **🟦 IN PROGRESS — 100% (`3/3`)**. Все atomic AC локально выполнены; обязательные exact-head `CI`, `DEPLOY` и authenticated `LIVE` ещё не подтверждены, поэтому эпик не `READY`.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ✅ |
+| `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ✅ |
+| `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
+
+Verified local implementation: `documentScrollLock.ts` блокирует background wheel/touch/scroll, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Поскольку documented Picker callback не предоставляет navigation event/current-folder authority, output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token, folder-only Drive REST listing и сохранённой server-side write verification. Текущая папка становится selection сразу после загрузки и остаётся selectable при loading/empty/error child-list state. Focused terminal-path regressions `6/6`, полный frontend Vitest `603/603`, ESLint, TypeScript, production Vite build и `scripts/ci_checks.py` прошли. Local Python `pytest` не запущен: bundled runtime не содержит module; authenticated browser E2E требует CI services. Owner LIVE 2026-08-27 пока подтверждает только исходные defects, не исправление.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -363,7 +387,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
-## 6. Future scope, не включённый в denominator `144`
+## 6. Future scope, не включённый в denominator `148`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
@@ -401,18 +425,19 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@091e558ebe5c369486056f2ef94f67f99a459ee0`.
-- Exact-main repository CI: run `32832907020`, success.
-- Exact-main Studio/browser CI: run `32832906999`, jobs `studio` и `browser-e2e` success.
-- Studio Platform CD run `32832907052` развернул web/API exact merge revision; migration и worker были корректно skipped. Production schema остаётся `0025_audio_preparation`; worker processor был ранее deployed на Audio hotfix `16badb0aa4404ae2616a3d46070925b54b043963`.
-- Новый production Audio walkthrough подтвердил previous UX/IA changes, но server concat plan с OBS/Matroska files завершился `failed · 5% · invalid_input`; текущая Goal устраняет этот drift и реализует новые canonical AC. Historical runtime identifiers находятся в delivery archive.
+- Current verified revision: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`.
+- Exact-main repository CI: run `32959921859`, success.
+- Exact-main Studio/browser CI: run `32959921773`, jobs `studio` и `browser-e2e` success.
+- Studio Platform CD run `32959921827` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
+- Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest` фактически отдаётся как `application/octet-stream` вместо `application/manifest+json`; authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Доставить `PWA-AUDIO-WORKSPACE-02` через один PR и required exact-head CI; schema migration не требуется.
-2. После merge развернуть web/API, выполнить отдельный authorized worker drain/deploy exact merge revision и подтвердить component identities.
-3. Провести bounded owner-controlled LIVE без provider call: browser-local WAV download, visible device-upload progress и отдельный/concat server plan на коротких media fixtures; подтвердить отсутствие повторного PUT и private-data leakage.
-4. Только после closure отдельно согласовывать storage bucket isolation, optional TOTP либо commercial contour; они не входят в текущую Goal.
+1. Завершить current `PWA-GOOGLE-PICKER-UX-01`: провести exact candidate через PR/CI, applicable web deployment и authenticated source/output-folder LIVE.
+2. Не смешивать с Goal изменение OAuth scopes, backend/schema/worker, CI/CD policy или commercial implementation.
+3. Source-cache authenticated LIVE остаётся archived external gate и не считается выполненным.
+4. После closure отдельно приоритизировать `PWA-MANIFEST-MIME-01`; implementation не авторизована.
+5. Storage isolation, optional TOTP и commercial contour остаются отдельными proposals и не входят в текущую Goal.
 
 ## 10. Supporting documents
 

@@ -183,6 +183,78 @@
 .confirm-clear-dialog h2 {
   margin-top: 0;
 }
+.google-drive-folder-picker-dialog {
+  width: min(100%, 780px);
+  max-height: min(760px, calc(100vh - 40px));
+  margin: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(10rem, 1fr) auto;
+  gap: 0.9rem;
+  overflow: hidden;
+}
+.google-drive-folder-picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.google-drive-folder-picker-header h2,
+.google-drive-folder-picker-header p {
+  margin: 0;
+}
+.google-drive-folder-picker-header p {
+  margin-top: 0.35rem;
+  color: var(--studio-muted);
+}
+.google-drive-folder-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.google-drive-folder-breadcrumbs button[aria-current="page"] {
+  color: var(--studio-text);
+  opacity: 1;
+}
+.google-drive-folder-picker-content {
+  min-height: 10rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.25rem;
+}
+.google-drive-folder-picker-content h3 {
+  margin: 0.75rem 0 0.4rem;
+}
+.google-drive-folder-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.google-drive-folder-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  text-align: left;
+}
+.google-drive-folder-row:hover {
+  border-color: var(--studio-primary);
+  background: var(--studio-soft);
+}
+.google-drive-folder-picker-actions {
+  align-items: center;
+  justify-content: space-between;
+}
+.google-drive-folder-picker-actions .muted {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .folder-import-dialog {
   max-height: min(760px, calc(100vh - 40px));
   overflow-y: auto;
@@ -219,6 +291,10 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 520px) {
+  .google-drive-folder-picker-header,
+  .google-drive-folder-picker-actions {
+    display: grid;
+  }
   .folder-import-summary {
     grid-template-columns: minmax(0, 1fr);
   }
