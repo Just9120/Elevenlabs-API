@@ -40,6 +40,8 @@ def test_studio_ci_uses_exact_browser_and_content_addressed_image_caches() -> No
         in STUDIO_CI
     )
     assert "restore-keys:" not in STUDIO_CI
+    assert "id: playwright-cache" in STUDIO_CI
+    assert "if: steps.playwright-cache.outputs.cache-hit != 'true'" in STUDIO_CI
 
     assert "DOCKER_BUILD_RECORD_UPLOAD: 'false'" in STUDIO_CI
     assert STUDIO_CI.count("load: true") == 2
