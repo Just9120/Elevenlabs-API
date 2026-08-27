@@ -44,7 +44,8 @@ Upstream Google Doc — обязательный вход для reconciliation,
 |---|---|---|---|
 | `ALIGNED` | Colab batch; Google Drive intake; language/diarization; fragments; multi-transcriptions; manifest; standardization; большая часть Audio Preparation; history/analytics/diagnostics basics | Уже покрыто current canonical epics полностью или частично. | Сопоставить каждый bullet с exact existing AC и не создавать duplicates. |
 | `PARTIAL` | themes/accent; session management/re-auth; Drive resumable upload; full storage deletion/version cleanup; audio rename/templates; local processing breadth; job event delivery; cost analytics; admin health/alerts; tamper-resistant audit log | Код покрывает только часть поведения. | Создать новые atomic AC только для missing remainder. |
-| `NEW PRODUCT SCOPE` | personal/commercial environments и feature modes; multi-provider abstraction; Yandex batch/deferred/realtime; quotas; notifications; expanded realtime continuity/recording/overlay/YouTube; Markdown/SRT/VTT export; commercial auth; payments; unit economics | В current denominator отсутствует. | После owner approval создать отдельные epics и добавить их в новый denominator. |
+| `APPROVED BACKLOG` | commercial environment/isolation; Russian infrastructure/data governance; commercial auth; replaceable Russian STT path; quotas/costs; queue fairness; payments; unit economics; security/RLS; notifications; legal readiness | Owner decision `REQ-DEC-001` включил commercial production в durable scope без implementation authorization. | Декомпозировать в отдельные atomic epics и включить в новый denominator; оставить lifecycle `BACKLOG`. |
+| `NEW / UNRESOLVED` | personal feature-display modes; expanded realtime continuity/recording/overlay/YouTube; Markdown/SRT/VTT export и другие non-commercial additions | В current denominator отсутствует и отдельного owner decision ещё нет. | Согласовать отдельно; не смешивать автоматически с approved commercial backlog. |
 | `EXTERNAL GATE` | российская data localization; legal basis/consents; cross-border transfer; payment/fiscalization; provider permissibility; RPO/RTO | Нельзя закрыть только repository code. | Определить owner/expert evidence, legal decisions и `PENDING_EXTERNAL_GATE` criteria. |
 | `CONFLICT` | Upstream menu содержит `Проекты`, canonical UI заменил их на `Транскрибации`; upstream допускает safe automatic retry, current contract fail-closed при uncertain side effects; commercial запрещает voice identification, personal требует её; Colab объявлен frozen, но upstream отмечает intermittent realtime capture break | Нельзя молча выбрать одну сторону. | Owner decision или явное разделение по contour/capability; для realtime — новый bounded LIVE evidence. |
 
@@ -62,6 +63,12 @@ Upstream Google Doc — обязательный вход для reconciliation,
 10. `OBSERVABILITY-AUDIT-02` — trace correlation, integration health/readiness, alerts и protected audit retention.
 
 До утверждения reconciliation matrix эти эпики — proposals, но они обязаны оставаться видимыми в roadmap. Формулировка «проект 100%» для combined canonical + upstream scope недопустима.
+
+Owner decision log:
+
+| ID | Decision | Consequence |
+|---|---|---|
+| `REQ-DEC-001` | 2026-08-27: commercial production включить в durable product scope, но пока не реализовывать. | Commercial requirements переходят из `NEW PRODUCT SCOPE` в **approved ⬜ BACKLOG**. Они должны получить отдельные epics/atomic AC и войти в новый denominator после `SPEC-RECONCILIATION-01`; implementation/CI/CD/deploy не авторизованы. |
 
 ### 3.2 Drift и consolidation findings
 
@@ -224,7 +231,7 @@ Previous independent snapshot утверждённого canonical scope был 
   4. Approved additions внесены в canonical spec с новым exact denominator; rejected/deferred items остаются traceable и не маскируются как выполненные.
   5. Project/epic readiness пересчитана с нуля по новому denominator; изменение относительно `145/145` объяснено.
 - **Required Evidence:** `SPEC ✅ | CODE N/A | TEST N/A | CI N/A | DEPLOY N/A | LIVE N/A`.
-- **Known blockers:** owner decisions по UI `Проекты` vs `Транскрибации`, meaning of «в дальнейшем», commercial scope timing и legal/external gates; current delivery Goal всё ещё `PENDING_EXTERNAL_GATE`.
+- **Known blockers:** owner decisions по UI `Проекты` vs `Транскрибации` и meaning of «в дальнейшем»; atomic decomposition commercial BACKLOG; named legal/external gates; current delivery Goal всё ещё `PENDING_EXTERNAL_GATE`.
 - **Stop condition:** reconciled spec утверждён либо Goal `BLOCKED` на перечисленных owner decisions. После Goal implementation продукта не начинается без отдельного согласования.
 
 Product implementation не авторизована этим аудитом.

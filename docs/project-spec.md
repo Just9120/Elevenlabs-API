@@ -38,6 +38,12 @@ Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#24
 
 Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
 
+### Commercial scope decision
+
+Owner decision от 2026-08-27: отдельный commercial production для российских пользователей **включён в durable product scope**, но implementation сейчас **не авторизована**. До завершения `SPEC-RECONCILIATION-01` commercial contour имеет lifecycle state **⬜ BACKLOG** и modifier **⛔ BLOCKED (SPEC decomposition / external legal decisions)**.
+
+Обязательная scope boundary для будущей atomic decomposition берётся из upstream commercial section без silent omission: российская infrastructure/data localization; independent environment/resources; registration/auth/TOTP; personal-data lifecycle; cross-border/provider legal gates; replaceable Russian STT production path; quotas/cost accounting; queue fairness; payments/subscriptions/fiscalization; unit economics; least privilege/RLS/audit/backup controls; notifications; legal readiness. Эти категории не считаются выполненными и пока не образуют числовой denominator. Product implementation, CI/CD или production changes этим решением не разрешены.
+
 ## 3. Общие product rules
 
 1. Primary batch artifact — Google Docs transcript; realtime должен позволять скачать подтверждённый текст как `.txt`.

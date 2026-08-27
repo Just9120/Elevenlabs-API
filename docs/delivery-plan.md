@@ -19,13 +19,13 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T16:25:13Z.
+- Updated (UTC): 2026-08-27T17:35:50Z.
 - Session mode: evidence-based audit/recovery; новая implementation Goal не авторизована.
 - Base branch/SHA: local clean `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`; public GitHub `main` history показывает ту же latest revision. `git fetch` не выполнен из sandbox (`FETCH_HEAD` permission), `gh` authentication invalid (401).
 - Working branch: `codex/repository-audit-2026-08-27`, создана от verified local/public main только для audit metadata.
 - Last verified revision: `18cbd46e9361a66bfbc1f2265d0820aa72aedf50` — merge PR `#244`.
 - Working tree at audit start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#244` merged; source-cache remediation и VoiceOps Studio branding находятся в main. Exact-main repository CI `32959921859` и Studio/browser CI `32959921773` success. Studio Platform CD `32959921827` success, web deployed; API/worker/migration skipped. Public root и `/api/healthz` доступны; production manifest MIME defect зафиксирован отдельным audit finding. Audit correction отделила `145/145` current canonical AC от полного upstream scope: `275` raw bullets требуют reconciliation и пока имеют status `SPEC RECONCILIATION REQUIRED`, а не `100%`.
+- Completed: PR `#244` merged; source-cache remediation и VoiceOps Studio branding находятся в main. Exact-main repository CI `32959921859` и Studio/browser CI `32959921773` success. Studio Platform CD `32959921827` success, web deployed; API/worker/migration skipped. Public root и `/api/healthz` доступны; production manifest MIME defect зафиксирован отдельным audit finding. Audit correction отделила `145/145` current canonical AC от полного upstream scope: `275` raw bullets требуют reconciliation и пока имеют status `SPEC RECONCILIATION REQUIRED`, а не `100%`. Owner decision `REQ-DEC-001` включил commercial production в durable scope как BACKLOG без implementation authorization.
 - Current step: Goal implementation/delivery recovery завершён до external LIVE gate; Goal переведена в `PENDING_EXTERNAL_GATE`.
 - Next exact action: выполнить owner-controlled authenticated production canary без provider call: удалить test source через Settings, вернуться в уже смонтированные `Транскрибации`, подтвердить authoritative empty/changed list, сохранность composer draft и fail-closed selected source.
 - Validation and Evidence: branch до merge — полный frontend cache suite, lint/build и focused tests PASS по checkpoint; exact-main required CI runs success. В текущем аудите `scripts/ci_checks.py` PASS, public health/header checks PASS кроме manifest MIME, `git diff --check` выполняется перед handoff. Full local pytest/npm validation не повторена из-за отсутствующих local dependencies/OneDrive npm environment; это покрыто exact-main CI.
@@ -41,7 +41,7 @@
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
 | **Current canonical scope** | **100% (`145/145`)** | **100% (`145/145`)** | Независимый audit подтвердил прежний утверждённый AC numerator; изменение `0 pp`. Это не оценка новых upstream requirements. |
-| **Full upstream scope** | **N/A — `SPEC RECONCILIATION REQUIRED`** | **N/A** | `275` raw list-item requirements ещё не преобразованы в согласованные atomic AC; denominator отсутствует. |
+| **Full upstream scope** | **N/A — `SPEC RECONCILIATION REQUIRED`** | **N/A** | Commercial production включён owner decision 2026-08-27 как BACKLOG без implementation authorization; `275` raw list-item requirements ещё не преобразованы в согласованные atomic AC, denominator отсутствует. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
 | **Studio PWA** | **100% (`116/116`)** | **100% (`116/116`)** | 9/11 PWA epics READY; UX LIVE `—`, Manifest LIVE `◐`. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
@@ -50,7 +50,7 @@
 
 ## Candidate next Goals
 
-1. `SPEC-RECONCILIATION-01` — сопоставить все upstream requirements с canonical contract, принять owner decisions, сформировать эпики/atomic AC и новый denominator; implementation продукта не входит.
+1. `SPEC-RECONCILIATION-01` — сопоставить все upstream requirements с canonical contract, сформировать эпики/atomic AC и новый denominator; commercial production уже включён owner decision как BACKLOG, implementation продукта не входит.
 2. `PWA-MANIFEST-MIME-01` — standards-compliant `.webmanifest` response после closure текущей Goal и reconciliation priority decision.
 3. `CI-CD-HARDENING-01` — immutable action SHAs и exact deployed revision contract; требует explicit CI/CD policy task.
 4. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
