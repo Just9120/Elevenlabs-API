@@ -33,8 +33,8 @@ Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#24
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **100% (`116/116`)** | выполненные AC всех PWA-эпиков / все PWA AC; `PC-14` и `AP-24` подтверждены production LIVE |
-| Согласованный current canonical scope | **100% (`145/145`)** | все выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
+| Studio PWA | **97,5% (`116/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `0/3` подтверждён как current gap |
+| Согласованный current canonical scope | **98,0% (`145/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
 
 Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
 
@@ -183,6 +183,20 @@ Status: **🟩 READY — 100% (`11/11`)**. Exact `drive.file + drive.readonly`, 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified implementation: Favorites и local folder flow подтверждены. `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8` использует exact `drive.file + drive.readonly`, требует reconnect для старых grants, отдельно gate-ит source-folder traversal по `drive.readonly` и отклоняет full `drive`/unrelated scopes. Exact-main CI, web deployment, оба OAuth reconnect и bounded LIVE подтвердили рекурсивный import девяти supported Drive files в девять composer rows без запуска provider job. Первая поздно выбранная verified target folder заполняет только unassigned rows, последующий per-row override сохраняется; все девять строк сохранили `До конца файла` и достигли ready state.
+
+### Эпик `PWA-GOOGLE-PICKER-UX-01` — viewport и выбор текущей папки
+
+Status: **⬜ BACKLOG — 0% (`0/3`)**. Upstream requirements и user LIVE observation подтверждают три обязательных UX behavior; current code/tests их не обеспечивают. Implementation этой remediation отдельно не авторизована и не начата.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ❌ |
+| `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ❌ |
+| `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ❌ |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST — | CI — | DEPLOY ◐ | LIVE ❌`.
+
+Verified gap: `apps/studio/src/googlePicker.ts` задаёт initial size и `setSelectFolderEnabled(true)`, но не lock-ит document scroll, не восстанавливает scroll state и получает только `docs[]` terminal callback без authority текущей открытой folder. Existing tests подтверждают builder calls/size, но не background scroll, viewport anchoring или selection текущей empty folder. Owner LIVE 2026-08-27 воспроизвёл drift как для выбора source, так и target folder.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -371,7 +385,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
-## 6. Future scope, не включённый в denominator `145`
+## 6. Future scope, не включённый в denominator `148`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
@@ -419,8 +433,9 @@ Future auth criteria исключены из текущего denominator до �
 
 1. Закрыть external gate текущей `PWA-SOURCE-CACHE-01`: bounded authenticated LIVE после удаления source через Settings и возврата в уже смонтированные `Транскрибации`, без paid/provider call.
 2. Синхронизировать post-deploy metadata approved механизмом; если механизм по-прежнему отсутствует, сохранить explicit blocker и не обходить protections.
-3. После closure отдельно согласовать proposed `PWA-MANIFEST-MIME-01`; implementation не авторизована текущим checkpoint.
-4. Storage isolation, optional TOTP и commercial contour остаются отдельными proposals и не входят в текущую Goal.
+3. После closure отдельно согласовать proposed `PWA-GOOGLE-PICKER-UX-01`; implementation не авторизована текущим checkpoint.
+4. Затем отдельно приоритизировать `PWA-MANIFEST-MIME-01`; implementation также не авторизована.
+5. Storage isolation, optional TOTP и commercial contour остаются отдельными proposals и не входят в текущую Goal.
 
 ## 10. Supporting documents
 

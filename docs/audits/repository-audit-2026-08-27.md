@@ -22,9 +22,9 @@
 
 ## 2. Executive result
 
-- Уже согласованный canonical AC completion: **100% (`145/145`)** — Colab `29/29`, Studio PWA `116/116`. Это не percentage всей upstream product vision.
+- Уже согласованный canonical AC completion после Google Picker correction: **98,0% (`145/148`)** — Colab `29/29`, Studio PWA `116/119`. Это не percentage всей upstream product vision.
 - Upstream содержит `275` raw list-item requirements: Colab `16`, PWA `158`, commercial production `101`. Они ещё не reconciled и не atomic, поэтому общий product denominator отсутствует; status полного scope — **`SPEC RECONCILIATION REQUIRED`**, percentage — **`N/A`**.
-- Project нельзя обозначить единым `READY`: два из 13 эпиков не закрыли обязательный LIVE gate — `PWA-TRANSCRIPTIONS-UX-01` (`LIVE —`) и `PWA-MANIFEST-01` (`LIVE ◐`). Это не меняет AC percentage, потому что Evidence gate-ит status, а не numerator.
+- Project нельзя обозначить единым `READY`: три из 14 эпиков не READY — `PWA-GOOGLE-PICKER-UX-01` имеет `0/3`, а `PWA-TRANSCRIPTIONS-UX-01` (`LIVE —`) и `PWA-MANIFEST-01` (`LIVE ◐`) не закрыли обязательный LIVE gate. Evidence gate-ит status, но не добавляет проценты.
 - Current Goal `PWA-SOURCE-CACHE-01` восстановлена как **`PENDING_EXTERNAL_GATE`**: merge, exact-main CI и web deployment подтверждены; authenticated production LIVE отсутствует.
 - Exact `main` подтверждён публичной GitHub history: PR `#244` merged в `18cbd46`; repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` завершились success.
 - Публичный root и `/api/healthz` отвечают `200`; health сообщает `database=reachable`, `migrations=current`. Это не доказывает authenticated flows, exact schema revision или worker state.
@@ -43,7 +43,7 @@ Upstream Google Doc — обязательный вход для reconciliation,
 | Класс | Upstream groups | Current relation | Требуемое решение |
 |---|---|---|---|
 | `ALIGNED` | Colab batch; Google Drive intake; language/diarization; fragments; multi-transcriptions; manifest; standardization; большая часть Audio Preparation; history/analytics/diagnostics basics | Уже покрыто current canonical epics полностью или частично. | Сопоставить каждый bullet с exact existing AC и не создавать duplicates. |
-| `PARTIAL` | themes/accent; session management/re-auth; Drive resumable upload; full storage deletion/version cleanup; audio rename/templates; local processing breadth; job event delivery; cost analytics; admin health/alerts; tamper-resistant audit log | Код покрывает только часть поведения. | Создать новые atomic AC только для missing remainder. |
+| `PARTIAL` | Google Picker viewport/scroll/current-folder UX; themes/accent; session management/re-auth; Drive resumable upload; full storage deletion/version cleanup; audio rename/templates; local processing breadth; job event delivery; cost analytics; admin health/alerts; tamper-resistant audit log | Picker gap уже принят в canonical epic `PWA-GOOGLE-PICKER-UX-01`; для остальных групп код покрывает только часть поведения. | Сохранить Picker как `0/3 BACKLOG`; создать новые atomic AC только для missing remainder остальных групп. |
 | `APPROVED BACKLOG` | commercial environment/isolation; Russian infrastructure/data governance; commercial auth; replaceable Russian STT path; quotas/costs; queue fairness; payments; unit economics; security/RLS; notifications; legal readiness | Owner decision `REQ-DEC-001` включил commercial production в durable scope без implementation authorization. | Декомпозировать в отдельные atomic epics и включить в новый denominator; оставить lifecycle `BACKLOG`. |
 | `NEW / UNRESOLVED` | personal feature-display modes; expanded realtime continuity/recording/overlay/YouTube; Markdown/SRT/VTT export и другие non-commercial additions | В current denominator отсутствует и отдельного owner decision ещё нет. | Согласовать отдельно; не смешивать автоматически с approved commercial backlog. |
 | `EXTERNAL GATE` | российская data localization; legal basis/consents; cross-border transfer; payment/fiscalization; provider permissibility; RPO/RTO | Нельзя закрыть только repository code. | Определить owner/expert evidence, legal decisions и `PENDING_EXTERNAL_GATE` criteria. |
@@ -69,6 +69,7 @@ Owner decision log:
 | ID | Decision | Consequence |
 |---|---|---|
 | `REQ-DEC-001` | 2026-08-27: commercial production включить в durable product scope, но пока не реализовывать. | Commercial requirements переходят из `NEW PRODUCT SCOPE` в **approved ⬜ BACKLOG**. Они должны получить отдельные epics/atomic AC и войти в новый denominator после `SPEC-RECONCILIATION-01`; implementation/CI/CD/deploy не авторизованы. |
+| `REQ-DEC-002` | 2026-08-27: Google Picker должен оставаться привязанным к viewport с заблокированным background scroll; текущая открытая output folder выбирается без обязательного выбора child, включая empty folder. | Три требования приняты в canonical epic `PWA-GOOGLE-PICKER-UX-01` как **⬜ BACKLOG `0/3`**; denominator Studio увеличен с `116` до `119`, current canonical — с `145` до `148`. Implementation не авторизована. |
 
 ### 3.2 Drift и consolidation findings
 
@@ -113,6 +114,7 @@ Owner decision log:
 | Priority | Finding | Evidence | Action |
 |---|---|---|---|
 | P1 | Production manifest MIME неверен. | LIVE `Content-Type: application/octet-stream`; `apps/studio/nginx.conf` не задаёт `.webmanifest` type. | `REFACTOR` в bounded Goal: type mapping + regression/live checks. |
+| P1 | Google Picker modal не lock-ит background scroll и не сохраняет viewport position; текущую открытую/empty target folder нельзя подтвердить без child selection. | Owner LIVE 2026-08-27; `googlePicker.ts:185-298`; tests проверяют builder config, но не required behavior. | `REFACTOR` отдельной Goal: scroll lifecycle + verified folder-browser/Picker selection design + browser regression. |
 | P1 | DB least privilege не доказан и по clean initialization нарушается. | `compose.platform.yml`: `POSTGRES_USER=studio`, API/worker `STUDIO_DATABASE_USER=studio`; official image semantics. | `REFACTOR`: отдельные bootstrap/migration и application roles; сначала read-only production role evidence и migration plan. |
 | P1 | CI action integrity ниже собственного contract. | Workflows используют version tags; `docs/ci-cd-rules.md:82,521-525`. | `REFACTOR`: pin verified full SHAs и включить applicable policy отдельной CI/CD Goal. |
 | P1 | Component CD может deploy более новый `origin/main`, чем triggering SHA. | Deploy script materialизуется из `origin/main`; contract уже фиксирует gap. | `REFACTOR`: передавать/проверять exact expected SHA; не менять без CI/CD Goal. |
@@ -145,6 +147,7 @@ Owner decision log:
 | Coverage collection/threshold отсутствуют. | Нельзя evidence-based назвать line/branch percentage или регрессию coverage. | `DOCUMENT` baseline, затем scoped coverage gate для critical modules. |
 | Real Google, ElevenLabs, R2 и signed-in production flows исключены из CI. | Mocked/fake boundaries могут не поймать provider/runtime drift. | Bounded owner-controlled smoke matrix; никаких paid calls без отдельной authority. |
 | Source-cache Goal не прошла authenticated production LIVE. | Текущая Goal и UX epic остаются open по Evidence. | Закрыть existing external gate до новой implementation Goal. |
+| Google Picker tests не моделируют page scroll и navigation в empty/current folder. | Builder-level test даёт false confidence при фактически сломанном LIVE UX. | Добавить DOM scroll lifecycle и authenticated browser/current-folder scenarios в отдельной Goal. |
 | Manifest folder import/clear LIVE только partial. | `PWA-MANIFEST-01` не READY несмотря на `6/6` AC. | Отдельный bounded dry-run/apply/clear canary с backup/confirmation. |
 | Нет evidence performance/load/multi-worker. | Unbounded collections и lease races могут проявиться при росте. | Query/load/concurrency test plan с явными limits/SLO. |
 | Colab LIVE evidence историческое/owner-reported, в этом аудите не повторено. | Runtime/provider drift может остаться незамеченным. | Periodic manual validation record, не GitHub-hosted long monitoring. |
@@ -180,6 +183,7 @@ Denominator: равновесные atomic AC, перечисленные в can
 | `PWA-CORE-01` | `14/14` | 100% | все ✅ | 🟩 READY | MEDIUM |
 | `PWA-TRANSCRIPTIONS-UX-01` | `4/4` | 100% | SPEC/CODE/TEST/CI/DEPLOY ✅; LIVE — | 🟦 IN PROGRESS | HIGH для AC; LIVE blocked |
 | `PWA-INGEST-01` | `11/11` | 100% | все ✅ | 🟩 READY | MEDIUM |
+| `PWA-GOOGLE-PICKER-UX-01` | `0/3` | 0% | SPEC ✅; CODE/DEPLOY ◐; TEST/CI —; LIVE ❌ | ⬜ BACKLOG | HIGH |
 | `PWA-SEGMENTS-01` | `5/5` | 100% | все ✅ | 🟩 READY | MEDIUM |
 | `PWA-BATCH-01` | `10/10` | 100% | все ✅ | 🟩 READY | MEDIUM |
 | `PWA-AUDIO-PREPARATION-01` | `24/24` | 100% | все ✅ | 🟩 READY | HIGH |
@@ -189,11 +193,11 @@ Denominator: равновесные atomic AC, перечисленные в can
 | `PWA-REALTIME-01` | `13/13` | 100% | все ✅ | 🟩 READY | MEDIUM |
 | `PWA-OPERABILITY-01` | `18/18` | 100% | все ✅ | 🟩 READY | MEDIUM |
 | **Google Colab** | `29/29` | **100%** | 2/2 epics READY | — | MEDIUM |
-| **Studio PWA** | `116/116` | **100%** | 9/11 epics READY | — | MEDIUM |
-| **Current canonical scope** | `145/145` | **100%** | 11/13 epics READY | не global READY | MEDIUM |
+| **Studio PWA** | `116/119` | **97,5%** | 9/12 epics READY | — | HIGH |
+| **Current canonical scope** | `145/148` | **98,0%** | 11/14 epics READY | не global READY | HIGH |
 | **Full upstream scope** | denominator отсутствует | **N/A** | reconciliation не завершена | `SPEC RECONCILIATION REQUIRED` | HIGH |
 
-Previous independent snapshot утверждённого canonical scope был `145/145`; изменение `0` percentage points. Этот comparison неприменим к расширенному upstream scope: у него ещё нет согласованного denominator. Изменился Evidence, а не canonical AC numerator: после merge `PWA-TRANSCRIPTIONS-UX-01` получил `DEPLOY ✅`, но `LIVE` остался `—`.
+Previous independent snapshot утверждённого canonical scope был `145/145`; после добавления трёх ранее пропущенных Google Picker AC current snapshot — `145/148`, то есть `98,0%` и изменение `−2,0 pp`. Разница не превышает `10 pp`, но причина зафиксирована: upstream requirements существовали, user LIVE подтвердил failure, а audit ошибочно принял builder-level configuration за покрытие поведения. Comparison неприменим к полному upstream scope, у которого ещё нет согласованного denominator.
 
 `PWA-AUTH-HARDENING-02` и commercial capabilities не имеют утверждённых atomic AC/denominator. Корректный percentage для них определить нельзя: это `SPEC gap`, а не `0%` или subjective estimate.
 
@@ -209,30 +213,33 @@ Previous independent snapshot утверждённого canonical scope был 
 
 1. **External gate:** закрыть `PWA-SOURCE-CACHE-01` authenticated bounded LIVE и синхронизировать metadata approved механизмом; при отсутствии механизма оставить explicit blocker.
 2. **SPEC-RECONCILIATION-01:** requirement-by-requirement mapping всех `275` upstream bullets, owner decisions по conflicts/future markers, atomic decomposition и новый denominator.
-3. **PWA-MANIFEST-MIME-01:** исправить manifest media type, regression tests, exact-head CI, web deploy и public LIVE header/installability check.
-4. **CI-CD-HARDENING-01:** immutable action SHAs, exact deploy revision contract и повторный audit branch/ruleset/Environment settings. Требует explicit CI/CD policy authorization.
-5. **DB-LEAST-PRIVILEGE-01:** evidence actual roles, separate migration/application roles, backup/rollback and compatibility plan.
-6. **PWA-QUERY-BOUNDS-01:** pagination/retention/query budgets и load/concurrency validation для growing collections.
-7. **DOC-CONSOLIDATION-01:** stale runtime/runbook/security facts и dated audit placement без изменения durable product scope.
+3. **PWA-GOOGLE-PICKER-UX-01:** исправить scroll/viewport lifecycle и выбор текущей/empty target folder для source/target flows с browser LIVE.
+4. **PWA-MANIFEST-MIME-01:** исправить manifest media type, regression tests, exact-head CI, web deploy и public LIVE header/installability check.
+5. **CI-CD-HARDENING-01:** immutable action SHAs, exact deploy revision contract и повторный audit branch/ruleset/Environment settings. Требует explicit CI/CD policy authorization.
+6. **DB-LEAST-PRIVILEGE-01:** evidence actual roles, separate migration/application roles, backup/rollback and compatibility plan.
+7. **PWA-QUERY-BOUNDS-01:** pagination/retention/query budgets и load/concurrency validation для growing collections.
+8. **DOC-CONSOLIDATION-01:** stale runtime/runbook/security facts и dated audit placement без изменения durable product scope.
 
 Рабочий pipeline для любой согласованной implementation Goal: recover/sync verified base → отдельная branch → bounded code/tests/docs → local validation → reviewable commits → один initial push/PR после full local validation → exact-head required CI → один grouped fix batch только при confirmed failure → merge только после gates → applicable CD/LIVE → metadata sync → safe local cleanup → stop.
 
 ## 10. Предлагаемая следующая bounded Goal
 
-Следующую product implementation Goal нельзя начинать до closure/pause текущей `PWA-SOURCE-CACHE-01`. Следующая planning/spec Goal:
+Следующую product implementation Goal нельзя начинать до closure либо explicit pause текущей `PWA-SOURCE-CACHE-01`. С учётом подтверждённого LIVE defect следующая candidate Goal:
 
-- **ID/title:** `SPEC-RECONCILIATION-01` — reconcile upstream product requirements into canonical epics and atomic AC.
-- **Scope:** сопоставить все `275` upstream list-item requirements с current `docs/project-spec.md`; для каждого зафиксировать `ALIGNED | PARTIAL | NEW | CONFLICT | FUTURE | EXTERNAL_GATE`; декомпозировать утверждённые compound requirements в atomic AC; определить product/epic denominator; оформить owner decision log по conflicts и future markers; пересчитать readiness только после утверждения.
-- **Non-goals:** implementation новых функций; изменение CI/CD/production; legal conclusions вместо профильного специалиста; автоматическое признание каждого compound bullet одним AC; удаление existing canonical behavior без owner decision.
+- **ID/title:** `PWA-GOOGLE-PICKER-UX-01` — стабильный viewport и выбор текущей output folder.
+- **Scope:** оба source Picker flow и output-folder flow; lock/restore document scroll; viewport-stable modal lifecycle; verified способ выбрать текущую открытую folder, включая empty folder; focused unit/DOM/browser tests и applicable web delivery/LIVE.
+- **Non-goals:** изменение Google OAuth scopes; собственный общий Drive file manager; source ingestion/storage semantics; provider calls; backend/schema/worker/CI-CD policy changes.
 - **Goal AC:**
-  1. Все `275` upstream bullets имеют traceable mapping и disposition без orphaned requirements.
-  2. Все `PARTIAL/NEW` requirements сгруппированы в bounded candidate epics с atomic AC и Evidence expectations.
-  3. Все `CONFLICT/FUTURE/EXTERNAL_GATE` items имеют explicit owner decision либо named blocker/decision owner.
-  4. Approved additions внесены в canonical spec с новым exact denominator; rejected/deferred items остаются traceable и не маскируются как выполненные.
-  5. Project/epic readiness пересчитана с нуля по новому denominator; изменение относительно `145/145` объяснено.
-- **Required Evidence:** `SPEC ✅ | CODE N/A | TEST N/A | CI N/A | DEPLOY N/A | LIVE N/A`.
-- **Known blockers:** owner decisions по UI `Проекты` vs `Транскрибации` и meaning of «в дальнейшем»; atomic decomposition commercial BACKLOG; named legal/external gates; current delivery Goal всё ещё `PENDING_EXTERNAL_GATE`.
-- **Stop condition:** reconciled spec утверждён либо Goal `BLOCKED` на перечисленных owner decisions. После Goal implementation продукта не начинается без отдельного согласования.
+  1. `PG-01`: Picker не смещается относительно viewport при попытке прокрутки страницы во всех трёх flows.
+  2. `PG-02`: background scroll заблокирован на всём lifecycle Picker и точно восстановлен после pick/cancel/error/timeout без page jump.
+  3. `PG-03`: current output folder можно подтвердить без выбора child, в том числе если child folders отсутствуют.
+  4. Focused tests воспроизводят оба исходных regression и проходят локально/exact-head CI.
+  5. Applicable web deployment и owner-controlled authenticated browser LIVE подтверждают source и output-folder flows.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+- **Known blockers:** стандартный Google Picker API может не предоставлять current navigated folder identity отдельным navigation callback; implementation strategy нужно подтвердить prototype/test, при необходимости использовать bounded app-owned folder browser. Текущая Goal всё ещё `PENDING_EXTERNAL_GATE`; GitHub credential в audit session возвращает 401.
+- **Stop condition:** все Goal AC и Evidence подтверждены либо Goal переходит в `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться.
+
+`SPEC-RECONCILIATION-01` остаётся обязательной planning Goal для остальных upstream bullets, но не маскирует уже согласованный Picker defect.
 
 Product implementation не авторизована этим аудитом.
 
