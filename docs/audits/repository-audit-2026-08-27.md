@@ -22,7 +22,8 @@
 
 ## 2. Executive result
 
-- Product AC completion: **100% (`145/145`)** — Colab `29/29`, Studio PWA `116/116`.
+- Уже согласованный canonical AC completion: **100% (`145/145`)** — Colab `29/29`, Studio PWA `116/116`. Это не percentage всей upstream product vision.
+- Upstream содержит `275` raw list-item requirements: Colab `16`, PWA `158`, commercial production `101`. Они ещё не reconciled и не atomic, поэтому общий product denominator отсутствует; status полного scope — **`SPEC RECONCILIATION REQUIRED`**, percentage — **`N/A`**.
 - Project нельзя обозначить единым `READY`: два из 13 эпиков не закрыли обязательный LIVE gate — `PWA-TRANSCRIPTIONS-UX-01` (`LIVE —`) и `PWA-MANIFEST-01` (`LIVE ◐`). Это не меняет AC percentage, потому что Evidence gate-ит status, а не numerator.
 - Current Goal `PWA-SOURCE-CACHE-01` восстановлена как **`PENDING_EXTERNAL_GATE`**: merge, exact-main CI и web deployment подтверждены; authenticated production LIVE отсутствует.
 - Exact `main` подтверждён публичной GitHub history: PR `#244` merged в `18cbd46`; repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` завершились success.
@@ -33,22 +34,34 @@
 
 ## 3. Requirements и documentation audit
 
-### 3.1 Upstream drift
+### 3.1 Upstream reconciliation status
 
-Upstream Google Doc описывает более широкий target state, чем canonical current scope. Следующие группы остаются proposals / `SPEC` gaps и не входят в `145` AC:
+Upstream Google Doc — обязательный вход для reconciliation, а не требования, которые можно просто исключить. В document revision зафиксированы `275` list-item requirements: `16` Colab, `158` PWA и `101` commercial production. Это не готовый denominator: часть пунктов compound, часть помечена «в дальнейшем»/«если потребуется», часть задаёт architecture/legal constraints, а некоторые конфликтуют с current canonical decisions.
 
-1. отдельные personal/commercial environments с изолированными DB/S3/secrets/domains;
-2. commercial contour в российской инфраструктуре, data residency и legal requirements;
-3. provider abstraction и Yandex/другие STT providers;
-4. quotas, billing, payments, subscriptions и usage accounting;
-5. self-registration, email lifecycle, recovery и расширенная TOTP model;
-6. RLS/DB least privilege как explicit product AC;
-7. notifications и guaranteed event delivery;
-8. resumable/multipart uploads и разделённые storage namespaces/buckets;
-9. расширенный realtime recovery/export и дополнительные output formats;
-10. glossary/dictionary lifecycle.
+Предварительная reconciliation:
 
-Действие: `DEFER` implementation; провести отдельную owner-led reconciliation и только затем изменить `docs/project-spec.md`, эпики и denominator.
+| Класс | Upstream groups | Current relation | Требуемое решение |
+|---|---|---|---|
+| `ALIGNED` | Colab batch; Google Drive intake; language/diarization; fragments; multi-transcriptions; manifest; standardization; большая часть Audio Preparation; history/analytics/diagnostics basics | Уже покрыто current canonical epics полностью или частично. | Сопоставить каждый bullet с exact existing AC и не создавать duplicates. |
+| `PARTIAL` | themes/accent; session management/re-auth; Drive resumable upload; full storage deletion/version cleanup; audio rename/templates; local processing breadth; job event delivery; cost analytics; admin health/alerts; tamper-resistant audit log | Код покрывает только часть поведения. | Создать новые atomic AC только для missing remainder. |
+| `NEW PRODUCT SCOPE` | personal/commercial environments и feature modes; multi-provider abstraction; Yandex batch/deferred/realtime; quotas; notifications; expanded realtime continuity/recording/overlay/YouTube; Markdown/SRT/VTT export; commercial auth; payments; unit economics | В current denominator отсутствует. | После owner approval создать отдельные epics и добавить их в новый denominator. |
+| `EXTERNAL GATE` | российская data localization; legal basis/consents; cross-border transfer; payment/fiscalization; provider permissibility; RPO/RTO | Нельзя закрыть только repository code. | Определить owner/expert evidence, legal decisions и `PENDING_EXTERNAL_GATE` criteria. |
+| `CONFLICT` | Upstream menu содержит `Проекты`, canonical UI заменил их на `Транскрибации`; upstream допускает safe automatic retry, current contract fail-closed при uncertain side effects; commercial запрещает voice identification, personal требует её; Colab объявлен frozen, но upstream отмечает intermittent realtime capture break | Нельзя молча выбрать одну сторону. | Owner decision или явное разделение по contour/capability; для realtime — новый bounded LIVE evidence. |
+
+Предлагаемое разбиение missing scope на candidate epics:
+
+1. `ENVIRONMENT-CAPABILITIES-01` — единый main, независимые personal/commercial deployments, isolated resources и capability model.
+2. `COMMERCIAL-DATA-GOVERNANCE-01` — РФ infrastructure, data map, retention/deletion, backup restore и legal gates.
+3. `COMMERCIAL-IDENTITY-01` — registration/email verification/reset, sessions, re-auth, TOTP и Russian OAuth options.
+4. `STT-PROVIDER-ABSTRACTION-01` и `YANDEX-STT-01` — provider capabilities, operational modes, health disablement без automatic cross-provider fallback.
+5. `QUOTA-USAGE-ACCOUNTING-01` — reservation, user/global limits, provider cost и immutable job pricing context.
+6. `STORAGE-LIFECYCLE-02` — multipart/resumable flows, separated reference buckets, orphan/version cleanup и end-to-end deletion evidence.
+7. `JOB-DELIVERY-NOTIFICATIONS-01` — durable event delivery, Web Push/email и replaceable provider modules.
+8. `REALTIME-CONTINUITY-02` — reconnect/backfill, recording, overlays/external consumers и expanded exports.
+9. `COMMERCIAL-BILLING-01` — tariffs/subscriptions/payments/fiscalization/refunds/idempotent webhooks; gated by business/legal decisions.
+10. `OBSERVABILITY-AUDIT-02` — trace correlation, integration health/readiness, alerts и protected audit retention.
+
+До утверждения reconciliation matrix эти эпики — proposals, но они обязаны оставаться видимыми в roadmap. Формулировка «проект 100%» для combined canonical + upstream scope недопустима.
 
 ### 3.2 Drift и consolidation findings
 
@@ -170,9 +183,10 @@ Denominator: равновесные atomic AC, перечисленные в can
 | `PWA-OPERABILITY-01` | `18/18` | 100% | все ✅ | 🟩 READY | MEDIUM |
 | **Google Colab** | `29/29` | **100%** | 2/2 epics READY | — | MEDIUM |
 | **Studio PWA** | `116/116` | **100%** | 9/11 epics READY | — | MEDIUM |
-| **Project** | `145/145` | **100%** | 11/13 epics READY | не global READY | MEDIUM |
+| **Current canonical scope** | `145/145` | **100%** | 11/13 epics READY | не global READY | MEDIUM |
+| **Full upstream scope** | denominator отсутствует | **N/A** | reconciliation не завершена | `SPEC RECONCILIATION REQUIRED` | HIGH |
 
-Previous independent snapshot был `145/145`; изменение `0` percentage points, поэтому объяснение расхождения `>10 pp` не требуется. Изменился Evidence, а не AC numerator: после merge `PWA-TRANSCRIPTIONS-UX-01` получил `DEPLOY ✅`, но `LIVE` остался `—`.
+Previous independent snapshot утверждённого canonical scope был `145/145`; изменение `0` percentage points. Этот comparison неприменим к расширенному upstream scope: у него ещё нет согласованного denominator. Изменился Evidence, а не canonical AC numerator: после merge `PWA-TRANSCRIPTIONS-UX-01` получил `DEPLOY ✅`, но `LIVE` остался `—`.
 
 `PWA-AUTH-HARDENING-02` и commercial capabilities не имеют утверждённых atomic AC/denominator. Корректный percentage для них определить нельзя: это `SPEC gap`, а не `0%` или subjective estimate.
 
@@ -187,33 +201,33 @@ Previous independent snapshot был `145/145`; изменение `0` percentag
 ## 9. Roadmap и working pipeline
 
 1. **External gate:** закрыть `PWA-SOURCE-CACHE-01` authenticated bounded LIVE и синхронизировать metadata approved механизмом; при отсутствии механизма оставить explicit blocker.
-2. **PWA-MANIFEST-MIME-01:** исправить manifest media type, regression tests, exact-head CI, web deploy и public LIVE header/installability check.
-3. **CI-CD-HARDENING-01:** immutable action SHAs, exact deploy revision contract и повторный audit branch/ruleset/Environment settings. Требует explicit CI/CD policy authorization.
-4. **DB-LEAST-PRIVILEGE-01:** evidence actual roles, separate migration/application roles, backup/rollback and compatibility plan.
-5. **PWA-QUERY-BOUNDS-01:** pagination/retention/query budgets и load/concurrency validation для growing collections.
-6. **DOC-CONSOLIDATION-01:** stale runtime/runbook/security facts и dated audit placement без изменения durable product scope.
-7. **SPEC-RECONCILIATION-01:** owner decision по upstream commercial/provider/billing/auth/storage requirements; только после решения формировать новые epics/AC.
+2. **SPEC-RECONCILIATION-01:** requirement-by-requirement mapping всех `275` upstream bullets, owner decisions по conflicts/future markers, atomic decomposition и новый denominator.
+3. **PWA-MANIFEST-MIME-01:** исправить manifest media type, regression tests, exact-head CI, web deploy и public LIVE header/installability check.
+4. **CI-CD-HARDENING-01:** immutable action SHAs, exact deploy revision contract и повторный audit branch/ruleset/Environment settings. Требует explicit CI/CD policy authorization.
+5. **DB-LEAST-PRIVILEGE-01:** evidence actual roles, separate migration/application roles, backup/rollback and compatibility plan.
+6. **PWA-QUERY-BOUNDS-01:** pagination/retention/query budgets и load/concurrency validation для growing collections.
+7. **DOC-CONSOLIDATION-01:** stale runtime/runbook/security facts и dated audit placement без изменения durable product scope.
 
 Рабочий pipeline для любой согласованной implementation Goal: recover/sync verified base → отдельная branch → bounded code/tests/docs → local validation → reviewable commits → один initial push/PR после full local validation → exact-head required CI → один grouped fix batch только при confirmed failure → merge только после gates → applicable CD/LIVE → metadata sync → safe local cleanup → stop.
 
 ## 10. Предлагаемая следующая bounded Goal
 
-Следующую Goal нельзя начинать до closure/pause текущей `PWA-SOURCE-CACHE-01`. После этого предлагается:
+Следующую product implementation Goal нельзя начинать до closure/pause текущей `PWA-SOURCE-CACHE-01`. Следующая planning/spec Goal:
 
-- **ID/title:** `PWA-MANIFEST-MIME-01` — standards-compliant production manifest delivery.
-- **Scope:** настроить web nginx так, чтобы `.webmanifest` отдавался как `application/manifest+json`; добавить repository regression test для MIME config/response; сохранить current manifest body, PWA cache semantics и security headers; провести exact-head CI, web-only deploy и public bounded LIVE check.
-- **Non-goals:** изменение manifest product fields/icons/branding; service-worker caching redesign; API/schema/worker changes; GitHub Actions hardening; authenticated source workflows; repository/domain rename.
+- **ID/title:** `SPEC-RECONCILIATION-01` — reconcile upstream product requirements into canonical epics and atomic AC.
+- **Scope:** сопоставить все `275` upstream list-item requirements с current `docs/project-spec.md`; для каждого зафиксировать `ALIGNED | PARTIAL | NEW | CONFLICT | FUTURE | EXTERNAL_GATE`; декомпозировать утверждённые compound requirements в atomic AC; определить product/epic denominator; оформить owner decision log по conflicts и future markers; пересчитать readiness только после утверждения.
+- **Non-goals:** implementation новых функций; изменение CI/CD/production; legal conclusions вместо профильного специалиста; автоматическое признание каждого compound bullet одним AC; удаление existing canonical behavior без owner decision.
 - **Goal AC:**
-  1. Repository config детерминированно задаёт `application/manifest+json` для `/manifest.webmanifest`.
-  2. Automated test падает при возврате к generic octet-stream/incorrect MIME.
-  3. Existing lint/unit/build/container/browser checks проходят exact Goal head.
-  4. Web-only deployment завершён и exact intended revision подтверждён доступным delivery evidence.
-  5. Public HTTPS LIVE возвращает `200`, correct MIME, unchanged valid manifest JSON и required security headers; browser не показывает manifest MIME error.
-- **Required Evidence:** `SPEC ✅ | CODE | TEST | CI | DEPLOY | LIVE`.
-- **Known blockers:** текущая Goal ещё `PENDING_EXTERNAL_GATE`; `gh` credential invalid; approved post-deploy metadata writer отсутствует; exact deployed revision gap в current CD design требует дополнительной identity verification.
-- **Stop condition:** Goal `DONE`, `BLOCKED` или `PENDING_EXTERNAL_GATE`; к следующей Goal не переходить.
+  1. Все `275` upstream bullets имеют traceable mapping и disposition без orphaned requirements.
+  2. Все `PARTIAL/NEW` requirements сгруппированы в bounded candidate epics с atomic AC и Evidence expectations.
+  3. Все `CONFLICT/FUTURE/EXTERNAL_GATE` items имеют explicit owner decision либо named blocker/decision owner.
+  4. Approved additions внесены в canonical spec с новым exact denominator; rejected/deferred items остаются traceable и не маскируются как выполненные.
+  5. Project/epic readiness пересчитана с нуля по новому denominator; изменение относительно `145/145` объяснено.
+- **Required Evidence:** `SPEC ✅ | CODE N/A | TEST N/A | CI N/A | DEPLOY N/A | LIVE N/A`.
+- **Known blockers:** owner decisions по UI `Проекты` vs `Транскрибации`, meaning of «в дальнейшем», commercial scope timing и legal/external gates; current delivery Goal всё ещё `PENDING_EXTERNAL_GATE`.
+- **Stop condition:** reconciled spec утверждён либо Goal `BLOCKED` на перечисленных owner decisions. После Goal implementation продукта не начинается без отдельного согласования.
 
-Implementation не авторизована этим аудитом.
+Product implementation не авторизована этим аудитом.
 
 ## 11. External evidence links
 

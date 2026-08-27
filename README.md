@@ -11,9 +11,10 @@ Colab batch используется около четырёх месяцев и
 
 - Google Colab: **100% (`29/29`)**.
 - VoiceOps Studio PWA: **100% (`116/116`)**.
-- весь проект: **100% (`145/145`)**.
+- согласованный current canonical scope: **100% (`145/145`)**.
+- полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
 
-Проценты показывают выполнение product AC, а не production readiness. Текущая Goal исправила source-list cache coherency и согласовала user-visible branding; merge, exact-main CI и web deployment подтверждены, но authenticated production `LIVE` ещё не выполнен, поэтому Goal находится в `PENDING_EXTERNAL_GATE`.
+`145/145` не означает готовность всей заявленной product vision: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. Upstream Google Doc содержит новые и частично конфликтующие требования, которые должны пройти reconciliation, получить owner decisions и быть декомпозированы в atomic AC до нового расчёта. Текущая delivery Goal исправила source-list cache coherency и согласовала user-visible branding; merge, exact-main CI и web deployment подтверждены, но authenticated production `LIVE` ещё не выполнен, поэтому Goal находится в `PENDING_EXTERNAL_GATE`.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
