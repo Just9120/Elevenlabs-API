@@ -857,6 +857,20 @@ Goal `PWA-SOURCE-CACHE-01` была merged и deployed 2026-08-27, но оста
 - Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - Explicit user instruction 2026-08-27 «ставь цель и приступай» отдельно авторизовала переход к `PWA-GOOGLE-PICKER-UX-01`; это не превращает отсутствующий source-cache LIVE в success.
 
+## Archived PR #245 Google Picker UX delivery
+
+Goal `PWA-GOOGLE-PICKER-UX-01` была реализована и merged через PR `#245`, после чего остановлена как `PENDING_EXTERNAL_GATE`: code, tests, exact-main CI и web deployment подтверждены, но owner-controlled authenticated LIVE исправления не зафиксировано отдельным Evidence record.
+
+- Base: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`.
+- Final implementation commits: `a197e39` и `60c4ec23bdd4afa6dcbff25633cdd96121b4704f`.
+- Merge commit: `8761e86808e8562eff05588f6f60d15dd04dbcf4`.
+- Exact PR-head repository CI `33103790793` и Studio/browser CI `33103790818`: success.
+- Exact-main repository CI `33104113256` и Studio/browser CI `33104113243`: success.
+- Studio Platform CD `33104113313`: web deployment success; API/migration/worker корректно не выбирались для frontend-only diff.
+- Product AC: `PG-01..PG-03 = 3/3`; Evidence на archive: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
+- Approved post-deploy metadata writer отсутствовал, поэтому stale pre-push checkpoint был reconciled в начале следующей explicitly authorized Goal.
+- Explicit user instruction 2026-08-27 «формируй общую цель под техдолгу, документам и CI, и приступай» авторизовала переход к `REPO-HARDENING-01`; она не превращает отсутствующий Picker LIVE в success.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
