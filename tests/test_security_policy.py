@@ -9,11 +9,13 @@ CI_RULES = (ROOT / "docs/ci-cd-rules.md").read_text(encoding="utf-8")
 
 def test_security_policy_covers_both_product_contours_and_current_status() -> None:
     assert "Google Colab batch workflow" in POLICY
-    assert "Studio PWA remains in development" in POLICY
-    assert "one controlled production-live canary" in POLICY
-    assert "not generally production-proven" in POLICY
+    assert "Studio PWA remains in active development" in POLICY
+    assert "0025_audio_preparation" in POLICY
+    assert "multiple bounded features" in POLICY
+    assert "multi-worker behavior and load bounds remain unverified" in POLICY
     assert "bounded browser capabilities" in POLICY
-    assert "production-validated" in POLICY
+    assert "Existing bounded LIVE" in POLICY
+    assert "do not generalize" in POLICY
     assert "unresolved Studio security decision" not in POLICY
 
 
