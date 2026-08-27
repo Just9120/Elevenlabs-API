@@ -7,14 +7,14 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current scope для `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`:
+Актуальная независимо пересчитанная готовность current scope для working branch `codex/fix-google-picker-ux@60c4ec23bdd4afa6dcbff25633cdd96121b4704f` (base `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`):
 
 - Google Colab: **100% (`29/29`)**.
-- VoiceOps Studio PWA: **99,2% (`118/119`)**.
-- согласованный current canonical scope: **99,3% (`147/148`)**.
+- VoiceOps Studio PWA: **100% (`119/119`)**.
+- согласованный current canonical scope: **100% (`148/148`)**.
 - полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
 
-`147/148` не означает готовность всей заявленной product vision: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. В текущей `PWA-GOOGLE-PICKER-UX-01` локально реализованы viewport-stable Picker и background scroll lifecycle; выбор текущей/empty target folder остаётся `0/1`. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Предыдущая source-cache Goal merged/deployed, но её owner-controlled authenticated `LIVE` остаётся отдельным archived external gate.
+`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. В текущей `PWA-GOOGLE-PICKER-UX-01` локально выполнены `3/3` AC, но exact-head CI, deployment и authenticated production LIVE ещё не подтверждены. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Предыдущая source-cache Goal merged/deployed, но её owner-controlled authenticated `LIVE` остаётся отдельным archived external gate.
 
 Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. До завершения atomic decomposition общий project percentage остаётся `N/A`.
 

@@ -13,25 +13,25 @@
   3. `PG-03`: текущую output folder можно подтвердить без выбора child, включая отсутствие child folders.
   4. Focused regression tests воспроизводят оба исходных defect и проходят вместе с applicable lint/build/full frontend suite и exact-head CI.
   5. Applicable web deployment и owner-controlled authenticated browser LIVE подтверждают source и output-folder flows.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ◐ | TEST — | CI — | DEPLOY ◐ | LIVE ❌`.
-- **Known blockers/dependencies:** стандартный Google Picker API может не предоставлять identity текущей navigated folder отдельным callback; strategy должна быть подтверждена code/API evidence. Authenticated production LIVE требует owner session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
+- **Known blockers/dependencies:** authenticated production LIVE требует owner session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T18:04:11Z.
+- Updated (UTC): 2026-08-27T18:27:05Z.
 - Session mode: authorized bounded implementation Goal.
 - Base branch/SHA: verified fetched `origin/main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`; default branch `main`; local `main` совпадает. GitHub auth active для `Just9120` с `repo/workflow` scopes.
 - Working branch: `codex/fix-google-picker-ux`; merge-base с `origin/main` — exact base SHA выше.
-- Last verified revision: `720f04665095591490e28a25d6d9e31d6b8b4838` — audit/spec correction, `scripts/ci_checks.py` и `git diff --check` PASS.
+- Last verified revision: `60c4ec23bdd4afa6dcbff25633cdd96121b4704f` — оба implementation slices; focused/full frontend tests, lint, typecheck, production build, E2E discovery, `scripts/ci_checks.py` и `git diff --check` PASS.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: requirement drift принят в canonical `PG-01..PG-03`; user authorизовал Goal; exact base/branch зафиксированы. `PG-01/PG-02` реализованы общим document scroll lock с idempotent terminal cleanup для native Picker.
-- Current step: реализовать `PG-03` через bounded app-owned output-folder browser, потому что documented Picker API не даёт navigation/current-folder callback.
-- Next exact action: добавить Drive folder-list model/dialog и regression, где после входа в empty folder `Выбрать эту папку` остаётся active и возвращает exact folder ID.
-- Validation and Evidence: `documentScrollLock.test.ts` 2/2 PASS; focused `App.test.tsx` Picker callback/timeout 2/2 PASS; focused ESLint PASS; baseline `scripts/ci_checks.py` PASS. Current AC: canonical `147/148`, Colab `29/29`, PWA `118/119`.
+- Completed: `PG-01/PG-02` реализованы общим document scroll lock с idempotent cleanup; `PG-03` реализован bounded app-owned output-folder dialog, который позволяет подтвердить current/empty folder и возвращает exact folder ID для существующей server-side verification. Commits: `a197e39` и `60c4ec2`.
+- Current step: синхронизировать operational readiness/checkpoint, затем выполнить единственный initial push и открыть PR.
+- Next exact action: проверить included GitHub Actions usage, закоммитить этот readiness checkpoint, выполнить initial push и создать PR.
+- Validation and Evidence: terminal-path regressions `6/6` PASS; полный frontend Vitest `603/603` PASS; ESLint, `tsc -b`, production Vite build, E2E discovery `11` tests, `scripts/ci_checks.py` и `git diff --check` PASS. Local Python `pytest` unavailable (`No module named pytest`) и не считается success. Current AC: canonical `148/148`, Colab `29/29`, PWA `119/119`.
 - Pull Request / CI / deployment: PR отсутствует; push до полной local validation не выполнялся; CI/DEPLOY для Goal не запускались.
-- Blockers: current-folder identity может отсутствовать в documented Picker callback; authenticated production LIVE зависит от owner session; metadata writer отсутствует.
-- Unverified assumptions: Picker-hosted iframe DOM нельзя безопасно/стабильно модифицировать; `setSelectFolderEnabled(true)` сам по себе не покрывает current-folder behavior.
+- Blockers: authenticated production LIVE зависит от owner session; metadata writer отсутствует.
+- Unverified assumptions: production OAuth token/CSP фактически допускают direct Drive REST listing из web origin; это требует exact-head CI и authenticated LIVE, а не вывода только по source/config.
 - Preserved pre-existing changes: audit/spec commits `172f6af`, `0686a1d`, `46fa05d`, `720f046` созданы в рамках текущей user-requested audit chain и сохранены в feature branch; unrelated user state отсутствует.
 
 ## Project readiness
@@ -40,11 +40,11 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Current canonical scope** | **99,3% (`147/148`)** | **98,0% (`145/148`)** | `PG-01/PG-02` выполнены локально; изменение `+1,3 pp`. Это не percentage полного upstream scope. |
+| **Current canonical scope** | **100% (`148/148`)** | **99,3% (`147/148`)** | `PG-03` выполнен локально; изменение `+0,7 pp`. Это не percentage полного upstream scope и не production READY без Evidence gates. |
 | **Full upstream scope** | **N/A — `SPEC RECONCILIATION REQUIRED`** | **N/A** | Commercial production включён owner decision 2026-08-27 как BACKLOG без implementation authorization; `275` raw list-item requirements ещё не преобразованы в согласованные atomic AC, denominator отсутствует. |
 | **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
-| **Studio PWA** | **99,2% (`118/119`)** | **97,5% (`116/119`)** | 9/12 PWA epics READY; Google Picker UX `2/3`, Transcriptions UX LIVE `—`, Manifest LIVE `◐`. |
-| `PWA-GOOGLE-PICKER-UX-01` | **66,7% (`2/3`)** | **0% (`0/3`)** | Scroll/viewport lifecycle code и focused tests PASS; current/empty output-folder selection остаётся open. |
+| **Studio PWA** | **100% (`119/119`)** | **99,2% (`118/119`)** | Все current PWA AC выполнены, но Google Picker UX остаётся IN PROGRESS до CI/DEPLOY/LIVE; Transcriptions UX LIVE `—`, Manifest LIVE `◐`. |
+| `PWA-GOOGLE-PICKER-UX-01` | **100% (`3/3`)** | **66,7% (`2/3`)** | Current/empty output-folder selection и scroll lifecycle локально подтверждены; required CI/DEPLOY/LIVE ещё отсутствуют. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |
 | Остальные existing epics | **100% (`135/135`)** | **100% (`135/135`)** | AC completion не изменился; current audit не отменяет ранее зафиксированные required Evidence. |

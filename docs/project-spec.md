@@ -30,11 +30,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Verified main baseline: `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`. PR `#244`, exact-main repository CI `32959921859`, Studio/browser CI `32959921773` и Studio Platform CD `32959921827` подтвердили merge, CI и web-only deployment source-cache/branding change; authenticated production LIVE для этой Goal ещё отсутствует. Более ранний exact-main delivery подтвердил web/API/worker Audio scope без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
 
+Current local candidate: `codex/fix-google-picker-ux@60c4ec23bdd4afa6dcbff25633cdd96121b4704f`; его `CODE/TEST` evidence ещё не является exact-head CI, deployment или LIVE evidence.
+
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **99,2% (`118/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `2/3` локально подтверждён |
-| Согласованный current canonical scope | **99,3% (`147/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
+| Studio PWA | **100% (`119/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `3/3` локально подтверждён |
+| Согласованный current canonical scope | **100% (`148/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
 
 Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
 
@@ -186,17 +188,17 @@ Verified implementation: Favorites и local folder flow подтверждены
 
 ### Эпик `PWA-GOOGLE-PICKER-UX-01` — viewport и выбор текущей папки
 
-Status: **🟦 IN PROGRESS — 66,7% (`2/3`)**. Goal авторизована 2026-08-27; scroll/viewport slice реализован и подтверждён focused tests, current-folder selection остаётся открытым.
+Status: **🟦 IN PROGRESS — 100% (`3/3`)**. Все atomic AC локально выполнены; обязательные exact-head `CI`, `DEPLOY` и authenticated `LIVE` ещё не подтверждены, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ✅ |
 | `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ✅ |
-| `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ❌ |
+| `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY ◐ | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
 
-Verified implementation/gap: `documentScrollLock.ts` блокирует background wheel/touch/scroll, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Focused Vitest подтверждает lock nesting и `picked/cancel/error/timeout`. `PG-03` всё ещё не выполнен: documented Picker callback не предоставляет navigation event/current-folder authority, а current code получает только selected `docs[]`. Owner LIVE 2026-08-27 воспроизвёл оба исходных defect.
+Verified local implementation: `documentScrollLock.ts` блокирует background wheel/touch/scroll, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Поскольку documented Picker callback не предоставляет navigation event/current-folder authority, output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token, folder-only Drive REST listing и сохранённой server-side write verification. Текущая папка становится selection сразу после загрузки и остаётся selectable при loading/empty/error child-list state. Focused terminal-path regressions `6/6`, полный frontend Vitest `603/603`, ESLint, TypeScript, production Vite build и `scripts/ci_checks.py` прошли. Local Python `pytest` не запущен: bundled runtime не содержит module; authenticated browser E2E требует CI services. Owner LIVE 2026-08-27 пока подтверждает только исходные defects, не исправление.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -431,7 +433,7 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 9. Current critical path
 
-1. Завершить current `PWA-GOOGLE-PICKER-UX-01`: реализовать и проверить `PG-03`, затем full local validation, PR/exact-head CI и applicable web DEPLOY/LIVE.
+1. Завершить current `PWA-GOOGLE-PICKER-UX-01`: провести exact candidate через PR/CI, applicable web deployment и authenticated source/output-folder LIVE.
 2. Не смешивать с Goal изменение OAuth scopes, backend/schema/worker, CI/CD policy или commercial implementation.
 3. Source-cache authenticated LIVE остаётся archived external gate и не считается выполненным.
 4. После closure отдельно приоритизировать `PWA-MANIFEST-MIME-01`; implementation не авторизована.
