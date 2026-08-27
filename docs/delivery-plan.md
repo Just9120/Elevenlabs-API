@@ -16,25 +16,25 @@
   6. `RH-06`: все external actions в active workflows pinned на verified full commit SHA; permissions и production workflow logic не изменены.
   7. `RH-07`: один заранее разрешённый warm-cache benchmark подтверждает не менее `20%` уменьшения raw runner time representative web-only PR+main validation относительно baseline `14,57 min` (target `<= 11,66 min`); cold-cache regression не превышает `10%`. Если target недостижим без ослабления gates, Goal не объявляется `DONE` и blocker фиксируется.
   8. `RH-08`: local validation, exact PR-head CI, merge, applicable web deployment и public MIME LIVE завершены; failures/skips классифицированы, а product readiness не изменена без изменения atomic AC.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ✅ | LIVE ✅`.
 - **Known blockers/dependencies:** первый cache run является cold; Goal разрешает ровно один дополнительный controlled warm-cache benchmark после наполнения cache. Account-level billing attribution недоступна текущему `gh` token без дополнительного `user` scope, но repository public и использует только standard `ubuntu-latest`. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T20:41:30Z.
+- Updated (UTC): 2026-08-27T20:55:30Z.
 - Session mode: authorized bounded implementation Goal.
-- Base branch/SHA: fetched `origin/main@8761e86808e8562eff05588f6f60d15dd04dbcf4`; default branch `main`; local `main` совпадал перед branch creation. GitHub auth active для `Just9120` с `repo/workflow` scopes.
-- Working branch: `codex/repository-stabilization-01`; создана от exact base SHA выше.
-- Last verified revision: `a86eb28388bfa8abfa5c2f0aad868bbc6ce9fd66` — grouped cache fix; functional CI и performance target green, review gate требует concurrency fix ниже.
+- Base branch/SHA: fetched `origin/main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd`; default branch `main`; local `main` clean и совпадал перед hotfix branch creation. GitHub auth active для `Just9120` с `repo/workflow` scopes.
+- Working branch: `codex/ci-playwright-cache-fastpath`; создана от exact merged PR `#246` SHA выше.
+- Last verified revision: `main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd` — PR `#246`, exact-main CI/CD и public manifest LIVE ниже.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: Git/GitHub recovery и PR `#245` reconciliation; documentation consolidation; historical audit move; manifest MIME remediation/regression; all-workflow immutable action pinning; pip/Playwright/BuildKit caches; equivalent 2s/25 service-health polling; PR-only stale-run cancellation and main-only BuildKit cache writes. Commits: `98d8062`, `a54935f`, `11b3a47`, `abfc212`, `72a6724`, `07cc122`, `a86eb28`.
-- Current step: закрыть valid review finding: ref-based concurrency может вытеснить pending exact-main run даже при `cancel-in-progress=false`.
-- Next exact action: локально проверить revision-specific non-PR concurrency groups, выполнить grouped review-fix push и дождаться новых exact-head checks/review resolution.
-- Validation and Evidence: isolated Python 3.11 portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite production build PASS, Playwright discovery `11`; all 9 workflow YAML parse PASS; immutable-action/CI-efficiency/browser contracts PASS; authority-document relative links PASS; `scripts/ci_checks.py` и `git diff --check` PASS. PR `#246` initial head `07cc122`: functional gates green, но raw `519s / 8,65 min` не прошёл cold regression AC. Grouped fix head `a86eb28`: repository CI run `33114036739` `134s`, Studio run `33114036741` jobs `studio=96s`, `browser-e2e=92s`, raw sum `322s / 5,37 min`, то есть `25,6%` быстрее PR baseline `433s / 7,22 min`; все checks green. Review thread `PRRT_kwDOSEKZn86c-Hu9` подтвердил exact-main concurrency gap. Local Docker unavailable. Initial in-place npm failed из-за OneDrive lock; isolated npm 10 validation прошла и не изменила workspace.
-- Pull Request / CI / deployment: PR `#246`; merge не выполняется до concurrency fix, новых exact-head checks и resolution review thread.
-- Blockers: текущий review gate не пройден из-за valid exact-main concurrency finding; fix находится в текущем scope. Metadata writer отсутствует; post-delivery final metadata может быть reconciled только approved механизмом или в следующей authorized Goal.
-- Unverified assumptions: BuildKit/Playwright warm-cache hit rate и final savings должны быть измерены GitHub run evidence; public repo billing rule не доказывает account-level attribution.
+- Completed: PR `#246` merged as `5a4115a`; repository CI `33114690918`, Studio CI `33114690898`, web CD `33114690923` success; public manifest MIME LIVE success. Documentation consolidation, manifest regression, immutable action refs, caches, equivalent service polling, PR-only cancellation, revision-specific main concurrency и main-only BuildKit writes merged. Review thread `PRRT_kwDOSEKZn86c-Hu9` resolved. Original branch safely removed local/remote.
+- Current step: устранить неустойчивость warm target: exact Playwright cache hit всё ещё запускает `install --with-deps` и добавляет `13–42s` runner time.
+- Next exact action: локально проверить cache-hit fast path, затем сделать один initial push hotfix branch, PR и required exact-head/main gates без дополнительного manual benchmark.
+- Validation and Evidence: local Python portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite build PASS, Playwright discovery `11`; workflow/static contracts PASS. PR `#246` final head checks success; exact-main CI/CD success. Worst observed fill pair `943s / 15,72 min` против baseline `874s / 14,57 min`, то есть `+7,9%` и cold AC проходит. Controlled warm main runs `33115045423`/`33115048697` success: `143+93+128=364s`. Warm PR observations: `322s` и `373s`; pair range `686–737s / 11,43–12,28 min`, поэтому improvement range `15,7–21,5%` не подтверждает устойчивое `>=20%`. Step evidence локализует всю вариативность в unconditional Chromium install (`13s` против `42s`). Cache after benchmark `1625630008` bytes (`61` entries), ниже `4 GiB`. Local Docker unavailable.
+- Pull Request / CI / deployment: PR `#246` merged; hotfix PR ещё не создан. Новое deployment не требуется: изменяется только CI workflow/docs/tests, поэтому `DEPLOY/LIVE` текущей Goal сохраняют подтверждённое Evidence manifest remediation.
+- Blockers: performance AC пока подтверждено неустойчиво; cache-hit fast path реализуется без удаления authenticated E2E gate. Metadata writer отсутствует; final post-merge state фиксируется GitHub records/final report и reconciled в следующей authorized code-bearing Goal.
+- Unverified assumptions: exact-head browser E2E должен подтвердить, что `ubuntu-latest` + restored exact browser cache достаточно без повторного `install --with-deps`; failure будет fail-closed. Account-level billing attribution недоступна без дополнительного `user` scope.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness

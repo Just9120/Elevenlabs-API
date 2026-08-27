@@ -425,11 +425,11 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`.
-- Exact-main repository CI: run `33104113256`, success.
-- Exact-main Studio/browser CI: run `33104113243`, jobs `studio` и `browser-e2e` success.
-- Studio Platform CD run `33104113313` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
-- Public root и login shell доступны, required security headers присутствуют. На verified production baseline `/manifest.webmanifest` фактически отдаётся как `application/octet-stream` вместо `application/manifest+json`; current `REPO-HARDENING-01` содержит source remediation и regression, но `DEPLOY/LIVE` ещё не подтверждены. Authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
+- Current verified revision: `main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd` (PR `#246`).
+- Exact-main repository CI: run `33114690918`, success.
+- Exact-main Studio/browser CI: run `33114690898`, jobs `studio` и `browser-e2e` success.
+- Studio Platform CD run `33114690923` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
+- Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest?rev=5a4115a` 2026-08-27 вернул `200` и `Content-Type: application/manifest+json`; MIME remediation имеет `DEPLOY/LIVE ✅`. Authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
