@@ -101,7 +101,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 - No generic retry/recovery scheduler for failed long external calls.
 - No OpenAI Studio processing path.
 - Split diarization remains a quality risk because provider speaker labels can change identity between independently processed parts; Studio preserves returned labels deterministically but does not claim cross-part voice identity matching.
-- No Studio manifest mutation.
+- **Манифест Studio** may mutate only owner-scoped eligible current-document catalog metadata in PostgreSQL through its explicit dry-run/apply contract; it does not change Google Docs, source bytes, transcript bodies, or provider state.
 - No multi-worker production validation.
 - No production-live processing claim without controlled rollout validation.
 

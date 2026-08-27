@@ -7,14 +7,14 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current scope для working branch `codex/fix-google-picker-ux@60c4ec23bdd4afa6dcbff25633cdd96121b4704f` (base `main@18cbd46e9361a66bfbc1f2265d0820aa72aedf50`):
+Актуальная независимо пересчитанная готовность current product scope для verified `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`:
 
 - Google Colab: **100% (`29/29`)**.
 - VoiceOps Studio PWA: **100% (`119/119`)**.
 - согласованный current canonical scope: **100% (`148/148`)**.
 - полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
 
-`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. В текущей `PWA-GOOGLE-PICKER-UX-01` локально выполнены `3/3` AC, но exact-head CI, deployment и authenticated production LIVE ещё не подтверждены. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Предыдущая source-cache Goal merged/deployed, но её owner-controlled authenticated `LIVE` остаётся отдельным archived external gate.
+`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. `PWA-GOOGLE-PICKER-UX-01` имеет `3/3`, exact-main CI и web deployment после PR `#245`, но authenticated production LIVE исправления ещё не зафиксировано. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Source-cache LIVE также остаётся отдельным archived external gate.
 
 Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. До завершения atomic decomposition общий project percentage остаётся `N/A`.
 
@@ -46,6 +46,7 @@ Colab batch запускается вручную через `notebooks/elevenla
 
 | Документ | Назначение |
 |---|---|
+| [Upstream requirements](https://docs.google.com/document/d/1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI/edit?tab=t.0) | Сырые/несогласованные требования и идеи для reconciliation; не canonical contract и не implementation authorization. |
 | [AGENTS.md](AGENTS.md) | Goal-driven repository router, execution kernel, authority и scope. |
 | [docs/project-spec.md](docs/project-spec.md) | Canonical product contract, эпики и atomic AC. |
 | [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и active checkpoint. |
@@ -53,11 +54,20 @@ Colab batch запускается вручную через `notebooks/elevenla
 | [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | CI/CD, deployment, migration и runtime safety contract. |
 | [docs/architecture.md](docs/architecture.md) | Logical/runtime architecture, data flow и state ownership. |
 | [docs/studio-processing-contract.md](docs/studio-processing-contract.md) | Детальные Studio processing invariants. |
+| [SECURITY.md](SECURITY.md) | Security reporting, safe research boundaries и authority routing. |
 | [docs/runbooks/validation.md](docs/runbooks/validation.md) | Repository и component validation commands. |
 | [docs/runbooks/studio-platform-ops.md](docs/runbooks/studio-platform-ops.md) | Studio rollout и production operations. |
 | [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype и manual runtime validation. |
-| [docs/audits/repository-audit-2026-08-27.md](docs/audits/repository-audit-2026-08-27.md) | Актуальный evidence-based audit; findings, readiness, gaps и proposed next Goal. |
-| [docs/audits/repository-audit-2026-07-26.md](docs/audits/repository-audit-2026-07-26.md) | Исторический dated audit; supporting evidence, не current authority. |
+
+## Historical и supporting evidence
+
+Dated audits фиксируют состояние на указанный revision/date. Они не являются current source of truth, readiness input или implementation authorization.
+
+| Документ | Назначение |
+|---|---|
+| [docs/audits/repository-audit-2026-08-27.md](docs/audits/repository-audit-2026-08-27.md) | Evidence-based audit на pre-PR `#245` baseline; findings и gaps. |
+| [docs/audits/repository-audit-2026-07-26.md](docs/audits/repository-audit-2026-07-26.md) | Исторический audit supporting evidence. |
+| [docs/audits/repository-audit-2026-07-21.md](docs/audits/repository-audit-2026-07-21.md) | Более ранний historical audit, перенесённый из operational runbooks. |
 
 Опциональные `docs/utility/context-bundle-builder.md` и `docs/ai-delivery-infrastructure-plan.md` в текущем repository отсутствуют; их содержание не предполагается.
 

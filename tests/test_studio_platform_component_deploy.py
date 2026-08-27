@@ -256,7 +256,7 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
 
 def test_studio_ci_runs_protected_secret_bootstrap_smoke_after_image_build() -> None:
     workflow = (ROOT / ".github/workflows/studio-ci.yml").read_text(encoding="utf-8")
-    build = "docker build -t elevenlabs-studio-api:test apps/studio-api"
+    build = "tags: elevenlabs-studio-api:test"
     marker = "Verify protected secret bootstrap and non-root runtime"
 
     assert workflow.index(build) < workflow.index(marker)
