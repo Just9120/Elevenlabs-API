@@ -100,3 +100,17 @@ def test_internal_static_container_does_not_compete_with_host_policy():
     container_config = _normalized_config(CONTAINER_NGINX)
     assert "Content-Security-Policy" not in container_config
     assert "Strict-Transport-Security" not in container_config
+
+
+def test_internal_static_container_serves_webmanifest_with_standard_media_type():
+    container_config = _normalized_config(CONTAINER_NGINX)
+    manifest_location = re.search(
+        r"location = /manifest\.webmanifest \{(.*?)\}",
+        container_config,
+    )
+
+    assert manifest_location
+    manifest_config = manifest_location.group(1)
+    assert "default_type application/manifest+json;" in manifest_config
+    assert "try_files $uri =404;" in manifest_config
+    assert "add_header Content-Type" not in manifest_config
