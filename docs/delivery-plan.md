@@ -24,17 +24,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T10:46:51Z.
+- Updated (UTC): 2026-08-28T10:51:22Z.
 - Session mode: authorized full-delivery Goal; commercial и перечисленные non-goals запрещены.
 - Base branch/SHA: fetched clean `origin/main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; local `main` был exact и clean, open PR отсутствовали.
 - Working branch: `codex/pwa-query-bounds-01`; создана от exact verified base SHA выше, tracks `origin/main` до первого push.
 - Last verified revision: `07b260e` (`feat(studio): bound growing query surfaces`) поверх docs checkpoint `7a467ff`; implementation commit покрыт перечисленной local validation.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
 - Completed: previous observability closure reconciled; inventory завершён; reusable signed collection cursor/page contract применён к projects/sources/jobs/audit; frontend получил validated append/reset/load-more; progress читает explicit bounded job set; analytics переведена на constant-query aggregates; catalog/provider authority получила grouped evidence и fail-closed budgets; provider-checkpoint/realtime cleanup выполняется deterministic batches; additive `0027_query_bounds` добавляет exact-shape indexes. Generated/vendored code не затрагивался.
-- Current step: зафиксировать синхронизированные architecture/runbook/checkpoint и выполнить final clean-tree verification.
-- Next exact action: после docs commit подтвердить clean branch, сделать единственный initial push и открыть PR для обязательных PostgreSQL/full CI gates.
-- Validation and Evidence: base ancestry/worktree/remotes verified; open PR на старте отсутствовал. Passed locally: repository `ci_checks`; Python compile; 68 focused backend tests (47 collection/analytics/catalog/realtime/retry/schema/observability + 21 diagnostics/progress); frontend Vitest `613/613`; frontend lint; production build; `git diff --check`. PostgreSQL-specific migration, percentile и core integration paths не запускались локально из-за отсутствия Docker/PostgreSQL и остаются обязательным CI evidence.
-- Pull Request / CI / deployment: отсутствуют; initial push и PR допустимы только после полной local validation согласованного scope.
+- Current step: исправить подтверждённый fresh-database Alembic conflict и выполнить один разрешённый grouped follow-up push.
+- Next exact action: проверить guarded `0027` migration локально, зафиксировать CI fix и отправить единственный follow-up batch в PR `#251`.
+- Validation and Evidence: base ancestry/worktree/remotes verified; open PR на старте отсутствовал. Passed locally: repository `ci_checks`; Python compile; 68 focused backend tests (47 collection/analytics/catalog/realtime/retry/schema/observability + 21 diagnostics/progress); frontend Vitest `613/613`; frontend lint; production build; `git diff --check`. Fresh-index guard после CI failure: schema/runtime `9/9` passed. Bash-only host-preflight suite нельзя повторить в текущем Windows runner (`bash` отсутствует); изменённые head assertions и весь PostgreSQL/migration/core path остаются обязательным follow-up CI evidence.
+- Pull Request / CI / deployment: initial push exact head `522b33c`; PR `#251`. Studio lane run `33164714825` прошёл, но его browser-E2E migration step и repository CI run `33164714837` упали до tests на `DuplicateTable: ix_projects_owner_active_updated_id`: legacy `0001` создаёт fresh schema через current `Base.metadata`, поэтому `0027` должен introspect/skip уже существующие indexes. Подтверждённый failure разрешает один grouped follow-up push; rerun вручную не запускался. Deployment отсутствует.
 - Blockers: implementation blocker отсутствует. PostgreSQL-specific migration/percentile/concurrency evidence требует CI host; protected migration, worker drain/deploy и authenticated LIVE являются ожидаемыми external gates.
 - Unverified assumptions: PostgreSQL реализует проверенные SQLAlchemy shapes и migration round-trip без dialect drift; production planner выберет новые indexes на representative cardinality; production backlog может быть меньше page/batch boundary, поэтому LIVE подтверждает contract/identity/readiness, а hard maxima остаются TEST/CI evidence. Проверить фактически.
 - Preserved pre-existing changes: отсутствуют.

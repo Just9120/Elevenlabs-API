@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -71,6 +72,9 @@ def test_query_bounds_migration_is_single_additive_successor():
         ROOT / "apps/studio-api/alembic/versions/0027_query_bounds.py"
     ).read_text(encoding="utf-8")
     assert 'release_safety = "additive"' in source
+    assert "inspect(op.get_bind())" in source
+    assert 'if name not in existing:' in source
+    assert 'if name in existing:' in source
 
 
 def test_query_bounds_indexes_match_model_query_order():
@@ -84,3 +88,41 @@ def test_query_bounds_indexes_match_model_query_order():
             for index in table.indexes
         }
         assert actual.items() >= expected.items()
+
+
+def test_query_bounds_migration_skips_indexes_created_by_fresh_metadata(monkeypatch):
+    migration_path = (
+        ROOT / "apps/studio-api/alembic/versions/0027_query_bounds.py"
+    )
+    spec = importlib.util.spec_from_file_location("query_bounds_migration", migration_path)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    first_name, first_table, _columns = migration.INDEXES[0]
+
+    class FakeInspector:
+        def get_indexes(self, table):
+            return [{"name": first_name}] if table == first_table else []
+
+    class FakeOp:
+        def __init__(self):
+            self.created = []
+
+        @staticmethod
+        def get_bind():
+            return object()
+
+        def create_index(self, name, table, columns, *, unique):
+            self.created.append((name, table, tuple(columns), unique))
+
+    fake_op = FakeOp()
+    monkeypatch.setattr(migration, "op", fake_op)
+    monkeypatch.setattr(migration, "inspect", lambda _bind: FakeInspector())
+
+    migration.upgrade()
+
+    assert first_name not in {row[0] for row in fake_op.created}
+    assert {row[0] for row in fake_op.created} == {
+        name for name, _table, _columns in migration.INDEXES[1:]
+    }

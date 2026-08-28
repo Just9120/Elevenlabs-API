@@ -6,6 +6,7 @@ Create Date: 2026-08-28
 """
 
 from alembic import op
+from sqlalchemy import inspect
 
 
 revision = "0027_query_bounds"
@@ -27,10 +28,16 @@ INDEXES = (
 
 
 def upgrade():
+    inspector = inspect(op.get_bind())
     for name, table, columns in INDEXES:
-        op.create_index(name, table, list(columns), unique=False)
+        existing = {index["name"] for index in inspector.get_indexes(table)}
+        if name not in existing:
+            op.create_index(name, table, list(columns), unique=False)
 
 
 def downgrade():
+    inspector = inspect(op.get_bind())
     for name, table, _columns in reversed(INDEXES):
-        op.drop_index(name, table_name=table)
+        existing = {index["name"] for index in inspector.get_indexes(table)}
+        if name in existing:
+            op.drop_index(name, table_name=table)
