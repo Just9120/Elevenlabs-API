@@ -22,15 +22,15 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T17:12:37Z.
+- Updated (UTC): 2026-08-28T17:13:24Z.
 - Session mode: authorized full-delivery Goal; commercial, `transcript_doc` implementation и перечисленные non-goals запрещены.
 - Base branch/SHA: hotfix branch создана от verified merged `origin/main@4aea84705b1210a775bfe3d8e50d870f3ed605fe` (PR `#253`).
 - Working branch: `codex/pwa-transcription-ux-polish-01-live-hotfix`.
-- Last verified revision: deployed implementation `4aea84705b1210a775bfe3d8e50d870f3ed605fe`; uncommitted hotfix заменяет invalid `sharedWithMe = true` на canonical standalone `sharedWithMe` и покрыт full local validation.
+- Last verified revision: hotfix commit `9112eab58442ade25449ec79a06de986ed54f109`, заменяющий invalid `sharedWithMe = true` на canonical standalone `sharedWithMe`; revision покрыт full local validation.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
 - Completed: PR `#253` merged как `4aea847`; PR-head `CI/checks`, `Studio PWA CI/studio` и `browser-e2e` green. Exact-main runs `33192022059` (`CI`) и `33192022106` (`Studio PWA CI`) green; CD `33192022175` correctly deployed only web, а API/worker/migration jobs skipped. Authenticated diagnostics подтвердили exact `web-4aea847`, production readiness и unchanged API/worker `cc434775`. LIVE подтвердил source files/source folder/output folder dialogs, synthetic bounded search без пользовательских selection mutations, current-folder enablement, scroll lock/release и оба diarization states; provider/job calls не выполнялись. LIVE также точно локализовал partial failure `Доступные мне папки` в invalid query syntax.
-- Current step: local hotfix validation завершена; создать focused commit, подтвердить unchanged `origin/main` и выполнить единственный hotfix push/PR.
-- Next exact action: commit трёх reviewed files; затем final `git fetch`, clean worktree/base verification, один push hotfix branch и PR.
+- Current step: focused hotfix commit `9112eab` создан; подготовить единственный hotfix push/PR.
+- Next exact action: commit checkpoint update; затем final `git fetch`, clean worktree/base verification, один push hotfix branch и PR.
 - Validation and Evidence: original scope local `SPEC/CODE/TEST ✅`: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, repository `scripts/ci_checks.py` success, isolated committed Python 3.11 graph `1092 passed / 5 skipped`, Playwright discovery `12` tests, `git diff --check` green. Hotfix повторно подтвердил focused picker `8/8`, full frontend Vitest `619/619`, full ESLint, production TypeScript/Vite/PWA build, repository checks и `git diff --check`; exact regression assertion фиксирует canonical shared-folder query. Build сохраняет existing non-blocking chunk-size warning.
 - Pull Request / CI / deployment: PR `#253` merged; exact deployed web `4aea84705b1210a775bfe3d8e50d870f3ed605fe`. Hotfix PR ещё не создан. Production API/worker `cc434775`; schema `0027_query_bounds`.
 - Blockers: отсутствуют; bounded hotfix должен пройти exact-head CI, web-only redeploy и repeated authenticated LIVE.
