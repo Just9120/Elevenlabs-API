@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, mutateWithCsrfRetry } from "./apiClient";
 import {
   DirectUploadAmbiguousError,
@@ -8,6 +8,7 @@ import {
   type DirectUploadProgress,
 } from "./directUpload";
 import { formatBytes } from "./formatters";
+import { DirectDriveUploadPanel } from "./DirectDriveUploadPanel";
 import {
   LOCAL_AUDIO_MAX_FILES,
   LOCAL_AUDIO_MAX_INPUT_BYTES,
@@ -50,7 +51,10 @@ type UploadProgressView = DirectUploadProgress & {
 
 type OperationMode = "separate" | "concat";
 type ProcessingPath = "studio" | "local";
+type SourceMode = "drive" | "local" | "studio" | "direct-drive";
 type LocalResultView = LocalAudioResult & { url: string };
+
+const sourceModes: SourceMode[] = ["drive", "local", "studio", "direct-drive"];
 
 function duration(seconds: number) {
   const value = Math.max(0, Math.round(seconds));
@@ -137,6 +141,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [project, setProject] = useState<Project | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [sourceMode, setSourceMode] = useState<SourceMode>("drive");
   const [processingPath, setProcessingPath] = useState<ProcessingPath>("studio");
   const [localFiles, setLocalFiles] = useState<File[]>([]);
   const [operationMode, setOperationMode] = useState<OperationMode>("separate");
@@ -233,6 +238,28 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     setManualOrder(false);
   }
 
+  function selectSourceMode(mode: SourceMode) {
+    setSourceMode(mode);
+    setError("");
+  }
+
+  function sourceTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    mode: SourceMode,
+  ) {
+    const currentIndex = sourceModes.indexOf(mode);
+    let nextIndex: number;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % sourceModes.length;
+    else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + sourceModes.length) % sourceModes.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = sourceModes.length - 1;
+    else return;
+    event.preventDefault();
+    const nextMode = sourceModes[nextIndex];
+    selectSourceMode(nextMode);
+    document.getElementById(`audio-source-tab-${nextMode}`)?.focus();
+  }
+
   function move(index: number, offset: number) {
     if (processingPath === "local") {
       setLocalFiles((current) => {
@@ -284,6 +311,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     setLocalFiles([]);
     setEphemeral(new Set());
     setJobs([]);
+    setSourceMode("studio");
   }
 
   function transcribeOutput(job: AudioJob) {
@@ -312,6 +340,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
       await reloadSources(project.id);
       if (processingPath === "local") setFormat("copy");
       setProcessingPath("studio");
+      setSourceMode("drive");
       setLocalFiles([]);
       setSelected((current) => [...new Set([...current, ...response.sources.map((source) => source.id)])]);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось добавить Google Drive файлы."); }
@@ -334,6 +363,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     if (!project || files.length === 0) return;
     if (processingPath === "local") setFormat("copy");
     setProcessingPath("studio");
+    setSourceMode("studio");
     setLocalFiles([]);
     setBusy(true); setError("");
     const uploaded: string[] = [];
@@ -437,6 +467,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     }
     setError("");
     setProcessingPath("local");
+    setSourceMode("local");
     setLocalFiles(files);
     setSelected([]);
     setEphemeral(new Set());
@@ -512,24 +543,22 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
 
   return (
     <div className="audio-preparation-page">
-      <section className="hero"><div><p className="eyebrow">AUDIO WORKSPACE</p><h1>Обработка аудио</h1><p>Склейте файлы, уберите длинные паузы, выберите mono-режим и подготовьте WAV/FLAC до транскрибации.</p></div></section>
+      <section className="hero"><div><p className="eyebrow">AUDIO WORKSPACE</p><h1>Подготовка аудио</h1><p>Обработайте media перед транскрибацией или загрузите исходные audio/video напрямую в Google Drive без преобразования.</p></div></section>
       {error && <p className="error" role="alert">{error}</p>}
       <section className="card audio-preparation-card">
         <h2>1. Исходные файлы</h2>
-        <div className="actions">
-          <button type="button" onClick={addFromDrive} disabled={busy || !project}>Из Google Drive</button>
-          <button type="button" onClick={() => localFileInput.current?.click()} disabled={busy}>Обработать на устройстве</button>
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !project}>Загрузить в Studio</button>
-          <input aria-label="Выбрать файлы для обработки на устройстве" ref={localFileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => chooseLocalFiles(Array.from(event.target.files || []))} />
-          <input aria-label="Выбрать файлы для загрузки в Studio" ref={fileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => void addLocalFiles(Array.from(event.target.files || []))} />
+        <div className="tabs audio-source-tabs" role="tablist" aria-label="Способ получения исходных файлов">
+          <button id="audio-source-tab-drive" type="button" role="tab" aria-selected={sourceMode === "drive"} aria-controls="audio-source-panel-drive" tabIndex={sourceMode === "drive" ? 0 : -1} className={sourceMode === "drive" ? "active" : ""} onClick={() => selectSourceMode("drive")} onKeyDown={(event) => sourceTabKeyDown(event, "drive")}>Из Google Drive</button>
+          <button id="audio-source-tab-local" type="button" role="tab" aria-selected={sourceMode === "local"} aria-controls="audio-source-panel-local" tabIndex={sourceMode === "local" ? 0 : -1} className={sourceMode === "local" ? "active" : ""} onClick={() => selectSourceMode("local")} onKeyDown={(event) => sourceTabKeyDown(event, "local")}>Обработать на устройстве</button>
+          <button id="audio-source-tab-studio" type="button" role="tab" aria-selected={sourceMode === "studio"} aria-controls="audio-source-panel-studio" tabIndex={sourceMode === "studio" ? 0 : -1} className={sourceMode === "studio" ? "active" : ""} onClick={() => selectSourceMode("studio")} onKeyDown={(event) => sourceTabKeyDown(event, "studio")}>Загрузить в Studio</button>
+          <button id="audio-source-tab-direct-drive" type="button" role="tab" aria-selected={sourceMode === "direct-drive"} aria-controls="audio-source-panel-direct-drive" tabIndex={sourceMode === "direct-drive" ? 0 : -1} className={sourceMode === "direct-drive" ? "active" : ""} onClick={() => selectSourceMode("direct-drive")} onKeyDown={(event) => sourceTabKeyDown(event, "direct-drive")}>В Google Drive без обработки</button>
         </div>
-        <p className="muted"><strong>На устройстве</strong> не отправляет исходные файлы в Studio и создаёт WAV в текущей вкладке. <strong>Загрузить в Studio</strong> использует временное S3-хранилище и server-side FFmpeg для максимальной совместимости.</p>
-        {uploadProgress && <div className="upload-progress" aria-live="polite">
-          <p><strong>Файл {uploadProgress.fileIndex} из {uploadProgress.fileCount}:</strong> {uploadProgress.filename}</p>
-          <progress aria-label="Общий прогресс загрузки в Studio" max="100" value={uploadProgress.aggregatePercent}>{uploadProgress.aggregatePercent}%</progress>
-          <small>{uploadProgress.percent}% текущего файла · {formatBytes(uploadProgress.loadedBytes)} из {formatBytes(uploadProgress.totalBytes)} · всего {uploadProgress.aggregatePercent}%</small>
-        </div>}
-        <details className="audio-saved-sources">
+        {sourceMode === "drive" && <div role="tabpanel" id="audio-source-panel-drive" aria-labelledby="audio-source-tab-drive" className="audio-source-mode-panel"><p className="muted">Выберите сохранённые audio/video в Google Drive и добавьте их в план обработки Studio.</p><button type="button" onClick={addFromDrive} disabled={busy || !project}>Выбрать файлы в Google Drive</button></div>}
+        {sourceMode === "local" && <div role="tabpanel" id="audio-source-panel-local" aria-labelledby="audio-source-tab-local" className="audio-source-mode-panel"><p className="muted">Исходные bytes остаются в текущей вкладке; браузер создаёт WAV без Studio/S3.</p><button type="button" onClick={() => localFileInput.current?.click()} disabled={busy}>Выбрать для обработки на устройстве</button><input aria-label="Выбрать файлы для обработки на устройстве" ref={localFileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => chooseLocalFiles(Array.from(event.target.files || []))} /></div>}
+        {sourceMode === "studio" && <div role="tabpanel" id="audio-source-panel-studio" aria-labelledby="audio-source-tab-studio" className="audio-source-mode-panel"><p className="muted">Временная копия попадёт в S3, а server-side FFmpeg обеспечит максимальную совместимость обработки.</p><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !project}>Выбрать и загрузить в Studio</button><input aria-label="Выбрать файлы для загрузки в Studio" ref={fileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => void addLocalFiles(Array.from(event.target.files || []))} />{uploadProgress && <div className="upload-progress" aria-live="polite"><p><strong>Файл {uploadProgress.fileIndex} из {uploadProgress.fileCount}:</strong> {uploadProgress.filename}</p><progress aria-label="Общий прогресс загрузки в Studio" max="100" value={uploadProgress.aggregatePercent}>{uploadProgress.aggregatePercent}%</progress><small>{uploadProgress.percent}% текущего файла · {formatBytes(uploadProgress.loadedBytes)} из {formatBytes(uploadProgress.totalBytes)} · всего {uploadProgress.aggregatePercent}%</small></div>}</div>}
+        {sourceMode === "direct-drive" && project && <DirectDriveUploadPanel projectId={project.id} csrf={csrf} onCsrf={onCsrf} />}
+        {sourceMode === "direct-drive" && !project && <p className="notice">Подготавливаем owner workspace…</p>}
+        {sourceMode !== "direct-drive" && <><details className="audio-saved-sources">
           <summary>Выбрать из сохранённых файлов Studio</summary>
           <div className="audio-source-grid">
             {usable.length === 0 && <p className="notice">Сохранённых файлов пока нет. Добавьте их с устройства или Google Drive.</p>}
@@ -568,9 +597,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           </ol>
           <p className="notice">{operationMode === "concat" && localFiles.length > 1 ? `Будут локально склеены ${localFiles.length} файла в порядке 1 → ${localFiles.length}.` : `Будет создано локальных WAV-файлов: ${localFiles.length}.`}</p>
           <p className="warning">Браузер не предоставляет надёжную дату создания локального media file. Порядок сохраняется ровно как выбран и может быть изменён вручную.</p>
-        </div>}
+        </div>}</>}
       </section>
-      <section className="card audio-preparation-card">
+      {sourceMode !== "direct-drive" && <section className="card audio-preparation-card">
         <h2>2. Параметры</h2>
         <div className="audio-settings-grid">
           <label>Сценарий<select value={preset} onChange={(e) => applyPreset(e.target.value as keyof typeof presetDefaults)}><option value="processing_only">Свои настройки</option><option value="lecture">Лекция</option><option value="call">Созвон</option></select></label>
@@ -584,9 +613,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         {processingPath === "studio" ? <fieldset className="audio-drive-save"><legend>Сохранение</legend><label><input type="checkbox" checked={saveToDrive} onChange={(e) => setSaveToDrive(e.target.checked)} /> Автоматически сохранить копию в Google Drive</label>{saveToDrive && <div className="actions"><button type="button" onClick={chooseOutputFolder} disabled={busy}>Выбрать папку</button>{driveFolder && <span>{driveFolder.name}</span>}</div>}<small>Скачать результат и передать его в транскрибацию можно будет после обработки независимо от этой настройки.</small></fieldset> : <p className="notice">Локальный результат останется в браузере до закрытия или перезагрузки вкладки. После обработки его можно скачать либо явно загрузить в Studio для Google Drive или транскрибации.</p>}
         {localProgress && <div className="upload-progress" aria-live="polite"><p><strong>{localProgress.stage === "decoding" ? "Декодируем" : localProgress.stage === "processing" ? "Обрабатываем" : localProgress.stage === "encoding" ? "Создаём WAV" : "Читаем файл"}</strong>{localProgress.filename ? `: ${localProgress.filename}` : ""}</p><progress aria-label="Прогресс локальной обработки" max="100" value={localProgress.percent}>{localProgress.percent}%</progress><small>{localProgress.percent}% · исходные файлы не отправляются в сеть</small><button type="button" onClick={() => localAbort.current?.abort()}>Отменить локальную обработку</button></div>}
         <button className="primary" type="button" disabled={busy || planCount === 0 || !title.trim() || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
-      </section>
-      {localResults.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Локальные результаты</h2>{localResults.map((result, index) => <article className="audio-job-result" key={result.url}><h3>{localResults.length > 1 ? `Результат ${index + 1}: ${result.filename}` : result.filename}</h3><p>Исходно: {duration(result.inputDurationSeconds)} · результат: {duration(result.outputDurationSeconds)}</p><div className="actions"><a className="button-like primary" href={result.url} download={result.filename}>Скачать файл</a><button type="button" onClick={() => void uploadLocalResult(result)} disabled={busy}>Загрузить в Studio для Drive или транскрибации</button></div></article>)}</section>}
-      {jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{!terminal.has(job.status) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>}{job.output?.source_id && <button className="primary" type="button" onClick={() => transcribeOutput(job)}>Использовать для транскрибации</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput(job)}>Использовать в новой обработке</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
+      </section>}
+      {sourceMode !== "direct-drive" && localResults.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Локальные результаты</h2>{localResults.map((result, index) => <article className="audio-job-result" key={result.url}><h3>{localResults.length > 1 ? `Результат ${index + 1}: ${result.filename}` : result.filename}</h3><p>Исходно: {duration(result.inputDurationSeconds)} · результат: {duration(result.outputDurationSeconds)}</p><div className="actions"><a className="button-like primary" href={result.url} download={result.filename}>Скачать файл</a><button type="button" onClick={() => void uploadLocalResult(result)} disabled={busy}>Загрузить в Studio для Drive или транскрибации</button></div></article>)}</section>}
+      {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{!terminal.has(job.status) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>}{job.output?.source_id && <button className="primary" type="button" onClick={() => transcribeOutput(job)}>Использовать для транскрибации</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput(job)}>Использовать в новой обработке</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
     </div>
   );
 }

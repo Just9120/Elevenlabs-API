@@ -2546,7 +2546,7 @@ describe("Studio PWA", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Обработка аудио" }),
+      await screen.findByRole("heading", { name: "Подготовка аудио" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/audio");
   });

@@ -1705,6 +1705,64 @@ code {
   margin: 0;
 }
 
+.audio-source-tabs {
+  overflow-x: auto;
+}
+
+.audio-source-tabs button {
+  min-width: max-content;
+}
+
+.audio-source-mode-panel,
+.direct-drive-upload-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  background: var(--studio-soft);
+}
+
+.audio-source-mode-panel > p,
+.direct-drive-upload-panel h3,
+.direct-drive-upload-panel p {
+  margin: 0;
+}
+
+.direct-drive-upload-list {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.direct-drive-upload-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-surface, #111827);
+}
+
+.direct-drive-upload-item-copy {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.direct-drive-upload-item-copy progress {
+  width: 100%;
+}
+
+.direct-drive-upload-list small {
+  color: var(--studio-muted);
+}
+
 .audio-source-grid,
 .audio-settings-grid {
   display: grid;
@@ -1843,6 +1901,17 @@ code {
 }
 
 @media (max-width: 620px) {
+  .audio-source-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .audio-source-tabs button {
+    min-width: 0;
+    white-space: normal;
+  }
+
   .audio-settings-grid,
   .audio-source-grid {
     grid-template-columns: 1fr;
@@ -1850,6 +1919,14 @@ code {
 
   .audio-order-list li {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .direct-drive-upload-list li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .direct-drive-upload-list li > .actions {
+    grid-column: 1 / -1;
   }
 
   .audio-order-controls {

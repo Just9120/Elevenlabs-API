@@ -57,7 +57,7 @@ describe("AudioPreparationPage", () => {
 
     render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
 
-    expect(screen.getByRole("heading", { name: "Обработка аудио" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Подготовка аудио" })).toBeInTheDocument();
     const savedSources = screen
       .getByText("Выбрать из сохранённых файлов Studio")
       .closest("details");
@@ -211,7 +211,8 @@ describe("AudioPreparationPage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
-    await screen.findByRole("heading", { name: "Обработка аудио" });
+    await screen.findByRole("heading", { name: "Подготовка аудио" });
+    await userEvent.click(screen.getByRole("tab", { name: "Обработать на устройстве" }));
 
     await userEvent.upload(
       screen.getByLabelText("Выбрать файлы для обработки на устройстве"),
@@ -219,7 +220,7 @@ describe("AudioPreparationPage", () => {
     );
 
     expect(screen.getByText(/Выбрано файлов: 1 · обработка на устройстве/i)).toBeInTheDocument();
-    expect(screen.getByText(/не отправляет исходные файлы в Studio/i)).toBeInTheDocument();
+    expect(screen.getByText(/Исходные bytes остаются в текущей вкладке/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Формат результата")).toHaveValue("wav");
     expect(screen.getByLabelText("Формат результата")).toBeDisabled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("local-upload/initiate"))).toBe(false);
@@ -234,10 +235,36 @@ describe("AudioPreparationPage", () => {
       throw new Error(`unexpected request: ${url}`);
     }));
     render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
-    await screen.findByRole("heading", { name: "Обработка аудио" });
+    await screen.findByRole("heading", { name: "Подготовка аудио" });
 
     await userEvent.selectOptions(screen.getByLabelText("Формат результата"), "flac");
 
     expect(screen.getByText(/FLAC создаётся в 16-bit.+без lossy-сжатия/i)).toBeInTheDocument();
+  });
+
+  it("exposes keyboard-accessible source tabs and isolates direct Drive upload from processing controls", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      throw new Error(`unexpected request: ${url}`);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Подготовка аудио" });
+
+    const tablist = screen.getByRole("tablist", { name: "Способ получения исходных файлов" });
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(4);
+    const direct = within(tablist).getByRole("tab", { name: "В Google Drive без обработки" });
+    await userEvent.click(direct);
+    expect(direct).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Загрузить исходные файлы без обработки" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "2. Параметры" })).not.toBeInTheDocument();
+
+    direct.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(within(tablist).getByRole("tab", { name: "Загрузить в Studio" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "2. Параметры" })).toBeInTheDocument();
   });
 });
