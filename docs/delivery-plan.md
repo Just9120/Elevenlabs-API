@@ -2,70 +2,71 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-SESSION-CONTROL-01` — owner-scoped управление активными personal sessions.
+- **ID / title:** `PWA-OBSERVABILITY-RUNTIME-01` — substantial runtime observability без commercial contour.
 - **State:** `IN_PROGRESS` — Goal явно авторизована, exact base/branch зафиксированы, implementation начата.
-- **Authorization source:** explicit user instruction 2026-08-28 «делай» после review и описания bounded Goal `PWA-SESSION-CONTROL-01`.
-- **Scope:** реализовать canonical `PWASEC-07..PWASEC-09`: безопасный bounded список active sessions текущего owner с current marker; targeted revoke выбранной другой session; idempotent revoke всех остальных active sessions; Settings → Account UI с confirmation/loading/error/empty/retry и authoritative reconciliation ambiguous mutations; CSRF/same-origin/rate-limit/audit boundaries; API/UI/browser tests; PR/CI/merge; API+web deploy и bounded authenticated two-session LIVE.
-- **Non-goals:** commercial contour; TOTP, password reset и recent re-authentication; IP/raw User-Agent/device fingerprint/geolocation; изменение cookie/token format или session lifetime; unrelated security/storage/provider work; worker deployment или schema migration без обнаруженной necessity и новой authorization.
+- **Authorization source:** explicit user instruction 2026-08-28 «если все ок, то давай делать более существенный goal» после review production diagnostics.
+- **Scope:** закрыть canonical `OBSERV-06`, `OBSERV-08`, `OBSERV-09`, `OBSERV-11..OBSERV-14`, `OBSERV-22`, `OBSERV-24..OBSERV-28`: точные release/build/commit identities реально запущенных web/API/worker и exact DB schema revision; отдельные API и worker liveness/readiness contracts; authenticated admin health с bounded queue, object-storage и STT-provider status без paid/provider mutation; safe frontend incident correlation для 4xx и unhandled rejections; automated unit/integration/UI/contract coverage; exact-head CI, protected backward-compatible migration, API/web/manual worker deployment и bounded authenticated production LIVE.
+- **Non-goals:** commercial contour; external alert delivery; active paid STT probes; `trace_id` через весь pipeline; audit-role/DB least-privilege redesign; storage lifecycle redesign; provider fallback; unrelated product features.
 - **Goal AC:**
-  1. `PSC-01`: owner-scoped GET возвращает не более bounded limit только unrevoked/unexpired sessions текущего user, current session помечена; DTO содержит только opaque session ID и safe timestamps, без token/CSRF/cookie/IP/User-Agent data.
-  2. `PSC-02`: выбранная другая active session отзывается CSRF/same-origin-protected mutation; cross-owner/missing/replayed targets не раскрывают чужое состояние и дают безопасный idempotent outcome.
-  3. `PSC-03`: revoke-all-other отзывает только active sessions текущего user, сохраняет current session и безопасно повторяется.
-  4. `PSC-04`: Settings → Account показывает current/other sessions, created/last-active/expires, loading/error/empty states, refresh, selected revoke и confirm-required revoke-all-other.
-  5. `PSC-05`: ambiguous mutation failure reconciliate через authoritative list; UI не сообщает ложный success и не удаляет last-confirmed state при transient read failure.
-  6. `PSC-06`: list/revoke operations имеют bounded rate limits и safe audit events; credential/session secrets не попадают в response/log/test evidence.
-  7. `PSC-07`: focused API/UI/browser tests, full local validation, exact PR-head required CI, merge, applicable API/web deployment и bounded authenticated two-session LIVE завершены.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** LIVE требует две независимые authenticated owner sessions без раскрытия credentials; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Existing `sessions` table уже имеет required timestamps/revocation fields, поэтому migration предварительно не ожидается.
+  1. `POR-01`: diagnostics fail closed и показывают отдельные exact release/build/commit identities реально запущенных web, API и worker, а также exact DB schema revision; `unknown`, target-only identity и подмена одного компонента другим не считаются success.
+  2. `POR-02`: backend предоставляет отдельные process-only liveness и dependency/schema-aware readiness probes; legacy `/api/healthz` остаётся backward-compatible readiness alias, ответы bounded и не раскрывают secrets/user data.
+  3. `POR-03`: worker предоставляет отдельные process liveness и dependency/schema readiness contracts; Docker healthcheck использует readiness, а diagnostics отличают absent/stale worker от healthy.
+  4. `POR-04`: authenticated admin health показывает bounded queue, object-storage и STT-provider status; storage check read-only, provider check не вызывает paid transcription и не мутирует provider state.
+  5. `POR-05`: frontend 4xx и unhandled rejection evidence сохраняет safe original response request ID, bounded exact HTTP status и endpoint group либо safe rejection category, без stack/raw payload/message/user data/secrets.
+  6. `POR-06`: authoritative runtime component identity/heartbeat persistence backward-compatible; diagnostic reads не изменяют состояние, stale/absent distinguishable, rollback старого API/worker безопасен.
+  7. `POR-07`: Compose/build/deploy передают и проверяют exact component identities без broad env rewrite, secret changes или ослабления migration/worker/Environment gates.
+  8. `POR-08`: focused и full tests, exact PR-head required CI, protected migration, API/web deployment, manual drained worker deployment и bounded authenticated production LIVE подтверждают все applicable contracts.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE ❌`.
+- **Known blockers/dependencies:** production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T07:14:35Z.
+- Updated (UTC): 2026-08-28T07:50:16Z.
 - Session mode: authorized full delivery Goal; commercial и перечисленные non-goals запрещены.
-- Base branch/SHA: fetched `origin/main@baa55d695c015385ba992b87c505d1a1fc116df3`; local `main` clean, совпадал с origin; open PR отсутствовали.
-- Working branch: `codex/pwa-session-control-01`; создана от exact verified base SHA выше.
-- Last verified revision: code/test revision `2b75d033c832fd57787c5a3635f6c42a40dbecbe`; metadata below описывает это exact состояние без self-referential commit loop.
+- Base branch/SHA: fetched clean `origin/main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; open PR отсутствовали.
+- Working branch: `codex/pwa-observability-runtime-01`; создана от exact verified base SHA выше.
+- Last verified revision: `3e80fef58f8aab94c5727a7fc7acef300fd8b099`; Goal commits пока отсутствуют.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: commits `937715a` (bounded owner-scoped API/security routes), `05e376e` (Settings UI, strict DTO, reconciliation и browser flow), `244b53b` (App test harness), `c8b2bc1` (safe targeted audit evidence), `2b75d03` (SQLite domain coverage). Current marker, owner isolation, active-only filters, targeted/revoke-all idempotency, rate limits, CSRF/same-origin, no-store, confirmations и last-confirmed-state behavior реализованы без schema migration или worker changes.
-- Current step: зафиксировать synchronized readiness/checkpoint, перепроверить remote base и выполнить единственный initial push/PR.
-- Next exact action: создать documentation/checkpoint commit, `git fetch` и проверить отсутствие base drift, затем один раз push branch и открыть PR.
-- Validation and Evidence: Python compile success; pinned temporary-venv suite `31 passed` (session-control domain + audit/source lifecycle + browser/CI contracts); Studio focused session tests `7/7`; full Vitest `610/610`; ESLint success; production build success; Playwright discovery `12 tests`. Backend route integration и browser execution не запускались локально из-за отсутствия PostgreSQL/Redis и остаются обязательными exact-head CI gates. GitHub repo visibility через `gh` — `PUBLIC`; все workflows используют standard `ubuntu-latest`, для которых Actions usage public repository не расходует included minutes. Billing endpoint недоступен текущему token без дополнительного `user` scope, но minute allowance к этим standard public runs неприменим; larger runners не настроены.
-- Pull Request / CI / deployment: PR/push absent. Expected changed components: API + web; migration/worker N/A unless verified implementation evidence changes this conclusion.
-- Blockers: no implementation blocker. Potential LIVE external gate: возможность создать вторую независимую authenticated owner session в production без передачи credentials агенту.
-- Unverified assumptions: production CD корректно определит только API+web changes и не запустит migration/worker; это должно быть подтверждено фактическим CD plan/run.
+- Completed: production diagnostic bundle `studio-diagnostics-2026-08-28.md` reviewed against exact main code/config. Он подтверждает `environment=production`, но web/API/worker identities равны `unknown`; exact schema/commit/release отсутствуют. Existing `/api/healthz` и worker health смешивают liveness/readiness. Frontend diagnostics ingestion request ID не коррелирует с original failed request.
+- Current step: синхронизировать operational readiness и спроектировать backward-compatible identity/heartbeat contract.
+- Next exact action: реализовать authoritative runtime component identity/heartbeat migration и backend contracts с focused tests.
+- Validation and Evidence: base Git/GitHub state verified; diagnostic report не truncated, показал четыре completed jobs, успешные heartbeat/cleanup и отсутствие API/worker warning/error, поэтому массовый runtime outage не обнаружен. Identity/health findings подтверждены report+config+routes+Compose, а не inferred по одному документу.
+- Pull Request / CI / deployment: absent. Expected changed components: migration + API + web + worker; full protected delivery обязателен.
+- Blockers: implementation blocker отсутствует. External gates ожидаются только на protected migration, manual worker drain/deploy и authenticated LIVE.
+- Unverified assumptions: read-only storage/provider status можно подтвердить доступными runtime credentials без расходной операции; это должно быть проверено tests и LIVE.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Текущий snapshot пересчитан после явного расширения canonical scope; previous snapshot сохранён для сравнения.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Текущий snapshot независимо пересчитан после сверки production diagnostics; previous snapshot сохранён только для сравнения.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **38,7% (`206/532`)** | **38,2% (`203/532`)** | `PWASEC-07..09` подтверждены exact branch code и local tests; `206/532`. |
-| **Non-commercial scope** | **71,0% (`206/290`)** | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `175/259`; `206/290`. |
+| **Полный canonical scope** | **38,2% (`203/532`)** | **38,7% (`206/532`)** | `PWASEC-07..09` теперь подтверждены полным delivery; `OBSERV-24..26` сняты из numerator, потому что production diagnostics показал три `unknown`. Net numerator вернулся к `203`, но состав выполненных AC изменился. |
+| **Non-commercial scope** | **70,0% (`203/290`)** | **71,0% (`206/290`)** | Colab `31/31` + personal PWA `172/259`; denominator не менялся. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Вне Goal; implementation запрещена. |
 | **Google Colab canonical** | **100% (`31/31`)** | **100% (`31/31`)** | Вне Goal; runtime risk не меняет numerator. |
-| **Personal Studio PWA canonical** | **67,6% (`175/259`)** | **66,4% (`172/259`)** | Выполнены три canonical session-control AC; delivery Evidence ещё gate-ит READY. |
-| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **33,3% (`6/18`)** | `PWASEC-07..09` выполнены; остальные девять security AC вне Goal. |
-| `PWA-GOOGLE-PICKER-UX-01` | **100% (`3/3`)** | **100% (`3/3`)** | PR `#245`, exact-main CI и web deployment подтверждены; authenticated source/output-folder LIVE исправления ещё не зафиксировано как Evidence. |
-| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
-| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |
-| Остальные existing epics | **100% (`135/135`)** | **100% (`135/135`)** | AC completion не изменился; current audit не отменяет ранее зафиксированные required Evidence. |
+| **Personal Studio PWA canonical** | **66,4% (`172/259`)** | **67,6% (`175/259`)** | Session-control `3/3` подтверждены, но три ранее засчитанные build-identity AC фактически не выполнены. |
+| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **50,0% (`9/18`)** | `PWASEC-07..09` подтверждены PR/CI/deploy/LIVE. |
+| `OBSERVABILITY-AUDIT-02` | **34,3% (`12/35`)** | **42,9% (`15/35`)** | `OBSERV-24..26` false positive: exact production report показывает `unknown`; Goal target после 13 AC — `25/35 = 71,4%`. |
+| Остальные existing epics | **100% (`132/132`)** | **100% (`132/132`)** | AC completion в этом аудите не изменился. |
+
+Target при выполнении всех 13 canonical Goal AC: observability `25/35 = 71,4%`; personal PWA `185/259 = 71,4%`; non-commercial `216/290 = 74,5%`; full canonical `216/532 = 40,6%`.
 
 ## Candidate next Goals
 
 1. `SPEC-GAPS-DECISIONS-03` — принять bounded решения по сохранённым conflicts/ambiguities; implementation не начинается автоматически.
-2. `CI-CD-HARDENING-02` — exact deployed revision contract, branch/ruleset/Environment enforcement и metadata synchronization.
-3. `DB-LEAST-PRIVILEGE-01` — evidence actual roles и отдельные migration/application roles с backup/rollback plan.
-4. `PWA-QUERY-BOUNDS-01` — pagination/retention/query budgets и load/concurrency validation растущих collections.
-5. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
+2. `DB-LEAST-PRIVILEGE-01` — evidence actual roles и отдельные migration/application roles с backup/rollback plan.
+3. `PWA-QUERY-BOUNDS-01` — pagination/retention/query budgets и load/concurrency validation растущих collections.
+4. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
 
 ## Risks и boundaries
 
-- API collection остаётся authority для active source picker; transient reload failure не должен молча удалять last-known metadata или разрешать mutation по неподтверждённому state.
-- Ручное удаление object напрямую в R2 обходит application lifecycle и не определяется текущим list endpoint; per-object `HEAD` в hot path не добавляется без отдельной architecture/performance оценки.
-- Переименование user-visible brand не означает автоматический rename repository, packages, routes, domain, Compose project или persistent identities.
+- Liveness доказывает только жизнь процесса; readiness отдельно проверяет dependencies/schema и не должна превращаться в расходный provider probe.
+- Build identities независимы по компонентам: target Git SHA нельзя выдавать за фактически запущенный web/API/worker без component-specific Evidence.
+- Diagnostic ingestion request ID не является original failed request ID; поля должны оставаться раздельными и safe.
+- Ручное удаление object напрямую в R2 обходит application lifecycle; Goal не меняет storage ownership/lifecycle.
 
 ## Sources of truth
 
