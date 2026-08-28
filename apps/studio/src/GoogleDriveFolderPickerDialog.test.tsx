@@ -63,6 +63,7 @@ describe("app-owned Google Drive picker", () => {
   });
 
   it("keeps the current empty output folder selectable and restores scroll", async () => {
+    let sharedFolderQuery = "";
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -78,6 +79,7 @@ describe("app-owned Google Drive picker", () => {
         }
         const query = url.searchParams.get("q") ?? "";
         if (query.includes("sharedWithMe")) {
+          sharedFolderQuery = query;
           return Promise.resolve(json({ files: [] }));
         }
         if (query.includes("'root-id' in parents")) {
@@ -119,6 +121,11 @@ describe("app-owned Google Drive picker", () => {
       name: "Выбрать эту папку",
     });
     await waitFor(() => expect(selectCurrent).toBeEnabled());
+    await waitFor(() =>
+      expect(sharedFolderQuery).toBe(
+        `sharedWithMe and trashed = false and mimeType = '${FOLDER_MIME_TYPE}'`,
+      ),
+    );
     await userEvent.click(
       await screen.findByRole("button", {
         name: "Открыть папку «Пустая папка»",

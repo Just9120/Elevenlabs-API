@@ -280,7 +280,7 @@ async function loadSharedFolderPage({
   pageToken?: string;
 }): Promise<{ items: DriveItem[]; nextPageToken?: string }> {
   const params: Record<string, string> = {
-    q: `sharedWithMe = true and trashed = false and mimeType = '${FOLDER_MIME_TYPE}'`,
+    q: `sharedWithMe and trashed = false and mimeType = '${FOLDER_MIME_TYPE}'`,
     fields: "nextPageToken,files(id,name,mimeType,driveId)",
     pageSize: String(PAGE_SIZE),
     orderBy: "name_natural",
