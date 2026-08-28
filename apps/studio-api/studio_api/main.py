@@ -8,8 +8,6 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictI
 from sqlalchemy import and_, text, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from alembic.config import Config
-from alembic.script import ScriptDirectory
 from .audit import audit
 from .auth_retention import cleanup_expired_auth_state
 from .config import get_settings
@@ -88,6 +86,18 @@ from .audio_preparation_service import (
     list_owned_audio_preparation_jobs,
     load_owned_audio_preparation_job,
     start_audio_preparation_job,
+)
+from .runtime_observability import (
+    check_database_readiness,
+    coherent_release_version,
+    database_schema_revision,
+    load_web_runtime_identity,
+    load_worker_runtime_status,
+    queue_runtime_status,
+    runtime_identity_payload,
+    settings_runtime_identity,
+    source_storage_runtime_status,
+    stt_provider_runtime_status,
 )
 
 settings=get_settings()
@@ -385,21 +395,29 @@ def clear_cookie(resp: Response): resp.delete_cookie(settings.cookie_name, path=
 
 def session_payload(sess, user): return {"authenticated": True, "csrf_token": getattr(sess,"_raw_csrf", None), "user": {"id": user.id, "email": user.email, "role": user.role.value, "accent_color": user.accent_color}}
 
-@app.get("/api/healthz")
-def healthz(db: Session=Depends(get_db)):
+@app.get("/api/livez")
+def livez():
+    return {"ok": True, "status": "alive"}
+
+
+def _readiness(db: Session):
     try:
-        db.execute(text("select 1"))
-        from pathlib import Path
-        cfg_path = "alembic.ini" if Path("alembic.ini").exists() else "apps/studio-api/alembic.ini"
-        cfg=Config(cfg_path); expected=ScriptDirectory.from_config(cfg).get_current_head()
-        current=None
-        try: current=db.execute(text("select version_num from alembic_version")).scalar()
-        except Exception: current=None
-        if current != expected:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "service unavailable")
-        return {"ok": True, "database": "reachable", "migrations": "current"}
+        payload = check_database_readiness(db)
+        if not limiter.redis.ping():
+            raise RuntimeError("redis_unavailable")
+        return {"ok": True, **payload, "redis": "reachable"}
     except Exception:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "service unavailable")
+
+
+@app.get("/api/readyz")
+def readyz(db: Session=Depends(get_db)):
+    return _readiness(db)
+
+
+@app.get("/api/healthz")
+def healthz(db: Session=Depends(get_db)):
+    return _readiness(db)
 
 @app.get("/api/auth/bootstrap-status")
 def bootstrap_status(db: Session=Depends(get_db)):
@@ -2158,12 +2176,56 @@ def _diag_payload(e: DiagnosticEvent):
 def _system_summary(db: Session, user: User):
     conn=current_google_connection(db, user)
     active_creds=db.query(func.count(ProviderCredential.id)).filter(ProviderCredential.user_id==user.id, ProviderCredential.status==CredentialStatus.active, ProviderCredential.deleted_at.is_(None)).scalar() or 0
-    return {"environment": sanitize_build_id(settings.environment), "build": {"web": sanitize_build_id(settings.diagnostic_web_build_id), "api": sanitize_build_id(settings.diagnostic_api_build_id), "worker": sanitize_build_id(settings.diagnostic_worker_build_id)}, "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_picker_browser_scope_boundary(conn.scopes))}, "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0}, "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours}, "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events}}
+    api_identity=settings_runtime_identity(settings, expected_component="api")
+    web_identity=load_web_runtime_identity()
+    try:
+        worker_status=load_worker_runtime_status(db, stale_after_seconds=settings.runtime_worker_stale_after_seconds)
+    except Exception:
+        worker_status={"status":"unavailable"}
+    try:
+        schema_revision=database_schema_revision(db)
+    except Exception:
+        schema_revision="unavailable"
+    try:
+        queue_status=queue_runtime_status(db)
+    except Exception:
+        queue_status={"status":"unavailable"}
+    storage_status=source_storage_runtime_status(settings)
+    try:
+        provider_status=stt_provider_runtime_status(db, owner_user_id=user.id)
+    except Exception:
+        provider_status={"status":"unavailable", "availability":"unknown", "probe":"not_run"}
+    component_status={
+        "web": runtime_identity_payload(web_identity),
+        "api": runtime_identity_payload(api_identity),
+        "worker": worker_status,
+    }
+    build={name: payload.get("build_id", "unavailable") for name,payload in component_status.items()}
+    release_version=coherent_release_version(component_status)
+    return {
+        "environment": sanitize_build_id(settings.environment),
+        "release_version": release_version,
+        "schema_revision": schema_revision,
+        "build": build,
+        "components": component_status,
+        "health": {
+            "backend": "ready" if api_identity else "degraded",
+            "database": "reachable",
+            "queue": queue_status,
+            "worker": {"status": worker_status.get("status", "unavailable")},
+            "object_storage": storage_status,
+            "stt_provider": provider_status,
+        },
+        "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_picker_browser_scope_boundary(conn.scopes))},
+        "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0},
+        "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours},
+        "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events},
+    }
 
 
 DEBUG_SESSION_MAX_MINUTES = 30
 PWA_EVENT_CODES = frozenset({"PWA_APP_ERROR", "PWA_UNHANDLED_REJECTION", "PWA_API_REQUEST_FAILED", "PWA_ROUTE_ERROR", "PWA_SERVICE_WORKER_ERROR"})
-PWA_METADATA_KEYS = frozenset({"boundary", "duration_ms", "error_code", "retryable", "http_status_category", "endpoint_group"})
+PWA_METADATA_KEYS = frozenset({"boundary", "duration_ms", "error_code", "retryable", "http_status_category", "http_status", "endpoint_group", "upstream_request_id", "rejection_category"})
 
 def _debug_now() -> datetime:
     return utcnow()

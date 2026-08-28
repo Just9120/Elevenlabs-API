@@ -171,6 +171,10 @@ cd "$STUDIO_DEPLOY_DIR"
   || blocked "unexpected_branch"
 [[ "$(repo_git rev-parse HEAD 2>/dev/null)" == "$STUDIO_EXPECTED_COMMIT" ]] \
   || blocked "checkout_commit_mismatch"
+export STUDIO_RELEASE_SHA="$STUDIO_EXPECTED_COMMIT"
+export STUDIO_RELEASE_VERSION="${STUDIO_RELEASE_VERSION:-0.1.0}"
+[[ "$STUDIO_RELEASE_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$ ]] \
+  || blocked "release_version_invalid"
 tracked_state="$(repo_git status --porcelain --untracked-files=no 2>/dev/null)" \
   || blocked "tracked_tree_probe_failed"
 [[ -z "$tracked_state" ]] || blocked "tracked_tree_dirty"
@@ -463,7 +467,7 @@ fi
 local_health="failed"
 for _ in $(seq 1 30); do
   if curl -fsS -o /dev/null --max-time 5 \
-    http://127.0.0.1:8182/api/healthz </dev/null; then
+    http://127.0.0.1:8182/api/readyz </dev/null; then
     local_health="ok"
     break
   fi
@@ -471,7 +475,7 @@ for _ in $(seq 1 30); do
 done
 [[ "$local_health" == "ok" ]] || blocked "localhost_api_health_failed"
 curl -fsS -o /dev/null --max-time 8 \
-  "${public_url}/api/healthz" </dev/null \
+  "${public_url}/api/readyz" </dev/null \
   || blocked "public_api_health_failed"
 
 phase="complete"

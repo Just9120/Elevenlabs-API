@@ -208,7 +208,7 @@ def test_successful_api_deployment_orders_identity_before_health() -> None:
     assert index_of(calls, "studio-api alembic heads") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "studio-api alembic current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml ps -q studio-api")
-    assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
+    assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/readyz")
     assert_no_forbidden_mutation(calls)
 
 
@@ -221,7 +221,7 @@ def test_api_deploy_via_stdin_still_reaches_success_boundary(tmp_path: Path) -> 
     assert index_of(calls, "studio-api alembic heads") < index_of(calls, "studio-api alembic current")
     assert index_of(calls, "studio-api alembic current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker inspect --format {{.Image}} container-new")
-    assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
+    assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/readyz")
     assert not any(line.startswith("unexpected-run-stdin ") for line in calls)
     assert_no_forbidden_mutation(calls)
 

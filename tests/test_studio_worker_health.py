@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,23 +12,41 @@ from studio_api import worker_health
 
 
 def test_worker_health_success(monkeypatch, capsys):
+    from studio_api import runtime_observability
+
     calls = []
     monkeypatch.setattr(worker_health, "_pid1_command", lambda: "python -m studio_api.worker")
     class Settings:
-        worker_poll_interval_seconds=5; worker_error_backoff_seconds=5; worker_lease_ttl_seconds=3600
+        runtime_worker_stale_after_seconds=120
         def sqlalchemy_url(self): return "postgresql://safe"
     monkeypatch.setattr("studio_api.config.Settings", Settings)
     class Conn:
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def execute(self, stmt): calls.append(str(stmt))
+        pass
     class Engine:
         def connect(self): return Conn()
         def dispose(self): calls.append("dispose")
     monkeypatch.setattr(worker_health, "create_engine", lambda url, pool_pre_ping=True: Engine())
+    identity=SimpleNamespace(commit_sha="a"*40)
+    monkeypatch.setattr(runtime_observability, "settings_runtime_identity", lambda *a, **k: identity)
+    monkeypatch.setattr(runtime_observability, "current_worker_runtime_instance_id", lambda: "worker-instance")
+    monkeypatch.setattr(runtime_observability, "check_database_readiness", lambda db: calls.append("readiness"))
+    def load_status(*args, **kwargs):
+        assert kwargs["expected_instance_id"] == "worker-instance"
+        return {"status":"ready", "commit_sha":"a"*40}
+    monkeypatch.setattr(runtime_observability, "load_worker_runtime_status", load_status)
     assert worker_health.main() == 0
     assert "STUDIO_WORKER_HEALTH_OK" in capsys.readouterr().out
-    assert calls == ["SELECT 1", "dispose"]
+    assert calls == ["readiness", "dispose"]
+
+
+def test_worker_liveness_does_not_touch_configuration_or_dependencies(monkeypatch, capsys):
+    monkeypatch.setattr(worker_health, "_pid1_command", lambda: "python -m studio_api.worker")
+    monkeypatch.setattr("studio_api.config.Settings", lambda: (_ for _ in ()).throw(AssertionError("configuration touched")))
+    monkeypatch.setattr(worker_health, "create_engine", lambda *a, **k: (_ for _ in ()).throw(AssertionError("database touched")))
+    assert worker_health.main(["--mode", "liveness"]) == 0
+    assert "mode=liveness" in capsys.readouterr().out
 
 
 def test_worker_health_rejects_wrong_pid(monkeypatch, capsys):
@@ -50,14 +69,41 @@ def test_worker_health_invalid_config_is_redacted(monkeypatch, capsys):
 
 
 def test_worker_health_db_unavailable_redacted(monkeypatch, capsys):
+    from studio_api import runtime_observability
+
     monkeypatch.setattr(worker_health, "_pid1_command", lambda: "python -m studio_api.worker")
     class Settings:
-        worker_poll_interval_seconds=5; worker_error_backoff_seconds=5; worker_lease_ttl_seconds=3600
+        runtime_worker_stale_after_seconds=120
         def sqlalchemy_url(self): return "postgresql://secret-token@db"
     monkeypatch.setattr("studio_api.config.Settings", Settings)
+    monkeypatch.setattr(runtime_observability, "settings_runtime_identity", lambda *a, **k: SimpleNamespace(commit_sha="a"*40))
+    monkeypatch.setattr(runtime_observability, "current_worker_runtime_instance_id", lambda: "worker-instance")
     def boom(*a, **k): raise RuntimeError("secret-token db down")
     monkeypatch.setattr(worker_health, "create_engine", boom)
     assert worker_health.main() == 1
     err = capsys.readouterr().err
     assert "secret-token" not in err
     assert "dependency_unavailable" in err
+
+
+def test_worker_readiness_rejects_stale_or_wrong_revision_heartbeat(monkeypatch, capsys):
+    from studio_api import runtime_observability
+
+    monkeypatch.setattr(worker_health, "_pid1_command", lambda: "python -m studio_api.worker")
+    class Settings:
+        runtime_worker_stale_after_seconds=120
+        def sqlalchemy_url(self): return "postgresql://safe"
+    monkeypatch.setattr("studio_api.config.Settings", Settings)
+    monkeypatch.setattr(runtime_observability, "settings_runtime_identity", lambda *a, **k: SimpleNamespace(commit_sha="a"*40))
+    monkeypatch.setattr(runtime_observability, "current_worker_runtime_instance_id", lambda: "worker-instance")
+    monkeypatch.setattr(runtime_observability, "check_database_readiness", lambda db: None)
+    monkeypatch.setattr(runtime_observability, "load_worker_runtime_status", lambda *a, **k: {"status":"stale", "commit_sha":"b"*40})
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+    class Engine:
+        def connect(self): return Conn()
+        def dispose(self): pass
+    monkeypatch.setattr(worker_health, "create_engine", lambda *a, **k: Engine())
+    assert worker_health.main(["--mode", "readiness"]) == 1
+    assert "runtime_heartbeat_unavailable" in capsys.readouterr().err

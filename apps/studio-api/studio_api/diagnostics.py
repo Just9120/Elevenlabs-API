@@ -69,9 +69,10 @@ ERROR_CODES = frozenset({
 HTTP_STATUS_CATEGORIES = frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "unknown"})
 RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
 FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
-ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "realtime", "transcript_catalog", "auth", "unknown"})
+ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "realtime", "transcript_catalog", "transcript_maintenance", "auth", "unknown"})
 PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
 PWA_ERROR_CODES = frozenset({"app_error", "unhandled_rejection", "api_request_failed", "route_error", "service_worker_error", "unknown"})
+PWA_REJECTION_CATEGORIES = frozenset({"abort", "type_error", "error", "other"})
 SOURCE_TYPES = frozenset({"local_upload", "google_drive"})
 SOURCE_DELETION_REASONS = frozenset({"user_deleted", "retention_expired"})
 SOURCE_CLEANUP_OUTCOMES = frozenset({"not_applicable", "pending", "completed", "failed"})
@@ -149,8 +150,8 @@ REGISTRY: dict[str, EventDef] = {
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_UNHANDLED_EXCEPTION": EventDef(frozenset({"api"}), "ERROR", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=frozenset({"5xx"}), required=True)}),
     "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
-    "PWA_UNHANDLED_REJECTION": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
-    "PWA_API_REQUEST_FAILED": EventDef(frozenset({"web"}), "WARNING", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True)}),
+    "PWA_UNHANDLED_REJECTION": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "rejection_category": R("enum", choices=PWA_REJECTION_CATEGORIES, required=True)}),
+    "PWA_API_REQUEST_FAILED": EventDef(frozenset({"web"}), "WARNING", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True), "http_status": R("int", min=100, max=599), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "upstream_request_id": R("request_id")}),
     "PWA_ROUTE_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
     "PWA_SERVICE_WORKER_ERROR": EventDef(frozenset({"web"}), "WARNING", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
 }
@@ -233,6 +234,9 @@ def sanitize_metadata(code: str, metadata: dict[str, Any] | None) -> dict[str, A
         elif rule.kind == "enum":
             if not isinstance(value, str) or not SAFE_TOKEN_RE.fullmatch(value) or unsafe_string(value): return None
             if rule.choices and value not in rule.choices: return None
+            safe[key] = value
+        elif rule.kind == "request_id":
+            if not isinstance(value, str) or not valid_request_id(value): return None
             safe[key] = value
         else:
             return None

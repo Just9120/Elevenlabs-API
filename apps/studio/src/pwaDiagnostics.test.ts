@@ -24,13 +24,13 @@ describe("pwa diagnostics client", () => {
   it("accepts closed events and safe metadata only after CSRF configuration", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
-    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", endpoint_group: "jobs", http_status_category: "5xx", duration_ms: 42, retryable: true, error_code: "api_request_failed", token: "synthetic-secret", nested: { unsafe: true } });
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", endpoint_group: "jobs", http_status_category: "5xx", http_status: 503, upstream_request_id: "req_abcdefghijklmnop", duration_ms: 42, retryable: true, error_code: "api_request_failed", token: "synthetic-secret", nested: { unsafe: true } });
     await flushPwaDiagnostics();
     expect(fetchMock).not.toHaveBeenCalled();
     configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: false });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = lastBody(fetchMock);
-    expect(body.events[0]).toEqual({ event_code: "PWA_API_REQUEST_FAILED", metadata: { boundary: "api_request", duration_ms: 42, error_code: "api_request_failed", retryable: true, http_status_category: "5xx", endpoint_group: "jobs" } });
+    expect(body.events[0]).toEqual({ event_code: "PWA_API_REQUEST_FAILED", metadata: { boundary: "api_request", duration_ms: 42, error_code: "api_request_failed", retryable: true, http_status_category: "5xx", http_status: 503, upstream_request_id: "req_abcdefghijklmnop", endpoint_group: "jobs" } });
     expect(JSON.stringify(body)).not.toContain("synthetic-secret");
     expect(JSON.stringify(body)).not.toContain("unsafe");
   });
@@ -116,6 +116,7 @@ describe("pwa diagnostics client", () => {
     window.dispatchEvent(rejection);
     await flushPwaDiagnostics();
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(lastBody(fetchMock).events[0].metadata.rejection_category).toBe("other");
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("synthetic-raw");
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("synthetic-reason");
     cleanup2();

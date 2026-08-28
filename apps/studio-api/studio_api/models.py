@@ -597,3 +597,18 @@ class DiagnosticEvent(Base):
         Index("ix_diagnostic_events_owner_component_level_time", "owner_user_id", "component", "level", "first_occurred_at"),
         Index("ix_diagnostic_events_expires_at", "expires_at"),
     )
+
+
+class RuntimeComponentStatus(Base):
+    __tablename__="runtime_component_status"
+    component: Mapped[str]=mapped_column(String(20), primary_key=True)
+    instance_id: Mapped[str]=mapped_column(String(128), nullable=False)
+    release_version: Mapped[str]=mapped_column(String(120), nullable=False)
+    build_id: Mapped[str]=mapped_column(String(120), nullable=False)
+    commit_sha: Mapped[str]=mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    __table_args__=(
+        CheckConstraint("component IN ('worker')", name="ck_runtime_component_status_component"),
+        Index("ix_runtime_component_status_component_seen", "component", "last_seen_at"),
+    )

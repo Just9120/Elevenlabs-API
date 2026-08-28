@@ -3,6 +3,10 @@ services:
   studio-web:
     build:
       context: ../../apps/studio
+      args:
+        STUDIO_RELEASE_VERSION: ${STUDIO_RELEASE_VERSION:-unknown}
+        STUDIO_COMMIT_SHA: ${STUDIO_RELEASE_SHA:-unknown}
+        STUDIO_COMPONENT: web
     image: elevenlabs-studio-web:local
     restart: unless-stopped
     ports: ["127.0.0.1:8181:8080"]
@@ -12,7 +16,12 @@ services:
       timeout: 3s
       retries: 3
   studio-api:
-    build: ../../apps/studio-api
+    build:
+      context: ../../apps/studio-api
+      args:
+        STUDIO_RELEASE_VERSION: ${STUDIO_RELEASE_VERSION:-unknown}
+        STUDIO_COMMIT_SHA: ${STUDIO_RELEASE_SHA:-unknown}
+        STUDIO_COMPONENT: api
     image: elevenlabs-studio-api:local
     # The entrypoint copies host-owned 0600 secrets, then drops to UID/GID 10001.
     user: "0:0"
@@ -66,12 +75,17 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-m", "studio_api.container_entrypoint", "--drop-only", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/healthz',timeout=2).status==200 else 1)"]
+      test: ["CMD", "python", "-m", "studio_api.container_entrypoint", "--drop-only", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/readyz',timeout=2).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 5
   studio-worker:
-    build: ../../apps/studio-api
+    build:
+      context: ../../apps/studio-api
+      args:
+        STUDIO_RELEASE_VERSION: ${STUDIO_RELEASE_VERSION:-unknown}
+        STUDIO_COMMIT_SHA: ${STUDIO_RELEASE_SHA:-unknown}
+        STUDIO_COMPONENT: worker
     image: elevenlabs-studio-worker:local
     # The entrypoint copies host-owned 0600 secrets, then drops to UID/GID 10001.
     user: "0:0"
@@ -112,7 +126,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-m", "studio_api.container_entrypoint", "--drop-only", "python", "-m", "studio_api.worker_health"]
+      test: ["CMD", "python", "-m", "studio_api.container_entrypoint", "--drop-only", "python", "-m", "studio_api.worker_health", "--mode", "readiness"]
       interval: 30s
       timeout: 5s
       retries: 5
