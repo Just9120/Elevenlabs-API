@@ -16,24 +16,24 @@
   6. `TDS-06`: Studio mutation остаётся revision-controlled/fail-closed; creation reconciliation не допускает silent duplicate; unsupported/multi-tab/conflicting documents не мутируются; secrets/document content не попадают в logs.
   7. `TDS-07`: focused tests покрывают text model, UTF-16 ranges, Studio transport/create, Colab paths, dry-run/apply/idempotency/conflict; полные Python/Studio/lint/build checks green.
   8. `TDS-08`: один initial push/PR после полной local validation; required exact-head checks green; merge gates, applicable API/worker/web/Colab delivery и authenticated owner LIVE подтверждают один новый и один existing standardized document.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ❌ | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** exact rich-text ranges используют Google Docs UTF-16 indices; Studio create + format должна сохранять existing reconciliation boundary; Colab launcher читает `elevenlabs_api.py` из `main`; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Immediate implementation blocker отсутствует.
 - **Stop condition:** все Goal AC и canonical `CB-24`/`PD-07..13` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T20:11:00Z.
+- Updated (UTC): 2026-08-28T20:40:34Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@26fb497496ed2a418a12afc6b3cf081e45075e57`.
 - Working branch: `codex/transcript-doc-standard-01`.
-- Last verified revision: base `26fb497496ed2a418a12afc6b3cf081e45075e57`; новая implementation ещё не создана.
+- Last verified revision: local `f4ed35c2e623b7cc4c1151d9d56f4d97482e6b97` plus reviewed uncommitted operational documentation only.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: recovered exact main/GitHub state; confirmed legacy Studio `format_transcript_doc_v1_2`, plain-text Drive multipart creation, Colab `TRANSCRIPT_STANDARD_TARGET = transcript_doc_v1.2`, `TITLE` style и text-only standardization; user-authorized Goal создана.
-- Current step: определить единый document model и все creation/standardization call paths до записи implementation.
-- Next exact action: добавить focused failing tests для versionless localized text и exact rich-text requests, затем реализовать smallest shared builders для Studio и Colab.
-- Validation and Evidence: baseline exact-main CI `33205123663`, Studio PWA CI `33205123676` и CD `33205123712` success для предыдущей revision; новая Goal пока не валидировалась.
+- Completed: Studio deterministic document model использует exact UTF-16 ranges, versionless/localized text и H2/11 pt/14 pt styles; create transport fail-closed форматирует Drive-created document и сохраняет reconciliation authority при ошибке; revision-controlled standardization меняет text+styles одним bounded batch; standalone Colab creation/update применяет тот же semantic contract; Studio frontend runtime validator и copy принимают только `transcript_doc`. Созданы commits `8f1c4cf`, `aeac68c`, `f4ed35c`.
+- Current step: синхронизировать architecture/runbook/readiness/checkpoint и создать documentation commit после full local validation.
+- Next exact action: проверить remaining stale current-standard references и Actions included-minutes state, затем выполнить единственный initial push и открыть PR.
+- Validation and Evidence: `scripts/ci_checks.py` success; Python portable `1106 passed, 5 skipped`; focused Colab `201 passed`; Studio Vitest `627 passed`, ESLint success, TypeScript/Vite/PWA build success; `git diff --check` success. Полный service-backed Python/browser E2E остаётся exact-head CI gate. Baseline exact-main CI `33205123663`, Studio PWA CI `33205123676` и CD `33205123712` относятся к предыдущей revision.
 - Pull Request / CI / deployment: отсутствуют для current Goal. Production repository/web/API `26fb497496ed2a418a12afc6b3cf081e45075e57`; worker остаётся на совместимой предыдущей revision; schema `0027_query_bounds`.
-- Blockers: отсутствуют.
+- Blockers: implementation/local validation отсутствуют; до hosted CI сначала требуется безопасно проверить остаток included Actions minutes.
 - Unverified assumptions: existing Google OAuth scopes разрешают требуемые Docs `batchUpdate`; current single-tab standardization snapshot даёт достаточные exact indices для style replacement; LIVE можно выполнить без нового provider call на уже завершённом transcript output.
 - Preserved pre-existing changes: отсутствуют.
 
@@ -43,17 +43,17 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **41,3% (`228/552`)** | **40,0% (`221/552`)** | Exact-main delivery выполняет `AP-01` и `AP-25..30`; current Goal пока numerator не меняет. |
-| **Non-commercial scope** | **73,5% (`228/310`)** | **71,3% (`221/310`)** | Colab `31/32` + personal PWA `197/278`; current Goal затрагивает восемь открытых AC. |
+| **Полный canonical scope** | **42,8% (`236/552`)** | **41,3% (`228/552`)** | Local CODE/TEST выполняют `CB-24` и `PD-07..13`; CI/deployment/LIVE gate-ят READY, но не добавляют AC к numerator. |
+| **Non-commercial scope** | **76,1% (`236/310`)** | **73,5% (`228/310`)** | Colab `32/32` + personal PWA `204/278`; denominator не менялся. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | В durable BACKLOG, вне Goal; implementation запрещена. |
-| **Google Colab canonical** | **96,9% (`31/32`)** | **96,9% (`31/32`)** | Открыт `CB-24`; legacy versioned formatter подтверждён code Evidence. |
-| **Personal Studio PWA canonical** | **70,9% (`197/278`)** | **68,3% (`190/278`)** | Direct-upload delivery закрыла семь audio AC; `PD-07..13` открыты. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`30/30`)** | **76,7% (`23/30`)** | Exact-main CI/CD и authenticated LIVE подтверждены PR `#255`. |
-| `PWA-STANDARDIZATION-01` | **46,2% (`6/13`)** | **46,2% (`6/13`)** | `PD-07..13` остаются невыполненными до current Goal Evidence. |
+| **Google Colab canonical** | **100% (`32/32`)** | **96,9% (`31/32`)** | `CB-24` подтверждён local CODE/TEST; CI/LIVE ещё gate-ят lifecycle READY. |
+| **Personal Studio PWA canonical** | **73,4% (`204/278`)** | **70,9% (`197/278`)** | `PD-07..13` подтверждены local CODE/TEST; production delivery ещё не выполнена. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`30/30`)** | **100% (`30/30`)** | Не затронут current Goal; PR `#255` остаётся exact-main delivery Evidence. |
+| `PWA-STANDARDIZATION-01` | **100% (`13/13`)** | **46,2% (`6/13`)** | Рост `+53,8` п.п. вызван выполнением семи owner-approved format AC `PD-07..13`; READY ожидает CI/deployment/LIVE Evidence. |
 | `PWA-GOOGLE-PICKER-UX-01` | **100% (`8/8`)** | **100% (`8/8`)** | PR `#253/#254`, exact-main CI/web/LIVE. |
 | `PWA-BATCH-01` | **100% (`11/11`)** | **100% (`11/11`)** | PR `#253/#254`, exact-main CI/web/LIVE. |
 
-Изменение `PWA-AUDIO-PREPARATION-01` больше `10` п.п. (`+23,3` п.п.) вызвано выполнением семи AC в завершённом delivery PR `#255`; current Goal readiness пока не повышает.
+Изменение `PWA-STANDARDIZATION-01` больше `10` п.п. (`+53,8` п.п.) обусловлено не переоценкой старого scope, а реализацией всех семи ранее открытых atomic AC current Goal. Denominator `13` не изменился.
 
 ## Candidate next Goals
 

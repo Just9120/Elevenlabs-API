@@ -36,13 +36,13 @@ Current operational Goal: `TRANSCRIPT-DOC-STANDARD-01` на branch `codex/transc
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **96,9% (`31/32`)** | добавлен owner-approved `CB-24`; новый format ещё не реализован |
-| Personal Studio PWA | **70,9% (`197/278`)** | exact-main delivery выполняет `AP-01` и `AP-25..30`; current Goal пока не меняет numerator |
-| Non-commercial scope | **73,5% (`228/310`)** | Colab `31/32` + personal PWA `197/278` |
+| Google Colab | **100% (`32/32`)** | local CODE/TEST выполняют `CB-24`; READY остаётся gated current Goal CI/LIVE |
+| Personal Studio PWA | **73,4% (`204/278`)** | local CODE/TEST выполняют `PD-07..13`; exact-head CI/deployment/LIVE ещё не подтверждены |
+| Non-commercial scope | **76,1% (`236/310`)** | Colab `32/32` + personal PWA `204/278` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **41,3% (`228/552`)** | `228 / (310 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **42,8% (`236/552`)** | `236 / (310 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; completed delivery поднял numerator до `222/546`. Текущее решение изменило формулировку `AP-01` и добавило `AP-25..30`, поэтому denominator равен `552`; local implementation Evidence выполняет все семь новых/reopened AC и поднимает independent numerator с `221` до `228`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; completed delivery поднял numerator до `222/546`. Решение по direct Drive upload изменило формулировку `AP-01` и добавило `AP-25..30`, поэтому denominator равен `552`; current local document-standard CODE/TEST выполняют `CB-24` и `PD-07..13`, поднимая independent numerator с `228` до `236`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -67,7 +67,7 @@ Commercial scope атомизирован ниже в `242` AC без silent omi
 
 ### Эпик `COLAB-BATCH-01` — batch-транскрибация
 
-Status: **⬜ BACKLOG — 95,8% (`23/24`)**. Existing batch behavior подтверждено; новый owner-approved document format `CB-24` ещё не реализован и не авторизован текущей Goal.
+Status: **🟦 IN PROGRESS — 100% (`24/24`)**. `CB-24` реализован и подтверждён local CODE/TEST; READY ожидает exact-head CI и owner LIVE на reviewed revision.
 
 Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен; расширенный language-default scope также прошёл applicable CI и owner LIVE gates.
 
@@ -96,13 +96,13 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-21` | Видимое время документа записано в ISO 8601. | ✅ |
 | `CB-22` | Время получено из фактического creation time исходного media file. | ✅ |
 | `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. | ✅ |
-| `CB-24` | Каждый новый Colab transcript создаётся в canonical versionless формате `transcript_doc`: название документа — Google Docs `Heading 2`, метка `Спикер N:` — русская, bold и `14 pt`, обычный текст — `11 pt`; устойчивые technical terms и metadata keys остаются на английском. | — |
+| `CB-24` | Каждый новый Colab transcript создаётся в canonical versionless формате `transcript_doc`: название документа — Google Docs `Heading 2`, метка `Спикер N:` — русская, bold и `14 pt`, обычный текст — `11 pt`; устойчивые technical terms и metadata keys остаются на английском. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY N/A | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY N/A | LIVE ◐`.
 
 Verified state: `main@c9ac43fc71a97a868db744088c06c69882a555fa` выбирает auto-detection по умолчанию без удаления explicit Russian/English overrides. Exact-main batch canary обработал supported media из вложенной local folder, создал native Google Doc с authoritative embedded creation time в strict ISO 8601 и обновил manifest после создания документа; CODE/TEST также подтверждают English, safe manifest clear и post-output-only source persistence.
 
-Definition of Done: `23/24`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data. `CB-24` включён в durable scope и авторизован current Goal `TRANSCRIPT-DOC-STANDARD-01`.
+Definition of Done: `24/24`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data. `CB-24` включён в durable scope и авторизован current Goal `TRANSCRIPT-DOC-STANDARD-01`.
 
 ### Эпик `COLAB-REALTIME-01` — realtime-транскрибация
 
@@ -336,7 +336,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟦 IN PROGRESS — 46,2% (`6/13`)**. Existing standardization behavior подтверждено; owner-approved format `transcript_doc` ещё не реализован, но его implementation авторизована current Goal.
+Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все AC подтверждены local CODE/TEST; READY ожидает exact-head CI, applicable deployment и authenticated LIVE нового/стандартизированного документа.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -346,15 +346,15 @@ Status: **🟦 IN PROGRESS — 46,2% (`6/13`)**. Existing standardization behavi
 | `PD-04` | Документ получает standard metadata header. | ✅ |
 | `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
 | `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ✅ |
-| `PD-07` | Canonical identifier текущего document standard — versionless `transcript_doc`; user-facing flow не предлагает выбор версии стандарта. | — |
-| `PD-08` | Название документа в новых и стандартизированных transcripts оформлено Google Docs style `Heading 2`. | — |
-| `PD-09` | Метка каждого блока спикера имеет русскую форму `Спикер N:`, bold и размер `14 pt`. | — |
-| `PD-10` | Обычный текст транскрибации по умолчанию имеет размер `11 pt`. | — |
-| `PD-11` | Пользовательские структурные labels документа русифицированы; устойчивые technical terms и metadata keys сохраняются на английском. | — |
-| `PD-12` | Каждый новый Studio PWA transcript создаётся в текущем canonical формате `transcript_doc`. | — |
-| `PD-13` | Existing eligible Google Docs приводятся к текущему `transcript_doc` через существующий explicit dry-run/apply standardization flow одной пользовательской операцией; historical version selection не требуется. | — |
+| `PD-07` | Canonical identifier текущего document standard — versionless `transcript_doc`; user-facing flow не предлагает выбор версии стандарта. | ✅ |
+| `PD-08` | Название документа в новых и стандартизированных transcripts оформлено Google Docs style `Heading 2`. | ✅ |
+| `PD-09` | Метка каждого блока спикера имеет русскую форму `Спикер N:`, bold и размер `14 pt`. | ✅ |
+| `PD-10` | Обычный текст транскрибации по умолчанию имеет размер `11 pt`. | ✅ |
+| `PD-11` | Пользовательские структурные labels документа русифицированы; устойчивые technical terms и metadata keys сохраняются на английском. | ✅ |
+| `PD-12` | Каждый новый Studio PWA transcript создаётся в текущем canonical формате `transcript_doc`. | ✅ |
+| `PD-13` | Existing eligible Google Docs приводятся к текущему `transcript_doc` через существующий explicit dry-run/apply standardization flow одной пользовательской операцией; historical version selection не требуется. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
@@ -1108,7 +1108,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 - Current verified repository/web/API revision: `main@26fb497496ed2a418a12afc6b3cf081e45075e57` (PR `#255`); exact-main CI/CD и authenticated LIVE direct Drive upload завершены success.
 - Production worker остаётся на совместимой предыдущей revision; production schema — `0027_query_bounds`. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`.
-- `PG-04..08`, `PB-11`, `AP-01` и `AP-25..30` подтверждены. `CB-24` и `PD-07..13` имеют `SPEC ✅`, но legacy versioned/plain-text implementation не проходит новый canonical contract.
+- `PG-04..08`, `PB-11`, `AP-01`, `AP-25..30`, `CB-24` и `PD-07..13` подтверждены local CODE/TEST. Document-standard AC ожидают exact-head CI, applicable deployment и LIVE gates current Goal.
 
 ## 9. Current critical path
 
