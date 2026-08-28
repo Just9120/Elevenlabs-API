@@ -70,7 +70,7 @@ def test_one_active_artifact_persists_safe_row_and_completes_one_source(db):
     result = persist_processing_job_source_output_and_maybe_complete(db, job_id=job.id, job_source_id=rels[0].id, lease_owner_id="worker", lease_generation=7, artifact=a, now=now)
     row = db.query(m.TranscriptionJobOutput).one()
     assert row.job_id == job.id and row.job_source_id == rels[0].id
-    assert row.output_kind == "google_docs_transcript" and row.transcript_standard == "transcript_doc_v1.2" and row.document_character_count == 42
+    assert row.output_kind == "google_docs_transcript" and row.transcript_standard == "transcript_doc" and row.document_character_count == 42
     persisted = "\n".join(str(getattr(row, c.name)) for c in row.__table__.columns)
     assert all(secret not in persisted for secret in ["Secret Title", "Привет", "token-secret", "body"])
     assert result.completed is True and job.status == m.JobStatus.completed and job.finished_at == now and job.error_code is None and job.error_message is None and job.lease_owner_id is None and job.lease_expires_at is None

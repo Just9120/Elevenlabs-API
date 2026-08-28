@@ -15,6 +15,13 @@ from sqlalchemy.pool import StaticPool
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
 
+CANONICAL_DOCUMENT_TEXT = (
+    "Title\n\nМетаданные транскрипта\n"
+    "Provider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\n"
+    "Speakers: no\nCreated at: 2026-01-01T00:00:00Z\n\n"
+    "Транскрипция\n\nBody"
+)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -96,8 +103,14 @@ def test_transport_multipart_and_redaction():
     from studio_api.google_docs_output import GoogleDocsTranscriptTransport
     calls = []
     def post(url, **kwargs):
-        calls.append((url, kwargs)); return httpx.Response(200, json={"id":"doc-private","name":"Secret Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]})
-    result = GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text="Привет\nbody")
+        calls.append((url, kwargs))
+        payload = (
+            {"documentId": "doc-private"}
+            if url.endswith("/doc-private:batchUpdate")
+            else {"id":"doc-private","name":"Secret Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]}
+        )
+        return httpx.Response(200, json=payload)
+    result = GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text=CANONICAL_DOCUMENT_TEXT)
     url, kwargs = calls[0]
     parsed = urlparse(url)
     assert parsed.scheme == "https" and parsed.netloc == "www.googleapis.com" and parsed.path == "/upload/drive/v3/files"
@@ -108,7 +121,19 @@ def test_transport_multipart_and_redaction():
     body = kwargs["content"]
     assert body.index(b"application/json") < body.index(b"text/plain; charset=UTF-8")
     assert b'"name":"Secret Title"' in body and b'"mimeType":"application/vnd.google-apps.document"' in body and b'"parents":["folder-private"]' in body
-    assert "Привет\nbody".encode() in body
+    assert CANONICAL_DOCUMENT_TEXT.encode() in body
+    assert len(calls) == 2
+    docs_url, docs_kwargs = calls[1]
+    assert docs_url == "https://docs.googleapis.com/v1/documents/doc-private:batchUpdate"
+    assert docs_kwargs["headers"]["Authorization"] == "Bearer token-secret"
+    requests = docs_kwargs["json"]["requests"]
+    assert requests[0]["updateParagraphStyle"]["paragraphStyle"] == {
+        "namedStyleType": "HEADING_2"
+    }
+    assert requests[1]["updateTextStyle"]["textStyle"]["fontSize"] == {
+        "magnitude": 11,
+        "unit": "PT",
+    }
     assert result.document_id == "doc-private" and result.web_view_link == "https://docs.example/private"
     assert all(secret not in repr(result) for secret in ["doc-private", "Secret Title", "folder-private", "https://docs.example/private"])
 
@@ -118,7 +143,7 @@ def test_transport_error_mapping_redacts(status, reason):
     from studio_api.google_docs_output import GoogleDocsOutputError, GoogleDocsTranscriptTransport
     def post(*a, **k): return httpx.Response(status, content=b"raw secret response doc-private folder-private Secret Title body")
     with pytest.raises(GoogleDocsOutputError) as exc:
-        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text="body")
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text=CANONICAL_DOCUMENT_TEXT)
     assert str(exc.value) == reason
     assert all(s not in str(exc.value) and s not in repr(exc.value) for s in ["token-secret","folder-private","doc-private","Secret Title","body","raw secret"])
 
@@ -128,23 +153,62 @@ def test_transport_network_mapping_redacts(exc_obj, reason):
     from studio_api.google_docs_output import GoogleDocsOutputError, GoogleDocsTranscriptTransport
     def post(*a, **k): raise exc_obj
     with pytest.raises(GoogleDocsOutputError, match=reason):
-        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text="body")
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text=CANONICAL_DOCUMENT_TEXT)
 
 
 def test_transport_malformed_response_rejected():
     from studio_api.google_docs_output import GoogleDocsOutputError, GoogleDocsTranscriptTransport
     def post(*a, **k): return httpx.Response(200, json={"id":"", "mimeType":"text/plain", "parents":[]})
     with pytest.raises(GoogleDocsOutputError, match="malformed_response"):
-        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token", folder_id="folder", title="title", document_text="body")
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token", folder_id="folder", title="title", document_text=CANONICAL_DOCUMENT_TEXT)
+
+
+def test_transport_fails_closed_when_rich_text_formatting_is_rejected():
+    from studio_api.google_docs_output import (
+        GoogleDocsOutputError,
+        GoogleDocsTranscriptTransport,
+    )
+
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/doc-private:batchUpdate"):
+            return httpx.Response(
+                400,
+                content=b"private formatting rejection",
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "doc-private",
+                "name": "Title",
+                "mimeType": "application/vnd.google-apps.document",
+                "webViewLink": "https://docs.example/private",
+                "parents": ["folder-private"],
+            },
+        )
+
+    with pytest.raises(GoogleDocsOutputError, match="request_rejected"):
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(
+            access_token="private-access",
+            folder_id="folder-private",
+            title="Title",
+            document_text=CANONICAL_DOCUMENT_TEXT,
+            reconciliation_token="or_private_marker",
+        )
+
+    assert len(calls) == 2
+    assert b"or_private_marker" in calls[0][1]["content"]
 
 
 def test_formatting_contract_title_language_unicode_empty_body():
-    from studio_api.job_google_docs_output import build_speaker_labeled_transcript, choose_transcript_document_title, format_transcript_doc_v1_2
+    from studio_api.job_google_docs_output import build_speaker_labeled_transcript, choose_transcript_document_title, format_transcript_doc
     created = datetime(2026,1,2,3,4,5)
-    doc = format_transcript_doc_v1_2(title=" My Job ", transcript_text="Привет\nмир", job_language=" ", detected_language_code="ru", created_at=created)
-    assert doc.body == "My Job\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nSpeakers: no\nCreated at: 2026-01-02T03:04:05Z\n\nTranscript\n\nПривет\nмир"
+    doc = format_transcript_doc(title=" My Job ", transcript_text="Привет\nмир", job_language=" ", detected_language_code="ru", created_at=created)
+    assert doc.body == "My Job\n\nМетаданные транскрипта\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nSpeakers: no\nCreated at: 2026-01-02T03:04:05Z\n\nТранскрипция\n\nПривет\nмир"
     assert "Source file:" not in doc.body and "Source mode:" not in doc.body
-    detected = format_transcript_doc_v1_2(title="Auto", transcript_text="Text", job_language="detect", detected_language_code="en", created_at=created)
+    detected = format_transcript_doc(title="Auto", transcript_text="Text", job_language="detect", detected_language_code="en", created_at=created)
     assert detected.language == "en" and "Language: en" in detected.body
     words = (
         type("Word", (), {"text": "Привет", "speaker_id": "speaker_b"})(),
@@ -153,13 +217,13 @@ def test_formatting_contract_title_language_unicode_empty_body():
         type("Word", (), {"text": " снова", "speaker_id": "speaker_b"})(),
     )
     labeled = build_speaker_labeled_transcript(words, fallback_text="fallback")
-    assert labeled == "Speaker 1:\nПривет,\n\nSpeaker 2:\nмир\n\nSpeaker 1:\nснова"
-    diarized = format_transcript_doc_v1_2(title="Call", transcript_text=labeled, job_language="ru", detected_language_code="ru", created_at=created, diarization_enabled=True)
+    assert labeled == "Спикер 1:\nПривет,\n\nСпикер 2:\nмир\n\nСпикер 1:\nснова"
+    diarized = format_transcript_doc(title="Call", transcript_text=labeled, job_language="ru", detected_language_code="ru", created_at=created, diarization_enabled=True)
     assert "Speakers: yes" in diarized.body and diarized.body.endswith(labeled)
     assert choose_transcript_document_title(job_title=" ", original_filename="folder/audio.name.mp3") == "audio.name"
-    empty = format_transcript_doc_v1_2(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
-    assert empty.title == "Transcript" and empty.body.endswith("Transcript\n\n") and "Language: unknown" in empty.body
-    unknown = format_transcript_doc_v1_2(title="Unknown", transcript_text="Text", job_language="en", detected_language_code=None, created_at=None)
+    empty = format_transcript_doc(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
+    assert empty.title == "Transcript" and empty.body.endswith("Транскрипция\n\n") and "Language: unknown" in empty.body
+    unknown = format_transcript_doc(title="Unknown", transcript_text="Text", job_language="en", detected_language_code=None, created_at=None)
     assert "Created at: unknown" in unknown.body
 
 
@@ -214,7 +278,7 @@ def test_diarized_job_creates_deterministic_speaker_document(db, models):
 
     document_text = transport.calls[0]["document_text"]
     assert "Speakers: yes" in document_text
-    assert document_text.endswith("Speaker 1:\nДобрый день\n\nSpeaker 2:\nЗдравствуйте")
+    assert document_text.endswith("Спикер 1:\nДобрый день\n\nСпикер 2:\nЗдравствуйте")
 
 
 @pytest.mark.parametrize("mutate,reason", [
@@ -321,9 +385,11 @@ def test_transport_adds_reconciliation_app_property_without_visible_token():
     from studio_api.google_docs_output import GoogleDocsTranscriptTransport, OUTPUT_RECONCILIATION_APP_PROPERTY
     calls=[]
     def post(url, **kwargs):
-        calls.append(kwargs); return httpx.Response(200, json={"id":"doc-private","name":"Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]})
+        calls.append(kwargs)
+        payload = {"documentId": "doc-private"} if url.endswith("/doc-private:batchUpdate") else {"id":"doc-private","name":"Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]}
+        return httpx.Response(200, json=payload)
     token="or_opaqueRandomOnly"
-    GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="access", folder_id="folder-private", title="Title", document_text="Body", reconciliation_token=token)
+    GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="access", folder_id="folder-private", title="Title", document_text=CANONICAL_DOCUMENT_TEXT, reconciliation_token=token)
     body=calls[0]["content"]
     assert f'"appProperties":{{"{OUTPUT_RECONCILIATION_APP_PROPERTY}":"{token}"}}'.encode() in body
     assert body.count(token.encode()) == 1

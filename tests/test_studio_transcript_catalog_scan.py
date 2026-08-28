@@ -50,14 +50,14 @@ def selected_folder_payload(folder_id: str = "private-folder-id") -> dict:
 def current_document(*, optional_metadata: str = "") -> str:
     return (
         "Lecture\n\n"
-        "Transcript metadata\n"
+        "Метаданные транскрипта\n"
         "Provider: ElevenLabs\n"
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
         "Created at: 2026-07-01T10:00:00Z\n"
         f"{optional_metadata}"
-        "\nTranscript\n\n"
+        "\nТранскрипция\n\n"
         "Private transcript body"
     )
 

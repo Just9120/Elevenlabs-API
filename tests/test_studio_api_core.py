@@ -4140,7 +4140,7 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
             web_view_url=url,
             output_drive_folder_id="folder-secret-marker",
             output_kind=output_kind,
-            transcript_standard="transcript_doc_v1.2",
+            transcript_standard="transcript_doc",
             document_character_count=42,
             document_created_at=now,
             persisted_at=now,
@@ -4194,7 +4194,7 @@ def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_autho
         other_owner_user_id = db.get(TranscriptionJob, jid2).owner_user_id
         exact_catalog_values = {
             "document_name": "Catalog evidence",
-            "transcript_standard": "transcript_doc_v1.2",
+            "transcript_standard": "transcript_doc",
             "standard_status": TranscriptCatalogDocumentStandardStatus.current,
             "settings_status": TranscriptCatalogSettingsStatus.exact,
             "provider": "elevenlabs",
@@ -5107,7 +5107,7 @@ def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
                 web_view_url=f"https://docs.google.com/document/d/accepted-{job.id}/edit",
                 output_drive_folder_id="accepted-folder",
                 output_kind="google_docs_transcript",
-                transcript_standard="transcript_doc_v1.2",
+                transcript_standard="transcript_doc",
                 document_character_count=42,
                 document_created_at=now,
                 persisted_at=now,
@@ -5140,7 +5140,7 @@ def _add_linked_batch_catalog_entry(
                 owner_user_id=user_id,
                 document_id=document_id,
                 document_name="Linked catalog evidence",
-                transcript_standard="transcript_doc_v1.2",
+                transcript_standard="transcript_doc",
                 standard_status=(
                     TranscriptCatalogDocumentStandardStatus.current
                 ),

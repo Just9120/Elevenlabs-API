@@ -949,6 +949,17 @@ Goal `PWA-TRANSCRIPTION-UX-POLISH-01` завершена 2026-08-28 полным
 - Canonical closure: `PG 8/8`, `PB 11/11`; readiness `222/546 = 40,7%`, personal PWA `191/272 = 70,2%`, non-commercial `222/304 = 73,0%`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - После safe ancestry/status checks созданные ветки удалены local/remote, local `main` синхронизирован с exact merge SHA. Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal.
 
+## Archived PR #255 direct Drive upload closure
+
+Goal `PWA-AUDIO-DIRECT-DRIVE-UPLOAD-01` завершена 2026-08-28 полным API+web delivery flow без provider call.
+
+- Base: `main@535a015dcef211a930faefe443245ee85ace38b8`; PR `#255` merged squash commit `26fb497496ed2a418a12afc6b3cf081e45075e57`.
+- Exact PR-head repository CI `33204929949` и Studio PWA CI `33204929954` завершились success после одного grouped follow-up fix stale E2E selector; browser job `98963445432` выполнил `12` authenticated scenarios.
+- Exact-main repository CI `33205123663`, Studio PWA CI `33205123676` и Studio Platform CD `33205123712` завершились success; web и API deployed, worker и migration корректно skipped.
+- Authenticated production LIVE подтвердил sidebar/hero `Подготовка аудио`, четыре accessible source tabs, app-owned target-folder picker, cancel обоих файлов, explicit safe retry, aggregate `7.74 MB / 7.74 MB`, `100%`, `2/2` verified Drive results и safe links без transcription/provider action.
+- Canonical `AP-01` и `AP-25..30` выполнены; `PWA-AUDIO-PREPARATION-01 30/30`, closure readiness `228/552`, non-commercial `228/310`, personal PWA `197/278`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Feature branch удалена local/remote после проверки identical tree с `origin/main`; local `main` синхронизирован с exact merge SHA. Approved metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале `TRANSCRIPT-DOC-STANDARD-01`.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

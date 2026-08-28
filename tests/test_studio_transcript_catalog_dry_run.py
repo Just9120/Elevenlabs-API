@@ -266,13 +266,13 @@ def test_catalog_dry_run_combines_scan_authority_and_safe_payload():
     )
 
     current_text = (
-        "Current\n\nTranscript metadata\n"
+        "Current\n\nМетаданные транскрипта\n"
         "Provider: ElevenLabs\n"
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
         "Created at: 2026-07-01T10:00:00Z\n\n"
-        "Transcript\n\nprivate-current-body"
+        "Транскрипция\n\nprivate-current-body"
     )
     outdated_text = (
         "Legacy\n\nTranscript metadata\n"

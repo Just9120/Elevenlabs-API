@@ -415,7 +415,7 @@ describe("project collection contracts", () => {
       source_name: "safe.mp3",
       source_type: "google_drive",
       output_kind: "google_doc",
-      transcript_standard: "transcript_doc_v1.2",
+      transcript_standard: "transcript_doc",
       web_view_url: "https://docs.google.com/document/d/safe/edit",
       link_available: true,
       document_character_count: 123,

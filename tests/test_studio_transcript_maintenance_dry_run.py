@@ -14,13 +14,13 @@ sys.path.insert(0, str(ROOT / "apps/studio-api"))
 
 def _current_text(marker: str) -> str:
     return (
-        "Current\n\nTranscript metadata\n"
+        "Current\n\nМетаданные транскрипта\n"
         "Provider: ElevenLabs\n"
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
         "Created at: 2026-07-01T10:00:00Z\n\n"
-        f"Transcript\n\n{marker}"
+        f"Транскрипция\n\n{marker}"
     )
 
 

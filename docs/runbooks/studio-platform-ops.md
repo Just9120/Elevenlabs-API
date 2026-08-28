@@ -391,7 +391,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
    unchanged/already present. If a successfully imported entry is offered for
    import again, do not apply again: record only safe aggregate evidence and
    stop for source/deployed-image/catalog-authority reconciliation.
-4. For standardization only, manually inspect approved canary copies or Google version history to confirm content preservation and the intended `transcript_doc_v1.2` structure. Do not copy transcript text into evidence. **Манифест Studio** must leave Google Docs unchanged.
+4. For standardization only, manually inspect approved canary copies or Google version history to confirm content preservation and the intended versionless `transcript_doc` structure: title `Heading 2`, ordinary transcript body `11 pt`, and Russian `Спикер N:` bold `14 pt`. Do not copy transcript text into evidence. **Манифест Studio** must leave Google Docs unchanged.
 5. Confirm that neither operation created a transcription job, provider attempt, output document, or worker activity. Record only safe aggregate or normalized audit evidence.
 
 ### Recovery boundary and evidence

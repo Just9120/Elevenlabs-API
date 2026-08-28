@@ -18,6 +18,12 @@ from .transcript_document_selection import (
     TranscriptDocumentSelectionReason,
     normalize_transcript_document_selection,
 )
+from .transcript_document import (
+    LEGACY_TRANSCRIPT_BODY_LABEL,
+    LEGACY_TRANSCRIPT_METADATA_LABEL,
+    TRANSCRIPT_BODY_LABEL,
+    TRANSCRIPT_METADATA_LABEL,
+)
 
 
 GOOGLE_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
@@ -37,8 +43,6 @@ CATALOG_DOCS_TEXT_FIELDS = (
 )
 DRIVE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 
-TRANSCRIPT_METADATA_LABEL = "Transcript metadata"
-TRANSCRIPT_BODY_LABEL = "Transcript"
 TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
     "Provider:",
     "Model:",
@@ -492,14 +496,10 @@ def classify_transcript_document_standard(
     if not normalized:
         return CatalogDocumentStandardStatus.unstructured
     lines = [line.strip() for line in normalized.split("\n")]
-    try:
-        metadata_index = lines.index(TRANSCRIPT_METADATA_LABEL)
-        transcript_index = lines.index(
-            TRANSCRIPT_BODY_LABEL,
-            metadata_index + 1,
-        )
-    except ValueError:
+    structure = _transcript_structure(lines)
+    if structure is None:
         return CatalogDocumentStandardStatus.unstructured
+    metadata_index, transcript_index, localized = structure
     if metadata_index < 1 or transcript_index <= metadata_index + 1:
         return CatalogDocumentStandardStatus.unstructured
 
@@ -539,7 +539,11 @@ def classify_transcript_document_standard(
             and visible_created_at != expected_created_at
         ):
             return CatalogDocumentStandardStatus.outdated
-        return CatalogDocumentStandardStatus.current
+        return (
+            CatalogDocumentStandardStatus.current
+            if localized
+            else CatalogDocumentStandardStatus.outdated
+        )
     if any(
         line.startswith(prefix)
         for line in metadata_lines
@@ -550,6 +554,27 @@ def classify_transcript_document_standard(
     ):
         return CatalogDocumentStandardStatus.outdated
     return CatalogDocumentStandardStatus.unstructured
+
+
+def _transcript_structure(
+    lines: list[str],
+) -> tuple[int, int, bool] | None:
+    for metadata_label, body_label, localized in (
+        (TRANSCRIPT_METADATA_LABEL, TRANSCRIPT_BODY_LABEL, True),
+        (
+            LEGACY_TRANSCRIPT_METADATA_LABEL,
+            LEGACY_TRANSCRIPT_BODY_LABEL,
+            False,
+        ),
+    ):
+        try:
+            metadata_index = lines.index(metadata_label)
+            transcript_index = lines.index(body_label, metadata_index + 1)
+        except ValueError:
+            continue
+        if metadata_index >= 1 and transcript_index > metadata_index + 1:
+            return metadata_index, transcript_index, localized
+    return None
 
 
 def parse_transcript_document_created_at(value: object) -> datetime | None:

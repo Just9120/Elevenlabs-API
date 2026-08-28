@@ -10,8 +10,11 @@ from urllib.parse import urlencode
 
 import httpx
 
+from .transcript_document import build_transcript_document_style_requests
+
 GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
 GOOGLE_DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
+GOOGLE_DOCS_DOCUMENTS_URL = "https://docs.googleapis.com/v1/documents"
 OUTPUT_RECONCILIATION_APP_PROPERTY = "studioOutputReconciliationToken"
 
 
@@ -100,11 +103,24 @@ class GoogleDocsTranscriptArtifact:
 @dataclass(frozen=True)
 class GoogleDocsTranscriptTransport:
     endpoint: str = GOOGLE_DRIVE_UPLOAD_URL
+    docs_endpoint: str = GOOGLE_DOCS_DOCUMENTS_URL
     timeout: float = 120.0
     client: httpx.Client | None = field(default=None, repr=False)
     post: Callable[..., httpx.Response] | None = field(default=None, repr=False)
+    docs_post: Callable[..., httpx.Response] | None = field(
+        default=None,
+        repr=False,
+    )
 
     def create_transcript_document(self, *, access_token: str, folder_id: str, title: str, document_text: str, reconciliation_token: str | None = None) -> GoogleDocsCreateResult:
+        try:
+            style_requests = build_transcript_document_style_requests(
+                document_text
+            )
+        except ValueError as exc:
+            raise GoogleDocsOutputError(
+                GoogleDocsOutputReason.malformed_response
+            ) from exc
         boundary = f"studio-doc-{uuid.uuid4().hex}"
         body = _multipart_body(boundary, title=title, folder_id=folder_id, document_text=document_text, reconciliation_token=reconciliation_token)
         params = urlencode({"uploadType": "multipart", "supportsAllDrives": "true", "fields": "id,name,mimeType,webViewLink,parents"})
@@ -114,34 +130,91 @@ class GoogleDocsTranscriptTransport:
             "Content-Type": f"multipart/related; boundary={boundary}",
             "Accept": "application/json",
         }
-        try:
-            if self.post is not None:
-                response = self.post(url, headers=headers, content=body, timeout=self.timeout)
-            elif self.client is not None:
-                response = self.client.post(url, headers=headers, content=body, timeout=self.timeout)
-            else:
-                with httpx.Client() as client:
-                    response = client.post(url, headers=headers, content=body, timeout=self.timeout)
-        except httpx.TimeoutException as exc:
-            raise GoogleDocsOutputError(GoogleDocsOutputReason.timeout) from exc
-        except httpx.HTTPError as exc:
-            raise GoogleDocsOutputError(GoogleDocsOutputReason.unavailable) from exc
-        if response.status_code in {401, 403}:
-            raise GoogleDocsOutputError(GoogleDocsOutputReason.authentication_rejected)
-        if response.status_code in {400, 404, 409, 422}:
-            raise GoogleDocsOutputError(GoogleDocsOutputReason.request_rejected)
-        if response.status_code == 429:
-            raise GoogleDocsOutputError(GoogleDocsOutputReason.rate_limited)
-        if response.status_code >= 500:
-            raise GoogleDocsOutputError(GoogleDocsOutputReason.unavailable)
+        response = self._post_response(
+            url,
+            injected=self.post,
+            headers=headers,
+            content=body,
+        )
+        _raise_for_google_status(response.status_code)
         try:
             payload = response.json()
         except Exception as exc:
             raise GoogleDocsOutputError(GoogleDocsOutputReason.malformed_response) from exc
-        return normalize_google_docs_create_response(payload, expected_folder_id=folder_id)
+        result = normalize_google_docs_create_response(
+            payload,
+            expected_folder_id=folder_id,
+        )
+        style_response = self._post_response(
+            f"{self.docs_endpoint}/{result.document_id}:batchUpdate",
+            injected=self.docs_post or self.post,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json={
+                "requests": style_requests
+            },
+        )
+        _raise_for_google_status(style_response.status_code)
+        try:
+            style_payload = style_response.json()
+        except Exception as exc:
+            raise GoogleDocsOutputError(
+                GoogleDocsOutputReason.malformed_response
+            ) from exc
+        if (
+            not isinstance(style_payload, Mapping)
+            or style_payload.get("documentId") != result.document_id
+        ):
+            raise GoogleDocsOutputError(
+                GoogleDocsOutputReason.malformed_response
+            )
+        return result
+
+    def _post_response(
+        self,
+        url: str,
+        *,
+        injected: Callable[..., httpx.Response] | None,
+        **kwargs,
+    ) -> httpx.Response:
+        kwargs["timeout"] = self.timeout
+        try:
+            if injected is not None:
+                return injected(url, **kwargs)
+            if self.client is not None:
+                return self.client.post(url, **kwargs)
+            with httpx.Client() as client:
+                return client.post(url, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise GoogleDocsOutputError(
+                GoogleDocsOutputReason.timeout
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise GoogleDocsOutputError(
+                GoogleDocsOutputReason.unavailable
+            ) from exc
 
     def __repr__(self) -> str:
-        return f"GoogleDocsTranscriptTransport(endpoint={self.endpoint!r})"
+        return (
+            "GoogleDocsTranscriptTransport("
+            f"endpoint={self.endpoint!r}, docs_endpoint={self.docs_endpoint!r})"
+        )
+
+
+def _raise_for_google_status(status_code: int) -> None:
+    if status_code in {401, 403}:
+        raise GoogleDocsOutputError(
+            GoogleDocsOutputReason.authentication_rejected
+        )
+    if status_code in {400, 404, 409, 422}:
+        raise GoogleDocsOutputError(GoogleDocsOutputReason.request_rejected)
+    if status_code == 429:
+        raise GoogleDocsOutputError(GoogleDocsOutputReason.rate_limited)
+    if status_code >= 500:
+        raise GoogleDocsOutputError(GoogleDocsOutputReason.unavailable)
 
 
 def normalize_google_docs_create_response(payload: Any, *, expected_folder_id: str) -> GoogleDocsCreateResult:

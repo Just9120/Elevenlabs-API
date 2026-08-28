@@ -103,7 +103,12 @@ def test_document_forbidden_is_normalized_as_per_document_rejection():
                 document_text="Private text",
                 end_index=2,
             ),
-            document_text="Replacement",
+            document_text=(
+                "Title\n\nМетаданные транскрипта\n"
+                "Provider: unknown\nModel: unknown\nLanguage: unknown\n"
+                "Speakers: unknown\nCreated at: 2026-07-01T00:00:00Z\n\n"
+                "Транскрипция\n\nReplacement"
+            ),
         )
 
     assert (
@@ -158,7 +163,7 @@ def test_standardized_text_preserves_authoritative_metadata_and_body():
     )
 
     assert result.startswith(
-        "Actual Drive title\n\nTranscript metadata\n"
+        "Actual Drive title\n\nМетаданные транскрипта\n"
     )
     assert "Source file:" not in result
     assert "Source mode:" not in result
@@ -227,7 +232,7 @@ def test_standardized_text_replaces_opaque_timestamp_with_authority():
         created_time="2026-07-01T12:34:56Z",
     )
 
-    assert result.startswith("unknown\n\nTranscript metadata\n")
+    assert result.startswith("unknown\n\nМетаданные транскрипта\n")
     assert "Created at: 2026-07-01T12:34:56Z" in result
     assert "Created at: imported before timestamp policy" not in result
 
@@ -390,7 +395,7 @@ def test_in_place_standardization_uses_revision_and_same_document():
     assert kwargs["json"]["writeControl"] == {
         "requiredRevisionId": "private-revision"
     }
-    delete, insert = kwargs["json"]["requests"]
+    delete, insert, heading, body_style = kwargs["json"]["requests"]
     assert delete == {
         "deleteContentRange": {
             "range": {
@@ -407,6 +412,13 @@ def test_in_place_standardization_uses_revision_and_same_document():
     inserted_text = insert["insertText"]["text"]
     assert "Provider: unknown" in inserted_text
     assert "A transcript body." in inserted_text
+    assert heading["updateParagraphStyle"]["paragraphStyle"] == {
+        "namedStyleType": "HEADING_2"
+    }
+    assert body_style["updateTextStyle"]["textStyle"] == {
+        "bold": False,
+        "fontSize": {"magnitude": 11, "unit": "PT"},
+    }
     encoded = json.dumps(result.__dict__)
     for private in (
         "private-access-token",
@@ -415,6 +427,53 @@ def test_in_place_standardization_uses_revision_and_same_document():
         "A transcript body.",
     ):
         assert private not in encoded
+
+
+def test_in_place_standardization_localizes_and_styles_speaker_labels():
+    from studio_api.transcript_catalog_migration import (
+        CatalogDocumentStandardStatus,
+    )
+    from studio_api.transcript_catalog_standardize import (
+        GoogleTranscriptCatalogStandardizer,
+        standardize_transcript_document_in_place,
+    )
+
+    legacy = (
+        "Call\n\nTranscript metadata\n"
+        "Provider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\n"
+        "Speakers: yes\nCreated at: 2026-07-01T00:00:00Z\n\n"
+        "Transcript\n\nSpeaker 1:\nPrivate body"
+    )
+    posts = []
+
+    result = standardize_transcript_document_in_place(
+        access_token="private-access-token",
+        document_id="private-document",
+        document_name="Call",
+        expected_status=CatalogDocumentStandardStatus.outdated,
+        created_time="2026-07-01T00:00:00Z",
+        standardizer=GoogleTranscriptCatalogStandardizer(
+            get=lambda *args, **kwargs: _response(
+                200,
+                _document_payload(legacy),
+            ),
+            post=lambda url, **kwargs: (
+                posts.append((url, kwargs))
+                or _response(200, {"documentId": "private-document"})
+            ),
+        ),
+    )
+
+    assert result.changed is True
+    requests = posts[0][1]["json"]["requests"]
+    inserted = requests[1]["insertText"]["text"]
+    assert "Спикер 1:\nPrivate body" in inserted
+    assert "Speaker 1:" not in inserted
+    speaker_style = requests[-1]["updateTextStyle"]
+    assert speaker_style["textStyle"] == {
+        "bold": True,
+        "fontSize": {"magnitude": 14, "unit": "PT"},
+    }
 
 
 def test_current_document_is_idempotent_and_does_not_write():
@@ -427,10 +486,10 @@ def test_current_document_is_idempotent_and_does_not_write():
     )
 
     current = (
-        "Title\n\nTranscript metadata\n"
+        "Title\n\nМетаданные транскрипта\n"
         "Provider: unknown\nModel: unknown\nLanguage: unknown\n"
         "Speakers: unknown\nCreated at: 2026-07-01T00:00:00Z\n\n"
-        "Transcript\n\nBody"
+        "Транскрипция\n\nBody"
     )
     posts = []
     standardizer = GoogleTranscriptCatalogStandardizer(

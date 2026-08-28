@@ -36,6 +36,7 @@ HELPER_NAMES = {
     "rename_project_speaker",
     "deactivate_project_speaker",
     "parse_google_doc_url_or_id",
+    "docs_text_len",
     "detect_speakers_metadata_value",
     "detect_speaker_turns",
     "extract_meaningful_speaker_samples",
@@ -49,7 +50,10 @@ HELPER_NAMES = {
     "build_startup_timing_summary",
     "build_timing_analysis",
     "build_transcript_metadata_lines",
+    "localize_transcript_speaker_labels",
     "build_structured_transcript_document_text",
+    "find_structured_transcript_section_indices",
+    "build_transcript_doc_style_requests",
     "build_backfilled_transcript_document_text",
     "chunk_text_for_docs",
     "extract_unstructured_transcript_body_for_backfill",
@@ -200,6 +204,8 @@ def load_text_helpers() -> dict[str, object]:
                     "DOC_INSERT_CHUNK_SIZE",
                     "STRUCTURED_TRANSCRIPT_METADATA_LABEL",
                     "STRUCTURED_TRANSCRIPT_BODY_LABEL",
+                    "LEGACY_STRUCTURED_TRANSCRIPT_METADATA_LABEL",
+                    "LEGACY_STRUCTURED_TRANSCRIPT_BODY_LABEL",
                     "STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES",
                     "STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES",
                     "FOLDER_MIME",
@@ -313,7 +319,9 @@ def load_text_helpers() -> dict[str, object]:
 
 HELPERS = load_text_helpers()
 build_transcript_metadata_lines = HELPERS["build_transcript_metadata_lines"]
+localize_transcript_speaker_labels = HELPERS["localize_transcript_speaker_labels"]
 build_structured_transcript_document_text = HELPERS["build_structured_transcript_document_text"]
+build_transcript_doc_style_requests = HELPERS["build_transcript_doc_style_requests"]
 build_backfilled_transcript_document_text = HELPERS["build_backfilled_transcript_document_text"]
 chunk_text_for_docs = HELPERS["chunk_text_for_docs"]
 extract_unstructured_transcript_body_for_backfill = HELPERS["extract_unstructured_transcript_body_for_backfill"]
@@ -982,17 +990,86 @@ def test_build_structured_transcript_document_text_has_llm_readable_sections() -
 
     assert document_text == (
         "call\n\n"
-        "Transcript metadata\n"
+        "Метаданные транскрипта\n"
         "Provider: OpenAI\n"
         "Model: gpt-4o-transcribe\n"
         "Language: Автоопределение\n"
         "Speakers: no\n"
         "Created at: 2026-06-01T00:00:00+00:00\n\n"
-        "Transcript\n\n"
+        "Транскрипция\n\n"
         "Hello world."
     )
     assert "Source file:" not in document_text
     assert "Source mode:" not in document_text
+
+
+def test_new_transcript_document_localizes_speakers_and_uses_versionless_standard() -> None:
+    document_text = build_structured_transcript_document_text(
+        document_title="Созвон",
+        transcript_text="Speaker 1:\nПривет.\nSpeaker 2:\nЗдравствуйте.",
+        metadata_lines=[
+            "Provider: ElevenLabs",
+            "Model: scribe_v2",
+            "Language: Русский",
+            "Speakers: yes",
+            "Created at: 2026-08-28 10:00 UTC",
+        ],
+    )
+
+    assert HELPERS["TRANSCRIPT_STANDARD_TARGET"] == "transcript_doc"
+    assert "Метаданные транскрипта" in document_text
+    assert "Транскрипция" in document_text
+    assert "Спикер 1:\nПривет." in document_text
+    assert "Спикер 2:\nЗдравствуйте." in document_text
+    assert "Speaker 1:" not in document_text
+
+
+def test_transcript_doc_style_requests_use_h2_11pt_14pt_and_utf16_ranges() -> None:
+    document_text = build_structured_transcript_document_text(
+        document_title="😀 Call",
+        transcript_text="Speaker 1:\nПривет 😀.",
+        metadata_lines=[
+            "Provider: ElevenLabs",
+            "Model: scribe_v2",
+            "Language: Русский",
+            "Speakers: yes",
+            "Created at: 2026-08-28 10:00 UTC",
+        ],
+    )
+
+    requests = build_transcript_doc_style_requests(document_text)
+    title_style = requests[0]["updateParagraphStyle"]
+    body_style = requests[1]["updateTextStyle"]
+    speaker_style = requests[2]["updateTextStyle"]
+    speaker_start = document_text.index("Спикер 1:")
+    utf16_len = lambda value: len(value.encode("utf-16-le")) // 2
+
+    assert title_style["paragraphStyle"] == {"namedStyleType": "HEADING_2"}
+    assert title_style["range"] == {
+        "startIndex": 1,
+        "endIndex": 1 + utf16_len("😀 Call\n"),
+    }
+    assert body_style["textStyle"] == {
+        "bold": False,
+        "fontSize": {"magnitude": 11, "unit": "PT"},
+    }
+    assert speaker_style["range"] == {
+        "startIndex": 1 + utf16_len(document_text[:speaker_start]),
+        "endIndex": 1 + utf16_len(document_text[:speaker_start + len("Спикер 1:")]),
+    }
+    assert speaker_style["textStyle"] == {
+        "bold": True,
+        "fontSize": {"magnitude": 14, "unit": "PT"},
+    }
+
+
+def test_colab_writer_applies_current_styles_after_bounded_text_inserts() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    writer = source.split("def write_title_and_text_to_doc(", 1)[1].split("\ndef ", 1)[0]
+
+    assert '"namedStyleType": "TITLE"' not in writer
+    assert "build_transcript_doc_style_requests(document_text)" in writer
+    assert 'operation_label="docs_batch_update_styles"' in writer
 
 
 def test_openai_diarize_chunking_preflight_warning_is_limited_to_risky_configuration() -> None:
@@ -1134,7 +1211,7 @@ def test_is_structured_transcript_document_text_rejects_legacy_metadata_standard
     assert not is_structured_transcript_document_text(legacy)
 
 
-def test_is_structured_transcript_document_text_requires_exact_v12_metadata_block() -> None:
+def test_is_structured_transcript_document_text_requires_exact_current_metadata_block() -> None:
     valid_metadata = [
         "Provider: unknown",
         "Model: unknown",
@@ -1182,13 +1259,13 @@ def test_build_backfilled_transcript_document_text_uses_temporary_existing_docs_
 
     assert document_text == (
         "Legacy Call\n\n"
-        "Transcript metadata\n"
+        "Метаданные транскрипта\n"
         "Provider: ElevenLabs\n"
         "Model: scribe_v2\n"
         "Language: Русский\n"
         "Speakers: unknown\n"
         "Created at: 2026-06-01 00:00 UTC\n\n"
-        "Transcript\n\n"
+        "Транскрипция\n\n"
         "Hello world."
     )
     assert "Source file:" not in document_text
@@ -1401,7 +1478,7 @@ def test_docs_only_dry_run_counts_old_standard_as_would_standardize() -> None:
     assert writes == []
 
 
-def test_docs_only_apply_rewrites_old_standard_to_v12_and_preserves_body() -> None:
+def test_docs_only_apply_rewrites_old_standard_to_current_and_preserves_body() -> None:
     title = "Бонусный урок. Личные финансы для помогающего практика"
     body = (
         "Сегодня поговорим о личных финансах помогающего практика.\n\n"
@@ -1435,6 +1512,22 @@ def test_docs_only_apply_rewrites_old_standard_to_v12_and_preserves_body() -> No
     subsequent_dry_run = standardize_existing_google_docs_in_folder("root", dry_run=True)
     assert subsequent_dry_run["would_standardize"] == []
     assert [item["doc_name"] for item in subsequent_dry_run["already_structured"]] == [title]
+
+
+def test_docs_only_standardization_localizes_legacy_speaker_labels() -> None:
+    rewritten_text = build_docs_only_standardized_transcript_document_text(
+        document_title="Созвон",
+        existing_document_text=build_legacy_standard_document(
+            title="Созвон",
+            body="Speaker 1:\nПривет.\nSpeaker 2:\nЗдравствуйте.",
+        ),
+        created_at="2026-06-02T10:26:40.369268+00:00",
+    )
+
+    assert "Спикер 1:\nПривет." in rewritten_text
+    assert "Спикер 2:\nЗдравствуйте." in rewritten_text
+    assert "Speaker 1:" not in rewritten_text
+    assert classify_existing_google_doc_transcript_standard(rewritten_text) == "current_standard"
 
 
 def test_docs_only_apply_rewrites_only_not_yet_structured_google_docs() -> None:
@@ -1825,7 +1918,7 @@ def test_manifest_registration_already_registered_is_only_existing_google_doc_re
         "source_signature": signature,
         "source_type": "existing_google_doc",
         "status": "doc_registered",
-        "standard": "transcript_doc_v1.2",
+        "standard": "transcript_doc",
         "doc_id": "doc-123",
         "doc_name": "Lecture",
         "doc_link": "https://docs.google.com/document/d/doc-123/edit",
@@ -2123,7 +2216,7 @@ def test_manifest_registration_dry_run_reads_existing_manifest_without_creation(
         "source_signature": signature,
         "source_type": "existing_google_doc",
         "status": "doc_registered",
-        "standard": "transcript_doc_v1.2",
+        "standard": "transcript_doc",
         "doc_id": "doc-1",
         "doc_name": "Call",
         "doc_link": "https://docs/doc-1",
@@ -2197,7 +2290,7 @@ def test_manifest_v2_default_schema_has_decoupled_summary_standard_check() -> No
     assert manifest["schema"] == "voiceops_manifest_v2"
     assert manifest["documents"] == {}
     assert manifest["sources"] == {}
-    assert manifest["summary"]["standard_check"]["target_standard"] == "transcript_doc_v1.2"
+    assert manifest["summary"]["standard_check"]["target_standard"] == "transcript_doc"
     assert "transcript_standard" not in manifest
     assert "structured_status" not in manifest
 
@@ -2213,7 +2306,7 @@ def test_build_transcript_standard_check_current_legacy_unstructured_and_unreada
     manifest = make_manifest_v2_default(updated_at=checked_at)
 
     assert current["status"] == "current"
-    assert current["detected_standard"] == "transcript_doc_v1.2"
+    assert current["detected_standard"] == "transcript_doc"
     assert legacy["status"] == "outdated"
     assert legacy["detected_standard"] == "legacy_v1"
     assert plain["status"] == "unstructured"
@@ -2305,7 +2398,7 @@ def test_existing_v2_rebuild_is_idempotent_preserves_sources_and_updates_standar
         "document_type": "google_doc_transcript",
         "registration_status": "registered",
         "source_signatures": ["source-a"],
-        "standard_check": {"target_standard": "transcript_doc_v1.2", "detected_standard": "unknown", "status": "unstructured", "checked_at": "old", "checker_version": "transcript_standard_checker_v1"},
+        "standard_check": {"target_standard": "transcript_doc", "detected_standard": "unknown", "status": "unstructured", "checked_at": "old", "checker_version": "transcript_standard_checker_v1"},
         "updated_at": "old",
         "source_meta": {},
     }
@@ -2785,7 +2878,7 @@ def make_registered_v2_document(
     status: str = "current",
     checked_at: str = "2026-05-01T00:00:00+00:00",
 ) -> dict:
-    detected = "transcript_doc_v1.2" if status == "current" else ("legacy_v1" if status == "outdated" else "unknown")
+    detected = "transcript_doc" if status == "current" else ("legacy_v1" if status == "outdated" else "unknown")
     return {
         "doc_id": doc_id,
         "doc_name": doc_name,
@@ -2796,7 +2889,7 @@ def make_registered_v2_document(
         "registration_status": "registered",
         "source_signatures": [],
         "standard_check": {
-            "target_standard": "transcript_doc_v1.2",
+            "target_standard": "transcript_doc",
             "detected_standard": detected,
             "status": status,
             "checked_at": checked_at,
@@ -2937,7 +3030,7 @@ def test_manifest_report_text_is_localized_to_russian() -> None:
         "selected_skipped_non_google_docs": 0,
         "manifest_before": {"version": 2},
         "manifest_after": {"version": 2},
-        "standard_check": {"target_standard": "transcript_doc_v1.2", "current": 1, "outdated": 0, "unstructured": 0, "unreadable": 0},
+        "standard_check": {"target_standard": "transcript_doc", "current": 1, "outdated": 0, "unstructured": 0, "unreadable": 0},
         "manifest_v2_up_to_date": True,
         "errors": [],
     }
@@ -4281,7 +4374,7 @@ def test_existing_segment_doc_standardization_preserves_actual_drive_title_and_m
     assert len(writes) == 1
     assert writes[0]["title"] == "Синк Tivali — задачи (1)"
     text = writes[0]["transcript_text"]
-    assert text.startswith("Синк Tivali — задачи (1)\n\nTranscript metadata")
+    assert text.startswith("Синк Tivali — задачи (1)\n\nМетаданные транскрипта")
     assert "Segment project: Tivali" in text
     assert "Segment time range: 00:00-end" in text
     assert "Original source: Синк Tivali 21.06.2026 (2).mp4" in text
