@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import re
 import subprocess
@@ -452,6 +453,13 @@ def test_targeted_session_revoke_is_safe_owner_scoped_and_idempotent():
         assert db.query(AuditEvent).filter_by(
             event_type="auth.session_revoked", actor_user_id=owner.id
         ).count() == 1
+        event = db.query(AuditEvent).filter_by(
+            event_type="auth.session_revoked", actor_user_id=owner.id
+        ).one()
+        assert json.loads(event.metadata_json) == {
+            "reason": "owner_requested",
+            "session_id": other_id,
+        }
     finally:
         db.close()
 

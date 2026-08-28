@@ -518,6 +518,7 @@ def revoke_active_session(
             "auth.session_revoked",
             actor_user_id=user.id,
             subject_user_id=user.id,
+            session_id=session_id,
             reason="owner_requested",
         )
         db.commit()

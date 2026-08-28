@@ -5937,6 +5937,7 @@ function auditLabel(type: string) {
     "auth.login": "Вход выполнен",
     "auth.login_failed": "Неудачная попытка входа",
     "auth.logout": "Выход выполнен",
+    "auth.session_revoked": "Отдельная сессия завершена",
     "auth.sessions_revoked": "Другие сеансы завершены",
     "account.preferences_updated": "Настройки хранения обновлены",
     "project.created": "Проект создан",
