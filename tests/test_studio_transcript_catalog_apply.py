@@ -170,13 +170,13 @@ def test_catalog_import_dry_run_is_unchanged_after_committed_apply(
 
     document_id = "private-lifecycle-document"
     current_text = (
-        "Current\n\nTranscript metadata\n"
+        "Current\n\nМетаданные транскрипта\n"
         "Provider: ElevenLabs\n"
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
         "Created at: 2026-07-01T10:00:00Z\n\n"
-        "Transcript\n\nprivate-body"
+        "Транскрипция\n\nprivate-body"
     )
 
     class Reader:

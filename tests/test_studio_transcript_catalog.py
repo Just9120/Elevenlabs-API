@@ -38,7 +38,7 @@ def evidence_row(
     drive_file_id: str | None = None,
     language: str | None = "ru",
     options_json: str | None = None,
-    transcript_standard: str = "transcript_doc_v1.2",
+    transcript_standard: str = "transcript_doc",
     job_provider=None,
     credential_provider="elevenlabs",
     output_kind="google_docs_transcript",
@@ -65,7 +65,7 @@ def catalog_evidence_row(
     model: str | None = "scribe_v2",
     language_mode: str | None = "ru",
     diarization_enabled: bool | None = False,
-    transcript_standard: str = "transcript_doc_v1.2",
+    transcript_standard: str = "transcript_doc",
 ):
     return (
         enum(source_identity_kind),

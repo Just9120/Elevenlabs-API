@@ -25,6 +25,7 @@ from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, prepare_output_reconciliation_case, mark_reconciliation_creation_returned
 from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
+from .transcript_document import build_transcript_document_text
 from .transcription_options import document_language, job_diarization_enabled
 
 
@@ -151,7 +152,7 @@ def create_processing_job_google_doc_from_transcript(
         except (ElevenLabsTranscriptionError, GoogleDocsOutputError) as exc:
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.transcript_context_closed) from exc
         title = choose_transcript_document_title(job_title=snap.title, original_filename=source_snap.original_filename)
-        formatted = format_transcript_doc_v1_2(
+        formatted = format_transcript_doc(
             title=title,
             transcript_text=transcript_text,
             job_language=snap.language,
@@ -203,12 +204,22 @@ def create_processing_job_google_doc_from_transcript(
             artifact.revoke()
 
 
-def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime | None, diarization_enabled: bool = False) -> FormattedTranscriptDocument:
+def format_transcript_doc(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime | None, diarization_enabled: bool = False) -> FormattedTranscriptDocument:
     safe_title = normalize_document_title(title)
     lang = document_language(job_language, detected_language_code)
     ts = _utc_iso(created_at) if created_at is not None else "unknown"
     speakers = "yes" if diarization_enabled else "no"
-    body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: {CURRENT_TRANSCRIPTION_MODEL}\nLanguage: {lang}\nSpeakers: {speakers}\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
+    body = build_transcript_document_text(
+        title=safe_title,
+        metadata_lines=(
+            "Provider: ElevenLabs",
+            f"Model: {CURRENT_TRANSCRIPTION_MODEL}",
+            f"Language: {lang}",
+            f"Speakers: {speakers}",
+            f"Created at: {ts}",
+        ),
+        transcript_text=transcript_text,
+    )
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)
 
 
@@ -232,7 +243,7 @@ def build_speaker_labeled_transcript(
         if not text:
             return
         number = speaker_numbers.setdefault(current_speaker, len(speaker_numbers) + 1)
-        blocks.append(f"Speaker {number}:\n{text}")
+        blocks.append(f"Спикер {number}:\n{text}")
 
     for word in words:
         token = word.text

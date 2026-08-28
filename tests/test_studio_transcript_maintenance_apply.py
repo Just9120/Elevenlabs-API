@@ -174,13 +174,13 @@ def test_standardization_apply_retry_does_not_rewrite_current_document():
     )
 
     current_text = (
-        "Retry\n\nTranscript metadata\n"
+        "Retry\n\nМетаданные транскрипта\n"
         "Provider: unknown\n"
         "Model: unknown\n"
         "Language: unknown\n"
         "Speakers: unknown\n"
         "Created at: 2026-07-01T00:00:00Z\n\n"
-        "Transcript\n\nPrivate body"
+        "Транскрипция\n\nPrivate body"
     )
     standardizer = StatefulStandardizer(
         {"private-retry": current_text}

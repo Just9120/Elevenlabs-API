@@ -20,6 +20,12 @@ from .transcript_catalog_scan import (
     normalize_transcript_document_text,
 )
 from .source_creation import parse_authoritative_source_created_at
+from .transcript_document import (
+    LEGACY_TRANSCRIPT_BODY_LABEL,
+    LEGACY_TRANSCRIPT_METADATA_LABEL,
+    build_transcript_document_style_requests,
+    build_transcript_document_text,
+)
 
 
 CATALOG_STANDARDIZATION_MAX_TEXT_CHARS = 1_000_000
@@ -150,6 +156,17 @@ class GoogleTranscriptCatalogStandardizer:
                 }
             }
         )
+        try:
+            requests.extend(
+                build_transcript_document_style_requests(
+                    replacement,
+                    tab_id=snapshot.tab_id,
+                )
+            )
+        except ValueError as exc:
+            raise CatalogGoogleWriteError(
+                CatalogGoogleWriteReason.malformed_response
+            ) from exc
         response = self._request(
             "post",
             (
@@ -432,12 +449,10 @@ def build_standardized_transcript_document_text(
         value = metadata.get(label)
         if value:
             metadata_lines.append(f"{label}: {_metadata_value(value)}")
-    body = segment_transcript_for_readability(transcript_body)
-    metadata_block = "\n".join(metadata_lines)
-    result = (
-        f"{title}\n\n{TRANSCRIPT_METADATA_LABEL}\n"
-        f"{metadata_block}\n\n"
-        f"{TRANSCRIPT_BODY_LABEL}\n\n{body}"
+    result = build_transcript_document_text(
+        title=title,
+        metadata_lines=metadata_lines,
+        transcript_text=segment_transcript_for_readability(transcript_body),
     )
     return _bounded_document_text(result)
 
@@ -484,14 +499,20 @@ def _metadata_and_transcript_body(
     lines = document_text.split("\n")
     stripped = [line.strip() for line in lines]
     metadata = {}
-    try:
-        metadata_index = stripped.index(TRANSCRIPT_METADATA_LABEL)
-        transcript_index = stripped.index(
-            TRANSCRIPT_BODY_LABEL,
-            metadata_index + 1,
-        )
-    except ValueError:
-        metadata_index = transcript_index = -1
+    metadata_index = transcript_index = -1
+    for metadata_label, body_label in (
+        (TRANSCRIPT_METADATA_LABEL, TRANSCRIPT_BODY_LABEL),
+        (LEGACY_TRANSCRIPT_METADATA_LABEL, LEGACY_TRANSCRIPT_BODY_LABEL),
+    ):
+        try:
+            metadata_index = stripped.index(metadata_label)
+            transcript_index = stripped.index(
+                body_label,
+                metadata_index + 1,
+            )
+        except ValueError:
+            continue
+        break
     if metadata_index >= 1 and transcript_index > metadata_index:
         allowed_labels = {
             prefix.removesuffix(":")

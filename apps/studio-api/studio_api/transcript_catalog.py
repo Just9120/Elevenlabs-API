@@ -10,11 +10,12 @@ from .transcription_options import (
     browser_language_mode,
     job_diarization_enabled,
 )
+from .transcript_document import TRANSCRIPT_DOCUMENT_STANDARD
 
 
 CURRENT_TRANSCRIPTION_PROVIDER = "elevenlabs"
 CURRENT_TRANSCRIPTION_MODEL = "scribe_v2"
-CURRENT_TRANSCRIPT_STANDARD = "transcript_doc_v1.2"
+CURRENT_TRANSCRIPT_STANDARD = TRANSCRIPT_DOCUMENT_STANDARD
 GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND = "google_docs_transcript"
 CATALOG_QUERY_EVIDENCE_BUDGET = 1000
 CATALOG_SOURCE_LOCK_BUDGET = 1000

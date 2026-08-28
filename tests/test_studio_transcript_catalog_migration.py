@@ -81,7 +81,7 @@ def test_catalog_migration_contract_is_explicit_ordered_and_browser_safe():
 
     assert payload == {
         "operation": "dry_run",
-        "target_standard": "transcript_doc_v1.2",
+        "target_standard": "transcript_doc",
         "items": [
             {
                 "position": 0,
