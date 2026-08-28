@@ -34,7 +34,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -294,6 +294,215 @@ def test_same_origin_and_authenticated_csrf_required():
     pw = admin(); c = TestClient(app); csrf = login(c, pw)
     assert c.post("/api/auth/logout", headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
     assert c.post("/api/auth/logout", headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
+
+
+def test_active_sessions_list_is_owner_scoped_bounded_and_safe():
+    email = "session-list@example.com"
+    password = admin(email)
+    current = TestClient(app)
+    other = TestClient(app)
+    login(current, password, email)
+    login(other, password, email)
+
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(email=email).one()
+        outsider = User(
+            email="session-list-outsider@example.com",
+            role=UserRole.user,
+            status=UserStatus.active,
+        )
+        db.add(outsider)
+        db.flush()
+        now = utcnow()
+        db.add_all(
+            [
+                DbSession(
+                    user_id=owner.id,
+                    token_hash="e" * 64,
+                    csrf_hash="f" * 64,
+                    expires_at=now - timedelta(minutes=1),
+                ),
+                DbSession(
+                    user_id=owner.id,
+                    token_hash="a" * 64,
+                    csrf_hash="b" * 64,
+                    expires_at=now + timedelta(days=1),
+                    revoked_at=now,
+                ),
+                DbSession(
+                    user_id=outsider.id,
+                    token_hash="c" * 64,
+                    csrf_hash="d" * 64,
+                    expires_at=now + timedelta(days=1),
+                ),
+                *[
+                    DbSession(
+                        user_id=owner.id,
+                        token_hash=f"{index:064x}",
+                        csrf_hash=f"{index + 1000:064x}",
+                        expires_at=now + timedelta(days=1),
+                        created_at=now - timedelta(minutes=index + 1),
+                    )
+                    for index in range(100)
+                ],
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    anonymous = TestClient(app)
+    assert anonymous.get(
+        "/api/auth/sessions", headers={"origin": "https://studio.test"}
+    ).status_code == 401
+    assert current.get(
+        "/api/auth/sessions", headers={"origin": "https://evil.test"}
+    ).status_code == 403
+
+    response = current.get(
+        "/api/auth/sessions", headers={"origin": "https://studio.test"}
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    payload = response.json()
+    assert payload["truncated"] is True
+    assert payload["limit"] == 100
+    assert len(payload["sessions"]) == 100
+    assert payload["sessions"][0]["is_current"] is True
+    assert sum(row["is_current"] for row in payload["sessions"]) == 1
+    assert all(
+        set(row) == {
+            "id",
+            "is_current",
+            "created_at",
+            "last_seen_at",
+            "expires_at",
+        }
+        for row in payload["sessions"]
+    )
+    serialized = response.text.lower()
+    assert "token" not in serialized
+    assert "csrf" not in serialized
+    assert "user_id" not in serialized
+
+
+def test_targeted_session_revoke_is_safe_owner_scoped_and_idempotent():
+    email = "session-revoke@example.com"
+    password = admin(email)
+    current = TestClient(app)
+    other = TestClient(app)
+    csrf = login(current, password, email)
+    login(other, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    listed = current.get(
+        "/api/auth/sessions", headers={"origin": "https://studio.test"}
+    ).json()["sessions"]
+    current_id = next(row["id"] for row in listed if row["is_current"])
+    other_id = next(row["id"] for row in listed if not row["is_current"])
+
+    cross_owner_password = admin("session-revoke-outsider@example.com")
+    cross_owner = TestClient(app)
+    login(cross_owner, cross_owner_password, "session-revoke-outsider@example.com")
+    cross_owner_id = cross_owner.get(
+        "/api/auth/sessions", headers={"origin": "https://studio.test"}
+    ).json()["sessions"][0]["id"]
+
+    assert current.delete(
+        f"/api/auth/sessions/{other_id}",
+        headers={"origin": "https://studio.test", "x-csrf-token": "bad"},
+    ).status_code == 403
+    current_revoke = current.delete(
+        f"/api/auth/sessions/{current_id}", headers=headers
+    )
+    assert current_revoke.status_code == 409
+    assert current_revoke.json()["detail"] == {
+        "reason": "current_session_requires_logout"
+    }
+    assert current.get("/api/auth/session").status_code == 200
+
+    absent = current.delete(
+        "/api/auth/sessions/00000000-0000-0000-0000-000000000000",
+        headers=headers,
+    )
+    cross_owner_attempt = current.delete(
+        f"/api/auth/sessions/{cross_owner_id}", headers=headers
+    )
+    assert absent.status_code == 200
+    assert cross_owner_attempt.status_code == 200
+    assert absent.json() == cross_owner_attempt.json() == {
+        "revoked": False,
+        "active": False,
+    }
+
+    revoked = current.delete(f"/api/auth/sessions/{other_id}", headers=headers)
+    assert revoked.status_code == 200
+    assert revoked.headers["cache-control"] == "no-store"
+    assert revoked.json() == {"revoked": True, "active": False}
+    assert other.get("/api/auth/session").status_code == 401
+    assert current.delete(
+        f"/api/auth/sessions/{other_id}", headers=headers
+    ).json() == {"revoked": False, "active": False}
+    assert cross_owner.get("/api/auth/session").status_code == 200
+
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(email=email).one()
+        assert db.query(AuditEvent).filter_by(
+            event_type="auth.session_revoked", actor_user_id=owner.id
+        ).count() == 1
+    finally:
+        db.close()
+
+
+def test_revoke_other_sessions_only_revokes_active_rows_and_is_idempotent():
+    email = "session-revoke-all@example.com"
+    password = admin(email)
+    current = TestClient(app)
+    other_a = TestClient(app)
+    other_b = TestClient(app)
+    csrf = login(current, password, email)
+    login(other_a, password, email)
+    login(other_b, password, email)
+
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(email=email).one()
+        expired = DbSession(
+            user_id=owner.id,
+            token_hash="9" * 64,
+            csrf_hash="8" * 64,
+            expires_at=utcnow() - timedelta(minutes=1),
+        )
+        db.add(expired)
+        db.commit()
+        expired_id = expired.id
+    finally:
+        db.close()
+
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    assert current.post("/api/auth/sessions/revoke-other").status_code == 403
+    first = current.post("/api/auth/sessions/revoke-other", headers=headers)
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-store"
+    assert first.json() == {"revoked": 2}
+    assert current.get("/api/auth/session").status_code == 200
+    assert other_a.get("/api/auth/session").status_code == 401
+    assert other_b.get("/api/auth/session").status_code == 401
+    assert current.post(
+        "/api/auth/sessions/revoke-other", headers=headers
+    ).json() == {"revoked": 0}
+
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(email=email).one()
+        assert db.get(DbSession, expired_id).revoked_at is None
+        assert db.query(AuditEvent).filter_by(
+            event_type="auth.sessions_revoked", actor_user_id=owner.id
+        ).count() == 1
+    finally:
+        db.close()
 
 
 def test_account_source_retention_preferences_are_server_authoritative():

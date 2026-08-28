@@ -53,6 +53,11 @@ from .speaker_assignment import (
     SpeakerAssignmentReason,
     assign_speaker_profile,
 )
+from .session_control import (
+    list_active_sessions,
+    revoke_all_owned_other_sessions,
+    revoke_owned_other_session,
+)
 from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
@@ -466,9 +471,85 @@ def update_account_preferences(data: AccountPreferencesPatch, pair=Depends(requi
         db.commit()
     return account_preferences_payload(user)
 
+@app.get("/api/auth/sessions")
+def get_active_sessions(
+    response: Response,
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    sess,user=pair
+    limiter.check("auth:sessions:list:"+user.id, 120, 3600)
+    _browser_capability_cache_headers(response)
+    return list_active_sessions(
+        db,
+        owner_user_id=user.id,
+        current_session_id=sess.id,
+        now=utcnow(),
+    )
+
+
+@app.delete("/api/auth/sessions/{session_id}")
+def revoke_active_session(
+    session_id: str,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair
+    limiter.check("auth:sessions:revoke:"+user.id, 30, 3600)
+    _browser_capability_cache_headers(response)
+    if session_id == sess.id:
+        raise HTTPException(
+            409,
+            detail={"reason": "current_session_requires_logout"},
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+    revoked=revoke_owned_other_session(
+        db,
+        owner_user_id=user.id,
+        current_session_id=sess.id,
+        target_session_id=session_id,
+        now=utcnow(),
+    )
+    if revoked:
+        audit(
+            db,
+            "auth.session_revoked",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+            reason="owner_requested",
+        )
+        db.commit()
+    return {"revoked": revoked, "active": False}
+
+
 @app.post("/api/auth/sessions/revoke-other")
-def revoke_other(pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=pair; n=db.query(Session).filter(Session.user_id==user.id, Session.id!=sess.id, Session.revoked_at.is_(None)).update({"revoked_at": utcnow()}); audit(db,"auth.sessions_revoked", actor_user_id=user.id, subject_user_id=user.id); db.commit(); return {"revoked": n}
+def revoke_other(
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair
+    limiter.check("auth:sessions:revoke-other:"+user.id, 10, 3600)
+    _browser_capability_cache_headers(response)
+    now=utcnow()
+    revoked=revoke_all_owned_other_sessions(
+        db,
+        owner_user_id=user.id,
+        current_session_id=sess.id,
+        now=now,
+    )
+    if revoked:
+        audit(
+            db,
+            "auth.sessions_revoked",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+            reason="owner_requested",
+        )
+        db.commit()
+    return {"revoked": revoked}
 
 def project_payload(p: Project):
     return {"id": p.id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
