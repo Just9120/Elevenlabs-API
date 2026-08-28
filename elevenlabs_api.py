@@ -395,7 +395,7 @@ MANIFEST_IN_PROGRESS_TTL_HOURS = 6
 MANIFEST_V2_SCHEMA = "voiceops_manifest_v2"
 MANIFEST_V2_TARGET_VERSION = 2
 MANIFEST_BACKUP_FOLDER_NAME = "archive"
-TRANSCRIPT_STANDARD_TARGET = "transcript_doc_v1.2"
+TRANSCRIPT_STANDARD_TARGET = "transcript_doc"
 DEFAULT_LANGUAGE_MODE = "detect"
 TRANSCRIPT_STANDARD_CHECKER_VERSION = "transcript_standard_checker_v1"
 
@@ -3074,12 +3074,7 @@ def build_docs_only_standardized_transcript_document_text(
     )
     existing_metadata = extract_structured_transcript_metadata_values(existing_document_text)
     lines = [line.strip() for line in str(existing_document_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
-    try:
-        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
-        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
-    except ValueError:
-        metadata_index = -1
-        transcript_index = -1
+    metadata_index, transcript_index = find_structured_transcript_section_indices(lines)
     if metadata_index >= 0 and transcript_index > metadata_index:
         for line in lines[metadata_index + 1:transcript_index]:
             if ":" in line:
@@ -3535,19 +3530,31 @@ def segment_plain_transcript_for_docs(transcript_text: str, target_chars: int = 
     return "\n\n".join(paragraphs)
 
 
+def localize_transcript_speaker_labels(transcript_text: str) -> str:
+    normalized = str(transcript_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    return re.sub(r"(?m)^Speaker\s+(\d+):", r"Спикер \1:", normalized)
+
+
 def build_structured_transcript_document_text(
     document_title: str,
     transcript_text: str,
     metadata_lines: list[str],
 ) -> str:
-    body = segment_plain_transcript_for_docs(transcript_text)
+    body = segment_plain_transcript_for_docs(
+        localize_transcript_speaker_labels(transcript_text)
+    )
     metadata = "\n".join(metadata_lines)
-    return f"{document_title}\n\nTranscript metadata\n{metadata}\n\nTranscript\n\n{body}"
+    return (
+        f"{document_title}\n\n{STRUCTURED_TRANSCRIPT_METADATA_LABEL}\n"
+        f"{metadata}\n\n{STRUCTURED_TRANSCRIPT_BODY_LABEL}\n\n{body}"
+    )
 
 
 
-STRUCTURED_TRANSCRIPT_METADATA_LABEL = "Transcript metadata"
-STRUCTURED_TRANSCRIPT_BODY_LABEL = "Transcript"
+STRUCTURED_TRANSCRIPT_METADATA_LABEL = "Метаданные транскрипта"
+STRUCTURED_TRANSCRIPT_BODY_LABEL = "Транскрипция"
+LEGACY_STRUCTURED_TRANSCRIPT_METADATA_LABEL = "Transcript metadata"
+LEGACY_STRUCTURED_TRANSCRIPT_BODY_LABEL = "Transcript"
 STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
     "Provider:",
     "Model:",
@@ -3564,7 +3571,7 @@ EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT = "current_standard"
 EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED = "outdated_standard"
 EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED = "unstructured"
 EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE = "unreadable"
-EXISTING_GOOGLE_DOC_MANIFEST_STANDARD = "transcript_doc_v1.2"
+EXISTING_GOOGLE_DOC_MANIFEST_STANDARD = "transcript_doc"
 EXISTING_GOOGLE_DOC_MANIFEST_STATUS = "doc_registered"
 EXISTING_GOOGLE_DOC_REGISTRATION_MODE = "existing_google_doc_manifest_registration"
 EXISTING_GOOGLE_DOC_MANIFEST_NOTICE = "Manifest registration does not change Google Docs content."
@@ -3572,6 +3579,22 @@ EXISTING_GOOGLE_DOC_MANIFEST_NOTICE = "Manifest registration does not change Goo
 
 def normalize_doc_plain_text(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def find_structured_transcript_section_indices(lines: list[str]) -> tuple[int, int]:
+    """Locate current or legacy transcript section labels in normalized lines."""
+
+    for metadata_label, body_label in (
+        (STRUCTURED_TRANSCRIPT_METADATA_LABEL, STRUCTURED_TRANSCRIPT_BODY_LABEL),
+        (LEGACY_STRUCTURED_TRANSCRIPT_METADATA_LABEL, LEGACY_STRUCTURED_TRANSCRIPT_BODY_LABEL),
+    ):
+        try:
+            metadata_index = lines.index(metadata_label)
+            transcript_index = lines.index(body_label, metadata_index + 1)
+        except ValueError:
+            continue
+        return metadata_index, transcript_index
+    return -1, -1
 
 
 def extract_existing_transcript_created_at(document_text: str) -> str:
@@ -3582,11 +3605,7 @@ def extract_existing_transcript_created_at(document_text: str) -> str:
         return ""
 
     lines = [line.strip() for line in normalized.split("\n")]
-    try:
-        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
-        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
-    except ValueError:
-        return ""
+    metadata_index, transcript_index = find_structured_transcript_section_indices(lines)
 
     if metadata_index < 1 or transcript_index <= metadata_index + 1:
         return ""
@@ -3651,11 +3670,7 @@ def extract_structured_transcript_metadata_values(document_text: str) -> dict[st
         return {}
 
     lines = [line.strip() for line in normalized.split("\n")]
-    try:
-        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
-        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
-    except ValueError:
-        return {}
+    metadata_index, transcript_index = find_structured_transcript_section_indices(lines)
 
     if metadata_index < 1 or transcript_index <= metadata_index + 1:
         return {}
@@ -3755,10 +3770,8 @@ def classify_existing_google_doc_transcript_standard(document_text: str) -> str:
         return EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
 
     lines = [line.strip() for line in normalized.split("\n")]
-    try:
-        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
-        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
-    except ValueError:
+    metadata_index, transcript_index = find_structured_transcript_section_indices(lines)
+    if metadata_index < 0 or transcript_index < 0:
         return EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
 
     if metadata_index >= 1 and transcript_index > metadata_index + 1:
@@ -3780,12 +3793,7 @@ def extract_unstructured_transcript_body_for_backfill(document_text: str, docume
 
     lines = text.split("\n")
     stripped_lines = [line.strip() for line in lines]
-    try:
-        metadata_index = stripped_lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
-        transcript_index = stripped_lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
-    except ValueError:
-        metadata_index = -1
-        transcript_index = -1
+    metadata_index, transcript_index = find_structured_transcript_section_indices(stripped_lines)
 
     if metadata_index >= 1 and transcript_index > metadata_index:
         return normalize_doc_plain_text("\n".join(lines[transcript_index + 1:]))
@@ -3871,6 +3879,73 @@ def get_document_end_index(document_id: str) -> int:
     return body[-1].get("endIndex", 1)
 
 
+def build_transcript_doc_style_requests(document_text: str) -> list[dict]:
+    """Build idempotent Google Docs styles for current and legacy transcript text."""
+
+    normalized = str(document_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    title_end = normalized.find("\n")
+    if title_end <= 0:
+        raise ValueError("Transcript document title paragraph is required")
+
+    body_start = -1
+    for body_label in (STRUCTURED_TRANSCRIPT_BODY_LABEL, LEGACY_STRUCTURED_TRANSCRIPT_BODY_LABEL):
+        body_marker = f"\n\n{body_label}\n\n"
+        marker_index = normalized.find(body_marker)
+        if marker_index > title_end:
+            body_start = marker_index + len(body_marker)
+            break
+    if body_start < 0:
+        raise ValueError("Transcript document body section is required")
+
+    def docs_range(start_offset: int, end_offset: int) -> dict:
+        if not (0 <= start_offset < end_offset <= len(normalized)):
+            raise ValueError("Transcript document style range is invalid")
+        return {
+            "startIndex": 1 + docs_text_len(normalized[:start_offset]),
+            "endIndex": 1 + docs_text_len(normalized[:end_offset]),
+        }
+
+    requests = [
+        {
+            "updateParagraphStyle": {
+                "range": docs_range(0, title_end + 1),
+                "paragraphStyle": {"namedStyleType": "HEADING_2"},
+                "fields": "namedStyleType",
+            }
+        }
+    ]
+    if body_start < len(normalized):
+        requests.append(
+            {
+                "updateTextStyle": {
+                    "range": docs_range(body_start, len(normalized)),
+                    "textStyle": {
+                        "bold": False,
+                        "fontSize": {"magnitude": 11, "unit": "PT"},
+                    },
+                    "fields": "bold,fontSize",
+                }
+            }
+        )
+
+    for match in re.finditer(r"(?m)^(?:Спикер|Speaker)\s+\d+:", normalized[body_start:]):
+        start_offset = body_start + match.start()
+        end_offset = body_start + match.end()
+        requests.append(
+            {
+                "updateTextStyle": {
+                    "range": docs_range(start_offset, end_offset),
+                    "textStyle": {
+                        "bold": True,
+                        "fontSize": {"magnitude": 14, "unit": "PT"},
+                    },
+                    "fields": "bold,fontSize",
+                }
+            }
+        )
+    return requests
+
+
 def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: str, clear_first: bool = False):
     prefix = f"{title}\n\n"
     document_text = transcript_text if transcript_text.startswith(prefix) else f"{prefix}{transcript_text}"
@@ -3895,18 +3970,6 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
                 "text": prefix
             }
         },
-        {
-            "updateParagraphStyle": {
-                "range": {
-                    "startIndex": 1,
-                    "endIndex": 1 + docs_text_len(title) + 1
-                },
-                "paragraphStyle": {
-                    "namedStyleType": "TITLE"
-                },
-                "fields": "namedStyleType"
-            }
-        }
     ])
 
     # Docs insertText is not fully idempotent. Retrying ambiguous 5xx can duplicate
@@ -3947,6 +4010,14 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
         )
 
         insert_index += docs_text_len(chunk)
+
+    execute_google_request_with_retry(
+        docs_service.documents().batchUpdate(
+            documentId=document_id,
+            body={"requests": build_transcript_doc_style_requests(document_text)},
+        ),
+        operation_label="docs_batch_update_styles",
+    )
 
 
 def build_archive_name(original_name: str) -> str:

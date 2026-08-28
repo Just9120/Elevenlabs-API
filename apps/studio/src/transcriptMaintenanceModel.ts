@@ -62,7 +62,7 @@ export type TranscriptSelectionSummary = {
 export type TranscriptStandardizationDryRun = {
   workflow: "standardization";
   operation: "dry_run";
-  target_standard: "transcript_doc_v1.2";
+  target_standard: "transcript_doc";
   items: {
     position: number;
     name: string;
@@ -82,7 +82,7 @@ export type TranscriptStandardizationDryRun = {
 export type TranscriptStandardizationApply = {
   workflow: "standardization";
   operation: "apply";
-  target_standard: "transcript_doc_v1.2";
+  target_standard: "transcript_doc";
   items: {
     position: number;
     name: string;
@@ -102,7 +102,7 @@ export type TranscriptStandardizationApply = {
 export type TranscriptCatalogImportDryRun = {
   workflow: "catalog_import";
   operation: "dry_run";
-  target_standard: "transcript_doc_v1.2";
+  target_standard: "transcript_doc";
   items: {
     position: number;
     name: string;
@@ -123,7 +123,7 @@ export type TranscriptCatalogImportDryRun = {
 export type TranscriptCatalogImportApply = {
   workflow: "catalog_import";
   operation: "apply";
-  target_standard: "transcript_doc_v1.2";
+  target_standard: "transcript_doc";
   items: {
     position: number;
     name: string;
@@ -290,7 +290,7 @@ function payloadHeader(
   if (
     source.workflow !== workflow ||
     source.operation !== operation ||
-    source.target_standard !== "transcript_doc_v1.2" ||
+    source.target_standard !== "transcript_doc" ||
     !Array.isArray(source.items)
   ) {
     throw new Error("invalid transcript maintenance response");
@@ -340,7 +340,7 @@ export function parseTranscriptStandardizationDryRun(
   return {
     workflow: "standardization",
     operation: "dry_run",
-    target_standard: "transcript_doc_v1.2",
+    target_standard: "transcript_doc",
     items,
     summary: summary(
       source.summary,
@@ -388,7 +388,7 @@ export function parseTranscriptStandardizationApply(
   return {
     workflow: "standardization",
     operation: "apply",
-    target_standard: "transcript_doc_v1.2",
+    target_standard: "transcript_doc",
     items,
     summary: summary(
       source.summary,
@@ -434,7 +434,7 @@ export function parseTranscriptCatalogImportDryRun(
   return {
     workflow: "catalog_import",
     operation: "dry_run",
-    target_standard: "transcript_doc_v1.2",
+    target_standard: "transcript_doc",
     items,
     summary: summary(
       source.summary,
@@ -470,7 +470,7 @@ export function parseTranscriptCatalogImportApply(
   return {
     workflow: "catalog_import",
     operation: "apply",
-    target_standard: "transcript_doc_v1.2",
+    target_standard: "transcript_doc",
     items,
     summary: summary(
       source.summary,

@@ -40,7 +40,7 @@ const readyMaintenanceConnection = {
 const standardizationDryRun = {
   workflow: "standardization",
   operation: "dry_run",
-  target_standard: "transcript_doc_v1.2",
+  target_standard: "transcript_doc",
   items: [
     {
       position: 0,
@@ -70,7 +70,7 @@ const standardizationDryRun = {
 const standardizationApply = {
   workflow: "standardization",
   operation: "apply",
-  target_standard: "transcript_doc_v1.2",
+  target_standard: "transcript_doc",
   items: [
     {
       position: 0,
@@ -100,7 +100,7 @@ const standardizationApply = {
 const catalogDryRun = {
   workflow: "catalog_import",
   operation: "dry_run",
-  target_standard: "transcript_doc_v1.2",
+  target_standard: "transcript_doc",
   items: [
     {
       position: 0,
@@ -132,7 +132,7 @@ const catalogDryRun = {
 const catalogApply = {
   workflow: "catalog_import",
   operation: "apply",
-  target_standard: "transcript_doc_v1.2",
+  target_standard: "transcript_doc",
   items: [
     {
       position: 0,

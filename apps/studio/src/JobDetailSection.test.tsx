@@ -262,7 +262,7 @@ describe("JobDetailSection", () => {
           source_name: "first.ogg",
           source_type: "local_upload",
           output_kind: "google_docs_transcript",
-          transcript_standard: "transcript_doc_v1.2",
+          transcript_standard: "transcript_doc",
           web_view_url: null,
           link_available: false,
           document_character_count: 42,

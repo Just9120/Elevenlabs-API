@@ -18,7 +18,7 @@ describe("transcript maintenance response model", () => {
     const dryRun = parseTranscriptStandardizationDryRun({
       workflow: "standardization",
       operation: "dry_run",
-      target_standard: "transcript_doc_v1.2",
+      target_standard: "transcript_doc",
       items: [
         {
           position: 0,
@@ -41,7 +41,7 @@ describe("transcript maintenance response model", () => {
     const apply = parseTranscriptStandardizationApply({
       workflow: "standardization",
       operation: "apply",
-      target_standard: "transcript_doc_v1.2",
+      target_standard: "transcript_doc",
       items: [
         {
           position: 0,
@@ -93,7 +93,7 @@ describe("transcript maintenance response model", () => {
     const dryRun = parseTranscriptCatalogImportDryRun({
       workflow: "catalog_import",
       operation: "dry_run",
-      target_standard: "transcript_doc_v1.2",
+      target_standard: "transcript_doc",
       items: [
         {
           position: 0,
@@ -115,7 +115,7 @@ describe("transcript maintenance response model", () => {
     const apply = parseTranscriptCatalogImportApply({
       workflow: "catalog_import",
       operation: "apply",
-      target_standard: "transcript_doc_v1.2",
+      target_standard: "transcript_doc",
       items: [
         {
           position: 0,
@@ -151,7 +151,7 @@ describe("transcript maintenance response model", () => {
       parseTranscriptStandardizationDryRun({
         workflow: "catalog_import",
         operation: "dry_run",
-        target_standard: "transcript_doc_v1.2",
+        target_standard: "transcript_doc",
         items: [],
         summary: {
           standardize_document_count: 0,
@@ -165,7 +165,7 @@ describe("transcript maintenance response model", () => {
       parseTranscriptCatalogImportApply({
         workflow: "catalog_import",
         operation: "apply",
-        target_standard: "transcript_doc_v1.2",
+        target_standard: "transcript_doc",
         items: [],
         summary: {},
         selection_summary: selectionSummary,
@@ -175,7 +175,7 @@ describe("transcript maintenance response model", () => {
       parseTranscriptCatalogImportDryRun({
         workflow: "catalog_import",
         operation: "dry_run",
-        target_standard: "transcript_doc_v1.2",
+        target_standard: "transcript_doc",
         items: [
           {
             position: 2,
