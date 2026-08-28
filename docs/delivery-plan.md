@@ -22,18 +22,18 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T20:40:34Z.
+- Updated (UTC): 2026-08-28T20:43:39Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@26fb497496ed2a418a12afc6b3cf081e45075e57`.
 - Working branch: `codex/transcript-doc-standard-01`.
-- Last verified revision: local `f4ed35c2e623b7cc4c1151d9d56f4d97482e6b97` plus reviewed uncommitted operational documentation only.
+- Last verified revision: local `da8a31186af1ce4a462a758b150f1d29fee99553`; worktree clean.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
 - Completed: Studio deterministic document model использует exact UTF-16 ranges, versionless/localized text и H2/11 pt/14 pt styles; create transport fail-closed форматирует Drive-created document и сохраняет reconciliation authority при ошибке; revision-controlled standardization меняет text+styles одним bounded batch; standalone Colab creation/update применяет тот же semantic contract; Studio frontend runtime validator и copy принимают только `transcript_doc`. Созданы commits `8f1c4cf`, `aeac68c`, `f4ed35c`.
-- Current step: синхронизировать architecture/runbook/readiness/checkpoint и создать documentation commit после full local validation.
-- Next exact action: проверить remaining stale current-standard references и Actions included-minutes state, затем выполнить единственный initial push и открыть PR.
-- Validation and Evidence: `scripts/ci_checks.py` success; Python portable `1106 passed, 5 skipped`; focused Colab `201 passed`; Studio Vitest `627 passed`, ESLint success, TypeScript/Vite/PWA build success; `git diff --check` success. Полный service-backed Python/browser E2E остаётся exact-head CI gate. Baseline exact-main CI `33205123663`, Studio PWA CI `33205123676` и CD `33205123712` относятся к предыдущей revision.
+- Current step: опубликовать полностью локально проверенную ветку одним initial push и открыть PR.
+- Next exact action: `git push -u origin codex/transcript-doc-standard-01`, создать PR и ждать required exact-head checks без speculative reruns.
+- Validation and Evidence: `scripts/ci_checks.py` success; Python portable `1106 passed, 5 skipped`; focused Colab `201 passed`; Studio Vitest `627 passed`, ESLint success, TypeScript/Vite/PWA build success; `git diff --check` success. Полный service-backed Python/browser E2E остаётся exact-head CI gate. Repository public, все workflows используют standard `ubuntu-latest`; эти minutes бесплатны и не расходуют private-repository included quota. Billing API aggregate недоступен текущему token без дополнительного `user` scope, который не расширялся. Baseline exact-main CI `33205123663`, Studio PWA CI `33205123676` и CD `33205123712` относятся к предыдущей revision.
 - Pull Request / CI / deployment: отсутствуют для current Goal. Production repository/web/API `26fb497496ed2a418a12afc6b3cf081e45075e57`; worker остаётся на совместимой предыдущей revision; schema `0027_query_bounds`.
-- Blockers: implementation/local validation отсутствуют; до hosted CI сначала требуется безопасно проверить остаток included Actions minutes.
+- Blockers: отсутствуют.
 - Unverified assumptions: existing Google OAuth scopes разрешают требуемые Docs `batchUpdate`; current single-tab standardization snapshot даёт достаточные exact indices для style replacement; LIVE можно выполнить без нового provider call на уже завершённом transcript output.
 - Preserved pre-existing changes: отсутствуют.
 
