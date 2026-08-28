@@ -607,8 +607,7 @@ class RuntimeComponentStatus(Base):
     build_id: Mapped[str]=mapped_column(String(120), nullable=False)
     commit_sha: Mapped[str]=mapped_column(String(40), nullable=False)
     started_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
-    last_seen_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    last_seen_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__=(
         CheckConstraint("component IN ('worker')", name="ck_runtime_component_status_component"),
-        Index("ix_runtime_component_status_component_seen", "component", "last_seen_at"),
     )

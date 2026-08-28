@@ -369,8 +369,9 @@ class WorkerRuntimeHeartbeat:
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
-            db = self.session_factory()
+            db = None
             try:
+                db = self.session_factory()
                 record_worker_runtime_heartbeat(
                     db,
                     identity=self.identity,
@@ -380,13 +381,15 @@ class WorkerRuntimeHeartbeat:
                 )
             except Exception:
                 try:
-                    db.rollback()
+                    if db is not None:
+                        db.rollback()
                 except Exception:
                     pass
                 self.logger.warning("studio_worker_runtime_heartbeat_failed")
             finally:
                 try:
-                    db.close()
+                    if db is not None:
+                        db.close()
                 except Exception:
                     pass
             self.stop_event.wait(self.interval_seconds)

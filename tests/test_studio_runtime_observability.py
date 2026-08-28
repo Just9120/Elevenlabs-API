@@ -34,6 +34,8 @@ def test_runtime_status_migration_is_single_additive_head():
     assert revision is not None
     assert revision.down_revision == "0025_audio_preparation"
     assert revision.module.release_safety == "additive"
+    source = (ROOT / "apps/studio-api/alembic/versions/0026_runtime_component_status.py").read_text(encoding="utf-8")
+    assert "create_index" not in source and "last_seen_at" in source
 
 
 def test_runtime_identity_build_and_health_contracts_are_exact_and_component_scoped():

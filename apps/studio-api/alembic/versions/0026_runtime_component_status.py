@@ -32,24 +32,10 @@ def upgrade():
         sa.CheckConstraint("component IN ('worker')", name="ck_runtime_component_status_component"),
         sa.PrimaryKeyConstraint("component"),
     )
-    op.create_index(
-        "ix_runtime_component_status_last_seen_at",
-        "runtime_component_status",
-        ["last_seen_at"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_runtime_component_status_component_seen",
-        "runtime_component_status",
-        ["component", "last_seen_at"],
-        unique=False,
-    )
 
 
 def downgrade():
     bind = op.get_bind()
     if "runtime_component_status" not in set(sa.inspect(bind).get_table_names()):
         return
-    op.drop_index("ix_runtime_component_status_component_seen", table_name="runtime_component_status")
-    op.drop_index("ix_runtime_component_status_last_seen_at", table_name="runtime_component_status")
     op.drop_table("runtime_component_status")
