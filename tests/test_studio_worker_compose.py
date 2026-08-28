@@ -16,7 +16,9 @@ def service_block(name):
 def test_studio_worker_compose_contract():
     text=COMPOSE.read_text(); worker=service_block("studio-worker"); api=service_block("studio-api")
     assert text.count("  studio-worker:") == 1
-    assert "build: ../../apps/studio-api" in worker and "build: ../../apps/studio-api" in api
+    assert "context: ../../apps/studio-api" in worker and "context: ../../apps/studio-api" in api
+    assert "STUDIO_COMPONENT: worker" in worker and "STUDIO_COMPONENT: api" in api
+    assert "STUDIO_COMMIT_SHA: ${STUDIO_RELEASE_SHA:-unknown}" in worker
     assert "image: elevenlabs-studio-api:local" in api
     assert "image: elevenlabs-studio-worker:local" in worker
     assert 'command: ["python", "-m", "studio_api.worker"]' in worker
@@ -24,7 +26,7 @@ def test_studio_worker_compose_contract():
     assert "ports:" not in worker and "healthcheck:" in worker
     assert (
         'test: ["CMD", "python", "-m", "studio_api.container_entrypoint", '
-        '"--drop-only", "python", "-m", "studio_api.worker_health"]'
+        '"--drop-only", "python", "-m", "studio_api.worker_health", "--mode", "readiness"]'
     ) in worker
     assert "stop_grace_period: 86460s" in worker
     assert "postgres: { condition: service_healthy }" in worker

@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@baa55d695c015385ba992b87c505d1a1fc116df3`. Exact-main repository CI `33147622878` завершился success; latest Studio/browser CI `33116072392` success относится к unchanged product-code baseline `f6b0d70`, потому что PR `#248` изменил только docs. Goal branch code revision `2b75d033c832fd57787c5a3635f6c42a40dbecbe` реализует `PWASEC-07..09`; exact-head CI/deploy/LIVE ещё не выполнены. PR `#245` и Studio Platform CD `33104113313` подтвердили web-only Google Picker deployment, но authenticated production LIVE Evidence исправления отсутствует. PR `#244` source-cache/branding также merged/deployed, но его authenticated LIVE остаётся archived external gate. PR `#246` исправил webmanifest MIME; CD `33114690923` и public `application/manifest+json` header подтвердили DEPLOY/LIVE. Более ранний exact-main delivery подтвердил web/API/worker Audio scope; bounded FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC, `48 kHz`, duration `7907.718563` секунд и `334113611` bytes.
+Verified main baseline: `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`. PR `#249` exact-head repository CI `33150834580` и Studio/browser CI `33150834557`, exact-main CI `33151098282`/`33151098265`, CD `33151098248` и authenticated two-session LIVE подтвердили `PWASEC-07..09`. Production diagnostic bundle от 2026-08-28 подтвердил нормальную bounded job/heartbeat/cleanup activity, но web/API/worker build identities равны literal `unknown`; exact release/commit/schema отсутствуют. Поэтому прежние operational отметки `OBSERV-24..26 ✅` сняты как false positive. Исторические delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `PWA-SESSION-CONTROL-01` на branch `codex/pwa-session-control-01` от verified base `main@baa55d695c015385ba992b87c505d1a1fc116df3`; она реализует только `PWASEC-07..PWASEC-09` для personal PWA. Commercial и остальные security AC вне scope.
+Current operational Goal: `PWA-OBSERVABILITY-RUNTIME-01` на branch `codex/pwa-observability-runtime-01` от verified base `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; она реализует только `OBSERV-06`, `OBSERV-08`, `OBSERV-09`, `OBSERV-11..OBSERV-14`, `OBSERV-22`, `OBSERV-24..OBSERV-28`. Commercial и alerts/trace/audit least-privilege/storage/provider redesign вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`31/31`)** | existing `29/29` + `COLAB-LIFECYCLE-02 2/2`; historical runtime risk не меняет numerator |
-| Personal Studio PWA | **67,6% (`175/259`)** | existing `119/119` + `56/140` новых non-commercial AC; `PWASEC-07..09` подтверждены exact local code/tests, delivery Evidence ещё не завершены |
-| Non-commercial scope | **71,0% (`206/290`)** | Colab `31/31` + personal PWA `175/259` |
+| Personal Studio PWA | **66,4% (`172/259`)** | session-control `PWASEC-07..09` delivery подтверждён, но `OBSERV-24..26` сняты из numerator по exact production diagnostics |
+| Non-commercial scope | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `172/259` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **38,7% (`206/532`)** | `206 / (148 existing + 142 new non-commercial + 50 cross-contour + 192 commercial)` |
+| Полный canonical scope | **38,2% (`203/532`)** | `203 / (148 existing + 142 new non-commercial + 50 cross-contour + 192 commercial)` |
 
-Denominator пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Initial post-reconciliation snapshot `203/532 = 38,2%` вместо прежних `148/148 = 100%` отражал расширение canonical scope, а не регресс существующего кода; текущий numerator `206` вырос на выполненные `PWASEC-07..09`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Initial post-reconciliation snapshot `203/532 = 38,2%` вместо прежних `148/148 = 100%` отражал расширение canonical scope, а не регресс существующего кода. После полного delivery `PWASEC-07..09` numerator вырос на три, но независимая production-сверка одновременно сняла три ложноположительные `OBSERV-24..26`, поэтому current numerator снова `203` при изменившемся составе выполненных AC. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -635,7 +635,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `OBSERVABILITY-AUDIT-02` — health, tracing, alerts и protected audit
 
-Status: **⬜ BACKLOG — 42,9% (`15/35`)**.
+Status: **🟦 IN PROGRESS — 34,3% (`12/35`)**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -662,9 +662,9 @@ Status: **⬜ BACKLOG — 42,9% (`15/35`)**.
 | `OBSERV-21` | User data по умолчанию минимизированы в logs и diagnostics. | ✅ |
 | `OBSERV-22` | Diagnostics показывают release version. | — |
 | `OBSERV-23` | Diagnostics показывают environment. | ✅ |
-| `OBSERV-24` | Diagnostics показывают web build identity. | ✅ |
-| `OBSERV-25` | Diagnostics показывают API build identity. | ✅ |
-| `OBSERV-26` | Diagnostics показывают worker build identity. | ✅ |
+| `OBSERV-24` | Diagnostics показывают web build identity. | — |
+| `OBSERV-25` | Diagnostics показывают API build identity. | — |
+| `OBSERV-26` | Diagnostics показывают worker build identity. | — |
 | `OBSERV-27` | Diagnostics показывают exact commit identity. | — |
 | `OBSERV-28` | Diagnostics показывают exact DB schema revision. | — |
 | `OBSERV-29` | Audit record идентифицирует actor. | ✅ |
@@ -675,7 +675,7 @@ Status: **⬜ BACKLOG — 42,9% (`15/35`)**.
 | `OBSERV-34` | Ordinary application flows не могут удалять audit records. | — |
 | `OBSERV-35` | Очистка History/Analytics не удаляет audit records. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
 
 ### Эпик `RELEASE-SAFETY-02` — personal release safety
 
@@ -1084,19 +1084,19 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@f6b0d70e751673ea4edb11c655a732d594ff8f31` (PR `#247`).
-- Exact-main repository CI: run `33116072365`, success.
-- Exact-main Studio/browser CI: run `33116072392`, jobs `studio` и `browser-e2e` success.
-- Studio Platform CD run `33114690923` завершил web-only deployment revision `5a4115aed22497c7cb5c6a4d38258dbcf27641bd`; subsequent `f6b0d70` изменил только CI/docs/tests, поэтому новый deployment был N/A. Migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
-- Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest?rev=5a4115a` 2026-08-27 вернул `200` и `Content-Type: application/manifest+json`; MIME remediation имеет `DEPLOY/LIVE ✅`. Authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
+- Current verified revision: `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099` (PR `#249`).
+- Exact-main repository CI `33151098282` и Studio/browser CI `33151098265` завершились success.
+- Studio Platform CD `33151098248` доставил API+web exact merge revision; migration/worker корректно были skipped. Authenticated session-control LIVE подтверждён.
+- Production diagnostic bundle 2026-08-28 не truncated: четыре jobs completed, worker heartbeat/cleanup success, API/worker error/warning absent. Однако web/API/worker identities равны `unknown`, а exact release/commit/schema не представлены; это definitive negative LIVE Evidence для `OBSERV-24..26` и gap для `OBSERV-22/27/28`.
+- Public root/login/manifest ранее подтверждены; Google Picker и source-cache authenticated LIVE остаются archived external gates. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Завершить `PWA-SESSION-CONTROL-01`: `PWASEC-07..09`, API/UI/tests, exact-head CI, API/web deploy и authenticated two-session LIVE.
-2. Не расширять Goal на TOTP/password reset/re-authentication, device/IP tracking или commercial auth.
+1. Завершить `PWA-OBSERVABILITY-RUNTIME-01`: exact component/schema identity, separate health contracts, bounded dependency health, safe incident correlation, tests и полный protected delivery.
+2. Не расширять Goal на alerts, full-pipeline trace, commercial contour, paid provider probes, DB least privilege или storage/provider redesign.
 3. Разобрать сохранённые SPEC gaps отдельным owner decision packet; не подменять решения defaults текущей реализации.
 4. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
-5. DB least privilege, exact-revision CD redesign, query bounds/storage isolation и legacy removal остаются отдельными Goals.
+5. DB least privilege, query bounds/storage isolation и legacy removal остаются отдельными Goals.
 6. Commercial contour включён в durable BACKLOG `0/242`; это не implementation authorization.
 
 ## 10. Supporting documents

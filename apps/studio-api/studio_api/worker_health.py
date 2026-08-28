@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 from pydantic import ValidationError
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 
 OK_MARKER = "STUDIO_WORKER_HEALTH_OK"
 FAIL_PREFIX = "STUDIO_WORKER_HEALTH_FAIL"
@@ -29,25 +28,50 @@ def _valid_pid1(command: str) -> bool:
     return bool(normalized and any(token in normalized for token in EXPECTED_TOKENS))
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = list(argv or [])
+    if argv not in ([], ["--mode", "readiness"], ["--mode", "liveness"]):
+        return _fail("invalid_mode")
+    mode = "liveness" if argv == ["--mode", "liveness"] else "readiness"
     if not _valid_pid1(_pid1_command()):
         return _fail("pid1_not_worker")
+    if mode == "liveness":
+        print(f"{OK_MARKER} mode=liveness")
+        return 0
     try:
         from .config import Settings
+        from .runtime_observability import (
+            check_database_readiness,
+            current_worker_runtime_instance_id,
+            load_worker_runtime_status,
+            settings_runtime_identity,
+        )
 
         settings = Settings()
-        _ = (settings.worker_poll_interval_seconds, settings.worker_error_backoff_seconds, settings.worker_lease_ttl_seconds)
+        identity = settings_runtime_identity(settings, expected_component="worker")
+        if identity is None:
+            return _fail("runtime_identity_invalid")
+        runtime_instance_id = current_worker_runtime_instance_id()
         engine = create_engine(settings.sqlalchemy_url(), pool_pre_ping=True)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        heartbeat_ready = False
+        with engine.connect() as db:
+            check_database_readiness(db)
+            worker = load_worker_runtime_status(
+                db,
+                stale_after_seconds=settings.runtime_worker_stale_after_seconds,
+                expected_instance_id=runtime_instance_id,
+            )
+            heartbeat_ready = worker.get("status") == "ready" and worker.get("commit_sha") == identity.commit_sha
         engine.dispose()
+        if not heartbeat_ready:
+            return _fail("runtime_heartbeat_unavailable")
     except ValidationError:
         return _fail("configuration_invalid")
     except Exception:
         return _fail("dependency_unavailable")
-    print(OK_MARKER)
+    print(f"{OK_MARKER} mode=readiness")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

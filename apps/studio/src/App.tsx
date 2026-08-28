@@ -302,7 +302,24 @@ async function requestAuditCollection(signal?: AbortSignal): Promise<Audit[]> {
 type DiagnosticsSystem = {
   environment?: string;
   pwa_mode?: string;
+  release_version?: string;
+  schema_revision?: string;
   build?: { web?: string; api?: string; worker?: string };
+  components?: Record<"web" | "api" | "worker", {
+    status?: string;
+    release_version?: string;
+    build_id?: string;
+    commit_sha?: string;
+    heartbeat_age_seconds?: number;
+  }>;
+  health?: {
+    backend?: string;
+    database?: string;
+    queue?: { status?: string; queued?: number; processing?: number; oldest_queued_age_seconds?: number };
+    worker?: { status?: string };
+    object_storage?: { status?: string; probe?: string };
+    stt_provider?: { status?: string; availability?: string; probe?: string; configured_credentials?: number };
+  };
   google_drive?: { connected?: boolean; scope_ready?: boolean };
   provider_credentials?: { active_count?: number; ready?: boolean };
   diagnostics?: {
@@ -379,6 +396,8 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
   const credentials = candidate.provider_credentials;
   const diagnostics = candidate.diagnostics;
   const reportLimits = candidate.report_limits;
+  const components = candidate.components;
+  const health = candidate.health;
   if (
     !isDiagnosticsRecord(build) ||
     !isDiagnosticsRecord(googleDrive) ||
@@ -387,6 +406,8 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
     !isDiagnosticsRecord(reportLimits) ||
     !hasOptionalDiagnosticsString(candidate, "environment") ||
     !hasOptionalDiagnosticsString(candidate, "pwa_mode") ||
+    !hasOptionalDiagnosticsString(candidate, "release_version") ||
+    !hasOptionalDiagnosticsString(candidate, "schema_revision") ||
     !["web", "api", "worker"].every((key) =>
       hasOptionalDiagnosticsString(build, key),
     ) ||
@@ -404,14 +425,57 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
   ) {
     return null;
   }
+  if (components !== undefined) {
+    if (!isDiagnosticsRecord(components)) return null;
+    for (const component of ["web", "api", "worker"] as const) {
+      const value = components[component];
+      if (
+        !isDiagnosticsRecord(value) ||
+        !["status", "release_version", "build_id", "commit_sha"].every((key) =>
+          hasOptionalDiagnosticsString(value, key),
+        ) ||
+        !hasOptionalDiagnosticsCount(value, "heartbeat_age_seconds")
+      ) return null;
+    }
+  }
+  if (health !== undefined) {
+    if (!isDiagnosticsRecord(health)) return null;
+    const queue = health.queue;
+    const worker = health.worker;
+    const storage = health.object_storage;
+    const provider = health.stt_provider;
+    if (
+      !hasOptionalDiagnosticsString(health, "backend") ||
+      !hasOptionalDiagnosticsString(health, "database") ||
+      !isDiagnosticsRecord(queue) ||
+      !isDiagnosticsRecord(worker) ||
+      !isDiagnosticsRecord(storage) ||
+      !isDiagnosticsRecord(provider) ||
+      !hasOptionalDiagnosticsString(queue, "status") ||
+      !hasOptionalDiagnosticsCount(queue, "queued") ||
+      !hasOptionalDiagnosticsCount(queue, "processing") ||
+      !hasOptionalDiagnosticsCount(queue, "oldest_queued_age_seconds") ||
+      !hasOptionalDiagnosticsString(worker, "status") ||
+      !hasOptionalDiagnosticsString(storage, "status") ||
+      !hasOptionalDiagnosticsString(storage, "probe") ||
+      !hasOptionalDiagnosticsString(provider, "status") ||
+      !hasOptionalDiagnosticsString(provider, "availability") ||
+      !hasOptionalDiagnosticsString(provider, "probe") ||
+      !hasOptionalDiagnosticsCount(provider, "configured_credentials")
+    ) return null;
+  }
   return {
     environment: candidate.environment as string | undefined,
     pwa_mode: candidate.pwa_mode as string | undefined,
+    release_version: candidate.release_version as string | undefined,
+    schema_revision: candidate.schema_revision as string | undefined,
     build: {
       web: build.web as string | undefined,
       api: build.api as string | undefined,
       worker: build.worker as string | undefined,
     },
+    components: components as DiagnosticsSystem["components"],
+    health: health as DiagnosticsSystem["health"],
     google_drive: {
       connected: googleDrive.connected as boolean | undefined,
       scope_ready: googleDrive.scope_ready as boolean | undefined,
@@ -5891,6 +5955,9 @@ const diagnosticsMetadataKeys = new Set([
   "error_code",
   "retryable",
   "http_status_category",
+  "http_status",
+  "upstream_request_id",
+  "rejection_category",
   "output_count",
   "final_job_status",
   "endpoint_group",
@@ -5908,6 +5975,9 @@ const diagnosticsMetadataLabels: Record<string, string> = {
   error_code: "код ошибки",
   retryable: "повтор возможен",
   http_status_category: "категория HTTP",
+  http_status: "статус HTTP",
+  upstream_request_id: "request ID исходного ответа",
+  rejection_category: "категория rejected promise",
   endpoint_group: "группа API",
 };
 function pwaEventLabel(code: string) {
@@ -8012,6 +8082,28 @@ function DiagnosticsSettings({
             <dd>{buildIdentityText(system.build?.api)}</dd>
             <dt>Сборка фоновой обработки</dt>
             <dd>{buildIdentityText(system.build?.worker)}</dd>
+            <dt>Версия релиза</dt>
+            <dd>{safeText(system.release_version)}</dd>
+            <dt>Commit веб-приложения</dt>
+            <dd>{safeText(system.components?.web?.commit_sha)}</dd>
+            <dt>Commit API</dt>
+            <dd>{safeText(system.components?.api?.commit_sha)}</dd>
+            <dt>Commit фоновой обработки</dt>
+            <dd>{safeText(system.components?.worker?.commit_sha)}</dd>
+            <dt>Ревизия схемы БД</dt>
+            <dd>{safeText(system.schema_revision)}</dd>
+            <dt>Backend</dt>
+            <dd>{safeText(system.health?.backend)}</dd>
+            <dt>PostgreSQL</dt>
+            <dd>{safeText(system.health?.database)}</dd>
+            <dt>Очередь</dt>
+            <dd>{safeText(system.health?.queue?.status)} · ожидают {safeText(system.health?.queue?.queued)} · выполняются {safeText(system.health?.queue?.processing)}</dd>
+            <dt>Worker</dt>
+            <dd>{safeText(system.health?.worker?.status)} · heartbeat {safeText(system.components?.worker?.heartbeat_age_seconds)} сек. назад</dd>
+            <dt>Object storage</dt>
+            <dd>{safeText(system.health?.object_storage?.status)} · {safeText(system.health?.object_storage?.probe)}</dd>
+            <dt>STT provider</dt>
+            <dd>{safeText(system.health?.stt_provider?.status)} · availability {safeText(system.health?.stt_provider?.availability)} · probe {safeText(system.health?.stt_provider?.probe)}</dd>
             <dt>Среда</dt>
             <dd>{safeText(system.environment ?? system.pwa_mode)}</dd>
             <dt>Google Drive подключён</dt>

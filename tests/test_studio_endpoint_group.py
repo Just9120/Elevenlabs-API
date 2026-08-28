@@ -32,3 +32,7 @@ def test_endpoint_group_matching_fails_closed_for_unknown_paths():
     assert diagnostic_endpoint_group("/api/projects//realtime/capability") == "projects"
     assert diagnostic_endpoint_group("/api/project/project-safe/realtime") == "unknown"
     assert diagnostic_endpoint_group(42) == "unknown"  # type: ignore[arg-type]
+
+
+def test_transcript_maintenance_has_a_distinct_safe_group():
+    assert diagnostic_endpoint_group("/api/transcript-maintenance/standardization/apply") == "transcript_maintenance"

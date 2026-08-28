@@ -8,11 +8,13 @@ export type ApiRequestOptions = RequestInit & {
 export class ApiError extends Error {
   status: number;
   data?: unknown;
+  requestId?: string;
 
-  constructor(status: number, message: string, data?: unknown) {
+  constructor(status: number, message: string, data?: unknown, requestId?: string) {
     super(message);
     this.status = status;
     this.data = data;
+    this.requestId = requestId;
   }
 }
 
@@ -40,13 +42,15 @@ function isRetryableApiFailure(status?: number) {
   return !status || status === 408 || status === 429 || status >= 500;
 }
 
-function emitApiFailure(path: string, startedAt: number, status?: number) {
+function emitApiFailure(path: string, startedAt: number, status?: number, requestId?: string) {
   if (path.startsWith("/diagnostics/pwa-events")) return;
   emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
     boundary: "api_request",
     error_code: "api_request_failed",
     endpoint_group: diagnosticEndpointGroup(path),
     http_status_category: statusCategory(status),
+    ...(status && status >= 100 && status <= 599 ? { http_status: status } : {}),
+    ...(requestId ? { upstream_request_id: requestId } : {}),
     duration_ms: performance.now() - startedAt,
     retryable: isRetryableApiFailure(status),
   });
@@ -73,12 +77,14 @@ async function requestResponse(
     } catch {
       data = null;
     }
+    const responseRequestId = res.headers?.get?.("x-request-id") ?? undefined;
     throw new ApiError(
       res.status,
       res.status === 429
         ? "Слишком много попыток. Попробуйте позже."
         : "Операция не выполнена. Проверьте данные и повторите.",
       data,
+      responseRequestId,
     );
   }
   return res;
@@ -111,6 +117,7 @@ export async function api<T>(
         path,
         startedAt,
         err instanceof ApiError ? err.status : undefined,
+        err instanceof ApiError ? err.requestId : undefined,
       );
     }
     throw err;
@@ -135,6 +142,7 @@ export async function apiResponse(
         path,
         startedAt,
         err instanceof ApiError ? err.status : undefined,
+        err instanceof ApiError ? err.requestId : undefined,
       );
     }
     throw err;
@@ -183,6 +191,7 @@ export async function responseWithCsrfRetry(
         path,
         startedAt,
         err instanceof ApiError ? err.status : undefined,
+        err instanceof ApiError ? err.requestId : undefined,
       );
       throw err;
     }
@@ -202,6 +211,7 @@ export async function responseWithCsrfRetry(
         path,
         startedAt,
         retryErr instanceof ApiError ? retryErr.status : undefined,
+        retryErr instanceof ApiError ? retryErr.requestId : undefined,
       );
       throw retryErr;
     }
@@ -223,6 +233,7 @@ export async function mutateWithCsrfRetry<T>(
         path,
         startedAt,
         err instanceof ApiError ? err.status : undefined,
+        err instanceof ApiError ? err.requestId : undefined,
       );
       throw err;
     }
@@ -238,6 +249,7 @@ export async function mutateWithCsrfRetry<T>(
         path,
         startedAt,
         retryErr instanceof ApiError ? retryErr.status : undefined,
+        retryErr instanceof ApiError ? retryErr.requestId : undefined,
       );
       throw retryErr;
     }

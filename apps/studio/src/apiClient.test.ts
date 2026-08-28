@@ -89,6 +89,31 @@ describe("CSRF mutation retry contract", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });});
 describe("API abort diagnostics", () => {
+  it("preserves bounded exact HTTP status and the server request ID", async () => {
+    const requestId = "req_abcdefghijklmnop";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "missing" }), {
+          status: 404,
+          headers: { "content-type": "application/json", "x-request-id": requestId },
+        }),
+      ),
+    );
+
+    await expect(api("/jobs/missing")).rejects.toBeInstanceOf(ApiError);
+    expect(emitPwaDiagnostic).toHaveBeenCalledWith(
+      "PWA_API_REQUEST_FAILED",
+      expect.objectContaining({
+        endpoint_group: "jobs",
+        http_status_category: "4xx",
+        http_status: 404,
+        upstream_request_id: requestId,
+        retryable: false,
+      }),
+    );
+  });
+
   it("suppresses only the explicitly ignored abort reason", async () => {
     const ignoredReason = Symbol("expected_abort");
     const controller = new AbortController();

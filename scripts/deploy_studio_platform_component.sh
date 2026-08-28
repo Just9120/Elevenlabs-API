@@ -21,7 +21,7 @@ case "$1" in
   api)
     SERVICE="studio-api"
     IMAGE_REF="elevenlabs-studio-api:local"
-    HEALTH_URL="http://127.0.0.1:8182/api/healthz"
+    HEALTH_URL="http://127.0.0.1:8182/api/readyz"
     SUCCESS_MARKER="STUDIO_PLATFORM_API_DEPLOY_OK"
     ;;
   worker)
@@ -160,6 +160,9 @@ target_revision="$(git rev-parse "origin/$EXPECTED_BRANCH")"
 git merge --ff-only "origin/$EXPECTED_BRANCH"
 [[ "$(git rev-parse HEAD)" == "$target_revision" ]] || fail "checkout did not reach fetched target revision"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree changed unexpectedly"
+export STUDIO_RELEASE_SHA="$target_revision"
+export STUDIO_RELEASE_VERSION="${STUDIO_RELEASE_VERSION:-0.1.0}"
+[[ "$STUDIO_RELEASE_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$ ]] || fail "release version is invalid"
 
 require_file "$COMPOSE_FILE"
 require_file apps/studio/Dockerfile

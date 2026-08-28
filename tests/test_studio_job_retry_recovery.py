@@ -63,8 +63,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0025_audio_preparation"]
-    assert script.get_current_head() == "0025_audio_preparation"
+    assert script.get_heads() == ["0026_runtime_component_status"]
+    assert script.get_current_head() == "0026_runtime_component_status"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():

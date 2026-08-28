@@ -236,7 +236,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through `0025_audio_preparation`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through `0026_runtime_component_status`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no`.
@@ -367,7 +367,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance was introduced by `0017_google_maintenance_oauth`; do not apply any later unrelated migration merely to run a maintenance canary. Repository history now extends through `0025_audio_preparation`, but actual production revision must be read and checked against the exact deployed API before the canary. Any pending successor requires its own tagged pre-migration backup and protected migration release before dependent API/worker deployment.
+- Transcript maintenance was introduced by `0017_google_maintenance_oauth`; do not apply any later unrelated migration merely to run a maintenance canary. Repository history now extends through `0026_runtime_component_status`, but actual production revision must be read and checked against the exact deployed API before the canary. Any pending successor requires its own tagged pre-migration backup and protected migration release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -405,7 +405,7 @@ Safe evidence includes the merged commit, required CI result, deployed web/API i
 Web and API are separate deployable components.
 
 - Web deployment rebuilds/recreates only the web component, verifies image identity, then checks localhost health.
-- API deployment rebuilds/recreates only the API component, verifies image identity, then checks localhost API health and migration readiness.
+- API deployment rebuilds/recreates only the API component, verifies image identity, then checks dependency/schema-aware localhost `/api/readyz`; legacy `/api/healthz` remains a readiness alias.
 - A migration mismatch blocks API deploy success/readiness.
 - Ordinary component CD does not deploy/start/recreate `studio-worker` and does not maintain PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime secrets, or stateful services. The distinct protected migration lane is limited to the sequence documented above.
 - Failed component health checks fail loudly and must not trigger unreviewed destructive rollback.
@@ -444,7 +444,7 @@ ad-hoc root commands.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
 3. Verify production database revision equals the exact reviewed repository head where the intended deployment is expected to be current.
 4. Deploy web/API only through the approved isolated component deployment model.
-5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
+5. Verify intended commit/image identity, component-baked release/build/commit identity, localhost readiness, public readiness, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
 7. Verify worker configuration, bounded opaque process identity, and idle polling without creating or mutating jobs.
 
@@ -541,10 +541,10 @@ The `studio-worker` is an explicit manual-only component. Worker deployment succ
 The worker healthcheck runs inside the worker container with:
 
 ```bash
-python -m studio_api.worker_health
+python -m studio_api.worker_health --mode readiness
 ```
 
-It verifies PID 1 has the worker process shape, worker configuration loads, and PostgreSQL answers a read-only `SELECT 1`. It does not claim jobs, read jobs, mutate the database, call providers, call Google, use Redis as queue logic, or check object storage.
+Readiness verifies PID 1 has the worker process shape, the component-baked identity is exact, PostgreSQL answers, the database is at the reviewed Alembic head, and the authoritative heartbeat belongs to this exact container-process incarnation and commit and is not stale. `python -m studio_api.worker_health --mode liveness` checks only PID 1 process shape and deliberately does not load runtime configuration or touch dependencies. Neither mode claims jobs, reads job payloads, calls providers, calls Google, uses Redis as queue logic, or checks object storage. Readiness updates no state; the worker process owns the heartbeat write.
 
 ### Worker status
 
@@ -564,7 +564,7 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/deploy_studio_platform_component.sh worker
 ```
 
-The deploy script fast-forwards the trusted branch, preserves a previous stopped `exit_code=0` worker image as `elevenlabs-studio-worker:rollback-candidate` before building, builds only `studio-worker`, verifies PostgreSQL health without requiring Redis, compares current database revision with the new worker image Alembic head, tags the new worker image with the current commit, recreates only `studio-worker` with `--no-deps`, verifies the exact running image identity, waits for Docker health `healthy`, and only then prints `STUDIO_PLATFORM_WORKER_DEPLOY_OK`. API and worker use separate local image tags: `elevenlabs-studio-api:local` and `elevenlabs-studio-worker:local`. Worker operations must not retag or overwrite the API local image. It does not run migrations, recreate API/web/PostgreSQL/Redis, drain an active worker, run a canary, or perform automatic rollback.
+The deploy script fast-forwards the trusted branch, exports the exact fetched commit and validated release version as component build arguments, preserves a previous stopped `exit_code=0` worker image as `elevenlabs-studio-worker:rollback-candidate` before building, builds only `studio-worker`, verifies PostgreSQL health without requiring Redis, compares current database revision with the new worker image Alembic head, tags the new worker image with the current commit, recreates only `studio-worker` with `--no-deps`, verifies the exact running image identity, waits for process-incarnation-aware Docker readiness, and only then prints `STUDIO_PLATFORM_WORKER_DEPLOY_OK`. API and worker use separate local image tags: `elevenlabs-studio-api:local` and `elevenlabs-studio-worker:local`. Worker operations must not retag or overwrite the API local image. It does not run migrations, recreate API/web/PostgreSQL/Redis, drain an active worker, run a canary, or perform automatic rollback.
 
 ### Worker drain and paused state
 
@@ -647,4 +647,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through `0025_audio_preparation`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through `0026_runtime_component_status`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

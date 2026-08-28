@@ -903,6 +903,18 @@ Goal `SPEC-CANONICALIZATION-02` завершена 2026-08-28 без публи�
 - Separate non-canonical reconciliation report отсутствует в main и PR history. Studio CI/CD корректно не запускались по docs-only path; `DEPLOY/LIVE N/A`.
 - Remote/local feature branches удалены; `main` синхронизирован с `origin/main@baa55d6`. Approved metadata writer отсутствовал, поэтому closure reconciled в начале `PWA-SESSION-CONTROL-01`.
 
+## Archived PR #249 session-control closure
+
+Goal `PWA-SESSION-CONTROL-01` завершена 2026-08-28 полным delivery flow.
+
+- PR `#249` head `1267358129295cb66d6a34ae62a43136b8a3b0e4` merged как `3e80fef58f8aab94c5727a7fc7acef300fd8b099`.
+- Exact PR-head repository CI `33150834580` и Studio/browser CI `33150834557` завершились success.
+- Exact-main repository CI `33151098282` и Studio/browser CI `33151098265` завершились success.
+- Studio Platform CD `33151098248` доставил API+web; worker и migration корректно были skipped.
+- Authenticated production LIVE подтвердил current + четыре другие active sessions, три targeted revoke audit events и один bulk revoke; после reload сохранилась только current session.
+- Canonical `PWASEC-07..09` выполнены; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- После ancestry/status checks branch удалена local/remote, local `main` синхронизирован с exact merge SHA. Approved metadata writer отсутствовал, поэтому closure reconciled в начале `PWA-OBSERVABILITY-RUNTIME-01`.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

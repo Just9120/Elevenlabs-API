@@ -16,6 +16,9 @@ type SafeMetadata = Partial<{
     | "route_error";
   retryable: boolean;
   http_status_category: "1xx" | "2xx" | "3xx" | "4xx" | "5xx" | "unknown";
+  http_status: number;
+  upstream_request_id: string;
+  rejection_category: "abort" | "type_error" | "error" | "other";
   endpoint_group:
     | "auth"
     | "projects"
@@ -24,6 +27,9 @@ type SafeMetadata = Partial<{
     | "google"
     | "credentials"
     | "diagnostics"
+    | "realtime"
+    | "transcript_catalog"
+    | "transcript_maintenance"
     | "unknown";
 }>;
 
@@ -41,7 +47,9 @@ const ROUTINE_DEBUG_EVENTS = new Set<PwaDiagnosticEventCode>([
   "PWA_SERVICE_WORKER_ERROR",
 ]);
 const HTTP_CATEGORIES = new Set(["1xx", "2xx", "3xx", "4xx", "5xx", "unknown"]);
-const ENDPOINT_GROUPS = new Set(["auth", "projects", "sources", "jobs", "google", "credentials", "diagnostics", "unknown"]);
+const ENDPOINT_GROUPS = new Set(["auth", "projects", "sources", "jobs", "google", "credentials", "diagnostics", "realtime", "transcript_catalog", "transcript_maintenance", "unknown"]);
+const REJECTION_CATEGORIES = new Set(["abort", "type_error", "error", "other"]);
+const REQUEST_ID = /^req_[A-Za-z0-9_-]{16,64}$/;
 const BOUNDARIES = new Set(["app", "react_boundary", "api_request", "service_worker", "route"]);
 const ERROR_CODES = new Set(["app_error", "unhandled_rejection", "api_request_failed", "service_worker_error", "route_error"]);
 const MAX_QUEUE = 20;
@@ -71,6 +79,9 @@ function sanitizeMetadata(input: unknown): SafeMetadata {
   if (typeof record.error_code === "string" && ERROR_CODES.has(record.error_code)) out.error_code = record.error_code as SafeMetadata["error_code"];
   if (typeof record.retryable === "boolean") out.retryable = record.retryable;
   if (typeof record.http_status_category === "string" && HTTP_CATEGORIES.has(record.http_status_category)) out.http_status_category = record.http_status_category as SafeMetadata["http_status_category"];
+  if (Number.isInteger(record.http_status) && (record.http_status as number) >= 100 && (record.http_status as number) <= 599) out.http_status = record.http_status as number;
+  if (typeof record.upstream_request_id === "string" && REQUEST_ID.test(record.upstream_request_id)) out.upstream_request_id = record.upstream_request_id;
+  if (typeof record.rejection_category === "string" && REJECTION_CATEGORIES.has(record.rejection_category)) out.rejection_category = record.rejection_category as SafeMetadata["rejection_category"];
   if (typeof record.endpoint_group === "string" && ENDPOINT_GROUPS.has(record.endpoint_group)) out.endpoint_group = record.endpoint_group as SafeMetadata["endpoint_group"];
   return out;
 }
@@ -137,7 +148,18 @@ export async function flushPwaDiagnostics() {
 export function installPwaGlobalErrorHandlers() {
   if (handlersInstalled || typeof window === "undefined") return () => undefined;
   const onError = () => emitPwaDiagnostic("PWA_APP_ERROR", { boundary: "app", error_code: "app_error", retryable: false });
-  const onRejection = () => emitPwaDiagnostic("PWA_UNHANDLED_REJECTION", { boundary: "app", error_code: "unhandled_rejection", retryable: false });
+  const onRejection = (event: PromiseRejectionEvent) => {
+    const reason = event.reason;
+    const rejectionCategory =
+      reason instanceof DOMException && reason.name === "AbortError"
+        ? "abort"
+        : reason instanceof TypeError
+          ? "type_error"
+          : reason instanceof Error
+            ? "error"
+            : "other";
+    emitPwaDiagnostic("PWA_UNHANDLED_REJECTION", { boundary: "app", error_code: "unhandled_rejection", retryable: false, rejection_category: rejectionCategory });
+  };
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onRejection);
   handlersInstalled = true;

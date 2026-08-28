@@ -13424,6 +13424,21 @@ describe("settings diagnostics", () => {
               api: "api-build",
               worker: "worker-build",
             },
+            release_version: "0.1.0",
+            schema_revision: "0026_runtime_component_status",
+            components: {
+              web: { status: "available", commit_sha: "a".repeat(40) },
+              api: { status: "available", commit_sha: "a".repeat(40) },
+              worker: { status: "ready", commit_sha: "a".repeat(40), heartbeat_age_seconds: 5 },
+            },
+            health: {
+              backend: "ready",
+              database: "reachable",
+              queue: { status: "ready", queued: 1, processing: 0, oldest_queued_age_seconds: 12 },
+              worker: { status: "ready" },
+              object_storage: { status: "ready", probe: "read_only_head" },
+              stt_provider: { status: "configured", availability: "unknown", probe: "not_run", configured_credentials: 2 },
+            },
             google_drive: { connected: true, scope_ready: false },
             provider_credentials: { active_count: 2, ready: true },
             diagnostics: {
@@ -13483,6 +13498,11 @@ describe("settings diagnostics", () => {
     expect(await screen.findByText("web-build")).toBeInTheDocument();
     expect(screen.getByText("api-build")).toBeInTheDocument();
     expect(screen.getByText("worker-build")).toBeInTheDocument();
+    expect(screen.getByText("0.1.0")).toBeInTheDocument();
+    expect(screen.getByText("0026_runtime_component_status")).toBeInTheDocument();
+    expect(screen.getAllByText("a".repeat(40))).toHaveLength(3);
+    expect(screen.getByText(/read_only_head/)).toBeInTheDocument();
+    expect(screen.getByText(/probe not_run/)).toBeInTheDocument();
     expect(
       screen.getByText("Разрешение Google Drive получено"),
     ).toBeInTheDocument();

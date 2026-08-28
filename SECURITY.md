@@ -8,7 +8,7 @@ unmaintained local deployments are not supported separately.
 The repository has two product contours with different maturity:
 
 - the Google Colab batch workflow is the stable operational baseline;
-- Studio PWA remains in active development. Repository migrations currently extend through `0025_audio_preparation`; multiple bounded features have exact-main CI, component deployment and owner-controlled LIVE records, but several epic LIVE gates, multi-worker behavior and load bounds remain unverified. Current maturity and exact Evidence belong in `docs/project-spec.md` and `docs/delivery-plan.md`, not in this policy.
+- Studio PWA remains in active development. Repository migrations currently extend through `0026_runtime_component_status`; multiple bounded features have exact-main CI, component deployment and owner-controlled LIVE records, but several epic LIVE gates, multi-worker behavior and load bounds remain unverified. Current maturity and exact Evidence belong in `docs/project-spec.md` and `docs/delivery-plan.md`, not in this policy.
 
 Realtime Colab is experimental. Source code, CI success, deployment success, and
 production security evidence are different states; none should be inferred from

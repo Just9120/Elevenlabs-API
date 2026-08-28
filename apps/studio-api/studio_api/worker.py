@@ -209,10 +209,41 @@ def main() -> int:
         return 2
 
     from .db import SessionLocal
+    from .runtime_observability import (
+        WorkerRuntimeHeartbeat,
+        current_worker_runtime_instance_id,
+        settings_runtime_identity,
+    )
 
     stop_event = threading.Event()
     install_signal_handlers(stop_event)
-    return run_worker_loop(settings=settings, session_factory=SessionLocal, stop_event=stop_event, logger=LOGGER)
+    identity = settings_runtime_identity(settings, expected_component="worker")
+    if identity is None:
+        LOGGER.error("studio_worker_runtime_identity_invalid")
+        return 2
+    try:
+        runtime_instance_id = current_worker_runtime_instance_id()
+    except Exception:
+        LOGGER.error("studio_worker_runtime_instance_invalid")
+        return 2
+    runtime_heartbeat = WorkerRuntimeHeartbeat(
+        session_factory=SessionLocal,
+        identity=identity,
+        instance_id=runtime_instance_id,
+        interval_seconds=settings.runtime_worker_heartbeat_interval_seconds,
+        logger=LOGGER,
+    )
+    runtime_heartbeat.start()
+    try:
+        return run_worker_loop(
+            settings=settings,
+            session_factory=SessionLocal,
+            stop_event=stop_event,
+            logger=LOGGER,
+            owner_id_factory=lambda: runtime_instance_id,
+        )
+    finally:
+        runtime_heartbeat.stop_and_join()
 
 
 if __name__ == "__main__":

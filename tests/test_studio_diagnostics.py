@@ -181,6 +181,47 @@ def test_secret_like_request_and_correlation_ids_are_rejected(db):
     assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, request_id="req_sk_live_secret_1234567890", metadata={"source_count": 1, "credential_selected": False}, session_factory=Session).accepted is False
     assert db.query(m.DiagnosticEvent).count() == 0
 
+
+def test_pwa_failure_correlation_accepts_only_exact_safe_fields(db):
+    from studio_api.diagnostics import write_diagnostic_event
+    u,p,j=user_project_job(db); Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    accepted=write_diagnostic_event(
+        owner_user_id=u.id,
+        component="web",
+        event_code="PWA_API_REQUEST_FAILED",
+        project_id=p.id,
+        job_id=j.id,
+        metadata={
+            "boundary":"api_request",
+            "error_code":"api_request_failed",
+            "retryable":False,
+            "endpoint_group":"transcript_maintenance",
+            "http_status_category":"4xx",
+            "http_status":422,
+            "upstream_request_id":"req_abcdefghijklmnop",
+        },
+        session_factory=Session,
+    )
+    assert accepted.accepted is True
+    rejected=write_diagnostic_event(
+        owner_user_id=u.id,
+        component="web",
+        event_code="PWA_API_REQUEST_FAILED",
+        metadata={"endpoint_group":"jobs", "http_status_category":"4xx", "http_status":404, "upstream_request_id":"Bearer secret"},
+        session_factory=Session,
+    )
+    assert rejected.accepted is False
+    unhandled=write_diagnostic_event(
+        owner_user_id=u.id,
+        component="web",
+        event_code="PWA_UNHANDLED_REJECTION",
+        metadata={"boundary":"app", "error_code":"unhandled_rejection", "retryable":False, "rejection_category":"type_error"},
+        session_factory=Session,
+    )
+    assert unhandled.accepted is True
+    from studio_api.models import DiagnosticEvent
+    assert db.query(DiagnosticEvent).count() == 2
+
 def test_event_registry_is_event_specific_and_redacts_values(db):
     from studio_api.diagnostics import sanitize_metadata, write_diagnostic_event
     u,p,j=user_project_job(db)
@@ -421,6 +462,7 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
     import studio_api.diagnostics as diagnostics
     from studio_api import models as m
     from studio_api.diagnostics import write_diagnostic_event
+    from studio_api.runtime_observability import RuntimeIdentity
     u,p,j=user_project_job(db)
     other=m.User(email="other@example.com", role=m.UserRole.user, status=m.UserStatus.active); db.add(other); db.commit()
     Session=sessionmaker(bind=db.bind, expire_on_commit=False)
@@ -438,6 +480,13 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
     monkeypatch.setattr(main.limiter, "check", lambda *a, **k: None)
     monkeypatch.setattr(main, "cleanup_expired_diagnostics", lambda *a, **k: None)
     monkeypatch.setattr(main, "utcnow", lambda: datetime(2026,7,17,12,0,0))
+    web_identity=RuntimeIdentity("web", "0.1.0", "web-"+"a"*40, "a"*40)
+    api_identity=RuntimeIdentity("api", "0.1.0", "api-"+"a"*40, "a"*40)
+    monkeypatch.setattr(main, "load_web_runtime_identity", lambda: web_identity)
+    monkeypatch.setattr(main, "settings_runtime_identity", lambda *a, **k: api_identity)
+    monkeypatch.setattr(main, "load_worker_runtime_status", lambda *a, **k: {"status":"ready", "component":"worker", "release_version":"0.1.0", "build_id":"worker-"+"a"*40, "commit_sha":"a"*40, "heartbeat_age_seconds":5})
+    monkeypatch.setattr(main, "database_schema_revision", lambda db: "0026_runtime_component_status")
+    monkeypatch.setattr(main, "source_storage_runtime_status", lambda settings: {"status":"ready", "probe":"read_only_head"})
     try:
         client=TestClient(main.app)
         db.expire_all()
@@ -456,6 +505,9 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
         assert client.get("/api/diagnostics/events?start=2026-01-01T00:00:00&end=2026-01-10T00:00:00").status_code == 422
         sysr=client.get("/api/diagnostics/system").json()
         assert set(sysr["build"]) == {"web","api","worker"} and "sqlite" not in str(sysr) and "example.com" not in str(sysr)
+        assert sysr["release_version"] == "0.1.0" and sysr["schema_revision"] == "0026_runtime_component_status"
+        assert {sysr["components"][key]["commit_sha"] for key in ("web","api","worker")} == {"a"*40}
+        assert sysr["health"]["object_storage"] == {"status":"ready", "probe":"read_only_head"}
         report=client.post("/api/diagnostics/report.md", json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id,"problem_description":"Задача не завершилась","operation_reference":"canary 14:20"}, headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"})
         assert report.status_code == 200
         assert report.headers["content-type"].startswith("text/markdown") and "studio-diagnostics-report.md" in report.headers["content-disposition"]

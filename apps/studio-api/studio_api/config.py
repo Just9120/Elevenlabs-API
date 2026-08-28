@@ -65,9 +65,12 @@ class Settings(BaseSettings):
     diagnostic_debug_retention_hours: int = Field(default=24, ge=1, le=24)
     diagnostic_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86400)
     diagnostic_cleanup_batch_size: int = Field(default=500, ge=1, le=1000)
-    diagnostic_web_build_id: str = Field(default="unknown", max_length=120)
-    diagnostic_api_build_id: str = Field(default="unknown", max_length=120)
-    diagnostic_worker_build_id: str = Field(default="unknown", max_length=120)
+    runtime_component: str = Field(default="unknown", max_length=20)
+    runtime_release_version: str = Field(default="unknown", max_length=120)
+    runtime_commit_sha: str = Field(default="unknown", max_length=40)
+    runtime_build_id: str = Field(default="unknown", max_length=120)
+    runtime_worker_heartbeat_interval_seconds: int = Field(default=30, ge=5, le=300)
+    runtime_worker_stale_after_seconds: int = Field(default=120, ge=30, le=900)
     diagnostic_report_max_events: int = Field(default=5000, ge=1, le=5000)
 
     @field_validator("trusted_proxy_ip")
@@ -81,6 +84,8 @@ class Settings(BaseSettings):
     def validate_worker_lease_heartbeat(self):
         if self.worker_lease_heartbeat_interval_seconds * 3 > self.worker_lease_ttl_seconds:
             raise ValueError("worker lease heartbeat interval must be at most one third of worker lease ttl")
+        if self.runtime_worker_heartbeat_interval_seconds * 2 > self.runtime_worker_stale_after_seconds:
+            raise ValueError("runtime worker stale threshold must cover at least two heartbeat intervals")
         return self
 
     def master_key_b64(self) -> str:

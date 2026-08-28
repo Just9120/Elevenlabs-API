@@ -13,6 +13,7 @@ _API_ENDPOINT_GROUPS = (
     ("/api/jobs", "jobs"),
     ("/api/sources", "sources"),
     ("/api/transcript-catalog", "transcript_catalog"),
+    ("/api/transcript-maintenance", "transcript_maintenance"),
     ("/api/google", "google"),
     ("/api/credentials", "credentials"),
     ("/api/projects", "projects"),
