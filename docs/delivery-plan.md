@@ -16,24 +16,24 @@
   6. `TDS-06`: Studio mutation остаётся revision-controlled/fail-closed; creation reconciliation не допускает silent duplicate; unsupported/multi-tab/conflicting documents не мутируются; secrets/document content не попадают в logs.
   7. `TDS-07`: focused tests покрывают text model, UTF-16 ranges, Studio transport/create, Colab paths, dry-run/apply/idempotency/conflict; полные Python/Studio/lint/build checks green.
   8. `TDS-08`: один initial push/PR после полной local validation; required exact-head checks green; merge gates, applicable API/worker/web/Colab delivery и authenticated owner LIVE подтверждают один новый и один existing standardized document.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** exact rich-text ranges используют Google Docs UTF-16 indices; Studio create + format должна сохранять existing reconciliation boundary; Colab launcher читает `elevenlabs_api.py` из `main`; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Immediate implementation blocker отсутствует.
 - **Stop condition:** все Goal AC и canonical `CB-24`/`PD-07..13` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T20:43:39Z.
+- Updated (UTC): 2026-08-28T20:48:49Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@26fb497496ed2a418a12afc6b3cf081e45075e57`.
 - Working branch: `codex/transcript-doc-standard-01`.
-- Last verified revision: local `da8a31186af1ce4a462a758b150f1d29fee99553`; worktree clean.
+- Last verified revision: published PR head `3966bd054719089c69b79870ac8be73ef915fbdd`; pending local CI-fixture correction changes only four current-standard test rows plus this checkpoint.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
 - Completed: Studio deterministic document model использует exact UTF-16 ranges, versionless/localized text и H2/11 pt/14 pt styles; create transport fail-closed форматирует Drive-created document и сохраняет reconciliation authority при ошибке; revision-controlled standardization меняет text+styles одним bounded batch; standalone Colab creation/update применяет тот же semantic contract; Studio frontend runtime validator и copy принимают только `transcript_doc`. Созданы commits `8f1c4cf`, `aeac68c`, `f4ed35c`.
-- Current step: опубликовать полностью локально проверенную ветку одним initial push и открыть PR.
-- Next exact action: `git push -u origin codex/transcript-doc-standard-01`, создать PR и ждать required exact-head checks без speculative reruns.
-- Validation and Evidence: `scripts/ci_checks.py` success; Python portable `1106 passed, 5 skipped`; focused Colab `201 passed`; Studio Vitest `627 passed`, ESLint success, TypeScript/Vite/PWA build success; `git diff --check` success. Полный service-backed Python/browser E2E остаётся exact-head CI gate. Repository public, все workflows используют standard `ubuntu-latest`; эти minutes бесплатны и не расходуют private-repository included quota. Billing API aggregate недоступен текущему token без дополнительного `user` scope, который не расширялся. Baseline exact-main CI `33205123663`, Studio PWA CI `33205123676` и CD `33205123712` относятся к предыдущей revision.
-- Pull Request / CI / deployment: отсутствуют для current Goal. Production repository/web/API `26fb497496ed2a418a12afc6b3cf081e45075e57`; worker остаётся на совместимой предыдущей revision; schema `0027_query_bounds`.
-- Blockers: отсутствуют.
+- Current step: исправить подтверждённый repository CI failure и отправить разрешённый один grouped follow-up batch.
+- Next exact action: commit test-fixture correction + checkpoint, один grouped push, затем ждать новый exact-head CI без rerun старого run.
+- Validation and Evidence: initial head local checks: `scripts/ci_checks.py` success; Python portable `1106 passed, 5 skipped`; focused Colab `201 passed`; Studio Vitest `627 passed`, ESLint success, TypeScript/Vite/PWA build success; `git diff --check` success. PR Studio run `33209541480`: `studio` success, `browser-e2e` success. Repository run `33209541468`: `1383 passed`, four `test_studio_api_core.py` failures because current-evidence fixtures всё ещё записывали legacy `transcript_doc_v1.2` и корректно классифицировались implementation как `standardization_required`; runtime code failure не обнаружен. Local correction меняет эти fixtures на current `transcript_doc`; focused regression `111 passed`, lightweight CI checks и diff check success. Repository public, все workflows используют standard `ubuntu-latest`; эти minutes бесплатны и не расходуют private-repository included quota. Billing API aggregate недоступен текущему token без дополнительного `user` scope, который не расширялся.
+- Pull Request / CI / deployment: PR `#256`; initial head `3966bd0`; Studio CI success, repository CI failed as classified above; deployment отсутствует. Production repository/web/API `26fb497496ed2a418a12afc6b3cf081e45075e57`; worker остаётся на совместимой предыдущей revision; schema `0027_query_bounds`.
+- Blockers: подтверждённый CI failure исправлен локально; ожидает единственный grouped follow-up push.
 - Unverified assumptions: existing Google OAuth scopes разрешают требуемые Docs `batchUpdate`; current single-tab standardization snapshot даёт достаточные exact indices для style replacement; LIVE можно выполнить без нового provider call на уже завершённом transcript output.
 - Preserved pre-existing changes: отсутствуют.
 
