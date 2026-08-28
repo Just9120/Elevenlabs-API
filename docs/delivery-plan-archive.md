@@ -960,6 +960,17 @@ Goal `PWA-AUDIO-DIRECT-DRIVE-UPLOAD-01` завершена 2026-08-28 полны
 - Canonical `AP-01` и `AP-25..30` выполнены; `PWA-AUDIO-PREPARATION-01 30/30`, closure readiness `228/552`, non-commercial `228/310`, personal PWA `197/278`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - Feature branch удалена local/remote после проверки identical tree с `origin/main`; local `main` синхронизирован с exact merge SHA. Approved metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале `TRANSCRIPT-DOC-STANDARD-01`.
 
+## Archived PR #256 transcript document standard closure
+
+Goal `TRANSCRIPT-DOC-STANDARD-01` завершена 2026-08-28 полным delivery flow.
+
+- Base: `main@26fb497496ed2a418a12afc6b3cf081e45075e57`; PR `#256` merged как `main@c065b629db9875ddd92bf30ce67d8290c018f067`.
+- Exact PR-head repository CI `33209885606` и Studio/browser CI `33209885618` завершились success; exact-main repository CI `33210100820` и Studio/browser CI `33210100733` также success.
+- Studio Platform CD `33210100650` и reviewed follow-up delivery `33210659993` завершились success; production schema осталась `0027_query_bounds`.
+- Canonical `CB-24` и `PD-07..13` реализовали versionless `transcript_doc`, русские structural labels, `Heading 2`, body `11 pt`, speaker labels bold `14 pt` и existing explicit standardization без provider call.
+- Closure readiness: `236/552`, non-commercial `236/310`, personal PWA `204/278`; document-format AC `8/8`. Последующий owner report о generic maintenance failure относится к synchronous operation execution/UX и стал отдельным scope `TRANSCRIPT-MAINTENANCE-WORKSPACE-01`, а не откатом document-format contract.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal без отдельного docs-only PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

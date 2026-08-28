@@ -2,58 +2,57 @@
 
 ## Current Goal
 
-- **ID / title:** `TRANSCRIPT-DOC-STANDARD-01` — versionless rich-text standard `transcript_doc`.
+- **ID / title:** `TRANSCRIPT-MAINTENANCE-WORKSPACE-01` — app-owned workspace и durable transcript maintenance.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction 2026-08-28 «ставь цель и приступай к фиксу» после подтверждения legacy output в новых transcripts.
-- **Scope:** единый versionless `transcript_doc` для всех новых Google Docs transcripts Studio PWA и Colab; внутридокументное название `HEADING_2`; русские structural labels `Метаданные транскрипта`, `Транскрипция`, `Спикер N:`; English metadata keys и устойчивые technical terms; speaker label bold `14 pt`; обычный transcript body `11 pt`; rich-text Google Docs `batchUpdate`; existing explicit recursive dry-run/apply standardization; idempotent/fail-closed mutation; focused/full validation, exact-head CI, applicable delivery и authenticated LIVE на новом и существующем документе.
-- **Non-goals:** commercial scope; provider/STT behavior или spend; transcript content rewriting; speaker identity mapping; OAuth scope expansion; DB migration; arbitrary Docs editor; automatic bulk mutation без explicit apply; unrelated refactors.
+- **Authorization source:** explicit owner instruction 2026-08-29 «ставь цель и приступай» после production observations: legacy Google picker, неудачное расположение maintenance flow и generic standardization failure.
+- **Scope:** перенести две независимые операции в `Транскрибации → Обслуживание`; оставить в Connections только grants/consent; использовать app-owned searchable folder/Google Doc dialogs; заменить long-running synchronous dry-run/apply на owner-scoped durable background runs с progress, idempotency, preview-bound apply, lease heartbeat/recovery и structured safe errors; добавить additive schema, API/worker/web wiring, tests, documentation, protected delivery и bounded authenticated LIVE.
+- **Non-goals:** commercial contour; provider/STT calls или spend; изменение `transcript_doc`; automatic apply; произвольный Drive/Docs browser access; расширение OAuth scopes; повышение nginx timeout как замена durable execution; изменение `docs/ci-cd-rules.md`; unrelated refactors.
 - **Goal AC:**
-  1. `TDS-01`: canonical `CB-24` и `PD-07..13`, versionless identifier, readiness denominator и checkpoint отражают owner-approved contract без изменения durable semantics.
-  2. `TDS-02`: один deterministic document model строит localized plain text и exact UTF-16 Google Docs style ranges; legacy `transcript_doc_v1.2` распознаётся как outdated, current `transcript_doc` — как current.
-  3. `TDS-03`: каждый новый Studio Google Doc создаётся с preserved Drive file title и затем получает verified rich-text formatting: `HEADING_2`, speaker label bold `14 pt`, обычный transcript body `11 pt`.
-  4. `TDS-04`: все create/update/recreate/copy paths Colab используют тот же versionless contract и rich-text formatting без изменения provider/transcription behavior.
-  5. `TDS-05`: existing explicit recursive dry-run/apply standardization переводит eligible legacy/current documents в `transcript_doc`, сохраняет authoritative title/metadata/transcript content и повторный apply не создаёт semantic/style drift.
-  6. `TDS-06`: Studio mutation остаётся revision-controlled/fail-closed; creation reconciliation не допускает silent duplicate; unsupported/multi-tab/conflicting documents не мутируются; secrets/document content не попадают в logs.
-  7. `TDS-07`: focused tests покрывают text model, UTF-16 ranges, Studio transport/create, Colab paths, dry-run/apply/idempotency/conflict; полные Python/Studio/lint/build checks green.
-  8. `TDS-08`: один initial push/PR после полной local validation; required exact-head checks green; merge gates, applicable API/worker/web/Colab delivery и authenticated owner LIVE подтверждают один новый и один existing standardized document.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** exact rich-text ranges используют Google Docs UTF-16 indices; Studio create + format должна сохранять existing reconciliation boundary; Colab launcher читает `elevenlabs_api.py` из `main`; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Immediate implementation blocker отсутствует.
-- **Stop condition:** все Goal AC и canonical `CB-24`/`PD-07..13` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
+  1. `TMW-01`: canonical `PTM-01..08`, denominator и current checkpoint отражают согласованный scope.
+  2. `TMW-02`: Settings содержит только connection/maintenance consent и переход; обе операции доступны в отдельном Transcriptions workspace.
+  3. `TMW-03`: folder/document selection использует app-owned searchable dialog с navigation/current-folder/scroll-lock boundaries; legacy native Picker остаётся только для явно совместимого catalog-folder flow вне maintenance.
+  4. `TMW-04`: POST создаёт durable owner-scoped run и быстро возвращает `202`; GET восстанавливает persisted progress/result после remount/reload.
+  5. `TMW-05`: worker claim/reclaim/heartbeat/fencing, bounded attempts и normal-work priority не допускают concurrent overwrite или starvation обычной обработки.
+  6. `TMW-06`: apply принимает только successful owner preview ID, server-side наследует target и fresh revalidates перед mutation; idempotency/conflict fail closed.
+  7. `TMW-07`: browser DTO/logs не раскрывают Drive/document IDs, tokens, contents или raw Google detail; terminal failures имеют structured safe code/retryability и русское действие.
+  8. `TMW-08`: focused/full local validation, exact-head CI, protected additive migration, API/worker/web delivery и bounded authenticated dry-run/apply LIVE завершаются без provider call.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** migration `0028_transcript_maintenance_runs` должна пройти только protected migration lane до dependent API/worker rollout; worker получает existing separate maintenance OAuth client secret server-side, browser/web — никогда; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Immediate implementation blocker отсутствует.
+- **Stop condition:** все Goal AC и `PTM-01..08` имеют required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T20:48:49Z.
+- Updated (UTC): 2026-08-28T23:35:00Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
-- Base branch/SHA: verified `origin/main@26fb497496ed2a418a12afc6b3cf081e45075e57`.
-- Working branch: `codex/transcript-doc-standard-01`.
-- Last verified revision: published PR head `3966bd054719089c69b79870ac8be73ef915fbdd`; pending local CI-fixture correction changes only four current-standard test rows plus this checkpoint.
+- Base branch/SHA: verified `origin/main@c065b629db9875ddd92bf30ce67d8290c018f067`.
+- Working branch: `codex/transcript-maintenance-workspace-01`.
+- Last verified revision: frontend workspace commit `735c02c` on top of backend `5b7ded4`; docs остаются uncommitted.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: Studio deterministic document model использует exact UTF-16 ranges, versionless/localized text и H2/11 pt/14 pt styles; create transport fail-closed форматирует Drive-created document и сохраняет reconciliation authority при ошибке; revision-controlled standardization меняет text+styles одним bounded batch; standalone Colab creation/update применяет тот же semantic contract; Studio frontend runtime validator и copy принимают только `transcript_doc`. Созданы commits `8f1c4cf`, `aeac68c`, `f4ed35c`.
-- Current step: исправить подтверждённый repository CI failure и отправить разрешённый один grouped follow-up batch.
-- Next exact action: commit test-fixture correction + checkpoint, один grouped push, затем ждать новый exact-head CI без rerun старого run.
-- Validation and Evidence: initial head local checks: `scripts/ci_checks.py` success; Python portable `1106 passed, 5 skipped`; focused Colab `201 passed`; Studio Vitest `627 passed`, ESLint success, TypeScript/Vite/PWA build success; `git diff --check` success. PR Studio run `33209541480`: `studio` success, `browser-e2e` success. Repository run `33209541468`: `1383 passed`, four `test_studio_api_core.py` failures because current-evidence fixtures всё ещё записывали legacy `transcript_doc_v1.2` и корректно классифицировались implementation как `standardization_required`; runtime code failure не обнаружен. Local correction меняет эти fixtures на current `transcript_doc`; focused regression `111 passed`, lightweight CI checks и diff check success. Repository public, все workflows используют standard `ubuntu-latest`; эти minutes бесплатны и не расходуют private-repository included quota. Billing API aggregate недоступен текущему token без дополнительного `user` scope, который не расширялся.
-- Pull Request / CI / deployment: PR `#256`; initial head `3966bd0`; Studio CI success, repository CI failed as classified above; deployment отсутствует. Production repository/web/API `26fb497496ed2a418a12afc6b3cf081e45075e57`; worker остаётся на совместимой предыдущей revision; schema `0027_query_bounds`.
-- Blockers: подтверждённый CI failure исправлен локально; ожидает единственный grouped follow-up push.
-- Unverified assumptions: existing Google OAuth scopes разрешают требуемые Docs `batchUpdate`; current single-tab standardization snapshot даёт достаточные exact indices для style replacement; LIVE можно выполнить без нового provider call на уже завершённом transcript output.
+- Completed: commit `5b7ded4` добавил durable backend/schema/worker; commit `735c02c` добавил app-owned folder/document dialogs, `Транскрибации → Обслуживание`, persisted progress/error UX, Settings connection-only view и frontend regressions. Canonical docs локально готовы.
+- Current step: полная local validation завершена; выполнить один initial push и создать PR.
+- Next exact action: push `codex/transcript-maintenance-workspace-01`, создать PR в `main` и ждать exact-head required checks без speculative rerun.
+- Validation and Evidence: `scripts/ci_checks.py` success; maintenance backend focused `31 passed`; worker Compose `6 passed`; portable Python `1113 passed, 5 skipped`; Studio Vitest `632 passed`; ESLint success; TypeScript/Vite/PWA production build success; `git diff --check` success. Plain local Windows pytest был остановлен после ожидаемых POSIX shell/service-fixture failures; required service-backed full suite остаётся exact-head CI gate.
+- Pull Request / CI / deployment: отсутствуют; initial push теперь разрешён полной local validation. Repository public и использует standard GitHub-hosted runners, поэтому private-repository included Actions minutes не расходуются.
+- Blockers: отсутствуют.
+- Unverified assumptions: production maintenance grant для того же owner остаётся refreshable из worker; representative canary folder укладывается в bounded traversal; exact production schema/runtime identities будут проверены перед protected delivery.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по exact-main code/tests/CI/deployment/LIVE; previous snapshot — состояние до завершения direct-upload Goal.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по current local CODE/TEST; previous snapshot — последний расчёт до добавления `PTM-01..08`. Evidence gate-ит READY, но не меняет numerator.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **42,8% (`236/552`)** | **41,3% (`228/552`)** | Local CODE/TEST выполняют `CB-24` и `PD-07..13`; CI/deployment/LIVE gate-ят READY, но не добавляют AC к numerator. |
-| **Non-commercial scope** | **76,1% (`236/310`)** | **73,5% (`228/310`)** | Colab `32/32` + personal PWA `204/278`; denominator не менялся. |
-| **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | В durable BACKLOG, вне Goal; implementation запрещена. |
-| **Google Colab canonical** | **100% (`32/32`)** | **96,9% (`31/32`)** | `CB-24` подтверждён local CODE/TEST; CI/LIVE ещё gate-ят lifecycle READY. |
-| **Personal Studio PWA canonical** | **73,4% (`204/278`)** | **70,9% (`197/278`)** | `PD-07..13` подтверждены local CODE/TEST; production delivery ещё не выполнена. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`30/30`)** | **100% (`30/30`)** | Не затронут current Goal; PR `#255` остаётся exact-main delivery Evidence. |
-| `PWA-STANDARDIZATION-01` | **100% (`13/13`)** | **46,2% (`6/13`)** | Рост `+53,8` п.п. вызван выполнением семи owner-approved format AC `PD-07..13`; READY ожидает CI/deployment/LIVE Evidence. |
-| `PWA-GOOGLE-PICKER-UX-01` | **100% (`8/8`)** | **100% (`8/8`)** | PR `#253/#254`, exact-main CI/web/LIVE. |
-| `PWA-BATCH-01` | **100% (`11/11`)** | **100% (`11/11`)** | PR `#253/#254`, exact-main CI/web/LIVE. |
+| **Полный canonical scope** | **43,6% (`244/560`)** | **42,8% (`236/552`)** | Owner-approved Goal добавила и local CODE/TEST выполняют `PTM-01..08`; denominator `+8`, numerator `+8`. |
+| **Non-commercial scope** | **76,7% (`244/318`)** | **76,1% (`236/310`)** | Colab `32/32` + personal PWA `212/286`; commercial не включена в numerator. |
+| **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | В durable BACKLOG, implementation не авторизована. |
+| **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает. |
+| **Personal Studio PWA canonical** | **74,1% (`212/286`)** | **73,4% (`204/278`)** | `PTM-01..08` реализованы и локально протестированы; CI/deployment/LIVE ещё gate-ят lifecycle. |
+| `PWA-TRANSCRIPT-MAINTENANCE-01` | **100% (`8/8`)** | **N/A** | Новый explicit scope; local CODE/TEST complete, required CI/DEPLOY/LIVE отсутствуют. |
+| `PWA-STANDARDIZATION-01` | **100% (`13/13`)** | **100% (`13/13`)** | Document-format AC не изменены; current Goal ремонтирует operation UX/execution boundary. |
+| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Business rules не изменены; representative import/clear LIVE остаётся отдельным Evidence gap эпика. |
 
-Изменение `PWA-STANDARDIZATION-01` больше `10` п.п. (`+53,8` п.п.) обусловлено не переоценкой старого scope, а реализацией всех семи ранее открытых atomic AC current Goal. Denominator `13` не изменился.
+Ни одна сопоставимая оценка не изменилась более чем на `10` п.п. Новый эпик не имеет предыдущего denominator и поэтому обозначен `N/A`, а не искусственным процентом.
 
 ## Candidate next Goals
 
@@ -62,13 +61,12 @@
 
 ## Risks и boundaries
 
-- Google Docs indices используют UTF-16 code units; emoji/non-BMP text обязаны быть покрыты tests.
-- File title и in-document title различны: standardization не переименовывает Drive file и использует authoritative current title.
-- Creation reconciliation не разрешает повторно создавать документ после ambiguous Drive/Docs response.
-- Standardization dry-run не мутирует; apply работает только по explicit owner action и required revision.
-- Authenticated LIVE не запускает новый provider call: используется уже завершённый output или synthetic owner-controlled fixture.
-- GitHub Actions minutes проверяются перед единственным initial push; speculative reruns запрещены.
-- Approved post-deploy metadata writer отсутствует; protections не обходятся и отдельный docs-only follow-up PR не создаётся.
+- Additive schema — protected stateful release; ordinary component CD не применяет migration.
+- Maintenance worker использует отдельный server-only grant; token/secret/Drive IDs не входят в browser state или validation evidence.
+- Dry-run не мутирует. Apply требует explicit owner confirmation и successful preview, но всё равно свежо проверяет Google state перед mutation.
+- Maintenance имеет более низкий claim priority, чем audio preparation и transcription jobs.
+- Authenticated LIVE выполняется только на owner-approved small target и без provider call.
+- Approved post-deploy metadata writer отсутствует; protection rules не обходятся и отдельный docs-only follow-up PR не создаётся.
 
 ## Sources of truth
 

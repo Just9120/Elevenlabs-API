@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@26fb497496ed2a418a12afc6b3cf081e45075e57` (PR `#255`). Exact-main CI, Studio CI, API+web CD и authenticated LIVE подтвердили app-owned picker UX, direct browser-to-Drive upload, progress/cancel/safe retry и server-side result verification без provider call. Production worker остаётся на совместимой предыдущей revision, production schema — `0027_query_bounds`; exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@c065b629db9875ddd92bf30ce67d8290c018f067` (PR `#256`). Exact-main CI и API/web delivery подтвердили versionless rich-text `transcript_doc`; production schema остаётся `0027_query_bounds`. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `TRANSCRIPT-DOC-STANDARD-01` на branch `codex/transcript-doc-standard-01` от verified base `main@26fb497496ed2a418a12afc6b3cf081e45075e57`. Goal авторизует versionless rich-text `transcript_doc` для новых Studio/Colab Google Docs и existing explicit dry-run/apply standardization по `CB-24` и `PD-07..13`. Commercial, provider/STT behavior/spend, OAuth scope expansion, DB migration и unrelated refactors вне scope.
+Current operational Goal: `TRANSCRIPT-MAINTENANCE-WORKSPACE-01` на branch `codex/transcript-maintenance-workspace-01` от verified base `main@c065b629db9875ddd92bf30ce67d8290c018f067`. Goal авторизует `PTM-01..08`: отдельный workspace обслуживания в `Транскрибации`, app-owned Google Drive picker и durable owner-scoped background runs вместо long-running HTTP request. Commercial, provider/STT behavior/spend, изменение document standard, automatic apply и ослабление CI/CD safety вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | local CODE/TEST выполняют `CB-24`; READY остаётся gated current Goal CI/LIVE |
-| Personal Studio PWA | **73,4% (`204/278`)** | local CODE/TEST выполняют `PD-07..13`; exact-head CI/deployment/LIVE ещё не подтверждены |
-| Non-commercial scope | **76,1% (`236/310`)** | Colab `32/32` + personal PWA `204/278` |
+| Personal Studio PWA | **74,1% (`212/286`)** | local CODE/TEST выполняют новый bounded maintenance workspace `PTM-01..08`; exact-head CI/deployment/LIVE ещё не подтверждены |
+| Non-commercial scope | **76,7% (`244/318`)** | Colab `32/32` + personal PWA `212/286` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **42,8% (`236/552`)** | `236 / (310 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **43,6% (`244/560`)** | `244 / (318 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; completed delivery поднял numerator до `222/546`. Решение по direct Drive upload изменило формулировку `AP-01` и добавило `AP-25..30`, поэтому denominator равен `552`; current local document-standard CODE/TEST выполняют `CB-24` и `PD-07..13`, поднимая independent numerator с `228` до `236`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, поэтому current denominator равен `560`; local CODE/TEST выполняют эти восемь AC и поднимают independent numerator с `236` до `244`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -359,6 +359,23 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
 `main@800bcc820529ff3c78214c129c593d182c621c62` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Bounded production output и repeated single-document dry-run подтвердили authoritative и idempotent path; legacy unknown path остался fail-closed.
+
+### Эпик `PWA-TRANSCRIPT-MAINTENANCE-01` — workspace и durable execution обслуживания
+
+Status: **🟦 IN PROGRESS — 100% (`8/8`)**. Все AC подтверждены local CODE/TEST; READY требует exact-head CI, protected migration, API/worker/web delivery и authenticated LIVE representative dry-run/apply.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PTM-01` | Стандартизация Google Docs и `Манифест Studio` находятся в отдельном workspace `Транскрибации → Обслуживание`; `Настройки → Подключения` содержит только connection/consent controls и ссылку в workspace. | ✅ |
+| `PTM-02` | Выбор root folder и одного native Google Doc использует app-owned Google Drive dialog с навигацией, bounded search, выбором текущей папки и блокировкой фонового scroll. | ✅ |
+| `PTM-03` | Dry-run и apply выполняются как durable owner-scoped background runs и восстанавливают состояние после navigation/reload, worker restart или истечения lease; длительный Google traversal не удерживает browser HTTP request. | ✅ |
+| `PTM-04` | UI показывает persisted stage, bounded progress и terminal result; Drive/document IDs, OAuth tokens, document contents и raw Google errors не возвращаются в browser DTO и не попадают в operational logs. | ✅ |
+| `PTM-05` | Apply создаётся только из успешного owner-scoped preview, наследует его exact workflow/target, выполняет fresh server-side revalidation и остаётся explicit user-confirmed operation. | ✅ |
+| `PTM-06` | Повтор запроса idempotent, conflicting replay fail-closed, а один owner не может одновременно запустить два runs одного workflow. | ✅ |
+| `PTM-07` | Timeout, rate limit, auth/scope, selection, revision/write conflict и exhausted retry возвращаются как structured safe error codes с понятным русским действием без raw backend detail. | ✅ |
+| `PTM-08` | Worker обрабатывает maintenance runs только после normal audio-preparation/transcription work; lease generation и heartbeat не позволяют потерявшему lease worker перезаписать reclaimed run. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
