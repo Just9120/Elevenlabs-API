@@ -30,9 +30,9 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`. Exact-main repository CI `33116072365` и Studio/browser CI `33116072392` завершились success; product code Google Picker после merge `8761e86808e8562eff05588f6f60d15dd04dbcf4` не менялся. PR `#245` и Studio Platform CD `33104113313` подтвердили web-only Google Picker deployment, но authenticated production LIVE Evidence исправления отсутствует. PR `#244` source-cache/branding также merged/deployed, но его authenticated LIVE остаётся archived external gate. PR `#246` исправил webmanifest MIME; CD `33114690923` и public `application/manifest+json` header подтвердили DEPLOY/LIVE. Более ранний exact-main delivery подтвердил web/API/worker Audio scope; bounded FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC, `48 kHz`, duration `7907.718563` секунд и `334113611` bytes.
+Verified main baseline: `main@baa55d695c015385ba992b87c505d1a1fc116df3`. Exact-main repository CI `33147622878` завершился success; latest Studio/browser CI `33116072392` success относится к unchanged product-code baseline `f6b0d70`, потому что PR `#248` изменил только docs. PR `#245` и Studio Platform CD `33104113313` подтвердили web-only Google Picker deployment, но authenticated production LIVE Evidence исправления отсутствует. PR `#244` source-cache/branding также merged/deployed, но его authenticated LIVE остаётся archived external gate. PR `#246` исправил webmanifest MIME; CD `33114690923` и public `application/manifest+json` header подтвердили DEPLOY/LIVE. Более ранний exact-main delivery подтвердил web/API/worker Audio scope; bounded FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC, `48 kHz`, duration `7907.718563` секунд и `334113611` bytes.
 
-Current operational Goal: `SPEC-CANONICALIZATION-02` на branch `codex/spec-canonicalization-02` от verified base `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; она переносит явно согласованный scope в canonical contract без product/commercial implementation.
+Current operational Goal: `PWA-SESSION-CONTROL-01` на branch `codex/pwa-session-control-01` от verified base `main@baa55d695c015385ba992b87c505d1a1fc116df3`; она реализует только `PWASEC-07..PWASEC-09` для personal PWA. Commercial и остальные security AC вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -427,7 +427,7 @@ Evidence: `SPEC ✅ | CODE N/A | TEST N/A | CI N/A | DEPLOY N/A | LIVE N/A`.
 
 ### Эпик `PWA-SECURITY-HARDENING-02` — personal auth и security lifecycle
 
-Status: **⬜ BACKLOG — 33,3% (`6/18`)**. Новая implementation не авторизована; optional TOTP не блокирует вход до явного включения пользователем.
+Status: **🟦 IN PROGRESS — 33,3% (`6/18`)**. `PWASEC-07..PWASEC-09` авторизованы Goal `PWA-SESSION-CONTROL-01`; optional TOTP и остальные AC вне текущего implementation scope.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -1092,8 +1092,8 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 9. Current critical path
 
-1. Завершить `SPEC-CANONICALIZATION-02`: document validation, PR, exact-head CI и merge нового denominator `532`.
-2. Не начинать non-commercial или commercial implementation без отдельной bounded Goal.
+1. Завершить `PWA-SESSION-CONTROL-01`: `PWASEC-07..09`, API/UI/tests, exact-head CI, API/web deploy и authenticated two-session LIVE.
+2. Не расширять Goal на TOTP/password reset/re-authentication, device/IP tracking или commercial auth.
 3. Разобрать сохранённые SPEC gaps отдельным owner decision packet; не подменять решения defaults текущей реализации.
 4. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
 5. DB least privilege, exact-revision CD redesign, query bounds/storage isolation и legacy removal остаются отдельными Goals.

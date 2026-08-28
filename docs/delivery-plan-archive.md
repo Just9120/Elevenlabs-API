@@ -893,6 +893,16 @@ Goal `SPEC-RECONCILIATION-01` завершила read-only reconciliation exact 
 - Публикация отдельного non-canonical audit-report была остановлена safety gate; explicit owner instruction затем отказалась от report и отдельно авторизовала перенос требований в canonical `docs/project-spec.md`.
 - Локальные reconciliation commits `7e6139c`, `be30f0a`, `a87b254` не публиковались отдельно; дальнейшее состояние отражает `SPEC-CANONICALIZATION-02`.
 
+## Archived PR #248 canonical requirements closure
+
+Goal `SPEC-CANONICALIZATION-02` завершена 2026-08-28 без публикации отдельного audit-report.
+
+- PR `#248` head `6a817f403ece8b33d6c2a55fa6e164fbfe6099e8` merged как `baa55d695c015385ba992b87c505d1a1fc116df3`.
+- Exact-head repository CI `33147462748` и exact-main CI `33147622878` завершились success, включая Alembic validation, lightweight checks и полный pytest.
+- Canonical denominator стал `532`: `203/290` non-commercial и `0/242` commercial/cross-contour; full readiness `203/532 = 38,2%`.
+- Separate non-canonical reconciliation report отсутствует в main и PR history. Studio CI/CD корректно не запускались по docs-only path; `DEPLOY/LIVE N/A`.
+- Remote/local feature branches удалены; `main` синхронизирован с `origin/main@baa55d6`. Approved metadata writer отсутствовал, поэтому closure reconciled в начале `PWA-SESSION-CONTROL-01`.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
