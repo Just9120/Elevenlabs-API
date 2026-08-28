@@ -2,51 +2,50 @@
 
 ## Current Goal
 
-- **ID / title:** `REPO-HARDENING-01` — первая очередь технического долга, documentation truth и CI efficiency.
-- **State:** `IN_PROGRESS` — Goal явно авторизована, exact base проверен, отдельная feature branch создана.
-- **Authorization source:** explicit user instruction 2026-08-27 «формируй общую цель под техдолгу, документам и CI, и приступай»; audit findings — supporting evidence, а не отдельная authorization.
-- **Scope:** восстановить operational metadata после PR `#245`; синхронизировать README, security/processing/runbook facts и placement dated audit; исправить подтверждённый `.webmanifest` MIME defect с regression; ускорить repository и Studio CI через content-addressed caches и эквивалентное более частое service-health polling; pin все external actions в active workflows на verified immutable SHA без изменения production workflow logic; выполнить bounded cold/warm benchmark без сокращения validation surface; applicable PR/merge/web delivery/public LIVE.
-- **Non-goals:** изменение product requirements/AC или commercial implementation; удаление deprecated/legacy API без usage evidence; big-bang refactor крупных frontend/API modules; DB roles/schema/data migration; pagination/load/multi-worker work; branch protection/rulesets; exact-revision CD redesign; CI/CD safety-contract change; paid/provider/Google mutations; larger/self-hosted runners и новые scheduled workflows.
+- **ID / title:** `SPEC-CANONICALIZATION-02` — перенос согласованного upstream scope в canonical spec.
+- **State:** `IN_PROGRESS` — canonical AC перенесены локально; validation/commit/PR/CI ещё не завершены.
+- **Authorization source:** explicit user instruction 2026-08-28 «отчет в репозитории не нужен. добавь эти требования в project-spec»; ранее owner включил commercial scope, но запретил его текущую implementation.
+- **Scope:** перенести все однозначно атомизированные upstream requirements в `docs/project-spec.md`; включить `142` non-commercial и `242` commercial/cross-contour AC; оставить commercial в `BACKLOG`; сохранить conflicts/ambiguities как SPEC gaps вне denominator; пересчитать readiness; удалить локальный non-canonical report и его ссылки; обновить operational docs; выполнить docs validation, PR и required CI.
+- **Non-goals:** product/commercial implementation; самостоятельное разрешение неоднозначных product/legal решений; CI/CD/production logic; migrations, provider/Google mutations, deployment или LIVE проверки.
 - **Goal AC:**
-  1. `RH-01`: README и current canonical/operational documents описывают exact merged/runtime state, source priority и current Goal без stale candidate claims; archive не используется как current readiness input.
-  2. `RH-02`: stale security/processing/runbook statements исправлены или явно отделены как historical examples; dated audit находится вне operational runbooks; links проходят проверку.
-  3. `RH-03`: container nginx отдаёт `/manifest.webmanifest` как `application/manifest+json`; focused regression и public post-deploy header check проходят.
-  4. `RH-04`: существующие `pytest`, lightweight checks, frontend lint/unit/build, authenticated browser E2E, Compose, image build и secret/non-root validations не удалены и не ослаблены; PR-head и exact-main gates сохраняются.
-  5. `RH-05`: pip, exact Playwright browser и Docker layers используют bounded content-addressed caches; PostgreSQL/Redis readiness проверяется чаще при не меньшем total retry window; active cache остаётся не более `4 GiB`.
-  6. `RH-06`: все external actions в active workflows pinned на verified full commit SHA; permissions и production workflow logic не изменены.
-  7. `RH-07`: один заранее разрешённый warm-cache benchmark подтверждает не менее `20%` уменьшения raw runner time representative web-only PR+main validation относительно baseline `14,57 min` (target `<= 11,66 min`); cold-cache regression не превышает `10%`. Если target недостижим без ослабления gates, Goal не объявляется `DONE` и blocker фиксируется.
-  8. `RH-08`: local validation, exact PR-head CI, merge, applicable web deployment и public MIME LIVE завершены; failures/skips классифицированы, а product readiness не изменена без изменения atomic AC.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ✅ | LIVE ✅`.
-- **Known blockers/dependencies:** первый cache run является cold; Goal разрешает ровно один дополнительный controlled warm-cache benchmark после наполнения cache. Account-level billing attribution недоступна текущему `gh` token без дополнительного `user` scope, но repository public и использует только standard `ubuntu-latest`. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+  1. `SC-01`: `142` новых non-commercial AC перечислены atomically и имеют уникальные IDs; current completion `55/142` воспроизводим по строкам `Выполнено`.
+  2. `SC-02`: `50` cross-contour и `192` commercial AC перечислены atomically как `BACKLOG`, `0/242`; personal evidence не присвоено commercial contour.
+  3. `SC-03`: canonical denominator равен `148 + 142 + 50 + 192 = 532`; numerator `203`, full readiness `38,2%`, non-commercial `203/290 = 70,0%`.
+  4. `SC-04`: десять conflict/ambiguity/runtime-risk records сохранены как SPEC gaps вне denominator; решения не придуманы.
+  5. `SC-05`: non-canonical audit-report отсутствует в итоговом repository diff, а README/delivery/spec не ссылаются на него.
+  6. `SC-06`: local structure/count/link checks, `ci_checks`, exact PR-head CI и merge завершены; `DEPLOY/LIVE` имеют `N/A` для docs-only Goal.
+- **Required Evidence:** target `SPEC ✅ | CODE N/A | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE N/A`; current `SPEC ✅ | CODE N/A | TEST ✅ | CI — | DEPLOY N/A | LIVE N/A`.
+- **Known blockers/dependencies:** отдельные SPEC gaps требуют будущих owner decisions; legal/commercial AC требуют внешней юридической проверки и отдельной implementation authorization. Approved post-merge metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-27T20:55:30Z.
-- Session mode: authorized bounded implementation Goal.
-- Base branch/SHA: fetched `origin/main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd`; default branch `main`; local `main` clean и совпадал перед hotfix branch creation. GitHub auth active для `Just9120` с `repo/workflow` scopes.
-- Working branch: `codex/ci-playwright-cache-fastpath`; создана от exact merged PR `#246` SHA выше.
-- Last verified revision: `main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd` — PR `#246`, exact-main CI/CD и public manifest LIVE ниже.
+- Updated (UTC): 2026-08-28T06:11:02Z.
+- Session mode: authorized docs-only canonicalization; product/commercial implementation запрещена.
+- Base branch/SHA: fetched `origin/main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; local `main` clean и совпадал с origin; open PR отсутствовали.
+- Working branch: `codex/spec-canonicalization-02`; чистая публикационная branch создана от exact verified `origin/main` SHA выше, итоговый net diff перенесён через squash без истории удалённого audit-report.
+- Last verified revision: base `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; current staged canonicalization diff прошёл local structure/count/link checks, а containing commit намеренно не self-referenced.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: PR `#246` merged as `5a4115a`; repository CI `33114690918`, Studio CI `33114690898`, web CD `33114690923` success; public manifest MIME LIVE success. Documentation consolidation, manifest regression, immutable action refs, caches, equivalent service polling, PR-only cancellation, revision-specific main concurrency и main-only BuildKit writes merged. Review thread `PRRT_kwDOSEKZn86c-Hu9` resolved. Original branch safely removed local/remote.
-- Current step: устранить неустойчивость warm target: exact Playwright cache hit всё ещё запускает `install --with-deps` и добавляет `13–42s` runner time.
-- Next exact action: локально проверить cache-hit fast path, затем сделать один initial push hotfix branch, PR и required exact-head/main gates без дополнительного manual benchmark.
-- Validation and Evidence: local Python portable suite `1072 passed, 5 skipped`; frontend ESLint PASS, Vitest `603/603`, TypeScript/Vite build PASS, Playwright discovery `11`; workflow/static contracts PASS. PR `#246` final head checks success; exact-main CI/CD success. Worst observed fill pair `943s / 15,72 min` против baseline `874s / 14,57 min`, то есть `+7,9%` и cold AC проходит. Controlled warm main runs `33115045423`/`33115048697` success: `143+93+128=364s`. Warm PR observations: `322s` и `373s`; pair range `686–737s / 11,43–12,28 min`, поэтому improvement range `15,7–21,5%` не подтверждает устойчивое `>=20%`. Step evidence локализует всю вариативность в unconditional Chromium install (`13s` против `42s`). Cache after benchmark `1625630008` bytes (`61` entries), ниже `4 GiB`. Local Docker unavailable.
-- Pull Request / CI / deployment: PR `#246` merged; hotfix PR ещё не создан. Новое deployment не требуется: изменяется только CI workflow/docs/tests, поэтому `DEPLOY/LIVE` текущей Goal сохраняют подтверждённое Evidence manifest remediation.
-- Blockers: performance AC пока подтверждено неустойчиво; cache-hit fast path реализуется без удаления authenticated E2E gate. Metadata writer отсутствует; final post-merge state фиксируется GitHub records/final report и reconciled в следующей authorized code-bearing Goal.
-- Unverified assumptions: exact-head browser E2E должен подтвердить, что `ubuntu-latest` + restored exact browser cache достаточно без повторного `install --with-deps`; failure будет fail-closed. Account-level billing attribution недоступна без дополнительного `user` scope.
+- Completed: exact upstream revision/tab/counts зафиксированы; `docs/project-spec.md` локально содержит `142 + 50 + 192 = 384` новых AC, canonical denominator `532`, readiness `203/532`, commercial `0/242` и десять явных SPEC-gap/risk records. Non-canonical report предназначен к удалению и не будет опубликован.
+- Current step: завершить document cleanup и независимую validation canonical registry.
+- Next exact action: удалить report/references, выполнить count/link/CI-equivalent checks и создать локальный commit canonicalization.
+- Validation and Evidence: предыдущая reconciliation подтвердила upstream counts `275 + 8 = 283`; текущие canonical count/link checks ещё выполняются. Exact-main full CI `33116072365` и Studio/browser CI `33116072392` success; exact PR-head CI остаётся обязательным.
+- Pull Request / CI / deployment: PR/push отсутствуют. `DEPLOY/LIVE` — `N/A` для docs-only Goal.
+- Blockers: отсутствуют для docs scope; будущие product/legal decisions и commercial authorization не блокируют canonicalization.
+- Unverified assumptions: сохранённые SPEC gaps не входят в denominator; existing personal capability не доказывает commercial isolation/runtime readiness.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Текущая operational Goal не добавляет product AC и не меняет denominator.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Текущий snapshot пересчитан после явного расширения canonical scope; previous snapshot сохранён для сравнения.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Current canonical scope** | **100% (`148/148`)** | **100% (`148/148`)** | Product denominator и AC completion не изменились; PR `#245` добавил exact-main CI/DEPLOY evidence, но authenticated Picker LIVE остаётся неподтверждённым. |
-| **Full upstream scope** | **N/A — `SPEC RECONCILIATION REQUIRED`** | **N/A** | Commercial production включён owner decision 2026-08-27 как BACKLOG без implementation authorization; `275` raw list-item requirements ещё не преобразованы в согласованные atomic AC, denominator отсутствует. |
-| **Google Colab** | **100% (`29/29`)** | **100% (`29/29`)** | Scope не затронут. |
-| **Studio PWA** | **100% (`119/119`)** | **100% (`119/119`)** | Все current PWA AC выполнены; Google Picker UX получил CI/DEPLOY, но authenticated LIVE остаётся `—`; Transcriptions UX LIVE `—`, Manifest LIVE `◐`. |
+| **Полный canonical scope** | **38,2% (`203/532`)** | **100% (`148/148`)** | Разница `−61,8 pp`: denominator расширен на `384` явно согласованных AC; existing completion не регрессировал. |
+| **Non-commercial scope** | **70,0% (`203/290`)** | **100% (`148/148`)** | Разница `−30,0 pp`: добавлено `142` AC, из которых `55` подтверждены; `PARTIAL` считается невыполненным. |
+| **Commercial/cross-contour** | **0% (`0/242`)** | **N/A** | Commercial включён как BACKLOG; personal reuse не доказывает isolated commercial contour. |
+| **Google Colab canonical** | **100% (`31/31`)** | **100% (`29/29`)** | Добавлены два выполненных lifecycle AC; intermittent capture сохранён как runtime risk. |
+| **Personal Studio PWA canonical** | **66,4% (`172/259`)** | **100% (`119/119`)** | Добавлено `140` AC, из них `53` выполнены. Existing LIVE gates остаются без изменений. |
 | `PWA-GOOGLE-PICKER-UX-01` | **100% (`3/3`)** | **100% (`3/3`)** | PR `#245`, exact-main CI и web deployment подтверждены; authenticated source/output-folder LIVE исправления ещё не зафиксировано как Evidence. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |
@@ -54,8 +53,8 @@
 
 ## Candidate next Goals
 
-1. `SPEC-RECONCILIATION-01` — сопоставить все upstream requirements с canonical contract, сформировать эпики/atomic AC и новый denominator; commercial production уже включён owner decision как BACKLOG, implementation продукта не входит.
-2. `CI-CD-HARDENING-02` — exact deployed revision contract, branch/ruleset/Environment enforcement и metadata synchronization; текущая Goal не меняет production safety contract.
+1. `SPEC-GAPS-DECISIONS-03` — принять bounded решения по сохранённым conflicts/ambiguities; implementation не начинается автоматически.
+2. `CI-CD-HARDENING-02` — exact deployed revision contract, branch/ruleset/Environment enforcement и metadata synchronization.
 3. `DB-LEAST-PRIVILEGE-01` — evidence actual roles и отдельные migration/application roles с backup/rollback plan.
 4. `PWA-QUERY-BOUNDS-01` — pagination/retention/query budgets и load/concurrency validation растущих collections.
 5. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.

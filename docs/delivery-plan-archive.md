@@ -871,6 +871,28 @@ Goal `PWA-GOOGLE-PICKER-UX-01` была реализована и merged чер�
 - Approved post-deploy metadata writer отсутствовал, поэтому stale pre-push checkpoint был reconciled в начале следующей explicitly authorized Goal.
 - Explicit user instruction 2026-08-27 «формируй общую цель под техдолгу, документам и CI, и приступай» авторизовала переход к `REPO-HARDENING-01`; она не превращает отсутствующий Picker LIVE в success.
 
+## Archived PRs #246–#247 repository hardening closure
+
+Goal `REPO-HARDENING-01` завершена 2026-08-27 после bounded documentation, manifest MIME и CI-efficiency hardening.
+
+- Основной PR `#246` merged как `5a4115aed22497c7cb5c6a4d38258dbcf27641bd`; cache-hit Playwright fast-path hotfix PR `#247` merged как `f6b0d70e751673ea4edb11c655a732d594ff8f31`.
+- Финальный exact-main repository CI `33116072365` и Studio/browser CI `33116072392` завершились success; browser job занял `89s`, Studio job — `97s`.
+- Representative warm PR+main runner pair сократился с baseline `874s` до `629s` (`302s + 327s`), то есть на `28,0%`, без удаления pytest, lint, unit, build, authenticated browser E2E, Compose, image, secret или non-root gates.
+- Active cache был `1,81 GiB`, ниже bounded limit `4 GiB`; external actions в active workflows pinned на immutable SHA.
+- Studio Platform CD `33114690923` доставил web-only manifest remediation; public `/manifest.webmanifest` вернул `200` и `Content-Type: application/manifest+json`.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`; product AC/denominator не менялись.
+- После проверки ancestry обе созданные ветки удалены local/remote; local `main` синхронизирован с `origin/main@f6b0d70`. Approved metadata writer отсутствовал, поэтому closure reconciled в начале `SPEC-RECONCILIATION-01`.
+
+## Archived local SPEC reconciliation
+
+Goal `SPEC-RECONCILIATION-01` завершила read-only reconciliation exact upstream Google Doc revision 2026-08-28.
+
+- Полный inventory: `283` source units = `275` list items + `8` narrative paragraphs.
+- Атомизация подготовила `142` non-commercial, `50` cross-contour и `192` commercial AC; все `384` новых IDs уникальны.
+- Independent actual-state numerator: `55/142` новых non-commercial AC; commercial/cross-contour `0/242`.
+- Публикация отдельного non-canonical audit-report была остановлена safety gate; explicit owner instruction затем отказалась от report и отдельно авторизовала перенос требований в canonical `docs/project-spec.md`.
+- Локальные reconciliation commits `7e6139c`, `be30f0a`, `a87b254` не публиковались отдельно; дальнейшее состояние отражает `SPEC-CANONICALIZATION-02`.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
