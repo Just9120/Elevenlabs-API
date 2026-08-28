@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@6cb067d1acea09bc82b70be4c415b6babdce31b2` (PR `#250`). Exact PR/main CI, web CD `33156427664`, protected migration/API `33156906021`, worker deploy `33157220511`, terminal worker status `33157438236` и bounded authenticated LIVE подтвердили `OBSERV-06/08/09/11..14/22/24..28`: exact одинаковый web/API/worker commit, release `0.1.0`, schema `0026_runtime_component_status`, dependency readiness и safe provider `probe=not_run`. Исторические delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe` (PR `#252`). Основной bounded-query delivery PR `#251` подтверждён exact-head/main CI, protected migration/API, web/worker deployment и authenticated LIVE; web-only hotfix PR `#252` устранил presentation cap audit pagination. Production schema — `0027_query_bounds`; exact component identities и historical delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `PWA-QUERY-BOUNDS-01` на branch `codex/pwa-query-bounds-01` от verified base `main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; она ограничивает growing owner collections, analytics/catalog queries и cleanup batches без изменения canonical requirements/AC/denominator. Commercial, storage redesign, DB least privilege, provider calls/spend и unrelated features вне scope.
+Current operational Goal: `PWA-TRANSCRIPTION-UX-POLISH-01` на branch `codex/pwa-transcription-ux-polish-01` от verified base `main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`. Она реализует согласованные owner annotations: app-owned source-file/source-folder picker с поиском, поиск output folders и явное состояние разделения на спикеров. Отдельно согласованный versionless standard `transcript_doc` включён в BACKLOG, но его implementation не входит в текущую Goal. Commercial, OAuth scope changes, provider calls/spend, backend import semantics и infrastructure hardening вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **100% (`31/31`)** | existing `29/29` + `COLAB-LIFECYCLE-02 2/2`; historical runtime risk не меняет numerator |
-| Personal Studio PWA | **71,4% (`185/259`)** | `PWASEC-07..09` и 13 observability AC подтверждены полным delivery |
-| Non-commercial scope | **74,5% (`216/290`)** | Colab `31/31` + personal PWA `185/259` |
+| Google Colab | **96,9% (`31/32`)** | добавлен owner-approved `CB-24`; новый format ещё не реализован |
+| Personal Studio PWA | **68,0% (`185/272`)** | добавлены 13 owner-approved UX/standardization AC; numerator не повышен до Evidence |
+| Non-commercial scope | **71,1% (`216/304`)** | Colab `31/32` + personal PWA `185/272` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **40,6% (`216/532`)** | `216 / (148 existing + 142 new non-commercial + 50 cross-contour + 192 commercial)` |
+| Полный canonical scope | **39,6% (`216/546`)** | `216 / (304 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Initial post-reconciliation snapshot `203/532 = 38,2%` вместо прежних `148/148 = 100%` отражал расширение canonical scope, а не регресс существующего кода. Полный delivery PR `#250` подтвердил 13 observability AC и поднял numerator до `216`; denominator не изменился. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 добавили ещё `14` atomic AC: `6` по Picker/diarization UX и `8` по versionless `transcript_doc`. Поэтому current denominator равен `546`, а numerator до implementation Evidence остаётся `216`. Падение `COLAB-BATCH-01`, `PWA-GOOGLE-PICKER-UX-01` и `PWA-STANDARDIZATION-01` относительно прежних 100% вызвано расширением согласованного denominator, а не регрессом уже реализованного поведения. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -67,7 +67,7 @@ Commercial scope атомизирован ниже в `242` AC без silent omi
 
 ### Эпик `COLAB-BATCH-01` — batch-транскрибация
 
-Status: **🟩 READY — 100% (`23/23`)**. Product AC, exact CI и bounded owner-controlled LIVE подтверждены.
+Status: **⬜ BACKLOG — 95,8% (`23/24`)**. Existing batch behavior подтверждено; новый owner-approved document format `CB-24` ещё не реализован и не авторизован текущей Goal.
 
 Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен; расширенный language-default scope также прошёл applicable CI и owner LIVE gates.
 
@@ -96,12 +96,13 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-21` | Видимое время документа записано в ISO 8601. | ✅ |
 | `CB-22` | Время получено из фактического creation time исходного media file. | ✅ |
 | `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. | ✅ |
+| `CB-24` | Каждый новый Colab transcript создаётся в canonical versionless формате `transcript_doc`: название документа — Google Docs `Heading 2`, метка `Спикер N:` — русская, bold и `14 pt`, обычный текст — `11 pt`; устойчивые technical terms и metadata keys остаются на английском. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE ✅`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY N/A | LIVE ◐`.
 
 Verified state: `main@c9ac43fc71a97a868db744088c06c69882a555fa` выбирает auto-detection по умолчанию без удаления explicit Russian/English overrides. Exact-main batch canary обработал supported media из вложенной local folder, создал native Google Doc с authoritative embedded creation time в strict ISO 8601 и обновил manifest после создания документа; CODE/TEST также подтверждают English, safe manifest clear и post-output-only source persistence.
 
-Definition of Done: `23/23`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data.
+Definition of Done: `23/24`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data. Новый `CB-24` включён в durable scope, но его implementation не авторизована текущей Goal.
 
 ### Эпик `COLAB-REALTIME-01` — realtime-транскрибация
 
@@ -190,19 +191,24 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified implementation: Favorites и local folder flow подтверждены. `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8` использует exact `drive.file + drive.readonly`, требует reconnect для старых grants, отдельно gate-ит source-folder traversal по `drive.readonly` и отклоняет full `drive`/unrelated scopes. Exact-main CI, web deployment, оба OAuth reconnect и bounded LIVE подтвердили рекурсивный import девяти supported Drive files в девять composer rows без запуска provider job. Первая поздно выбранная verified target folder заполняет только unassigned rows, последующий per-row override сохраняется; все девять строк сохранили `До конца файла` и достигли ready state.
 
-### Эпик `PWA-GOOGLE-PICKER-UX-01` — viewport и выбор текущей папки
+### Эпик `PWA-GOOGLE-PICKER-UX-01` — app-owned Drive selection, search и viewport
 
-Status: **🟦 IN PROGRESS — 100% (`3/3`)**. Все atomic AC, exact-main `CI` и web `DEPLOY` подтверждены; authenticated `LIVE` Evidence исправления ещё отсутствует, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 37,5% (`3/8`)**. Три ранее реализованных viewport/current-folder AC сохранены; пять owner-approved search/interface AC находятся в активной реализации `PWA-TRANSCRIPTION-UX-POLISH-01`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ✅ |
 | `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ✅ |
 | `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ✅ |
+| `PG-04` | App-owned output-folder dialog позволяет искать доступные папки по имени, открывать найденную папку и выбрать её как current target без обязательного выбора вложенной папки. | — |
+| `PG-05` | Source-file flow использует app-owned интерфейс, визуально и поведенчески согласованный с output-folder dialog; native Google Picker для этого flow не используется. | — |
+| `PG-06` | Source-file dialog позволяет искать поддерживаемые audio/video files по имени и выбрать до `50` файлов; navigation/search/pagination не теряют уже выбранные элементы и не создают duplicates. | — |
+| `PG-07` | Source-folder flow использует app-owned интерфейс, визуально и поведенчески согласованный с output-folder dialog; текущая открытая папка является допустимым selection, включая empty folder. | — |
+| `PG-08` | Source-folder dialog позволяет искать доступные папки по имени, открыть найденную папку и выбрать её как current source folder. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE —`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE —`.
 
-Verified implementation: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4` блокирует background wheel/touch/scroll через `documentScrollLock.ts`, сохраняет exact inline styles/position и idempotently восстанавливает их; `googlePicker.ts` применяет lifecycle ко всем native Picker terminal paths. Поскольку documented Picker callback не предоставляет navigation event/current-folder authority, output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token, folder-only Drive REST listing и сохранённой server-side write verification. Текущая папка становится selection сразу после загрузки и остаётся selectable при loading/empty/error child-list state. PR `#245`, exact PR/main CI и web deployment прошли. Owner LIVE 2026-08-27 пока подтверждает только исходные defects, не исправление.
+Verified implementation для `PG-01..03`: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4` блокирует background wheel/touch/scroll через `documentScrollLock.ts`, сохраняет exact inline styles/position и idempotently восстанавливает их; output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token и сохранённой server-side write verification. PR `#245`, exact PR/main CI и web deployment прошли. Owner annotations 2026-08-28 добавили `PG-04..08`; их нельзя считать выполненными до нового CODE/TEST/CI/DEPLOY/LIVE Evidence.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -222,7 +228,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟩 READY — 100% (`10/10`)**.
+Status: **🟦 IN PROGRESS — 90,9% (`10/11`)**. Existing transcription behavior сохранено; owner-approved явная индикация diarization находится в активной реализации.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -236,8 +242,9 @@ Status: **🟩 READY — 100% (`10/10`)**.
 | `PB-08` | В начало документа добавлен metadata header. | ✅ |
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ✅ |
+| `PB-11` | Composer и preflight явно текстом показывают `Разделение спикеров: включено` или `Разделение спикеров: выключено`; включённое состояние визуально заметно и не передаётся только цветом. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 `main@800bcc820529ff3c78214c129c593d182c621c62` передаёт persisted source creation authority в output/maintenance contract и запрещает fallback на Google Doc/job/upload/modified clocks. Exact-main CI/CD и bounded production canary подтверждены delivery record PR #227.
 
@@ -321,7 +328,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟩 READY — 100% (`6/6`)**.
+Status: **⬜ BACKLOG — 46,2% (`6/13`)**. Existing standardization behavior подтверждено, но owner-approved format `transcript_doc` ещё не реализован и не авторизован текущей Goal.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -331,8 +338,15 @@ Status: **🟩 READY — 100% (`6/6`)**.
 | `PD-04` | Документ получает standard metadata header. | ✅ |
 | `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
 | `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ✅ |
+| `PD-07` | Canonical identifier текущего document standard — versionless `transcript_doc`; user-facing flow не предлагает выбор версии стандарта. | — |
+| `PD-08` | Название документа в новых и стандартизированных transcripts оформлено Google Docs style `Heading 2`. | — |
+| `PD-09` | Метка каждого блока спикера имеет русскую форму `Спикер N:`, bold и размер `14 pt`. | — |
+| `PD-10` | Обычный текст транскрибации по умолчанию имеет размер `11 pt`. | — |
+| `PD-11` | Пользовательские структурные labels документа русифицированы; устойчивые technical terms и metadata keys сохраняются на английском. | — |
+| `PD-12` | Каждый новый Studio PWA transcript создаётся в текущем canonical формате `transcript_doc`. | — |
+| `PD-13` | Existing eligible Google Docs приводятся к текущему `transcript_doc` через существующий explicit dry-run/apply standardization flow одной пользовательской операцией; historical version selection не требуется. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
@@ -1084,17 +1098,17 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@6cb067d1acea09bc82b70be4c415b6babdce31b2` (PR `#250`).
-- Exact PR-head/main repository и Studio/browser CI завершились success; web CD `33156427664`, migration/API `33156906021`, worker deploy `33157220511` и status `33157438236` доставили exact revision.
-- Production schema `0026_runtime_component_status`; authenticated LIVE подтвердил coherent exact web/API/worker SHA, release `0.1.0`, backend/PostgreSQL/queue/worker/storage readiness, queue `0/0` и safe STT configured-status без paid probe.
-- Public root/login/manifest ранее подтверждены; Google Picker и source-cache authenticated LIVE остаются archived external gates. Historical runtime identifiers находятся в delivery archive.
+- Current verified repository/web revision: `main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe` (PR `#252`); bounded-query implementation PR `#251` merged как `cc4347758ebae849c963cbf11be253862c6a1402`.
+- Exact PR-head/main repository и Studio/browser CI, web delivery, protected migration/API и safely drained worker delivery завершились success; exact identifiers находятся в delivery archive.
+- Production schema `0027_query_bounds`; authenticated LIVE подтвердил coherent component identity, dependency readiness, bounded analytics/cleanup и safe provider `probe=not_run`. Web-only audit pagination hotfix доставлен exact `ea92ac67`; API/worker остаются на совместимом `cc434775`.
+- Public root/login/manifest ранее подтверждены. Новые `PG-04..08` и `PB-11` ещё не имеют implementation/delivery/LIVE Evidence.
 
 ## 9. Current critical path
 
-1. Завершить `PWA-QUERY-BOUNDS-01`: signed keyset pagination/hard limits, exact bounded-memory analytics/catalog authority, batch cleanup, proven indexes, tests и полный protected delivery.
-2. Не расширять Goal на commercial contour, product features, provider calls, DB least privilege или storage/provider redesign.
-3. Разобрать сохранённые SPEC gaps отдельным owner decision packet; не подменять решения defaults текущей реализации.
-4. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
+1. Завершить `PWA-TRANSCRIPTION-UX-POLISH-01`: app-owned Drive picker для source files/source folder/output folder, bounded search/pagination, сохранение selection/navigation semantics и явная diarization indication.
+2. Не расширять текущую Goal на `transcript_doc`, commercial contour, OAuth scope changes, provider calls, backend import semantics, DB least privilege или infrastructure hardening.
+3. После closure отдельно предложить bounded Goal для `CB-24` и `PD-07..13`; BACKLOG не авторизует implementation.
+4. Exact-head CI, web-only deployment и authenticated owner LIVE обязательны для текущей Goal; native catalog/transcript Picker flows не затрагиваются.
 5. DB least privilege, storage isolation и legacy removal остаются отдельными Goals.
 6. Commercial contour включён в durable BACKLOG `0/242`; это не implementation authorization.
 

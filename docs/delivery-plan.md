@@ -2,88 +2,72 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-QUERY-BOUNDS-01` — bounded growing collections, analytics и cleanup без commercial contour.
-- **State:** `IN_PROGRESS` — PR `#251` merged и основной delivery выполнен, но authenticated LIVE выявил presentation defect audit continuation; bounded hotfix готовится в той же Goal.
-- **Authorization source:** explicit user instruction 2026-08-28 «приступай» после согласования substantial Goal без commercial scope; explicit user instruction 2026-08-28 «разрешаю» на exceptional correction push после подтверждённых CI test-contract failures.
-- **Scope:** evidence-based inventory owner-scoped projects, sources, transcription jobs/progress/analytics, transcript duplicate/catalog authority, diagnostics, audit, sessions и applicable cleanup paths; deterministic signed keyset pagination и hard page limits для подтверждённых unbounded browser collections; устранение подтверждённых N+1/unbounded materialization; только доказанные PostgreSQL composite indexes; batch-bounded и идемпотентные retention/cleanup paths; focused/full PostgreSQL и frontend contract tests, query/load/concurrency budgets; exact-head CI, protected additive migration, API/web/manual worker delivery и bounded authenticated production LIVE. В том же implementation PR синхронизируется фактическое closure предыдущей Goal.
-- **Non-goals:** commercial contour; новые product features; изменение canonical requirements/AC/denominator; storage bucket/lifecycle redesign; DB-role/least-privilege redesign; provider calls/spend; alert delivery; broad retention-policy change; unrelated refactors.
+- **ID / title:** `PWA-TRANSCRIPTION-UX-POLISH-01` — app-owned Google Drive selection/search и явная индикация diarization.
+- **State:** `IN_PROGRESS`.
+- **Authorization source:** explicit owner instruction 2026-08-28 «ок, согласовано. делай» после согласования изолированной UX Goal; browser annotations 2026-08-28 являются owner-provided product input для `PG-04..08` и `PB-11`.
+- **Scope:** единый app-owned Google Drive dialog для `sources`, `source-folder` и `output-folder`; folder navigation, My Drive/shared folders/shared drives; bounded Drive REST pages и explicit continuation; folder-name search для source/output folders; supported audio/video filename search и multi-selection до `50` для source files; selection dedup/preservation; existing current-folder semantics; scroll lock, focus/keyboard/accessibility и safe timeout; явная текстовая/визуальная индикация разделения на спикеров в composer и preflight; focused/full frontend validation; exact-head CI; web-only deployment и authenticated production LIVE.
+- **Non-goals:** implementation `transcript_doc`; commercial contour; OAuth scope changes; provider calls/spend; backend source import/validation semantics; catalog/transcript native Picker flows; API/schema/worker changes; CI/CD contract или infrastructure hardening; DB least privilege; storage redesign; unrelated refactors.
 - **Goal AC:**
-  1. `PQB-01`: inventory классифицирует каждую in-scope collection/query/cleanup surface как already bounded, remediation или explicit defer с фактическим основанием; generated/vendored code не смешивается с runtime findings.
-  2. `PQB-02`: projects, sources, transcription jobs и audit history возвращаются owner-scoped страницами с deterministic `(timestamp, id)` order, hard page maximum, signed session-bound cursor и filter/scope binding; invalid/cross-owner/cross-surface cursor fail closed.
-  3. `PQB-03`: web client валидирует page envelope, не создаёт duplicates при append, сбрасывает stale cursor при authoritative reload и даёт пользователю bounded доступ к следующей странице без eager all-pages fetch.
-  4. `PQB-04`: job progress принимает только bounded explicit displayed job set; compatibility read без IDs имеет hard maximum и сообщает truncation, не создавая N+1.
-  5. `PQB-05`: transcription analytics сохраняет exact current semantics, но не materialize все jobs, attempts или ID list; query count остаётся constant относительно cardinality, а PostgreSQL выполняет aggregate/percentile work server-side.
-  6. `PQB-06`: transcript duplicate/catalog и competing-provider authority не загружают unlimited duplicate history; aggregation/dedup или explicit budget exhaustion сохраняют fail-closed paid-call boundary и exact accepted-result counts.
-  7. `PQB-07`: auth/diagnostics/source cleanup остаются подтверждённо bounded; provider-checkpoint и realtime-draft cleanup удаляют deterministic limited batches, повторный запуск идемпотентен и не пропускает оставшийся backlog.
-  8. `PQB-08`: additive Alembic revision добавляет только indexes, соответствующие exact owner/project/filter/order query shapes; upgrade/downgrade и schema-head validation подтверждены на PostgreSQL.
-  9. `PQB-09`: focused tests подтверждают hard maxima, stable/non-overlapping cursors при equal timestamps и concurrent newer inserts, owner/surface binding, frontend append/reset, constant query budgets, exact analytics и cleanup backlog batching; full backend/frontend/static/build suites зелёные.
-  10. `PQB-10`: exact PR-head required CI, protected migration, API/web deployment, drained manual worker deployment и bounded authenticated LIVE подтверждают page limits/cursors, analytics shape, cleanup readiness и exact running revision без provider mutation.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
-- **Known blockers/dependencies:** immediate blocker отсутствует. Hotfix требует exact-head CI, merge, web-only delivery и повторный authenticated LIVE cursor append. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
-- **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
+  1. `TUX-01`: `PG-04` — output-folder dialog ищет доступные folders по имени, открывает найденную folder и позволяет выбрать current folder, включая empty folder.
+  2. `TUX-02`: `PG-05..06` — source-file flow использует app-owned dialog, показывает только folders и supported audio/video, поддерживает filename search, до `50` selections, dedup и сохранение selection при navigation/search/pagination.
+  3. `TUX-03`: `PG-07..08` — source-folder flow использует тот же app-owned dialog, поддерживает current-folder selection и folder-name search, включая empty folders.
+  4. `TUX-04`: list/search используют hard page size, opaque Drive `nextPageToken`, explicit `Загрузить ещё`, bounded maximum pages и cancellation stale requests; UI не выполняет eager all-pages fetch.
+  5. `TUX-05`: existing OAuth/session/server-side verification, source MIME revalidation, current-folder semantics, shared Drive handling, modal scroll/focus/timeout/accessibility boundaries не ослаблены.
+  6. `TUX-06`: `PB-11` — composer и preflight явно показывают `Разделение спикеров: включено/выключено`; enabled state заметно не только цветом.
+  7. `TUX-07`: focused tests покрывают empty current folder, folder/file search, escaped query, pagination, selection persistence/dedup/max, stale/cancel/error/timeout, shared Drive и diarization states; full frontend test/lint/build и repository checks green.
+  8. `TUX-08`: exact PR-head required checks, web-only delivery exact merged revision и authenticated LIVE подтверждают три picker modes, search/current-folder/multi-select/scroll behavior и обе diarization states без provider call.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** immediate blocker отсутствует. Authenticated Google Drive LIVE требует существующую owner session и доступные representative folders/media; GitHub Actions minutes расходуются только на один validated initial push и автоматические required checks. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Stop condition:** все Goal AC и canonical `PG-04..08`/`PB-11` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к `transcript_doc` или другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T11:48:24Z.
-- Session mode: authorized full-delivery Goal; commercial и перечисленные non-goals запрещены.
-- Base branch/SHA: original Goal base `origin/main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; LIVE hotfix branch создана от verified merged `origin/main@cc4347758ebae849c963cbf11be253862c6a1402`.
-- Working branch: `codex/pwa-query-bounds-live-fix`; clean branch от exact merge SHA до двух focused source/test изменений.
-- Last verified revision: production `cc4347758ebae849c963cbf11be253862c6a1402`; web/API/worker exact identity, schema `0027_query_bounds` и dependencies ready подтверждены, но audit cursor append скрыт presentation cap в Settings UI.
+- Updated (UTC): 2026-08-28T16:45:54Z.
+- Session mode: authorized full-delivery Goal; commercial, `transcript_doc` implementation и перечисленные non-goals запрещены.
+- Base branch/SHA: verified `origin/main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`.
+- Working branch: `codex/pwa-transcription-ux-polish-01`, создана от exact base.
+- Last verified revision: implementation `a82bdc0742b1a95def836f212d44747162bb0b44`; commit покрыт focused/full frontend tests, lint, production build и diff check.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: PR `#251` merged as `cc434775`; exact PR-head и post-merge CI зелёные; web deployed run `33166563572`; worker safely drained run `33166775059`; protected approved migration/API run `33166862214` применил `0026 -> 0027` с verified snapshot `e73c606741e0`; worker deploy run `33167793153` и independent status `33168001735` подтвердили exact healthy image. Authenticated LIVE подтвердил analytics shape, cleanup events, provider `probe=not_run` и exact component identities, затем выявил скрытый audit append.
-- Current step: удалить только presentation cap audit list и добавить regression `50 + cursor` с duplicate dedup и visible append.
-- Next exact action: зафиксировать локально validated hotfix, выполнить один initial push и открыть focused hotfix PR; дождаться automatic exact-head CI.
-- Validation and Evidence: основной scope подтверждён PR/post-merge CI. Hotfix locally passed: focused regression `1/1`; full frontend Vitest `614/614`; lint; production build; repository `ci_checks`; `git diff --check`. Browser LIVE на deployed `cc434775`: cursor control enabled и request не создаёт duplicates, но visible count остаётся `20 -> 20`, поэтому `PQB-03` не выполнен до hotfix delivery.
-- Pull Request / CI / deployment: PR `#251` merged `cc434775`; PR CI runs `33166365989`/`33166365983` success; post-merge runs `33166563412`/`33166563432` success. Deployment runs перечислены в Completed. Hotfix PR ещё не создан; deployed web остаётся на defect revision `cc434775` до green hotfix flow.
-- Blockers: immediate blocker отсутствует; обязательны hotfix PR CI, merge, web deploy и повторный authenticated cursor LIVE. Migration/API/worker повторно deploy-ить не требуется, если hotfix diff останется web-only.
-- Unverified assumptions: production audit backlog останется достаточным для повторного cursor append после hotfix; если second page к тому времени исчерпается, LIVE подтвердит visibility текущего loaded page, а `50 + cursor` останется exact TEST/CI evidence. Production planner index choice на representative cardinality отдельно не наблюдался.
+- Completed: commit `edf3741` синхронизировал canonical AC/readiness/previous Goal archive; commit `a82bdc0` перевёл source files/source folder/output folder на reusable app-owned Drive dialog с server MIME policy, bounded search/pagination, shared Drive navigation, selection persistence/max `50` и scroll/focus/timeout safety; composer/preflight получили explicit diarization states. New/updated tests покрывают оба состояния, empty folder, search escaping, pagination/dedup, max selection, stale abort, shared drive, safe error/timeout и native non-goal modes.
+- Current step: local validation завершена; подготовить единственный initial push и Pull Request.
+- Next exact action: выполнить final `git fetch`, подтвердить неизменность `origin/main@ea92ac67` и clean worktree, затем один раз push branch и создать PR с exact head.
+- Validation and Evidence: `SPEC/CODE/TEST ✅`: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, repository `scripts/ci_checks.py` success, isolated committed Python 3.11 graph `1092 passed / 5 skipped`, Playwright discovery `12` tests, `git diff --check` green. System Python collection failure был локальным dependency drift и устранён для validation через non-mutating isolated `uv` environment; global packages не менялись. Build сохраняет existing non-blocking chunk-size warning. Remote CI/DEPLOY/LIVE ещё не выполнялись.
+- Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Production web baseline `ea92ac67`; API/worker `cc434775`; schema `0027_query_bounds`.
+- Blockers: отсутствуют. Возможный external gate — недостаточный representative Drive data/session для authenticated LIVE; до фактической проверки это не blocker.
+- Unverified assumptions: Drive API search возвращает accessible items в рамках existing OAuth scopes; MIME policy достаточно выразима для server-equivalent client filter, при этом backend exact-ID validation остаётся final authority; production representative media/folders доступны владельцу.
 - Preserved pre-existing changes: отсутствуют.
-
-### In-scope query inventory
-
-| Surface | До Goal | Decision / фактическое основание |
-|---|---|---|
-| Projects, project Sources, transcription Jobs, Audit events | Owner/project filters, но три primary browser reads materialize весь результат; audit возвращал только первые 50 без continuation | `REFACTOR`: signed session-bound keyset `(timestamp, id)`, default `50`, hard max `100`, `limit + 1`, scope/surface binding; frontend append/reset/dedup. |
-| Displayed job progress | Project-wide materialization | `REFACTOR`: repeated explicit `job_id`, не более 50 unique UUID; compatibility read bounded `100 + 1` и сообщает `truncated`. |
-| Transcription analytics | Загружала all-time jobs/attempts и строила `job_id IN (...)` в application memory | `REFACTOR`: exact grouped counts и PostgreSQL aggregate/percentile queries; constant query count относительно cardinality, без entity/ID-list materialization. |
-| Transcript duplicate/catalog и competing-provider authority | История evidence могла materialize unlimited rows/IDs | `CONSOLIDATE`: SQL grouping/counts, общий evidence budget `1000`, source-lock budget `1000`; exhaustion возвращает indeterminate/unresolved и не разрешает paid boundary. |
-| Provider-part checkpoints и realtime drafts expiry | Один cleanup мог удалить весь backlog | `REFACTOR`: deterministic `(expires_at, id)` batches, default `500`, hard max `1000`; повторный запуск обрабатывает остаток. |
-| Diagnostics events/reports/expiry | Уже signed keyset max `200`, report/cleanup hard limits | `DOCUMENT`: сохранить существующий bounded contract; reusable signing вынесен без изменения diagnostic cursor namespace. |
-| Active auth sessions | Уже `limit + 1`, hard max `100`, explicit `truncated` | `DOCUMENT`: remediation не требуется. |
-| Audio-preparation jobs | Уже owner/project scoped и hard max `100` | `DOCUMENT`: payload остаётся bounded; добавить supporting owner/project/order index, соответствующий существующему query shape. |
-| Source storage cleanup | Уже bounded deterministic worker maintenance | `DOCUMENT`: behavior не менять в этой Goal. |
-| Output-folder Favorites, speaker profiles и credential lists | Owner-scoped, текущая ожидаемая cardinality мала, но hard pagination отсутствует; speaker-profile payload имеет отдельные relationship reads | `DEFER`: не являются growing primary browser collections текущей Goal; будущая pagination/N+1 Goal требует отдельного UI/API contract. |
-| Generated/vendored code | Не является runtime query authority этого repository | `N/A`: исключено из findings и изменений. |
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Технические Goal AC не добавлены в canonical denominator. Current snapshot независимо пересчитан после фактического delivery предыдущей Goal; previous snapshot сохранён только для сравнения.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан после owner-approved расширения scope на `14` AC; предыдущий snapshot сохранён только для сравнения, а не как основание current numerator.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **40,6% (`216/532`)** | **38,2% (`203/532`)** | 13 observability AC подтверждены exact code/test/CI/deploy/LIVE на PR `#250`; denominator не менялся. |
-| **Non-commercial scope** | **74,5% (`216/290`)** | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `185/259`. |
+| **Полный canonical scope** | **39,6% (`216/546`)** | **40,6% (`216/532`)** | Numerator не изменён; denominator `+14` owner-approved AC. |
+| **Non-commercial scope** | **71,1% (`216/304`)** | **74,5% (`216/290`)** | Colab `31/32` + personal PWA `185/272`. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Вне Goal; implementation запрещена. |
-| **Google Colab canonical** | **100% (`31/31`)** | **100% (`31/31`)** | Вне Goal; numerator не менялся. |
-| **Personal Studio PWA canonical** | **71,4% (`185/259`)** | **66,4% (`172/259`)** | `OBSERV-06/08/09/11..14/22/24..28` подтверждены полным delivery. |
-| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **50,0% (`9/18`)** | Не затронут. |
-| `OBSERVABILITY-AUDIT-02` | **71,4% (`25/35`)** | **34,3% (`12/35`)** | `13/13` AC предыдущей Goal подтверждены exact running web/API/worker/schema identity и bounded runtime health. |
-| Остальные existing epics | **100% (`132/132`)** | **100% (`132/132`)** | Product AC completion не изменился. |
+| **Google Colab canonical** | **96,9% (`31/32`)** | **100% (`31/31`)** | Новый `CB-24` требует current `transcript_doc` для новых Colab документов. |
+| **Personal Studio PWA canonical** | **68,0% (`185/272`)** | **71,4% (`185/259`)** | Добавлены `PG-04..08`, `PB-11`, `PD-07..13`; до Evidence все невыполнены. |
+| `PWA-GOOGLE-PICKER-UX-01` | **37,5% (`3/8`)** | **100% (`3/3`)** | Denominator расширен на пять owner-approved search/app-owned interface AC. |
+| `PWA-BATCH-01` | **90,9% (`10/11`)** | **100% (`10/10`)** | Добавлен `PB-11` — явная non-color-only diarization indication. |
+| `PWA-STANDARDIZATION-01` | **46,2% (`6/13`)** | **100% (`6/6`)** | Добавлены семь PWA AC versionless `transcript_doc`; отдельный Colab AC учтён в `COLAB-BATCH-01`. |
+| Остальные existing epics | **100% (`132/132`)** | **100% (`132/132`)** | Existing completed numerator не изменён. |
 
-Расхождение current/previous больше 10 п.п. у observability (`+37,1` п.п.): причина — полный delivery 13 заранее определённых canonical AC, а не новый denominator. `PWA-QUERY-BOUNDS-01` не повышает product readiness без выполнения уже существующего canonical AC.
+Изменения больше `10` п.п. у `PWA-GOOGLE-PICKER-UX-01` (`−62,5` п.п.) и `PWA-STANDARDIZATION-01` (`−53,8` п.п.) вызваны новым явным owner-approved denominator, а не регрессом existing code. Никакой новый AC не засчитан выполненным до фактического Evidence.
 
 ## Candidate next Goals
 
-1. `SPEC-GAPS-DECISIONS-03` — принять bounded решения по сохранённым conflicts/ambiguities; implementation не начинается автоматически.
+1. `TRANSCRIPT-DOC-STANDARD-01` — versionless `transcript_doc` для новых Colab/PWA outputs и existing one-click dry-run/apply standardization по `CB-24`, `PD-07..13`; implementation не авторизована текущей Goal.
 2. `DB-LEAST-PRIVILEGE-01` — evidence actual roles и отдельные migration/application roles с backup/rollback plan.
 3. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
 
 ## Risks и boundaries
 
-- Pagination не должна скрывать current active jobs, ломать optimistic source reconciliation или превращаться в eager fetch всего backlog.
-- Exact all-time analytics имеет O(N) database work; Goal ограничивает browser payload, application memory и query count, но не подменяет exact totals sampling-оценкой.
-- Transcript duplicate/provider authority fail-closed важнее latency: budget exhaustion не может разрешать paid provider call.
-- Composite indexes имеют write/storage cost; migration добавляет только подтверждённые query-shape indexes и проверяется `EXPLAIN`/schema evidence.
+- Drive `name contains` имеет prefix semantics; UI должен честно называть это поиском по началу имени и не обещать arbitrary substring.
+- Search/list pagination не должна eager-fetch весь Drive, терять source selections или разрешать unsupported MIME; backend exact-ID verification остаётся authoritative.
+- Shared folders и shared drives имеют отличающиеся corpora/driveId semantics; regression в существующем app-owned output dialog недопустим.
+- Modal scroll lock/focus restoration и timeout cleanup должны оставаться idempotent во всех success/cancel/error paths.
+- Authenticated LIVE не запускает transcription/provider job и не создаёт платный side effect.
 - Post-deploy metadata writer отсутствует; protections не обходятся и отдельный docs-only follow-up PR не создаётся.
 
 ## Sources of truth

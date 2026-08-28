@@ -927,6 +927,17 @@ Goal `PWA-OBSERVABILITY-RUNTIME-01` завершена 2026-08-28 полным p
 - Canonical `OBSERV-06`, `OBSERV-08`, `OBSERV-09`, `OBSERV-11..OBSERV-14`, `OBSERV-22`, `OBSERV-24..OBSERV-28` выполнены (`13/13`); `OBSERVABILITY-AUDIT-02 25/35`, personal PWA `185/259`, non-commercial `216/290`, full canonical `216/532`.
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal без отдельного docs-only PR.
 
+## Archived PRs #251–#252 bounded-query closure
+
+Goal `PWA-QUERY-BOUNDS-01` завершена 2026-08-28 полным delivery flow; web presentation defect, найденный authenticated LIVE, исправлен bounded hotfix в той же Goal.
+
+- Base: `main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; implementation PR `#251` merged как `cc4347758ebae849c963cbf11be253862c6a1402`; web-only hotfix PR `#252` merged как current main `ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`.
+- Exact PR-head и exact-main repository/Studio/browser required CI завершились success. Implementation PR runs `33166365989`/`33166365983`; post-merge runs `33166563412`/`33166563432`.
+- Web deploy `33166563572`, worker drain `33166775059`, protected migration/API `33166862214`, worker deploy `33167793153` и terminal status `33168001735` завершились success; pre-migration snapshot `e73c606741e0`, schema `0027_query_bounds`.
+- Authenticated LIVE подтвердил deterministic bounded pagination/cursors, exact bounded analytics shape, cleanup readiness, component identities и safe provider `probe=not_run`; первоначально обнаруженный audit-list presentation cap был устранён PR `#252` и доставлен web-only.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Goal была infrastructure/performance remediation и не меняла canonical product AC numerator/denominator: closure snapshot оставался `216/532`.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal. Local `main` был clean и синхронизирован с `origin/main@ea92ac67`; merged branches удалены после ancestry checks.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
