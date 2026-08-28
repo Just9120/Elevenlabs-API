@@ -20,16 +20,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T06:11:02Z.
+- Updated (UTC): 2026-08-28T06:16:42Z.
 - Session mode: authorized docs-only canonicalization; product/commercial implementation запрещена.
 - Base branch/SHA: fetched `origin/main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; local `main` clean и совпадал с origin; open PR отсутствовали.
 - Working branch: `codex/spec-canonicalization-02`; чистая публикационная branch создана от exact verified `origin/main` SHA выше, итоговый net diff перенесён через squash без истории удалённого audit-report.
-- Last verified revision: base `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; current staged canonicalization diff прошёл local structure/count/link checks, а containing commit намеренно не self-referenced.
+- Last verified revision: branch commit `3ff3fbd90a3cd1bc6bd1b7c15e6b83950ff952f7`; base `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: exact upstream revision/tab/counts зафиксированы; `docs/project-spec.md` локально содержит `142 + 50 + 192 = 384` новых AC, canonical denominator `532`, readiness `203/532`, commercial `0/242` и десять явных SPEC-gap/risk records. Non-canonical report предназначен к удалению и не будет опубликован.
-- Current step: завершить document cleanup и независимую validation canonical registry.
-- Next exact action: удалить report/references, выполнить count/link/CI-equivalent checks и создать локальный commit canonicalization.
-- Validation and Evidence: предыдущая reconciliation подтвердила upstream counts `275 + 8 = 283`; текущие canonical count/link checks ещё выполняются. Exact-main full CI `33116072365` и Studio/browser CI `33116072392` success; exact PR-head CI остаётся обязательным.
+- Completed: exact upstream revision/tab/counts зафиксированы; `docs/project-spec.md` содержит `142 + 50 + 192 = 384` новых AC, canonical denominator `532`, readiness `203/532`, commercial `0/242` и десять явных SPEC-gap/risk records. Чистая branch от `origin/main` содержит только итоговый net diff четырёх документов; non-canonical report отсутствует в tree и history branch.
+- Current step: выполнить один initial push, создать PR и дождаться exact-head required CI/review.
+- Next exact action: `git push -u origin codex/spec-canonicalization-02`, затем создать PR в `main`.
+- Validation and Evidence: upstream counts `275 + 8 = 283`; canonical `532` AC, unique `532`, done `203`; new non-commercial `142`, done `55`; commercial/cross-contour `242`, done `0`; relative Markdown links PASS; stale report/reference search PASS; `python scripts/ci_checks.py` PASS; staged `git diff --check` PASS. Exact-main full CI `33116072365` и Studio/browser CI `33116072392` success; exact PR-head CI остаётся обязательным.
 - Pull Request / CI / deployment: PR/push отсутствуют. `DEPLOY/LIVE` — `N/A` для docs-only Goal.
 - Blockers: отсутствуют для docs scope; будущие product/legal decisions и commercial authorization не блокируют canonicalization.
 - Unverified assumptions: сохранённые SPEC gaps не входят в denominator; existing personal capability не доказывает commercial isolation/runtime readiness.
