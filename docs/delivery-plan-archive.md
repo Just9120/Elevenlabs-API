@@ -938,6 +938,17 @@ Goal `PWA-QUERY-BOUNDS-01` завершена 2026-08-28 полным delivery f
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Goal была infrastructure/performance remediation и не меняла canonical product AC numerator/denominator: closure snapshot оставался `216/532`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal. Local `main` был clean и синхронизирован с `origin/main@ea92ac67`; merged branches удалены после ancestry checks.
 
+## Archived PRs #253–#254 transcription UX closure
+
+Goal `PWA-TRANSCRIPTION-UX-POLISH-01` завершена 2026-08-28 полным web delivery flow без provider call.
+
+- PR `#253` реализовал app-owned source-file/source-folder/output-folder dialogs, bounded search/pagination/current-folder behavior и явные diarization states; PR `#254` исправил обнаруженную LIVE-проверкой canonical Drive query для shared folders.
+- Final repository/web revision: `main@535a015dcef211a930faefe443245ee85ace38b8`; production API/worker остались на совместимом `cc4347758ebae849c963cbf11be253862c6a1402`, schema — `0027_query_bounds`.
+- Exact-main runs: repository CI `33194034264`, Studio PWA CI `33194034189`, Studio Platform CD `33194034216`; required checks и web deployment завершились success.
+- Authenticated LIVE подтвердил три picker modes, folder/file search, current empty folder, shared folders/drives, modal scroll lock/release, source multi-selection `2 → 1 → 2` и обе diarization states. Transcription job/provider call не запускались.
+- Canonical closure: `PG 8/8`, `PB 11/11`; readiness `222/546 = 40,7%`, personal PWA `191/272 = 70,2%`, non-commercial `222/304 = 73,0%`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- После safe ancestry/status checks созданные ветки удалены local/remote, local `main` синхронизирован с exact merge SHA. Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
