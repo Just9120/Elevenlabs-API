@@ -16,24 +16,24 @@
   6. `POR-06`: authoritative runtime component identity/heartbeat persistence backward-compatible; diagnostic reads не изменяют состояние, stale/absent distinguishable, rollback старого API/worker безопасен.
   7. `POR-07`: Compose/build/deploy передают и проверяют exact component identities без broad env rewrite, secret changes или ослабления migration/worker/Environment gates.
   8. `POR-08`: focused и full tests, exact PR-head required CI, protected migration, API/web deployment, manual drained worker deployment и bounded authenticated production LIVE подтверждают все applicable contracts.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE ❌`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE ❌`.
 - **Known blockers/dependencies:** production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T08:30:57Z.
+- Updated (UTC): 2026-08-28T08:37:08Z.
 - Session mode: authorized full delivery Goal; commercial и перечисленные non-goals запрещены.
 - Base branch/SHA: fetched clean `origin/main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; open PR отсутствовали.
 - Working branch: `codex/pwa-observability-runtime-01`; создана от exact verified base SHA выше.
-- Last verified revision: `53a69ac`; commits `0f8a3d7`, `9eb5447`, `53a69ac` покрывают Goal contract, runtime implementation и heartbeat write-path optimization.
+- Last verified revision: `d0ea1fadb1b386d396a89b8512c9efe620adc43c`; commits `0f8a3d7`, `9eb5447`, `53a69ac`, `b9fd15f`, `d0ea1fa` покрывают Goal contract, runtime implementation, heartbeat write-path optimization, checkpoint и confirmed-CI test-isolation fix.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: additive `0026_runtime_component_status`; exact component-baked web/API/worker release/build/commit metadata; coherent platform release fail-closed across all three components; exact schema read; API and worker split liveness/readiness; process-incarnation-aware worker heartbeat; bounded queue/read-only storage/config-only STT health; safe frontend exact HTTP/request/rejection correlation; diagnostics UI/export; Compose/deploy/migration/preflight wiring; architecture/runbook/security current-head synchronization. Secondary `last_seen_at` indexes intentionally отсутствуют, чтобы repeated heartbeat updates оставались PostgreSQL HOT-capable.
-- Current step: финальная local validation exact commit state перед единственным initial push и PR.
-- Next exact action: повторить full portable/backend и frontend/static checks на branch head, затем выполнить initial push и создать PR.
-- Validation and Evidence: `python scripts/ci_checks.py` passed; portable backend `1083 passed, 5 skipped`; full frontend Vitest `611 passed`; ESLint passed; production build passed с existing chunk-size warning; exact build-meta smoke produced synthetic component/release/40-char commit and then restored fail-closed generated metadata; focused runtime/worker/diagnostics suites passed, latest changed subset `28 passed`; static Linux CI/CD contracts `13 passed, 47 deselected`. `git diff --check` passed. TEST остаётся partial до Linux shell + PostgreSQL/Redis integration и browser/CI checks на exact PR head.
-- Pull Request / CI / deployment: absent. Expected changed components: migration + API + web + worker; full protected delivery обязателен.
-- Blockers: implementation blocker отсутствует. На Windows host отсутствуют `bash`, Docker/PostgreSQL/Redis, поэтому shell/service integration не считается локально подтверждённым и должен пройти exact-head CI. External gates ожидаются на protected migration, manual worker drain/deploy и authenticated LIVE.
+- Current step: отправить один grouped follow-up batch после confirmed repository CI failure.
+- Next exact action: push local fix+checkpoint в PR `#250`, затем проверить exact new-head required checks без manual rerun.
+- Validation and Evidence: initial PR head `b9fd15f` получил `Studio PWA CI 33155726226`: `studio ✅`, `browser-e2e ✅`. Repository CI `33155726209` завершился failure после `1358 passed, 1 error`: новый test module на collection выставлял process-global SQLite URL, и последующий processing E2E subprocess ошибочно запускал historical PostgreSQL migrations на SQLite. Fix `d0ea1fa` заменил module-level mutation на autouse `monkeypatch` fixture. После fix focused `31 passed`; full portable `1083 passed, 5 skipped`. До failure также прошли `python scripts/ci_checks.py`, full frontend Vitest `611 passed`, ESLint, production build, exact build-meta smoke и static CI/CD contracts. TEST/CI остаются partial/failed до green checks exact new PR head.
+- Pull Request / CI / deployment: PR `#250` (`https://github.com/Just9120/Elevenlabs-API/pull/250`); initial head `b9fd15fd160cec571cdc81132561218ed642aa88`; one grouped follow-up push ожидается после confirmed CI failure. Deployment absent; expected components migration + API + web + worker, full protected delivery обязателен.
+- Blockers: implementation blocker отсутствует. PostgreSQL/Redis integration подтверждается только CI host; external gates ожидаются на protected migration, manual worker drain/deploy и authenticated LIVE.
 - Unverified assumptions: production storage `head_bucket` и provider configured-status будут bounded с actual runtime credentials; проверка должна подтвердить отсутствие paid/provider mutation и safe report fields. Exact component identities ещё не подтверждены running production evidence.
 - Preserved pre-existing changes: отсутствуют.
 
