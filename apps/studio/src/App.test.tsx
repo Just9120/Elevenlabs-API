@@ -833,6 +833,20 @@ describe("Studio PWA", () => {
             csrf_token: "csrf-after-refresh",
             user: { email: "user@example.com", role: "admin" },
           });
+        if (url.endsWith("/api/auth/sessions") && !init?.method)
+          return json({
+            sessions: [
+              {
+                id: "00000000-0000-0000-0000-000000000001",
+                is_current: true,
+                created_at: "2026-08-27T10:00:00Z",
+                last_seen_at: "2026-08-27T10:05:00Z",
+                expires_at: "2026-09-10T10:00:00Z",
+              },
+            ],
+            truncated: false,
+            limit: 100,
+          });
         if (
           url.endsWith("/api/account/preferences") &&
           init?.method === "PATCH"
