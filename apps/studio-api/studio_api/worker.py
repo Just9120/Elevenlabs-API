@@ -38,6 +38,18 @@ def _reason(exc: BaseException) -> str:
 
 
 def _safe_log_result(logger: logging.Logger, result) -> None:
+    if hasattr(result, "run_id"):
+        logger.info(
+            "studio_worker_transcript_maintenance_processed",
+            extra={
+                "event": "studio_worker_transcript_maintenance_processed",
+                "run_id": result.run_id,
+                "workflow": result.workflow,
+                "operation": result.operation,
+                "status": result.status,
+            },
+        )
+        return
     if hasattr(result, "stage"):
         logger.info(
             "studio_worker_audio_preparation_processed",
@@ -103,7 +115,7 @@ def run_worker_loop(
         try:
             result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings, heartbeat_session_factory=session_factory)
         except Exception as exc:
-            if type(exc).__name__ not in {"JobLeaseError", "JobProcessingRunnerError", "JobProcessingOrchestrationError"}:
+            if type(exc).__name__ not in {"JobLeaseError", "JobProcessingRunnerError", "JobProcessingOrchestrationError", "TranscriptMaintenanceRunError"}:
                 _safe_rollback(db, logger)
                 logger.error("worker_iteration_failed", extra={"event": "worker_iteration_failed"})
                 wait_seconds = error_backoff

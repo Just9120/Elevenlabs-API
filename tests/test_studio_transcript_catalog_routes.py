@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import os
 import sys
 import tempfile
@@ -34,12 +35,8 @@ os.environ.setdefault(
 
 class FakeDb:
     def __init__(self):
-        self.added = []
         self.commits = 0
         self.rollbacks = 0
-
-    def add(self, value):
-        self.added.append(value)
 
     def commit(self):
         self.commits += 1
@@ -49,51 +46,70 @@ class FakeDb:
 
 
 def _client(monkeypatch):
-    from studio_api.config import get_settings
     from studio_api.db import get_db
-    from studio_api.deps import require_csrf
+    from studio_api.deps import current_session, require_csrf
     from studio_api import transcript_catalog_routes as routes
 
     db = FakeDb()
+    owner = SimpleNamespace(id="private-owner")
     app = FastAPI()
     app.include_router(routes.router)
-    app.dependency_overrides[require_csrf] = lambda: (
-        SimpleNamespace(),
-        SimpleNamespace(id="private-owner"),
-    )
+    app.dependency_overrides[require_csrf] = lambda: (SimpleNamespace(), owner)
+    app.dependency_overrides[current_session] = lambda: (SimpleNamespace(), owner)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_settings] = lambda: SimpleNamespace()
-    monkeypatch.setattr(
-        routes.catalog_limiter,
-        "check",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        routes,
-        "_maintenance_access_token",
-        lambda *args, **kwargs: "private-access-token",
-    )
+    monkeypatch.setattr(routes.catalog_limiter, "check", lambda *args: None)
     return TestClient(app), db, routes
 
 
-def test_legacy_combined_routes_are_fail_closed_after_split(
-    monkeypatch,
+def _run(
+    *,
+    workflow="standardization",
+    operation="dry_run",
+    status="queued",
+    run_id="00000000-0000-4000-8000-000000000001",
+    preview_run_id=None,
 ):
+    from studio_api.models import TranscriptMaintenanceRunStatus
+
+    timestamp = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    return SimpleNamespace(
+        id=run_id,
+        workflow=workflow,
+        operation=operation,
+        selection_mode="folder_tree",
+        folder_id="private-folder",
+        document_id=None,
+        target_name="Архив созвонов",
+        preview_run_id=preview_run_id,
+        idempotency_key="private-idempotency-key",
+        status=TranscriptMaintenanceRunStatus(status),
+        current_stage="queued" if status == "queued" else "completed",
+        progress_completed=0,
+        progress_total=None,
+        result_json=None,
+        error_code=None,
+        error_retryable=None,
+        created_at=timestamp,
+        started_at=None,
+        finished_at=None,
+    )
+
+
+def test_legacy_combined_routes_are_fail_closed_after_split(monkeypatch):
     client, db, _routes = _client(monkeypatch)
 
-    dry_response = client.post(
-        "/api/transcript-catalog/migration/dry-run",
-        json={"folder_id": "private-folder"},
-    )
-    apply_response = client.post(
-        "/api/transcript-catalog/migration/apply",
-        json={
-            "folder_id": "private-folder",
-            "confirm_apply": True,
-        },
+    responses = (
+        client.post(
+            "/api/transcript-catalog/migration/dry-run",
+            json={"folder_id": "private-folder"},
+        ),
+        client.post(
+            "/api/transcript-catalog/migration/apply",
+            json={"folder_id": "private-folder", "confirm_apply": True},
+        ),
     )
 
-    for response in (dry_response, apply_response):
+    for response in responses:
         assert response.status_code == 410
         assert response.json()["detail"] == {
             "reason": "transcript_maintenance_split_required",
@@ -101,125 +117,55 @@ def test_legacy_combined_routes_are_fail_closed_after_split(
         }
         assert response.headers["cache-control"] == "no-store"
         assert "private-folder" not in response.text
-
     assert db.commits == 0
     assert db.rollbacks == 0
-    assert db.added == []
 
 
-def test_legacy_apply_still_rejects_unconfirmed_or_preview_payloads(
-    monkeypatch,
-):
-    client, db, _routes = _client(monkeypatch)
-
-    not_confirmed = client.post(
-        "/api/transcript-catalog/migration/apply",
-        json={
-            "folder_id": "private-folder",
-            "confirm_apply": False,
-        },
-    )
-    untrusted_preview = client.post(
-        "/api/transcript-catalog/migration/apply",
-        json={
-            "folder_id": "private-folder",
-            "confirm_apply": True,
-            "items": [{"position": 0, "action": "unchanged"}],
-        },
-    )
-
-    assert not_confirmed.status_code == 422
-    assert untrusted_preview.status_code == 422
-    assert db.commits == 0
-    assert db.rollbacks == 0
-    assert db.added == []
-
-
-def test_maintenance_dry_run_routes_are_independent_and_recursive(
-    monkeypatch,
-):
-    client, db, routes = _client(monkeypatch)
+def test_dry_run_routes_enqueue_independent_owner_scoped_runs(monkeypatch):
+    client, _db, routes = _client(monkeypatch)
     calls = []
-    limit_calls = []
+    limiter_calls = []
+
+    def create(db, **kwargs):
+        calls.append((db, kwargs))
+        return _run(workflow=kwargs["workflow"].value)
+
+    monkeypatch.setattr(routes, "create_transcript_maintenance_run", create)
     monkeypatch.setattr(
         routes.catalog_limiter,
         "check",
-        lambda *args: limit_calls.append(args),
-    )
-
-    def standardization(db_arg, **kwargs):
-        calls.append(("standardization", db_arg, kwargs))
-        return {
-            "workflow": "standardization",
-            "operation": "dry_run",
-            "items": [],
-            "summary": {"standardize_document_count": 0},
-            "selection_summary": {"google_document_count": 2},
-        }
-
-    def catalog_import(db_arg, **kwargs):
-        calls.append(("catalog_import", db_arg, kwargs))
-        return {
-            "workflow": "catalog_import",
-            "operation": "dry_run",
-            "items": [],
-            "summary": {"import_metadata_count": 0},
-            "selection_summary": {"google_document_count": 2},
-        }
-
-    monkeypatch.setattr(
-        routes,
-        "build_transcript_standardization_dry_run",
-        standardization,
-    )
-    monkeypatch.setattr(
-        routes,
-        "build_transcript_catalog_import_dry_run",
-        catalog_import,
+        lambda *args: limiter_calls.append(args),
     )
     body = {
         "selection_mode": "folder_tree",
         "folder_id": "private-folder",
+        "target_name": "Архив созвонов",
+        "idempotency_key": "dry-run-key-00000001",
     }
 
-    standardization_response = client.post(
+    standardization = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
         json=body,
     )
-    catalog_response = client.post(
+    catalog = client.post(
         "/api/transcript-maintenance/catalog-import/dry-run",
         json=body,
     )
 
-    assert standardization_response.status_code == 200
-    assert catalog_response.status_code == 200
-    assert standardization_response.json()["workflow"] == "standardization"
-    assert catalog_response.json()["workflow"] == "catalog_import"
-    assert calls == [
-        (
-            "standardization",
-            db,
-            {
-                "owner_user_id": "private-owner",
-                "access_token": "private-access-token",
-                "selection_mode": "folder_tree",
-                "folder_id": "private-folder",
-                "document_id": None,
-            },
-        ),
-        (
-            "catalog_import",
-            db,
-            {
-                "owner_user_id": "private-owner",
-                "access_token": "private-access-token",
-                "selection_mode": "folder_tree",
-                "folder_id": "private-folder",
-                "document_id": None,
-            },
-        ),
+    assert standardization.status_code == 202
+    assert catalog.status_code == 202
+    assert standardization.json()["workflow"] == "standardization"
+    assert catalog.json()["workflow"] == "catalog_import"
+    assert [call[1]["owner_user_id"] for call in calls] == [
+        "private-owner",
+        "private-owner",
     ]
-    assert limit_calls == [
+    assert [call[1]["workflow"].value for call in calls] == [
+        "standardization",
+        "catalog_import",
+    ]
+    assert all(call[1]["folder_id"] == "private-folder" for call in calls)
+    assert limiter_calls == [
         (
             "transcript-maintenance:standardization:dry-run:private-owner",
             20,
@@ -231,461 +177,198 @@ def test_maintenance_dry_run_routes_are_independent_and_recursive(
             3600,
         ),
     ]
-    assert standardization_response.headers["cache-control"] == "no-store"
-    assert catalog_response.headers["cache-control"] == "no-store"
-    assert db.commits == 0
+    encoded = standardization.text + catalog.text
+    for private in ("private-owner", "private-folder", "private-idempotency-key"):
+        assert private not in encoded
+    assert standardization.headers["cache-control"] == "no-store"
+    assert catalog.headers["cache-control"] == "no-store"
 
 
-def test_maintenance_routes_fail_closed_on_server_grant_errors(
-    monkeypatch,
-):
-    from studio_api.google_connection_access import (
-        GoogleConnectionAccessError,
-        GoogleConnectionAccessReason,
-    )
-
-    cases = (
-        (
-            GoogleConnectionAccessReason.maintenance_missing,
-            "catalog_google_maintenance_connection_missing",
-        ),
-        (
-            GoogleConnectionAccessReason.maintenance_inactive,
-            "catalog_google_maintenance_connection_inactive",
-        ),
-        (
-            GoogleConnectionAccessReason.maintenance_account_mismatch,
-            "catalog_google_maintenance_account_mismatch",
-        ),
-    )
-
-    for access_reason, response_reason in cases:
-        client, db, routes = _client(monkeypatch)
-
-        def reject_access(*args, _reason=access_reason, **kwargs):
-            raise GoogleConnectionAccessError(_reason)
-
-        monkeypatch.setattr(
-            routes,
-            "_maintenance_access_token",
-            reject_access,
-        )
-        response = client.post(
-            "/api/transcript-maintenance/standardization/dry-run",
-            json={
-                "selection_mode": "folder_tree",
-                "folder_id": "private-folder",
-            },
-        )
-
-        assert response.status_code == 409
-        assert response.json()["detail"] == {
-            "reason": response_reason,
-            "retryable": False,
-        }
-        assert response.headers["cache-control"] == "no-store"
-        assert db.commits == 0
-        assert db.rollbacks == 1
-        assert "private-folder" not in response.text
-
-
-def test_maintenance_access_uses_only_server_grant(
-    monkeypatch,
-):
-    from studio_api import transcript_catalog_routes as routes
-
-    db = FakeDb()
-    settings = SimpleNamespace()
+def test_dry_run_rejects_missing_mismatched_and_untrusted_fields(monkeypatch):
+    client, _db, routes = _client(monkeypatch)
     calls = []
+    monkeypatch.setattr(
+        routes,
+        "create_transcript_maintenance_run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    valid = {
+        "selection_mode": "single_document",
+        "document_id": "private-document",
+        "target_name": "Один документ",
+        "idempotency_key": "dry-run-key-00000001",
+    }
+    invalid_bodies = (
+        {},
+        {**valid, "folder_id": "private-folder"},
+        {**valid, "document_id": "документ"},
+        {**valid, "items": [{"action": "standardize_document"}]},
+        {
+            "selection_mode": "folder_tree",
+            "document_id": "private-document",
+            "target_name": "Архив",
+            "idempotency_key": "dry-run-key-00000001",
+        },
+        {**valid, "idempotency_key": "short"},
+    )
+
+    for body in invalid_bodies:
+        assert client.post(
+            "/api/transcript-maintenance/standardization/dry-run",
+            json=body,
+        ).status_code == 422
+    assert calls == []
+
+
+def test_apply_uses_only_successful_preview_authority(monkeypatch):
+    client, _db, routes = _client(monkeypatch)
+    calls = []
+    preview_id = "00000000-0000-4000-8000-000000000001"
+
+    def create_apply(db, **kwargs):
+        calls.append((db, kwargs))
+        return _run(
+            workflow=kwargs["workflow"].value,
+            operation="apply",
+            run_id="00000000-0000-4000-8000-000000000002",
+            preview_run_id=preview_id,
+        )
 
     monkeypatch.setattr(
         routes,
-        "refresh_user_google_maintenance_access_token",
-        lambda *args, **kwargs: (
-            calls.append((args, kwargs)) or "private-maintenance-token"
-        ),
+        "create_transcript_maintenance_apply_run",
+        create_apply,
+    )
+    body = {
+        "confirm_apply": True,
+        "preview_run_id": preview_id,
+        "idempotency_key": "apply-key-000000001",
+    }
+    response = client.post(
+        "/api/transcript-maintenance/standardization/apply",
+        json=body,
     )
 
-    assert routes._maintenance_access_token(
-        db,
-        "private-owner",
-        settings,
-    ) == "private-maintenance-token"
-    assert calls == [
-        (
-            (db,),
-            {
-                "user_id": "private-owner",
-                "settings": settings,
-            },
-        )
-    ]
+    assert response.status_code == 202
+    assert calls[0][1] == {
+        "owner_user_id": "private-owner",
+        "workflow": routes.TranscriptMaintenanceWorkflow.standardization,
+        "preview_run_id": preview_id,
+        "idempotency_key": "apply-key-000000001",
+    }
+    assert "private-folder" not in response.text
+    assert client.post(
+        "/api/transcript-maintenance/standardization/apply",
+        json={**body, "confirm_apply": False},
+    ).status_code == 422
+    assert client.post(
+        "/api/transcript-maintenance/standardization/apply",
+        json={**body, "folder_id": "private-folder"},
+    ).status_code == 422
 
 
-def test_maintenance_dry_run_rejects_missing_or_untrusted_fields(
-    monkeypatch,
-):
-    client, db, routes = _client(monkeypatch)
-    called = []
-    monkeypatch.setattr(
-        routes,
-        "build_transcript_standardization_dry_run",
-        lambda *args, **kwargs: called.append((args, kwargs)),
-    )
-    missing = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={},
-    )
-    legacy_selection = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={
-            "selection_mode": "folder_tree",
-            "folder_id": "private-folder",
-            "document_ids": ["private-document"],
-        },
-    )
-    mismatched_folder = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={
-            "selection_mode": "folder_tree",
-            "document_id": "private-document",
-        },
-    )
-    mismatched_document = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={
-            "selection_mode": "single_document",
-            "folder_id": "private-folder",
-        },
-    )
-    invalid_id = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={
-            "selection_mode": "single_document",
-            "document_id": "документ",
-        },
-    )
-    preview = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={
-            "selection_mode": "single_document",
-            "document_id": "private-document",
-            "folder_id": "private-folder",
-            "document_ids": ["private-document"],
-            "items": [{"action": "standardize_document"}],
-        },
-    )
-    single_document = client.post(
-        "/api/transcript-maintenance/standardization/dry-run",
-        json={
-            "selection_mode": "single_document",
-            "document_id": "private-document",
-        },
-    )
-
-    assert missing.status_code == 422
-    assert legacy_selection.status_code == 422
-    assert mismatched_folder.status_code == 422
-    assert mismatched_document.status_code == 422
-    assert invalid_id.status_code == 422
-    assert preview.status_code == 422
-    assert single_document.status_code == 200
-    assert called == [
-        (
-            (db,),
-            {
-                "owner_user_id": "private-owner",
-                "access_token": "private-access-token",
-                "selection_mode": "single_document",
-                "folder_id": None,
-                "document_id": "private-document",
-            },
-        )
-    ]
-    assert db.commits == 0
-
-
-def test_maintenance_selection_errors_are_safe_and_normalized(
-    monkeypatch,
-):
-    from studio_api.transcript_document_selection import (
-        TranscriptDocumentSelectionError,
-        TranscriptDocumentSelectionReason,
+def test_run_creation_errors_are_normalized_without_private_state(monkeypatch):
+    from studio_api.transcript_maintenance_runs import (
+        TranscriptMaintenanceRunError,
+        TranscriptMaintenanceRunReason,
     )
 
     client, db, routes = _client(monkeypatch)
     monkeypatch.setattr(
         routes,
-        "build_transcript_catalog_import_dry_run",
+        "create_transcript_maintenance_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            TranscriptDocumentSelectionError(
-                TranscriptDocumentSelectionReason.folder_invalid
+            TranscriptMaintenanceRunError(
+                TranscriptMaintenanceRunReason.active_run_exists
             )
         ),
     )
-
     response = client.post(
         "/api/transcript-maintenance/catalog-import/dry-run",
         json={
             "selection_mode": "folder_tree",
             "folder_id": "private-folder",
-        },
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"] == {
-        "reason": "transcript_folder_invalid",
-        "retryable": False,
-    }
-    assert response.headers["cache-control"] == "no-store"
-    assert db.rollbacks == 1
-    assert "private-folder" not in response.text
-    assert "private-document" not in response.text
-
-
-def test_maintenance_apply_routes_reinspect_and_execute_independently(
-    monkeypatch,
-):
-    client, db, routes = _client(monkeypatch)
-    calls = []
-    limit_calls = []
-    monkeypatch.setattr(
-        routes.catalog_limiter,
-        "check",
-        lambda *args: limit_calls.append(args),
-    )
-    standardization_inspection = SimpleNamespace(
-        candidates=("private-standardization-candidate",),
-        source_created_at_by_document_id={
-            "private-document": "2026-07-01T00:00:00Z"
-        },
-        selection_summary={"google_document_count": 1},
-    )
-    catalog_inspection = SimpleNamespace(
-        candidates=("private-catalog-candidate",),
-        selection_summary={"google_document_count": 1},
-    )
-
-    def inspect_standardization(db_arg, **kwargs):
-        calls.append(("inspect_standardization", db_arg, kwargs))
-        return standardization_inspection
-
-    def execute_standardization(**kwargs):
-        calls.append(("execute_standardization", kwargs))
-        return {
-            "workflow": "standardization",
-            "operation": "apply",
-            "items": [],
-            "summary": {"standardized_count": 0},
-        }
-
-    def inspect_catalog(db_arg, **kwargs):
-        calls.append(("inspect_catalog", db_arg, kwargs))
-        return catalog_inspection
-
-    def apply_catalog(db_arg, **kwargs):
-        calls.append(("apply_catalog", db_arg, kwargs))
-        return {
-            "workflow": "catalog_import",
-            "operation": "apply",
-            "items": [],
-            "summary": {"imported_count": 0},
-        }
-
-    monkeypatch.setattr(
-        routes,
-        "inspect_transcript_standardization_selection",
-        inspect_standardization,
-    )
-    monkeypatch.setattr(
-        routes,
-        "execute_transcript_standardization_apply",
-        execute_standardization,
-    )
-    monkeypatch.setattr(
-        routes,
-        "inspect_transcript_catalog_import_selection",
-        inspect_catalog,
-    )
-    monkeypatch.setattr(
-        routes,
-        "apply_transcript_catalog_import_metadata",
-        apply_catalog,
-    )
-    standardization_body = {
-        "selection_mode": "single_document",
-        "document_id": "private-document",
-        "confirm_apply": True,
-    }
-    catalog_body = {
-        "selection_mode": "folder_tree",
-        "folder_id": "private-folder",
-        "confirm_apply": True,
-    }
-
-    standardization_response = client.post(
-        "/api/transcript-maintenance/standardization/apply",
-        json=standardization_body,
-    )
-    catalog_response = client.post(
-        "/api/transcript-maintenance/catalog-import/apply",
-        json=catalog_body,
-    )
-
-    assert standardization_response.status_code == 200
-    assert catalog_response.status_code == 200
-    assert standardization_response.json()["workflow"] == "standardization"
-    assert catalog_response.json()["workflow"] == "catalog_import"
-    assert calls == [
-        (
-            "inspect_standardization",
-            db,
-            {
-                "owner_user_id": "private-owner",
-                "access_token": "private-access-token",
-                "selection_mode": "single_document",
-                "folder_id": None,
-                "document_id": "private-document",
-            },
-        ),
-        (
-            "execute_standardization",
-            {
-                "access_token": "private-access-token",
-                "candidates": (
-                    "private-standardization-candidate",
-                ),
-                "source_created_at_by_document_id": {
-                    "private-document": "2026-07-01T00:00:00Z"
-                },
-            },
-        ),
-        (
-            "inspect_catalog",
-            db,
-            {
-                "owner_user_id": "private-owner",
-                "access_token": "private-access-token",
-                "selection_mode": "folder_tree",
-                "folder_id": "private-folder",
-                "document_id": None,
-            },
-        ),
-        (
-            "apply_catalog",
-            db,
-            {
-                "owner_user_id": "private-owner",
-                "candidates": ("private-catalog-candidate",),
-            },
-        ),
-    ]
-    assert limit_calls == [
-        (
-            "transcript-maintenance:standardization:apply:private-owner",
-            5,
-            3600,
-        ),
-        (
-            "transcript-maintenance:catalog-import:apply:private-owner",
-            5,
-            3600,
-        ),
-    ]
-    assert db.commits == 2
-    assert db.rollbacks == 0
-    assert len(db.added) == 2
-    assert standardization_response.headers["cache-control"] == "no-store"
-    assert catalog_response.headers["cache-control"] == "no-store"
-    encoded = standardization_response.text + catalog_response.text
-    for private in (
-        "private-owner",
-        "private-access-token",
-        "private-folder",
-        "private-document",
-        "private-standardization-candidate",
-        "private-catalog-candidate",
-    ):
-        assert private not in encoded
-
-
-def test_maintenance_apply_confirmation_is_required_per_endpoint(
-    monkeypatch,
-):
-    client, db, routes = _client(monkeypatch)
-    called = []
-    monkeypatch.setattr(
-        routes,
-        "inspect_transcript_standardization_selection",
-        lambda **kwargs: called.append(("standardization", kwargs)),
-    )
-    monkeypatch.setattr(
-        routes,
-        "inspect_transcript_catalog_import_selection",
-        lambda *args, **kwargs: called.append(("catalog", kwargs)),
-    )
-    base = {
-        "selection_mode": "folder_tree",
-        "folder_id": "private-folder",
-    }
-
-    for path in (
-        "/api/transcript-maintenance/standardization/apply",
-        "/api/transcript-maintenance/catalog-import/apply",
-    ):
-        assert client.post(path, json=base).status_code == 422
-        assert client.post(
-            path,
-            json={**base, "confirm_apply": False},
-        ).status_code == 422
-
-    assert called == []
-    assert db.commits == 0
-
-
-def test_standardization_apply_normalizes_google_write_failure(
-    monkeypatch,
-):
-    from studio_api.transcript_catalog_standardize import (
-        CatalogGoogleWriteError,
-        CatalogGoogleWriteReason,
-    )
-
-    client, db, routes = _client(monkeypatch)
-    monkeypatch.setattr(
-        routes,
-        "inspect_transcript_standardization_selection",
-        lambda *args, **kwargs: SimpleNamespace(
-            candidates=("private-candidate",),
-            source_created_at_by_document_id={},
-            selection_summary={"google_document_count": 1},
-        ),
-    )
-    monkeypatch.setattr(
-        routes,
-        "execute_transcript_standardization_apply",
-        lambda **kwargs: (_ for _ in ()).throw(
-            CatalogGoogleWriteError(
-                CatalogGoogleWriteReason.revision_conflict_or_rejected
-            )
-        ),
-    )
-
-    response = client.post(
-        "/api/transcript-maintenance/standardization/apply",
-        json={
-            "selection_mode": "folder_tree",
-            "folder_id": "private-folder",
-            "confirm_apply": True,
+            "target_name": "Архив",
+            "idempotency_key": "dry-run-key-00000001",
         },
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == {
-        "reason": "catalog_document_revision_changed",
-        "retryable": True,
+        "reason": "transcript_maintenance_run_in_progress",
+        "retryable": False,
     }
     assert response.headers["cache-control"] == "no-store"
-    assert db.commits == 0
     assert db.rollbacks == 1
-    assert "private-document" not in response.text
+    assert "private-folder" not in response.text
+
+
+def test_latest_and_exact_run_reads_are_owner_scoped_and_no_store(monkeypatch):
+    client, db, routes = _client(monkeypatch)
+    run = _run()
+    calls = []
+    monkeypatch.setattr(
+        routes,
+        "latest_transcript_maintenance_run",
+        lambda db_arg, **kwargs: calls.append(("latest", db_arg, kwargs)) or run,
+    )
+    monkeypatch.setattr(
+        routes,
+        "owned_transcript_maintenance_run",
+        lambda db_arg, **kwargs: calls.append(("owned", db_arg, kwargs)) or run,
+    )
+
+    latest = client.get(
+        "/api/transcript-maintenance/runs?workflow=standardization"
+    )
+    exact = client.get(f"/api/transcript-maintenance/runs/{run.id}")
+
+    assert latest.status_code == 200
+    assert latest.json()["run"]["id"] == run.id
+    assert exact.status_code == 200
+    assert exact.json()["id"] == run.id
+    assert calls == [
+        (
+            "latest",
+            db,
+            {
+                "owner_user_id": "private-owner",
+                "workflow": routes.TranscriptMaintenanceWorkflow.standardization,
+            },
+        ),
+        (
+            "owned",
+            db,
+            {"owner_user_id": "private-owner", "run_id": run.id},
+        ),
+    ]
+    assert latest.headers["cache-control"] == "no-store"
+    assert exact.headers["cache-control"] == "no-store"
+    assert "private-folder" not in latest.text + exact.text
+
+
+def test_missing_owned_run_is_safe_404(monkeypatch):
+    from studio_api.transcript_maintenance_runs import (
+        TranscriptMaintenanceRunError,
+        TranscriptMaintenanceRunReason,
+    )
+
+    client, _db, routes = _client(monkeypatch)
+    monkeypatch.setattr(
+        routes,
+        "owned_transcript_maintenance_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            TranscriptMaintenanceRunError(
+                TranscriptMaintenanceRunReason.run_not_found
+            )
+        ),
+    )
+    response = client.get(
+        "/api/transcript-maintenance/runs/00000000-0000-4000-8000-000000000099"
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "reason": "transcript_maintenance_run_not_found",
+        "retryable": False,
+    }
+    assert response.headers["cache-control"] == "no-store"

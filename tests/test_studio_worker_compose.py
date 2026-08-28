@@ -36,8 +36,10 @@ def test_studio_worker_compose_contract():
         assert key in worker
     for secret in ["studio_postgres_password", "studio_credential_master_key", "studio_source_s3_access_key_id", "studio_source_s3_secret_access_key", "studio_google_oauth_client_secret"]:
         assert secret in worker
-    assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_" not in worker
-    assert "studio_google_maintenance_oauth_client_secret" not in worker
+    assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID" in worker
+    assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE" in worker
+    assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES" in worker
+    assert "studio_google_maintenance_oauth_client_secret" in worker
     assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID" in api
     assert "studio_google_maintenance_oauth_client_secret" in api
     for service in (api, worker):

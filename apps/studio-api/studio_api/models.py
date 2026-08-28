@@ -26,6 +26,7 @@ class DiagnosticComponent(str, enum.Enum): web="web"; api="api"; worker="worker"
 class TranscriptCatalogDocumentStandardStatus(str, enum.Enum): current="current"; outdated="outdated"; unstructured="unstructured"; unreadable="unreadable"
 class TranscriptCatalogSettingsStatus(str, enum.Enum): exact="exact"; indeterminate="indeterminate"
 class TranscriptCatalogSourceIdentityKind(str, enum.Enum): google_drive_file="google_drive_file"; studio_source="studio_source"
+class TranscriptMaintenanceRunStatus(str, enum.Enum): queued="queued"; running="running"; succeeded="succeeded"; failed="failed"
 
 class User(Base):
     __tablename__="users"
@@ -288,6 +289,49 @@ class TranscriptCatalogEntry(Base):
         UniqueConstraint("owner_user_id", "document_id", name="uq_transcript_catalog_owner_document"),
         Index("ix_transcript_catalog_owner_updated", "owner_user_id", "updated_at"),
         Index("ix_transcript_catalog_owner_source_settings", "owner_user_id", "source_identity_kind", "source_identity_value", "provider", "model", "language_mode", "diarization_enabled"),
+    )
+
+class TranscriptMaintenanceRun(Base):
+    __tablename__="transcript_maintenance_runs"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    workflow: Mapped[str]=mapped_column(String(32), nullable=False)
+    operation: Mapped[str]=mapped_column(String(16), nullable=False)
+    selection_mode: Mapped[str]=mapped_column(String(32), nullable=False)
+    folder_id: Mapped[str|None]=mapped_column(String(256))
+    document_id: Mapped[str|None]=mapped_column(String(256))
+    target_name: Mapped[str]=mapped_column(String(512), nullable=False)
+    preview_run_id: Mapped[str|None]=mapped_column(ForeignKey("transcript_maintenance_runs.id"))
+    idempotency_key: Mapped[str]=mapped_column(String(64), nullable=False)
+    status: Mapped[TranscriptMaintenanceRunStatus]=mapped_column(Enum(TranscriptMaintenanceRunStatus, native_enum=False, length=16), nullable=False, default=TranscriptMaintenanceRunStatus.queued, server_default=text("'queued'"), index=True)
+    current_stage: Mapped[str]=mapped_column(String(32), nullable=False, default="queued", server_default=text("'queued'"))
+    progress_completed: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    progress_total: Mapped[int|None]=mapped_column(Integer)
+    result_json: Mapped[str|None]=mapped_column(Text)
+    error_code: Mapped[str|None]=mapped_column(String(80))
+    error_retryable: Mapped[bool|None]=mapped_column(Boolean)
+    attempt_count: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    lease_owner_id: Mapped[str|None]=mapped_column(String(128))
+    lease_generation: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    __table_args__=(
+        CheckConstraint("workflow IN ('standardization','catalog_import')", name="ck_transcript_maintenance_runs_workflow"),
+        CheckConstraint("operation IN ('dry_run','apply')", name="ck_transcript_maintenance_runs_operation"),
+        CheckConstraint("selection_mode IN ('folder_tree','single_document')", name="ck_transcript_maintenance_runs_selection_mode"),
+        CheckConstraint("((selection_mode = 'folder_tree' AND folder_id IS NOT NULL AND document_id IS NULL) OR (selection_mode = 'single_document' AND folder_id IS NULL AND document_id IS NOT NULL))", name="ck_transcript_maintenance_runs_target"),
+        CheckConstraint("((operation = 'dry_run' AND preview_run_id IS NULL) OR (operation = 'apply' AND preview_run_id IS NOT NULL))", name="ck_transcript_maintenance_runs_preview"),
+        CheckConstraint("progress_completed >= 0", name="ck_transcript_maintenance_runs_progress_completed"),
+        CheckConstraint("progress_total IS NULL OR progress_total >= progress_completed", name="ck_transcript_maintenance_runs_progress_bounded"),
+        CheckConstraint("attempt_count >= 0", name="ck_transcript_maintenance_runs_attempt_count"),
+        CheckConstraint("lease_generation >= 0", name="ck_transcript_maintenance_runs_lease_generation"),
+        UniqueConstraint("owner_user_id", "idempotency_key", name="uq_transcript_maintenance_runs_owner_idempotency"),
+        Index("ix_transcript_maintenance_runs_owner_workflow_created", "owner_user_id", "workflow", "created_at", "id"),
+        Index("ix_transcript_maintenance_runs_claim", "status", "lease_expires_at", "created_at"),
     )
 
 class TranscriptionJobSource(Base):

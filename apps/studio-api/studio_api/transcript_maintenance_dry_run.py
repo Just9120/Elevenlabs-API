@@ -104,6 +104,7 @@ def build_transcript_standardization_dry_run(
         ..., dict[str, DocumentSourceCreationAuthority]
     ]
     | None = None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> dict:
     """Classify one selected Doc or every Doc in a recursive folder."""
 
@@ -116,6 +117,7 @@ def build_transcript_standardization_dry_run(
         document_id=document_id,
         reader=reader,
         source_creation_loader=source_creation_loader,
+        progress=progress,
     )
     payload = build_transcript_standardization_payload(
         operation=CatalogMigrationOperation.dry_run,
@@ -138,6 +140,7 @@ def inspect_transcript_standardization_selection(
         ..., dict[str, DocumentSourceCreationAuthority]
     ]
     | None = None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> TranscriptStandardizationSelectionInspection:
     """Rebuild standardization evidence from the selected target."""
 
@@ -160,6 +163,7 @@ def inspect_transcript_standardization_selection(
         document_id=document_id,
         reader=reader,
         source_creation_loader=load_authorities,
+        progress=progress,
     )
     return TranscriptStandardizationSelectionInspection(
         candidates=tuple(
@@ -191,6 +195,7 @@ def build_transcript_catalog_import_dry_run(
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> dict:
     """Classify one Doc or every recursive Doc for metadata import."""
 
@@ -203,6 +208,7 @@ def build_transcript_catalog_import_dry_run(
         document_id=document_id,
         reader=reader,
         authority_loader=authority_loader,
+        progress=progress,
     )
     payload = build_transcript_catalog_import_payload(
         operation=CatalogMigrationOperation.dry_run,
@@ -223,6 +229,7 @@ def inspect_transcript_catalog_import_selection(
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> TranscriptCatalogImportSelectionInspection:
     """Rebuild catalog-import evidence from the selected target."""
 
@@ -234,6 +241,7 @@ def inspect_transcript_catalog_import_selection(
         document_id=document_id,
         reader=reader,
         source_creation_loader=None,
+        progress=progress,
     )
     selected_document_ids = tuple(
         item.drive_document_id for item in evidence
@@ -276,6 +284,7 @@ def _inspect_transcripts(
         [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
     ]
     | None,
+    progress: Callable[[str, int, int | None], None] | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
     mode = _selection_mode(selection_mode)
     if mode == TranscriptMaintenanceSelectionMode.folder_tree:
@@ -288,6 +297,7 @@ def _inspect_transcripts(
             folder_id=_private_drive_id(folder_id, label="folder"),
             reader=reader,
             source_creation_loader=source_creation_loader,
+            progress=progress,
         )
     if folder_id is not None:
         raise ValueError(
@@ -298,6 +308,7 @@ def _inspect_transcripts(
         document_id=_private_drive_id(document_id, label="document"),
         reader=reader,
         source_creation_loader=source_creation_loader,
+        progress=progress,
     )
 
 
@@ -310,12 +321,16 @@ def _inspect_folder_transcripts(
         [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
     ]
     | None,
+    progress: Callable[[str, int, int | None], None] | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
     catalog_reader = reader or GoogleTranscriptCatalogReader()
-    scan = catalog_reader.scan_folder(
-        access_token=access_token,
-        folder_id=folder_id,
-    )
+    scan_kwargs: dict[str, Any] = {
+        "access_token": access_token,
+        "folder_id": folder_id,
+    }
+    if progress is not None:
+        scan_kwargs["progress"] = progress
+    scan = catalog_reader.scan_folder(**scan_kwargs)
     documents = _validated_recursive_documents(scan)
     authorities = _selection_source_creation_authorities(
         tuple(document.drive_document_id for document in documents),
@@ -326,6 +341,7 @@ def _inspect_folder_transcripts(
         documents=documents,
         reader=catalog_reader,
         source_creation_by_document_id=authorities,
+        progress=progress,
     )
     return (
         evidence,
@@ -350,6 +366,7 @@ def _inspect_single_transcript(
         [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
     ]
     | None,
+    progress: Callable[[str, int, int | None], None] | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
     catalog_reader = reader or GoogleTranscriptCatalogReader()
     authorities = _selection_source_creation_authorities(
@@ -380,6 +397,7 @@ def _inspect_single_transcript(
             documents=(document,),
             reader=catalog_reader,
             source_creation_by_document_id=authorities,
+            progress=progress,
         )
     return (
         evidence,
@@ -401,10 +419,11 @@ def _classify_documents(
     source_creation_by_document_id: dict[
         str, DocumentSourceCreationAuthority
     ],
+    progress: Callable[[str, int, int | None], None] | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], int]:
     evidence = []
     unreadable_document_count = 0
-    for document in documents:
+    for position, document in enumerate(documents, start=1):
         authority = source_creation_by_document_id[
             document.drive_document_id
         ]
@@ -440,6 +459,8 @@ def _classify_documents(
                 source_created_at=authority.iso8601,
             )
         )
+        if progress is not None:
+            progress("inspecting", position, len(documents))
     return tuple(evidence), unreadable_document_count
 
 

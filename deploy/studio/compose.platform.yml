@@ -111,6 +111,10 @@ services:
       STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
       STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly}
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID:-}
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_maintenance_oauth_client_secret
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI:-}
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents}
       STUDIO_WORKER_POLL_INTERVAL_SECONDS: ${STUDIO_WORKER_POLL_INTERVAL_SECONDS:-5}
       STUDIO_WORKER_ERROR_BACKOFF_SECONDS: ${STUDIO_WORKER_ERROR_BACKOFF_SECONDS:-5}
       STUDIO_WORKER_LEASE_TTL_SECONDS: ${STUDIO_WORKER_LEASE_TTL_SECONDS:-3600}
@@ -121,6 +125,7 @@ services:
       - studio_source_s3_access_key_id
       - studio_source_s3_secret_access_key
       - studio_google_oauth_client_secret
+      - studio_google_maintenance_oauth_client_secret
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:

@@ -85,6 +85,7 @@ def apply_transcript_catalog_import_metadata(
     candidates: Iterable[CatalogMigrationCandidate],
     metadata_by_document_id: Mapping[str, CatalogApplyMetadata] | None = None,
     applied_at: datetime | None = None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> dict:
     """Persist only eligible selected catalog metadata; never touch Google."""
 
@@ -96,6 +97,7 @@ def apply_transcript_catalog_import_metadata(
         applied_at=applied_at,
         classifier=classify_transcript_catalog_import_candidate,
         workflow=TranscriptMaintenanceWorkflow.catalog_import.value,
+        progress=progress,
     )
 
 
@@ -111,6 +113,7 @@ def _apply_catalog_metadata(
         CatalogMigrationDecision | TranscriptCatalogImportDecision,
     ],
     workflow: str | None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> dict:
     from .models import TranscriptCatalogEntry
 
@@ -192,6 +195,8 @@ def _apply_catalog_metadata(
                 "reason_code": reason.value if reason else None,
             }
         )
+        if progress is not None:
+            progress("applying", position + 1, len(candidate_rows))
 
     db.flush()
     payload = {
