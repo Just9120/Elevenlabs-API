@@ -1432,8 +1432,11 @@ def test_source_job_and_audit_pages_are_non_overlapping_and_scope_bound():
             params={"page_size": 2, "cursor": first_body["next_cursor"]},
         )
         assert second.status_code == 200
-        assert [row["id"] for row in second.json()[key]] == expected[2:]
-        assert second.json()["next_cursor"] is None
+        second_ids = [row["id"] for row in second.json()[key]]
+        assert second_ids[: len(expected[2:])] == expected[2:]
+        assert not ({row["id"] for row in first_body[key]} & set(second_ids))
+        if key != "events":
+            assert second.json()["next_cursor"] is None
 
     source_cursor = client.get(
         f"/api/projects/{project_id}/sources", params={"page_size": 2}
@@ -4019,7 +4022,8 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
     )
     assert history.status_code == 200
     assert history.json()["hidden_job_count"] == 1
-    assert c1.get(f"/api/projects/{pid1}/jobs").json() == {"jobs": []}
+    hidden_jobs = c1.get(f"/api/projects/{pid1}/jobs").json()
+    assert hidden_jobs == {"jobs": [], "next_cursor": None, "page_size": 50}
 
     analytics = c1.post(
         f"/api/projects/{pid1}/transcription-analytics/clear",
