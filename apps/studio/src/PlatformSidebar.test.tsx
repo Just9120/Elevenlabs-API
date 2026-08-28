@@ -14,7 +14,7 @@ describe("PlatformSidebar", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Обзор" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Обработка аудио" }),
+      screen.getByRole("button", { name: "Подготовка аудио" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Транскрибации" }),

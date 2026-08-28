@@ -3,7 +3,7 @@ import type { Page } from "./platformRouting";
 
 const platformNav: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "dashboard", label: "Обзор", icon: Home },
-  { id: "audio", label: "Обработка аудио", icon: SlidersHorizontal },
+  { id: "audio", label: "Подготовка аудио", icon: SlidersHorizontal },
   { id: "projects", label: "Транскрибации", icon: AudioLines },
   { id: "settings", label: "Настройки", icon: Settings },
 ];

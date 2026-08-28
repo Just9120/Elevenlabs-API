@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe` (PR `#252`). Основной bounded-query delivery PR `#251` подтверждён exact-head/main CI, protected migration/API, web/worker deployment и authenticated LIVE; web-only hotfix PR `#252` устранил presentation cap audit pagination. Production schema — `0027_query_bounds`; exact component identities и historical delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@535a015dcef211a930faefe443245ee85ace38b8` (PR `#254`). PR `#253` и bounded LIVE подтвердили app-owned source/output Drive dialogs, search/current-folder/multi-select behavior и явное состояние diarization; PR `#254` исправил shared-folder Drive query. Exact-main CI и web delivery завершились success. Production API/worker остаются на совместимом `cc4347758ebae849c963cbf11be253862c6a1402`, production schema — `0027_query_bounds`; exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `PWA-TRANSCRIPTION-UX-POLISH-01` на branch `codex/pwa-transcription-ux-polish-01` от verified base `main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`. Она реализует согласованные owner annotations: app-owned source-file/source-folder picker с поиском, поиск output folders и явное состояние разделения на спикеров. Отдельно согласованный versionless standard `transcript_doc` включён в BACKLOG, но его implementation не входит в текущую Goal. Commercial, OAuth scope changes, provider calls/spend, backend import semantics и infrastructure hardening вне scope.
+Current operational Goal: `PWA-AUDIO-DIRECT-DRIVE-UPLOAD-01` на branch `codex/pwa-audio-direct-drive-upload-01` от verified base `main@535a015dcef211a930faefe443245ee85ace38b8`. Local implementation through `ce126b3` переименовывает audio workspace в `Подготовка аудио` и добавляет bounded resumable browser-to-Google-Drive upload исходных audio/video без обработки, S3, Studio Source, FFmpeg и provider calls. Commercial, `transcript_doc`, OAuth scope expansion, DB migration, worker changes и unrelated refactors вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **96,9% (`31/32`)** | добавлен owner-approved `CB-24`; новый format ещё не реализован |
-| Personal Studio PWA | **68,0% (`185/272`)** | добавлены 13 owner-approved UX/standardization AC; numerator не повышен до Evidence |
-| Non-commercial scope | **71,1% (`216/304`)** | Colab `31/32` + personal PWA `185/272` |
+| Personal Studio PWA | **70,9% (`197/278`)** | local CODE/TEST Evidence выполняет `AP-01` и `AP-25..30`; CI/DEPLOY/LIVE gates ещё открыты |
+| Non-commercial scope | **73,5% (`228/310`)** | Colab `31/32` + personal PWA `197/278` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **39,6% (`216/546`)** | `216 / (304 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **41,3% (`228/552`)** | `228 / (310 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 добавили ещё `14` atomic AC: `6` по Picker/diarization UX и `8` по versionless `transcript_doc`. Поэтому current denominator равен `546`, а numerator до implementation Evidence остаётся `216`. Падение `COLAB-BATCH-01`, `PWA-GOOGLE-PICKER-UX-01` и `PWA-STANDARDIZATION-01` относительно прежних 100% вызвано расширением согласованного denominator, а не регрессом уже реализованного поведения. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; completed delivery поднял numerator до `222/546`. Текущее решение изменило формулировку `AP-01` и добавило `AP-25..30`, поэтому denominator равен `552`; local implementation Evidence выполняет все семь новых/reopened AC и поднимает independent numerator с `221` до `228`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -193,22 +193,22 @@ Verified implementation: Favorites и local folder flow подтверждены
 
 ### Эпик `PWA-GOOGLE-PICKER-UX-01` — app-owned Drive selection, search и viewport
 
-Status: **🟦 IN PROGRESS — 37,5% (`3/8`)**. Три ранее реализованных viewport/current-folder AC сохранены; пять owner-approved search/interface AC находятся в активной реализации `PWA-TRANSCRIPTION-UX-POLISH-01`.
+Status: **🟩 READY — 100% (`8/8`)**. App-owned source/output Drive dialogs, bounded search/pagination/current-folder semantics и viewport behavior подтверждены completed delivery.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PG-01` | Во всех source-file/source-folder/output-folder Picker flows открытая Google Picker modal остаётся зафиксированной относительно viewport и не смещается вслед за document scroll. | ✅ |
 | `PG-02` | Пока Google Picker открыт, background document scroll заблокирован; после pick/cancel/error/timeout предыдущие scroll position и body styles восстанавливаются без page jump. | ✅ |
 | `PG-03` | В output-folder flow текущая открытая папка является допустимым default selection: кнопка `Выбрать` активна без выбора вложенной папки, включая папку без дочерних папок. | ✅ |
-| `PG-04` | App-owned output-folder dialog позволяет искать доступные папки по имени, открывать найденную папку и выбрать её как current target без обязательного выбора вложенной папки. | — |
-| `PG-05` | Source-file flow использует app-owned интерфейс, визуально и поведенчески согласованный с output-folder dialog; native Google Picker для этого flow не используется. | — |
-| `PG-06` | Source-file dialog позволяет искать поддерживаемые audio/video files по имени и выбрать до `50` файлов; navigation/search/pagination не теряют уже выбранные элементы и не создают duplicates. | — |
-| `PG-07` | Source-folder flow использует app-owned интерфейс, визуально и поведенчески согласованный с output-folder dialog; текущая открытая папка является допустимым selection, включая empty folder. | — |
-| `PG-08` | Source-folder dialog позволяет искать доступные папки по имени, открыть найденную папку и выбрать её как current source folder. | — |
+| `PG-04` | App-owned output-folder dialog позволяет искать доступные папки по имени, открывать найденную папку и выбрать её как current target без обязательного выбора вложенной папки. | ✅ |
+| `PG-05` | Source-file flow использует app-owned интерфейс, визуально и поведенчески согласованный с output-folder dialog; native Google Picker для этого flow не используется. | ✅ |
+| `PG-06` | Source-file dialog позволяет искать поддерживаемые audio/video files по имени и выбрать до `50` файлов; navigation/search/pagination не теряют уже выбранные элементы и не создают duplicates. | ✅ |
+| `PG-07` | Source-folder flow использует app-owned интерфейс, визуально и поведенчески согласованный с output-folder dialog; текущая открытая папка является допустимым selection, включая empty folder. | ✅ |
+| `PG-08` | Source-folder dialog позволяет искать доступные папки по имени, открыть найденную папку и выбрать её как current source folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
-Verified implementation для `PG-01..03`: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4` блокирует background wheel/touch/scroll через `documentScrollLock.ts`, сохраняет exact inline styles/position и idempotently восстанавливает их; output-folder flow использует bounded app-owned Drive folder dialog с ephemeral access token и сохранённой server-side write verification. PR `#245`, exact PR/main CI и web deployment прошли. Owner annotations 2026-08-28 добавили `PG-04..08`; их нельзя считать выполненными до нового CODE/TEST/CI/DEPLOY/LIVE Evidence.
+Verified implementation: `main@535a015dcef211a930faefe443245ee85ace38b8` сохраняет scroll/focus/current-folder boundaries и использует согласованные app-owned dialogs для трёх picker modes. PR `#253` и hotfix PR `#254`, exact-head/main CI, web deployment и authenticated LIVE подтвердили folder/file search, current empty folder, shared folders/drives и source-file multi-selection `2 → 1 → 2` без provider call.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -228,7 +228,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 90,9% (`10/11`)**. Existing transcription behavior сохранено; owner-approved явная индикация diarization находится в активной реализации.
+Status: **🟩 READY — 100% (`11/11`)**. Existing transcription behavior и явная non-color-only индикация diarization подтверждены completed delivery.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -242,21 +242,21 @@ Status: **🟦 IN PROGRESS — 90,9% (`10/11`)**. Existing transcription behavio
 | `PB-08` | В начало документа добавлен metadata header. | ✅ |
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ✅ |
-| `PB-11` | Composer и preflight явно текстом показывают `Разделение спикеров: включено` или `Разделение спикеров: выключено`; включённое состояние визуально заметно и не передаётся только цветом. | — |
+| `PB-11` | Composer и preflight явно текстом показывают `Разделение спикеров: включено` или `Разделение спикеров: выключено`; включённое состояние визуально заметно и не передаётся только цветом. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
-`main@800bcc820529ff3c78214c129c593d182c621c62` передаёт persisted source creation authority в output/maintenance contract и запрещает fallback на Google Doc/job/upload/modified clocks. Exact-main CI/CD и bounded production canary подтверждены delivery record PR #227.
+`main@800bcc820529ff3c78214c129c593d182c621c62` передаёт persisted source creation authority в output/maintenance contract и запрещает fallback на Google Doc/job/upload/modified clocks. Exact-main CI/CD и bounded production canary подтверждены delivery record PR #227. Явные states diarization в composer/preflight подтверждены PR `#253`, hotfix PR `#254`, exact-main web delivery и authenticated LIVE на `main@535a015dcef211a930faefe443245ee85ace38b8`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟩 READY — 100% (`24/24`)**. Полный Audio Preparation scope, включая явный 16-bit FLAC output contract, подтверждён exact-main delivery и bounded production LIVE.
+Status: **🟦 IN PROGRESS — 100% (`30/30`)**. Все atomic AC имеют local CODE/TEST Evidence; READY gate остаётся открыт до exact-head CI, API/web deployment и authenticated direct-upload LIVE.
 
-Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder.
+Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder. Отдельный direct-upload mode переносит исходные audio/video с устройства непосредственно в Google Drive без обработки и без промежуточного хранения в Studio.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `AP-01` | Sidebar содержит отдельный пункт `Обработка аудио` непосредственно перед `Транскрипциями`. | ✅ |
+| `AP-01` | Sidebar содержит отдельный пункт `Подготовка аудио` непосредственно перед `Транскрипциями`, а hero той же страницы использует заголовок `Подготовка аудио`. | ✅ |
 | `AP-02` | Пользователь выбирает один или несколько доступных owner-scoped media sources и запускает обработку независимо от транскрибации. | ✅ |
 | `AP-03` | До обработки каждый input проверяется через bounded probe на container, codec, duration, audio-stream presence и media integrity; invalid input fail-closed. | ✅ |
 | `AP-04` | Несколько inputs по умолчанию упорядочиваются по authoritative creation time, а пользователь может явно изменить порядок до запуска. | ✅ |
@@ -280,8 +280,16 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-22` | Primary UI использует user-facing scenario/title controls, не показывает technical filename template, называет функцию `Уменьшить длинные паузы в аудио или видео`, использует default `-45 dB` и раскрывает остальные silence parameters только после включения функции. | ✅ |
 | `AP-23` | Download, optional save в явно выбранную Google Drive folder и handoff/reuse в транскрибацию или новую обработку представлены независимыми terminal actions, а не взаимоисключающим выбором результата. | ✅ |
 | `AP-24` | Server-side FLAC создаётся с явной 16-bit sample precision и исходной sample rate, UI раскрывает эти параметры, а FFmpeg filter graph не может неявно повысить output до избыточного 24-bit. | ✅ |
+| `AP-25` | Source actions оформлены как доступный tablist; mode `В Google Drive без обработки` принимает bounded multi-select только поддерживаемых audio/video с устройства и сохраняет исходные bytes, filename и MIME без преобразования. | ✅ |
+| `AP-26` | Для direct-upload mode целевая folder выбирается существующим app-owned output-folder dialog с search/navigation/shared drives и возможностью выбрать current folder, включая empty folder. | ✅ |
+| `AP-27` | Resumable transfer идёт напрямую browser → Google Drive и не отправляет source bytes в Studio API, S3, Studio Source, FFmpeg, transcription или provider; используются только существующие Google OAuth scopes без expansion. | ✅ |
+| `AP-28` | UI показывает current-file и aggregate progress в bytes и процентах, текущую стадию и cancellation; automatic retry/replay отсутствует. | ✅ |
+| `AP-29` | File count, per-file/aggregate size и MIME имеют явные bounds; partial failures изолированы, а manual retry использует устойчивый idempotency marker и не дублирует уже подтверждённые uploads. | ✅ |
+| `AP-30` | API server-side проверяет owner destination и result metadata: file ID, parent, name, MIME, size и idempotency marker; UI показывает только safe Drive links, а token/resumable upload URL/private diagnostics не логируются и не сохраняются. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+
+Current Goal local Evidence: backend descriptor/capability/result unit tests `3/3`; direct uploader and component regressions cover invalid MIME/bounds, resumable session validation, marker reuse, partial failure, per-file/aggregate progress, multi-file cancellation and explicit safe retry. Full portable Python suite is `1095 passed, 5 skipped`; full Studio Vitest is `627/627`; ESLint, TypeScript/Vite/PWA production build and lightweight repository checks pass. DB-backed API regression is authored but local PostgreSQL/Redis/Docker are unavailable, so `TEST` remains partial until exact-head repository CI.
 
 Verified base delivery: PRs `#234–#235`, final merge `16badb0aa4404ae2616a3d46070925b54b043963`; exact-main repository/Studio CI, protected migration `0025_audio_preparation`, API/worker/web rollout и bounded operation `2ad99ead-1c45-4439-8e8a-d64c2bcc3037` подтвердили preview `0:04 → 0:02`, terminal `completed`, download/Drive/reuse и ephemeral cleanup. PR `#237`, exact-main CI/CD и browser-local production WAV подтвердили новый UX, локальную обработку и независимые actions. Последующий exact worker retest на двух сохранённых OBS/MKV sources дал два независимых `invalid_input` на 5%; initial stream/container numeric-duration fallback оказался недостаточным, поэтому `AP-10` остаётся reopened до hotfix CI/deploy и успешного server concat LIVE.
 
@@ -289,7 +297,7 @@ Latest verified runtime: PR `#242` merged как `main@bffbdb11b882701226898b9f7
 
 Final FLAC remediation: PR `#243` merged как `main@018b560035e4ff2219c246f734216f76537875ee`; exact-main CI/CD и manual worker rollout завершились success. Повторный production output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` имеет `s16`, `48 kHz`, mono, duration `7907.718563` секунд и размер `334113611` bytes (`318.64 MiB`), закрывая `AP-24`.
 
-Definition of Done: `24/24`, relevant backend/frontend tests и required exact-head CI green, applicable API/worker/web deployment, bounded owner-controlled server concat and browser-local LIVE with short fixtures, authenticated download and optional Google Drive upload without provider call.
+Definition of Done: `30/30`, relevant backend/frontend tests и required exact-head CI green, applicable API/web deployment, bounded owner-controlled server concat/browser-local processing LIVE и direct browser-to-Drive upload LIVE с короткими media fixtures, progress/cancel/manual idempotent retry и server-verified safe links без provider call. Worker/deployment migration для direct-upload Goal не требуются.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -1098,17 +1106,16 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Current verified repository/web revision: `main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe` (PR `#252`); bounded-query implementation PR `#251` merged как `cc4347758ebae849c963cbf11be253862c6a1402`.
-- Exact PR-head/main repository и Studio/browser CI, web delivery, protected migration/API и safely drained worker delivery завершились success; exact identifiers находятся в delivery archive.
-- Production schema `0027_query_bounds`; authenticated LIVE подтвердил coherent component identity, dependency readiness, bounded analytics/cleanup и safe provider `probe=not_run`. Web-only audit pagination hotfix доставлен exact `ea92ac67`; API/worker остаются на совместимом `cc434775`.
-- Public root/login/manifest ранее подтверждены. Новые `PG-04..08` и `PB-11` ещё не имеют implementation/delivery/LIVE Evidence.
+- Current verified repository/web revision: `main@535a015dcef211a930faefe443245ee85ace38b8` (PR `#254`); основной transcription UX PR `#253` и shared-folder query hotfix PR `#254` подтверждены exact-head/main CI, web delivery и authenticated LIVE.
+- Production API/worker revision `cc4347758ebae849c963cbf11be253862c6a1402` остаётся совместимой; production schema — `0027_query_bounds`. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`.
+- `PG-04..08` и `PB-11` подтверждены. `AP-01` и `AP-25..30` имеют current Goal local CODE/partial TEST Evidence through `ce126b3`; CI/DEPLOY/LIVE для нового direct-upload contract ещё отсутствуют, а прошлое Audio Preparation Evidence вместо них не засчитывается.
 
 ## 9. Current critical path
 
-1. Завершить `PWA-TRANSCRIPTION-UX-POLISH-01`: app-owned Drive picker для source files/source folder/output folder, bounded search/pagination, сохранение selection/navigation semantics и явная diarization indication.
-2. Не расширять текущую Goal на `transcript_doc`, commercial contour, OAuth scope changes, provider calls, backend import semantics, DB least privilege или infrastructure hardening.
-3. После closure отдельно предложить bounded Goal для `CB-24` и `PD-07..13`; BACKLOG не авторизует implementation.
-4. Exact-head CI, web-only deployment и authenticated owner LIVE обязательны для текущей Goal; native catalog/transcript Picker flows не затрагиваются.
+1. Завершить `PWA-AUDIO-DIRECT-DRIVE-UPLOAD-01`: `Подготовка аудио`, accessible source tabs и bounded resumable browser-to-Drive upload с existing app-owned folder picker, progress/cancel/partial-failure/manual idempotent retry и server-side result verification.
+2. Не расширять текущую Goal на `transcript_doc`, commercial contour, OAuth scope changes, provider calls/spend, S3 staging, FFmpeg, Studio Source, DB migration, worker changes или unrelated refactors.
+3. Exact-head CI, applicable API+web deployment и authenticated owner LIVE обязательны; direct-upload LIVE использует только короткие fixtures и не запускает transcription/provider job.
+4. После closure отдельно предложить bounded Goal для `CB-24` и `PD-07..13`; BACKLOG не авторизует implementation.
 5. DB least privilege, storage isolation и legacy removal остаются отдельными Goals.
 6. Commercial contour включён в durable BACKLOG `0/242`; это не implementation authorization.
 

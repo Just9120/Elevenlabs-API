@@ -79,6 +79,20 @@ from .transcript_catalog import (
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, provider_language_code, stored_language_mode, stored_transcription_options
 from .transcript_catalog_routes import router as transcript_catalog_router
 from .audio_preparation import AudioPreparationError
+from .direct_drive_upload import (
+    DIRECT_DRIVE_UPLOAD_CAPABILITY_MAX_LENGTH,
+    DIRECT_DRIVE_UPLOAD_CAPABILITY_SECONDS,
+    DIRECT_DRIVE_UPLOAD_MAX_FILES,
+    DirectDriveUploadError,
+    DirectDriveUploadReason,
+    decode_direct_drive_upload_capability,
+    direct_drive_upload_descriptor_digest,
+    direct_drive_upload_policy,
+    encode_direct_drive_upload_capability,
+    normalize_direct_drive_upload_descriptor,
+    validate_direct_drive_upload_batch,
+    verify_direct_drive_upload_result,
+)
 from .audio_preparation_service import (
     AudioPreparationServiceError,
     audio_preparation_payload,
@@ -210,6 +224,23 @@ class LocalUploadInitiateIn(BaseModel):
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+
+class DirectDriveUploadFileIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: str=Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+    original_filename: str=Field(min_length=1,max_length=255)
+    mime_type: str=Field(min_length=1,max_length=255)
+    size_bytes: StrictInt=Field(ge=1)
+
+class DirectDriveUploadSessionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    folder_id: str=Field(min_length=1,max_length=256)
+    files: list[DirectDriveUploadFileIn]=Field(min_length=1,max_length=DIRECT_DRIVE_UPLOAD_MAX_FILES)
+
+class DirectDriveUploadCompleteIn(DirectDriveUploadFileIn):
+    folder_id: str=Field(min_length=1,max_length=256)
+    file_id: str=Field(min_length=1,max_length=256)
+    capability: str=Field(min_length=80,max_length=DIRECT_DRIVE_UPLOAD_CAPABILITY_MAX_LENGTH)
 
 class AudioPreparationCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1089,6 +1120,147 @@ def verify_google_picker_output_folder(project_id: str, data: GooglePickerOutput
     access_token=refreshed_google_drive_access_token(db, user)
     verified=verify_output_folder_selection(access_token, data.folder_id)
     return {"name": verified.name or "Папка Google Drive", "web_view_url": verified.web_view_url}
+
+
+def _direct_drive_upload_access_token(db: Session, user: User) -> str:
+    try:
+        connection=active_google_connection_for_user(db, user_id=user.id)
+        require_drive_file_scope(connection)
+        require_picker_browser_scope_boundary(connection)
+        return refresh_user_google_drive_access_token(
+            db, user_id=user.id, settings=settings
+        )
+    except GoogleConnectionAccessError as exc:
+        status_code={
+            GoogleConnectionAccessReason.missing: 404,
+            GoogleConnectionAccessReason.inactive: 409,
+            GoogleConnectionAccessReason.reauthorization_required: 409,
+            GoogleConnectionAccessReason.scope_unavailable: 409,
+            GoogleConnectionAccessReason.config_unavailable: status.HTTP_503_SERVICE_UNAVAILABLE,
+            GoogleConnectionAccessReason.token_unavailable: 502,
+        }[exc.reason]
+        raise HTTPException(status_code, exc.reason.value) from None
+
+
+def _direct_drive_upload_descriptors(
+    files: list[DirectDriveUploadFileIn],
+):
+    try:
+        descriptors=[
+            normalize_direct_drive_upload_descriptor(
+                item.operation_id,
+                item.original_filename,
+                item.mime_type,
+                item.size_bytes,
+                max_file_bytes=settings.source_max_upload_bytes,
+            )
+            for item in files
+        ]
+        validate_direct_drive_upload_batch(descriptors)
+        return descriptors
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@app.post("/api/projects/{project_id}/direct-drive-uploads/session")
+def create_direct_drive_upload_session(
+    project_id: str,
+    data: DirectDriveUploadSessionIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair
+    limiter.check("audio:direct-drive:session:"+user.id, 30, 300)
+    _browser_capability_cache_headers(response)
+    project=owned_project_or_404(db,user,project_id)
+    descriptors=_direct_drive_upload_descriptors(data.files)
+    access_token=_direct_drive_upload_access_token(db,user)
+    verified=verify_output_folder_selection(access_token,data.folder_id)
+    capabilities=[
+        {
+            "operation_id": descriptor.operation_id,
+            "capability": encode_direct_drive_upload_capability(
+                descriptor,
+                owner_user_id=user.id,
+                project_id=project.id,
+                folder_id=verified.id,
+                secret=sess.csrf_hash,
+                now=utcnow(),
+            ),
+        }
+        for descriptor in descriptors
+    ]
+    return {
+        "access_token": access_token,
+        "expires_in": DIRECT_DRIVE_UPLOAD_CAPABILITY_SECONDS,
+        "folder": {"name": verified.name or "Папка Google Drive"},
+        "policy": direct_drive_upload_policy(settings.source_max_upload_bytes),
+        "uploads": capabilities,
+    }
+
+
+@app.post("/api/projects/{project_id}/direct-drive-uploads/complete")
+def complete_direct_drive_upload(
+    project_id: str,
+    data: DirectDriveUploadCompleteIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair
+    limiter.check("audio:direct-drive:complete:"+user.id, 120, 3600)
+    _browser_capability_cache_headers(response)
+    project=owned_project_or_404(db,user,project_id)
+    descriptor=_direct_drive_upload_descriptors([data])[0]
+    capability=decode_direct_drive_upload_capability(
+        data.capability,
+        secret=sess.csrf_hash,
+        now=utcnow(),
+    )
+    if (
+        capability is None
+        or capability.owner_user_id != user.id
+        or capability.project_id != project.id
+        or capability.folder_id != data.folder_id
+        or capability.operation_id != descriptor.operation_id
+        or not safe_eq(
+            capability.descriptor_digest,
+            direct_drive_upload_descriptor_digest(descriptor),
+        )
+    ):
+        raise HTTPException(409,"direct_drive_upload_capability_invalid")
+    access_token=_direct_drive_upload_access_token(db,user)
+    verify_output_folder_selection(access_token,capability.folder_id)
+    try:
+        result=verify_direct_drive_upload_result(
+            access_token,
+            file_id=data.file_id,
+            folder_id=capability.folder_id,
+            descriptor=descriptor,
+        )
+    except DirectDriveUploadError as exc:
+        if exc.reason == DirectDriveUploadReason.not_found:
+            raise HTTPException(409,"direct_drive_upload_result_not_found") from None
+        if exc.reason == DirectDriveUploadReason.metadata_mismatch:
+            raise HTTPException(409,"direct_drive_upload_metadata_mismatch") from None
+        if exc.reason == DirectDriveUploadReason.authentication_rejected:
+            raise HTTPException(409,"google_reauthorization_required") from None
+        raise HTTPException(502,"direct_drive_upload_verification_unavailable") from None
+    audit(
+        db,
+        "audio.direct_drive_upload.verified",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+        project_id=project.id,
+    )
+    db.commit()
+    return {
+        "name": result.name,
+        "mime_type": result.mime_type,
+        "size_bytes": result.size_bytes,
+        "web_view_url": result.web_view_url,
+    }
 
 @app.get("/api/output-folder-favorites")
 def list_output_folder_favorites(pair=Depends(current_session), db: Session=Depends(get_db)):
