@@ -323,6 +323,16 @@ export function DirectDriveUploadPanel({
       ));
       setError(message);
     } finally {
+      if (controller.signal.aborted) {
+        const pendingIds = new Set(pending.map((item) => item.operationId));
+        const message = uploadErrorLabel(new DOMException("Aborted", "AbortError"));
+        setItems((currentItems) => currentItems.map((item) =>
+          pendingIds.has(item.operationId) &&
+              !["completed", "failed", "cancelled"].includes(item.status)
+            ? { ...item, status: "cancelled", error: message }
+            : item,
+        ));
+      }
       if (abortRef.current === controller) abortRef.current = null;
       setBusy(false);
     }

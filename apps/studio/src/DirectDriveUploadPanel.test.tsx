@@ -147,8 +147,10 @@ describe("DirectDriveUploadPanel", () => {
       action: "picked",
       docs: [{ id: "folder-id", name: "Результаты" }],
     });
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(OPERATION_IDS[0]);
-    vi.spyOn(directDriveUpload, "uploadDirectDriveFile")
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce(OPERATION_IDS[0])
+      .mockReturnValueOnce(OPERATION_IDS[1]);
+    const upload = vi.spyOn(directDriveUpload, "uploadDirectDriveFile")
       .mockImplementation(({ signal }) => new Promise((_resolve, reject) => {
         signal?.addEventListener("abort", () => {
           reject(new DOMException("Aborted", "AbortError"));
@@ -158,12 +160,15 @@ describe("DirectDriveUploadPanel", () => {
     render(<DirectDriveUploadPanel projectId="project-1" csrf="csrf" onCsrf={vi.fn()} />);
     const user = await selectFolderAndFiles([
       new File(["voice"], "voice.ogg", { type: "audio/ogg" }),
+      new File(["video"], "video.mp4", { type: "video/mp4" }),
     ]);
     await user.click(screen.getByRole("button", { name: "Загрузить в Google Drive" }));
     await user.click(await screen.findByRole("button", { name: "Отменить загрузку" }));
 
-    await waitFor(() => expect(screen.getByText(/Отменён — перед повтором/)).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Повторить безопасно" })).toBeEnabled();
+    await waitFor(() => expect(screen.getAllByText(/Отменён — перед повтором/)).toHaveLength(2));
+    expect(screen.getAllByRole("button", { name: "Повторить безопасно" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Повторить незавершённые безопасно" })).toBeEnabled();
+    expect(upload).toHaveBeenCalledTimes(1);
     expect(requestBodies.some((request) =>
       request.path.endsWith("/direct-drive-uploads/complete"),
     )).toBe(false);
