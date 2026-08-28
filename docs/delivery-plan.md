@@ -18,26 +18,42 @@
   8. `PQB-08`: additive Alembic revision добавляет только indexes, соответствующие exact owner/project/filter/order query shapes; upgrade/downgrade и schema-head validation подтверждены на PostgreSQL.
   9. `PQB-09`: focused tests подтверждают hard maxima, stable/non-overlapping cursors при equal timestamps и concurrent newer inserts, owner/surface binding, frontend append/reset, constant query budgets, exact analytics и cleanup backlog batching; full backend/frontend/static/build suites зелёные.
   10. `PQB-10`: exact PR-head required CI, protected migration, API/web deployment, drained manual worker deployment и bounded authenticated LIVE подтверждают page limits/cursors, analytics shape, cleanup readiness и exact running revision без provider mutation.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ◐ | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T10:00:29Z.
+- Updated (UTC): 2026-08-28T10:46:51Z.
 - Session mode: authorized full-delivery Goal; commercial и перечисленные non-goals запрещены.
 - Base branch/SHA: fetched clean `origin/main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; local `main` был exact и clean, open PR отсутствовали.
 - Working branch: `codex/pwa-query-bounds-01`; создана от exact verified base SHA выше, tracks `origin/main` до первого push.
-- Last verified revision: `6cb067d1acea09bc82b70be4c415b6babdce31b2`.
+- Last verified revision: `07b260e` (`feat(studio): bound growing query surfaces`) поверх docs checkpoint `7a467ff`; implementation commit покрыт перечисленной local validation.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: previous observability closure reconciled from exact GitHub/runtime evidence; initial inventory подтвердил signed pagination diagnostics, bounded sessions/audio-preparation/auth/diagnostic/source cleanup и выявил unbounded projects/sources/jobs/progress, all-history analytics materialization, audit history without continuation, two unlimited bulk-cleanup paths и недостающие composite order indexes.
-- Current step: завершить exact catalog/query-shape inventory и реализовать backend pagination/analytics/cleanup slice.
-- Next exact action: добавить reusable signed collection-page contract, применить его к projects/sources/jobs/audit и покрыть equal-timestamp/owner/surface tests.
-- Validation and Evidence: base ancestry/worktree/remotes verified; `gh pr list --state open` пуст. Implementation checks ещё не запускались.
+- Completed: previous observability closure reconciled; inventory завершён; reusable signed collection cursor/page contract применён к projects/sources/jobs/audit; frontend получил validated append/reset/load-more; progress читает explicit bounded job set; analytics переведена на constant-query aggregates; catalog/provider authority получила grouped evidence и fail-closed budgets; provider-checkpoint/realtime cleanup выполняется deterministic batches; additive `0027_query_bounds` добавляет exact-shape indexes. Generated/vendored code не затрагивался.
+- Current step: зафиксировать синхронизированные architecture/runbook/checkpoint и выполнить final clean-tree verification.
+- Next exact action: после docs commit подтвердить clean branch, сделать единственный initial push и открыть PR для обязательных PostgreSQL/full CI gates.
+- Validation and Evidence: base ancestry/worktree/remotes verified; open PR на старте отсутствовал. Passed locally: repository `ci_checks`; Python compile; 68 focused backend tests (47 collection/analytics/catalog/realtime/retry/schema/observability + 21 diagnostics/progress); frontend Vitest `613/613`; frontend lint; production build; `git diff --check`. PostgreSQL-specific migration, percentile и core integration paths не запускались локально из-за отсутствия Docker/PostgreSQL и остаются обязательным CI evidence.
 - Pull Request / CI / deployment: отсутствуют; initial push и PR допустимы только после полной local validation согласованного scope.
 - Blockers: implementation blocker отсутствует. PostgreSQL-specific migration/percentile/concurrency evidence требует CI host; protected migration, worker drain/deploy и authenticated LIVE являются ожидаемыми external gates.
-- Unverified assumptions: production query plans выберут новые indexes на representative cardinality; cleanup backlog и audit/source/job cardinality достаточны для bounded LIVE без создания provider work. Проверить фактически.
+- Unverified assumptions: PostgreSQL реализует проверенные SQLAlchemy shapes и migration round-trip без dialect drift; production planner выберет новые indexes на representative cardinality; production backlog может быть меньше page/batch boundary, поэтому LIVE подтверждает contract/identity/readiness, а hard maxima остаются TEST/CI evidence. Проверить фактически.
 - Preserved pre-existing changes: отсутствуют.
+
+### In-scope query inventory
+
+| Surface | До Goal | Decision / фактическое основание |
+|---|---|---|
+| Projects, project Sources, transcription Jobs, Audit events | Owner/project filters, но три primary browser reads materialize весь результат; audit возвращал только первые 50 без continuation | `REFACTOR`: signed session-bound keyset `(timestamp, id)`, default `50`, hard max `100`, `limit + 1`, scope/surface binding; frontend append/reset/dedup. |
+| Displayed job progress | Project-wide materialization | `REFACTOR`: repeated explicit `job_id`, не более 50 unique UUID; compatibility read bounded `100 + 1` и сообщает `truncated`. |
+| Transcription analytics | Загружала all-time jobs/attempts и строила `job_id IN (...)` в application memory | `REFACTOR`: exact grouped counts и PostgreSQL aggregate/percentile queries; constant query count относительно cardinality, без entity/ID-list materialization. |
+| Transcript duplicate/catalog и competing-provider authority | История evidence могла materialize unlimited rows/IDs | `CONSOLIDATE`: SQL grouping/counts, общий evidence budget `1000`, source-lock budget `1000`; exhaustion возвращает indeterminate/unresolved и не разрешает paid boundary. |
+| Provider-part checkpoints и realtime drafts expiry | Один cleanup мог удалить весь backlog | `REFACTOR`: deterministic `(expires_at, id)` batches, default `500`, hard max `1000`; повторный запуск обрабатывает остаток. |
+| Diagnostics events/reports/expiry | Уже signed keyset max `200`, report/cleanup hard limits | `DOCUMENT`: сохранить существующий bounded contract; reusable signing вынесен без изменения diagnostic cursor namespace. |
+| Active auth sessions | Уже `limit + 1`, hard max `100`, explicit `truncated` | `DOCUMENT`: remediation не требуется. |
+| Audio-preparation jobs | Уже owner/project scoped и hard max `100` | `DOCUMENT`: payload остаётся bounded; добавить supporting owner/project/order index, соответствующий существующему query shape. |
+| Source storage cleanup | Уже bounded deterministic worker maintenance | `DOCUMENT`: behavior не менять в этой Goal. |
+| Output-folder Favorites, speaker profiles и credential lists | Owner-scoped, текущая ожидаемая cardinality мала, но hard pagination отсутствует; speaker-profile payload имеет отдельные relationship reads | `DEFER`: не являются growing primary browser collections текущей Goal; будущая pagination/N+1 Goal требует отдельного UI/API contract. |
+| Generated/vendored code | Не является runtime query authority этого repository | `N/A`: исключено из findings и изменений. |
 
 ## Project readiness
 
