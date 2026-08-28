@@ -26,12 +26,12 @@
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@535a015dcef211a930faefe443245ee85ace38b8`.
 - Working branch: `codex/pwa-audio-direct-drive-upload-01`.
-- Last verified revision: base `535a015dcef211a930faefe443245ee85ace38b8`; новый Goal code ещё не зафиксирован commit.
+- Last verified revision: documentation commit `7b8d579` поверх base `535a015dcef211a930faefe443245ee85ace38b8`; canonical Goal/spec/readiness прошли lightweight repository checks.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: Git/GitHub baseline подтверждён; `docs/ci-cd-rules.md` и current architecture/code boundaries прочитаны; approved scope атомизирован в `AP-01`/`AP-25..30`; предыдущая Goal reconciled по exact repository/runtime Evidence.
-- Current step: зафиксировать canonical Goal/spec/checkpoint, затем реализовать action-scoped API contract и browser resumable uploader.
-- Next exact action: завершить focused documentation validation и commit Goal contract; затем добавить backend session/result verification tests до implementation.
-- Validation and Evidence: docs diff ещё не проверен; implementation/test/CI/deployment/LIVE отсутствуют.
+- Completed: Git/GitHub baseline подтверждён; `docs/ci-cd-rules.md` и current architecture/code boundaries прочитаны; approved scope атомизирован в `AP-01`/`AP-25..30`; предыдущая Goal reconciled по exact repository/runtime Evidence; commit `7b8d579` создан после `scripts/ci_checks.py` и `git diff --check`.
+- Current step: action-scoped API session/result verification и focused backend tests реализованы локально; подготовить backend commit, затем browser resumable uploader/UI.
+- Next exact action: зафиксировать backend boundary commit; затем реализовать `directDriveUpload.ts` и интеграцию direct-upload tab в `AudioPreparationPage`.
+- Validation and Evidence: backend unit `tests/test_studio_direct_drive_upload.py` — `3 passed`; `compileall` для нового module/main success. Focused DB/API test добавлен, но системный Python 3.12 не содержит `argon2`; он будет выполнен в repository Python 3.11 dependency graph до push. CI/deployment/LIVE отсутствуют.
 - Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Current web/repository `535a015dcef211a930faefe443245ee85ace38b8`; API/worker `cc4347758ebae849c963cbf11be253862c6a1402`; schema `0027_query_bounds`.
 - Blockers: отсутствуют.
 - Unverified assumptions: Google upload REST endpoint допускает required production-origin CORS для resumable browser transfer; capability token может безопасно использоваться только в памяти текущего action; Drive eventual consistency не ломает bounded completion verification.

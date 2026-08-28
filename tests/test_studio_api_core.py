@@ -4534,6 +4534,119 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     assert "refresh" not in r.text and "cipher" not in r.text and "key_id" not in r.text
 
 
+def test_direct_drive_upload_session_and_completion_are_bound_and_server_verified(monkeypatch):
+    import studio_api.main as main
+    from types import SimpleNamespace
+    from studio_api.direct_drive_upload import DirectDriveUploadResult
+
+    pw = admin("direct-drive@example.com")
+    c = TestClient(app)
+    csrf = login(c, pw, "direct-drive@example.com")
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = c.post(
+        "/api/projects", json={"title": "Direct Drive"}, headers=headers
+    ).json()["id"]
+    other_project_id = c.post(
+        "/api/projects", json={"title": "Other"}, headers=headers
+    ).json()["id"]
+    db = SessionLocal()
+    user_id = db.query(User).filter_by(email="direct-drive@example.com").one().id
+    db.close()
+    _connect_google_for_test(user_id)
+    monkeypatch.setattr(
+        main, "refresh_user_google_drive_access_token", lambda *a, **k: "memory-token"
+    )
+    folder_calls = []
+
+    def verify_folder(token, folder_id):
+        folder_calls.append((token, folder_id))
+        return SimpleNamespace(id=folder_id, name="Results", web_view_url=None)
+
+    monkeypatch.setattr(main, "verify_output_folder_selection", verify_folder)
+    operation_id = "123e4567-e89b-42d3-a456-426614174000"
+    file_payload = {
+        "operation_id": operation_id,
+        "original_filename": "Короткая запись.wav",
+        "mime_type": "audio/wav",
+        "size_bytes": 5,
+    }
+    session = c.post(
+        f"/api/projects/{project_id}/direct-drive-uploads/session",
+        json={"folder_id": "folder-id", "files": [file_payload]},
+        headers=headers,
+    )
+    assert session.status_code == 200
+    assert session.headers["cache-control"] == "no-store"
+    assert session.headers["pragma"] == "no-cache"
+    session_body = session.json()
+    assert session_body["access_token"] == "memory-token"
+    assert session_body["folder"] == {"name": "Results"}
+    assert session_body["policy"]["max_files"] == 20
+    assert session_body["uploads"][0]["operation_id"] == operation_id
+    capability = session_body["uploads"][0]["capability"]
+    assert "refresh-token" not in session.text
+
+    verify_calls = []
+
+    def verify_result(token, *, file_id, folder_id, descriptor):
+        verify_calls.append((token, file_id, folder_id, descriptor))
+        return DirectDriveUploadResult(
+            name=descriptor.original_filename,
+            mime_type=descriptor.mime_type,
+            size_bytes=descriptor.size_bytes,
+            web_view_url="https://drive.google.com/file/d/drive-file-id/view",
+        )
+
+    monkeypatch.setattr(main, "verify_direct_drive_upload_result", verify_result)
+    complete_payload = {
+        **file_payload,
+        "folder_id": "folder-id",
+        "file_id": "drive-file-id",
+        "capability": capability,
+    }
+    completed = c.post(
+        f"/api/projects/{project_id}/direct-drive-uploads/complete",
+        json=complete_payload,
+        headers=headers,
+    )
+    assert completed.status_code == 200
+    assert completed.headers["cache-control"] == "no-store"
+    assert completed.json() == {
+        "name": "Короткая запись.wav",
+        "mime_type": "audio/wav",
+        "size_bytes": 5,
+        "web_view_url": "https://drive.google.com/file/d/drive-file-id/view",
+    }
+    assert "memory-token" not in completed.text
+    assert capability not in completed.text
+    assert "drive-file-id" not in completed.text.replace(
+        "https://drive.google.com/file/d/drive-file-id/view", ""
+    )
+    assert len(verify_calls) == 1
+    assert folder_calls == [
+        ("memory-token", "folder-id"),
+        ("memory-token", "folder-id"),
+    ]
+    assert c.post(
+        f"/api/projects/{other_project_id}/direct-drive-uploads/complete",
+        json=complete_payload,
+        headers=headers,
+    ).status_code == 409
+    assert c.post(
+        f"/api/projects/{project_id}/direct-drive-uploads/session",
+        json={
+            "folder_id": "folder-id",
+            "files": [{**file_payload, "mime_type": "text/plain"}],
+        },
+        headers=headers,
+    ).status_code == 422
+    db = SessionLocal()
+    try:
+        assert db.query(Source).filter_by(project_id=project_id).count() == 0
+    finally:
+        db.close()
+
+
 def test_google_picker_source_and_output_selection_revalidates_server_metadata(monkeypatch):
     import studio_api.main as main
     from studio_api.google_drive import GoogleDriveMetadata, GOOGLE_FOLDER_MIME_TYPE
