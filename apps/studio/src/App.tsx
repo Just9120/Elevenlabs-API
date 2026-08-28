@@ -1899,6 +1899,9 @@ function PreparationPanel({
       googleConnection?.picker_ready &&
       !googlePickerGuidance,
   );
+  const driveFileSourcePickerEnabled = Boolean(
+    driveSourcePickerEnabled && sourceUploadPolicy,
+  );
 
   const rowReadinessResults = rows.map((row, index) => {
     const rowNumber = index + 1;
@@ -2267,7 +2270,15 @@ function PreparationPanel({
     }));
     try {
       const session = await acquireGooglePickerSession();
-      const result = await googlePicker.openGooglePicker("sources", session);
+      const result = await googlePicker.openGooglePicker("sources", session, {
+        sourceMimePolicy: sourceUploadPolicy
+          ? {
+              supported_mime_prefixes:
+                sourceUploadPolicy.supported_mime_prefixes,
+              supported_mime_types: sourceUploadPolicy.supported_mime_types,
+            }
+          : undefined,
+      });
       if (result.action === "cancel") {
         const message = "Выбор файлов отменён.";
         setRowIntakeStatus((current) => ({
@@ -4124,7 +4135,11 @@ function PreparationPanel({
               <option value="detect">Автоопределение</option>
             </select>
           </label>
-          <label className="transcription-toggle">
+          <label
+            className={`transcription-toggle${
+              diarizationEnabled ? " is-enabled" : ""
+            }`}
+          >
             <input
               type="checkbox"
               aria-label="Разделять на спикеров"
@@ -4138,6 +4153,13 @@ function PreparationPanel({
             />
             <span>
               <strong>Разделять на спикеров</strong>
+              <span
+                className="diarization-state"
+                aria-live="polite"
+              >
+                Разделение спикеров:{" "}
+                {diarizationEnabled ? "включено" : "выключено"}
+              </span>
               <small>
                 В документе появятся последовательные блоки Speaker 1,
                 Speaker 2 и далее.
@@ -4319,7 +4341,7 @@ function PreparationPanel({
                           type="button"
                           className="secondary"
                           aria-label="Выбрать файлы Google Drive"
-                          disabled={!driveSourcePickerEnabled || pickerBusy}
+                          disabled={!driveFileSourcePickerEnabled || pickerBusy}
                           onClick={() => void chooseRowDriveSources(row.id)}
                         >
                           Из Google Drive
@@ -4743,16 +4765,21 @@ function PreparationPanel({
                       : "План требует решения"
                     : "План готов к подтверждению"}
                 </h3>
-                <p className="muted">
+                <p className="muted batch-preflight-provider">
                   ElevenLabs scribe_v2 ·{" "}
                   {transcriptionLanguageModeLabel(
                     activePreflight.language_mode,
                   )}
-                  {" · "}
-                  Спикеры:{" "}
+                </p>
+                <p
+                  className={`diarization-state batch-preflight-diarization${
+                    activePreflight.diarization_enabled ? " is-enabled" : ""
+                  }`}
+                >
+                  Разделение спикеров:{" "}
                   {activePreflight.diarization_enabled
-                    ? "разделять"
-                    : "не разделять"}
+                    ? "включено"
+                    : "выключено"}
                 </p>
               </div>
               <button

@@ -22,16 +22,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T16:14:37Z.
+- Updated (UTC): 2026-08-28T16:42:28Z.
 - Session mode: authorized full-delivery Goal; commercial, `transcript_doc` implementation и перечисленные non-goals запрещены.
 - Base branch/SHA: verified `origin/main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`.
 - Working branch: `codex/pwa-transcription-ux-polish-01`, создана от exact base.
-- Last verified revision: base `ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`; feature changes ещё не committed.
+- Last verified revision: documentation checkpoint `edf37413e0f2cdb50b9a70d54006837a74a9551c`; canonical AC/readiness/Goal contract validation covered by this commit.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: Git/GitHub state и no-open-PR проверены; applicable `AGENTS.md`, canonical spec/delivery/architecture, CI/CD safety, validation/deployment runbooks, Drive Picker implementation и tests изучены; owner-approved AC атомизированы; current Goal/checkpoint и новый readiness denominator подготовлены.
-- Current step: синхронизировать canonical spec/archive, затем реализовать reusable app-owned picker и diarization indication.
-- Next exact action: завершить documentation reconciliation, проверить diff/readiness arithmetic и создать первый focused documentation commit.
-- Validation and Evidence: clean exact base подтверждён; documentation diff требует `git diff --check` и AC/readiness consistency check. CODE/TEST/CI/DEPLOY/LIVE новой Goal ещё отсутствуют.
+- Completed: Git/GitHub state и no-open-PR проверены; applicable contracts/runbooks и current Drive Picker/tests изучены; owner-approved AC атомизированы; commit `edf3741` синхронизировал spec, readiness denominator, previous Goal archive и durable checkpoint. Проверка подтвердила `546` unique AC rows и arithmetic `216/546`, `185/272`, `31/32`; `git diff --check` green.
+- Current step: зафиксировать locally validated picker/diarization implementation отдельным reviewable commit.
+- Next exact action: создать implementation commit, обновить checkpoint на exact SHA и выполнить repository-wide local validation перед единственным initial push.
+- Validation and Evidence: `SPEC ✅`; implementation local state: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, `git diff --check` green. Build сохраняет existing non-blocking chunk-size warning; CODE/TEST ещё не синхронизированы как delivery Evidence до commit/CI.
 - Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Production web baseline `ea92ac67`; API/worker `cc434775`; schema `0027_query_bounds`.
 - Blockers: отсутствуют. Возможный external gate — недостаточный representative Drive data/session для authenticated LIVE; до фактической проверки это не blocker.
 - Unverified assumptions: Drive API search возвращает accessible items в рамках existing OAuth scopes; MIME policy достаточно выразима для server-equivalent client filter, при этом backend exact-ID validation остаётся final authority; production representative media/folders доступны владельцу.

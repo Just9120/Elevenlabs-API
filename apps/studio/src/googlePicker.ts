@@ -1,5 +1,8 @@
 import { lockDocumentScroll } from "./documentScrollLock";
-import { openGoogleDriveFolderPicker } from "./GoogleDriveFolderPickerDialog";
+import {
+  type DriveSourceMimePolicy,
+  openGoogleDrivePicker,
+} from "./GoogleDriveFolderPickerDialog";
 
 export type PickerMode =
   | "sources"
@@ -18,6 +21,9 @@ export type PickerSession = {
   api_key: string;
   app_id: string;
   scope_ready: boolean;
+};
+export type PickerOptions = {
+  sourceMimePolicy?: DriveSourceMimePolicy;
 };
 
 type PickerCallback = (data: unknown) => void;
@@ -65,8 +71,6 @@ const SCRIPT_TIMEOUT_MS = 10000;
 const PICKER_INTERACTION_TIMEOUT_MS = 300_000;
 const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
-const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
-const SOURCE_FOLDER_PICKER_TITLE = "Выберите папку с аудио или видео";
 const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
 const TRANSCRIPT_FOLDER_PICKER_TITLE =
   "Выберите папку с транскриптами";
@@ -187,12 +191,16 @@ function selectedDocs(data: unknown): PickerSelection[] {
 export async function openGooglePicker(
   mode: PickerMode,
   session: PickerSession,
+  options: PickerOptions = {},
 ): Promise<PickerResult> {
-  if (mode === "output-folder") {
-    return openGoogleDriveFolderPicker(session);
+  if (
+    mode === "sources" ||
+    mode === "source-folder" ||
+    mode === "output-folder"
+  ) {
+    return openGoogleDrivePicker(mode, session, options.sourceMimePolicy);
   }
   const folderMode =
-    mode === "source-folder" ||
     mode === "catalog-folder" ||
     mode === "transcript-folder";
   const documentMode = mode === "transcript-document";
@@ -262,21 +270,14 @@ export async function openGooglePicker(
       builder.setTitle(
         documentMode
           ? TRANSCRIPT_DOCUMENT_PICKER_TITLE
-          : mode === "source-folder"
-            ? SOURCE_FOLDER_PICKER_TITLE
           : mode === "transcript-folder"
           ? TRANSCRIPT_FOLDER_PICKER_TITLE
-          : mode === "catalog-folder"
-            ? CATALOG_FOLDER_PICKER_TITLE
-            : SOURCE_PICKER_TITLE,
+          : CATALOG_FOLDER_PICKER_TITLE,
       );
       builder.setOrigin(window.location.origin);
       builder.setMaxItems(folderMode || documentMode ? 1 : 50);
       if (documentMode) {
         builder.setSelectableMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
-      }
-      if (mode === "sources") {
-        builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }
       builder.setOAuthToken(token);
       builder.setDeveloperKey(session.api_key);
