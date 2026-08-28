@@ -2,37 +2,38 @@
 
 ## Current Goal
 
-- **ID / title:** `SPEC-CANONICALIZATION-02` — перенос согласованного upstream scope в canonical spec.
-- **State:** `IN_PROGRESS` — canonical AC перенесены локально; validation/commit/PR/CI ещё не завершены.
-- **Authorization source:** explicit user instruction 2026-08-28 «отчет в репозитории не нужен. добавь эти требования в project-spec»; ранее owner включил commercial scope, но запретил его текущую implementation.
-- **Scope:** перенести все однозначно атомизированные upstream requirements в `docs/project-spec.md`; включить `142` non-commercial и `242` commercial/cross-contour AC; оставить commercial в `BACKLOG`; сохранить conflicts/ambiguities как SPEC gaps вне denominator; пересчитать readiness; удалить локальный non-canonical report и его ссылки; обновить operational docs; выполнить docs validation, PR и required CI.
-- **Non-goals:** product/commercial implementation; самостоятельное разрешение неоднозначных product/legal решений; CI/CD/production logic; migrations, provider/Google mutations, deployment или LIVE проверки.
+- **ID / title:** `PWA-SESSION-CONTROL-01` — owner-scoped управление активными personal sessions.
+- **State:** `IN_PROGRESS` — Goal явно авторизована, exact base/branch зафиксированы, implementation начата.
+- **Authorization source:** explicit user instruction 2026-08-28 «делай» после review и описания bounded Goal `PWA-SESSION-CONTROL-01`.
+- **Scope:** реализовать canonical `PWASEC-07..PWASEC-09`: безопасный bounded список active sessions текущего owner с current marker; targeted revoke выбранной другой session; idempotent revoke всех остальных active sessions; Settings → Account UI с confirmation/loading/error/empty/retry и authoritative reconciliation ambiguous mutations; CSRF/same-origin/rate-limit/audit boundaries; API/UI/browser tests; PR/CI/merge; API+web deploy и bounded authenticated two-session LIVE.
+- **Non-goals:** commercial contour; TOTP, password reset и recent re-authentication; IP/raw User-Agent/device fingerprint/geolocation; изменение cookie/token format или session lifetime; unrelated security/storage/provider work; worker deployment или schema migration без обнаруженной necessity и новой authorization.
 - **Goal AC:**
-  1. `SC-01`: `142` новых non-commercial AC перечислены atomically и имеют уникальные IDs; current completion `55/142` воспроизводим по строкам `Выполнено`.
-  2. `SC-02`: `50` cross-contour и `192` commercial AC перечислены atomically как `BACKLOG`, `0/242`; personal evidence не присвоено commercial contour.
-  3. `SC-03`: canonical denominator равен `148 + 142 + 50 + 192 = 532`; numerator `203`, full readiness `38,2%`, non-commercial `203/290 = 70,0%`.
-  4. `SC-04`: десять conflict/ambiguity/runtime-risk records сохранены как SPEC gaps вне denominator; решения не придуманы.
-  5. `SC-05`: non-canonical audit-report отсутствует в итоговом repository diff, а README/delivery/spec не ссылаются на него.
-  6. `SC-06`: local structure/count/link checks, `ci_checks`, exact PR-head CI и merge завершены; `DEPLOY/LIVE` имеют `N/A` для docs-only Goal.
-- **Required Evidence:** target `SPEC ✅ | CODE N/A | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE N/A`; current `SPEC ✅ | CODE N/A | TEST ✅ | CI — | DEPLOY N/A | LIVE N/A`.
-- **Known blockers/dependencies:** отдельные SPEC gaps требуют будущих owner decisions; legal/commercial AC требуют внешней юридической проверки и отдельной implementation authorization. Approved post-merge metadata writer отсутствует (`metadata_sync.enabled=false`).
+  1. `PSC-01`: owner-scoped GET возвращает не более bounded limit только unrevoked/unexpired sessions текущего user, current session помечена; DTO содержит только opaque session ID и safe timestamps, без token/CSRF/cookie/IP/User-Agent data.
+  2. `PSC-02`: выбранная другая active session отзывается CSRF/same-origin-protected mutation; cross-owner/missing/replayed targets не раскрывают чужое состояние и дают безопасный idempotent outcome.
+  3. `PSC-03`: revoke-all-other отзывает только active sessions текущего user, сохраняет current session и безопасно повторяется.
+  4. `PSC-04`: Settings → Account показывает current/other sessions, created/last-active/expires, loading/error/empty states, refresh, selected revoke и confirm-required revoke-all-other.
+  5. `PSC-05`: ambiguous mutation failure reconciliate через authoritative list; UI не сообщает ложный success и не удаляет last-confirmed state при transient read failure.
+  6. `PSC-06`: list/revoke operations имеют bounded rate limits и safe audit events; credential/session secrets не попадают в response/log/test evidence.
+  7. `PSC-07`: focused API/UI/browser tests, full local validation, exact PR-head required CI, merge, applicable API/web deployment и bounded authenticated two-session LIVE завершены.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** LIVE требует две независимые authenticated owner sessions без раскрытия credentials; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Existing `sessions` table уже имеет required timestamps/revocation fields, поэтому migration предварительно не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T06:16:42Z.
-- Session mode: authorized docs-only canonicalization; product/commercial implementation запрещена.
-- Base branch/SHA: fetched `origin/main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; local `main` clean и совпадал с origin; open PR отсутствовали.
-- Working branch: `codex/spec-canonicalization-02`; чистая публикационная branch создана от exact verified `origin/main` SHA выше, итоговый net diff перенесён через squash без истории удалённого audit-report.
-- Last verified revision: branch commit `3ff3fbd90a3cd1bc6bd1b7c15e6b83950ff952f7`; base `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`.
+- Updated (UTC): 2026-08-28T07:14:35Z.
+- Session mode: authorized full delivery Goal; commercial и перечисленные non-goals запрещены.
+- Base branch/SHA: fetched `origin/main@baa55d695c015385ba992b87c505d1a1fc116df3`; local `main` clean, совпадал с origin; open PR отсутствовали.
+- Working branch: `codex/pwa-session-control-01`; создана от exact verified base SHA выше.
+- Last verified revision: code/test revision `2b75d033c832fd57787c5a3635f6c42a40dbecbe`; metadata below описывает это exact состояние без self-referential commit loop.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: exact upstream revision/tab/counts зафиксированы; `docs/project-spec.md` содержит `142 + 50 + 192 = 384` новых AC, canonical denominator `532`, readiness `203/532`, commercial `0/242` и десять явных SPEC-gap/risk records. Чистая branch от `origin/main` содержит только итоговый net diff четырёх документов; non-canonical report отсутствует в tree и history branch.
-- Current step: выполнить один initial push, создать PR и дождаться exact-head required CI/review.
-- Next exact action: `git push -u origin codex/spec-canonicalization-02`, затем создать PR в `main`.
-- Validation and Evidence: upstream counts `275 + 8 = 283`; canonical `532` AC, unique `532`, done `203`; new non-commercial `142`, done `55`; commercial/cross-contour `242`, done `0`; relative Markdown links PASS; stale report/reference search PASS; `python scripts/ci_checks.py` PASS; staged `git diff --check` PASS. Exact-main full CI `33116072365` и Studio/browser CI `33116072392` success; exact PR-head CI остаётся обязательным.
-- Pull Request / CI / deployment: PR/push отсутствуют. `DEPLOY/LIVE` — `N/A` для docs-only Goal.
-- Blockers: отсутствуют для docs scope; будущие product/legal decisions и commercial authorization не блокируют canonicalization.
-- Unverified assumptions: сохранённые SPEC gaps не входят в denominator; existing personal capability не доказывает commercial isolation/runtime readiness.
+- Completed: commits `937715a` (bounded owner-scoped API/security routes), `05e376e` (Settings UI, strict DTO, reconciliation и browser flow), `244b53b` (App test harness), `c8b2bc1` (safe targeted audit evidence), `2b75d03` (SQLite domain coverage). Current marker, owner isolation, active-only filters, targeted/revoke-all idempotency, rate limits, CSRF/same-origin, no-store, confirmations и last-confirmed-state behavior реализованы без schema migration или worker changes.
+- Current step: зафиксировать synchronized readiness/checkpoint, перепроверить remote base и выполнить единственный initial push/PR.
+- Next exact action: создать documentation/checkpoint commit, `git fetch` и проверить отсутствие base drift, затем один раз push branch и открыть PR.
+- Validation and Evidence: Python compile success; pinned temporary-venv suite `31 passed` (session-control domain + audit/source lifecycle + browser/CI contracts); Studio focused session tests `7/7`; full Vitest `610/610`; ESLint success; production build success; Playwright discovery `12 tests`. Backend route integration и browser execution не запускались локально из-за отсутствия PostgreSQL/Redis и остаются обязательными exact-head CI gates. GitHub repo visibility через `gh` — `PUBLIC`; все workflows используют standard `ubuntu-latest`, для которых Actions usage public repository не расходует included minutes. Billing endpoint недоступен текущему token без дополнительного `user` scope, но minute allowance к этим standard public runs неприменим; larger runners не настроены.
+- Pull Request / CI / deployment: PR/push absent. Expected changed components: API + web; migration/worker N/A unless verified implementation evidence changes this conclusion.
+- Blockers: no implementation blocker. Potential LIVE external gate: возможность создать вторую независимую authenticated owner session в production без передачи credentials агенту.
+- Unverified assumptions: production CD корректно определит только API+web changes и не запустит migration/worker; это должно быть подтверждено фактическим CD plan/run.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
@@ -41,11 +42,12 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **38,2% (`203/532`)** | **100% (`148/148`)** | Разница `−61,8 pp`: denominator расширен на `384` явно согласованных AC; existing completion не регрессировал. |
-| **Non-commercial scope** | **70,0% (`203/290`)** | **100% (`148/148`)** | Разница `−30,0 pp`: добавлено `142` AC, из которых `55` подтверждены; `PARTIAL` считается невыполненным. |
-| **Commercial/cross-contour** | **0% (`0/242`)** | **N/A** | Commercial включён как BACKLOG; personal reuse не доказывает isolated commercial contour. |
-| **Google Colab canonical** | **100% (`31/31`)** | **100% (`29/29`)** | Добавлены два выполненных lifecycle AC; intermittent capture сохранён как runtime risk. |
-| **Personal Studio PWA canonical** | **66,4% (`172/259`)** | **100% (`119/119`)** | Добавлено `140` AC, из них `53` выполнены. Existing LIVE gates остаются без изменений. |
+| **Полный canonical scope** | **38,7% (`206/532`)** | **38,2% (`203/532`)** | `PWASEC-07..09` подтверждены exact branch code и local tests; `206/532`. |
+| **Non-commercial scope** | **71,0% (`206/290`)** | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `175/259`; `206/290`. |
+| **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Вне Goal; implementation запрещена. |
+| **Google Colab canonical** | **100% (`31/31`)** | **100% (`31/31`)** | Вне Goal; runtime risk не меняет numerator. |
+| **Personal Studio PWA canonical** | **67,6% (`175/259`)** | **66,4% (`172/259`)** | Выполнены три canonical session-control AC; delivery Evidence ещё gate-ит READY. |
+| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **33,3% (`6/18`)** | `PWASEC-07..09` выполнены; остальные девять security AC вне Goal. |
 | `PWA-GOOGLE-PICKER-UX-01` | **100% (`3/3`)** | **100% (`3/3`)** | PR `#245`, exact-main CI и web deployment подтверждены; authenticated source/output-folder LIVE исправления ещё не зафиксировано как Evidence. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |

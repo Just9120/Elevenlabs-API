@@ -162,6 +162,7 @@ import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPan
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import { FolderImportDialog } from "./FolderImportDialog";
+import { AccountSessionsPanel } from "./AccountSessionsPanel";
 import {
   buildLocalFolderPreview,
   localFolderRejectedReasonLabel,
@@ -5936,6 +5937,7 @@ function auditLabel(type: string) {
     "auth.login": "Вход выполнен",
     "auth.login_failed": "Неудачная попытка входа",
     "auth.logout": "Выход выполнен",
+    "auth.session_revoked": "Отдельная сессия завершена",
     "auth.sessions_revoked": "Другие сеансы завершены",
     "account.preferences_updated": "Настройки хранения обновлены",
     "project.created": "Проект создан",
@@ -7073,6 +7075,7 @@ function SettingsPage({
                   {logoutError}
                 </p>
               )}
+              <AccountSessionsPanel csrf={csrf} onCsrf={onCsrf} />
             </>
           )}
           {section === "appearance" && (

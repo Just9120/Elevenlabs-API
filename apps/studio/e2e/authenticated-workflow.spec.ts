@@ -196,6 +196,79 @@ test('authenticated user opens transcriptions and reads a completed job result',
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
 });
 
+test('account settings revoke selected and all other active sessions', async ({
+  browser,
+  page,
+}) => {
+  const navigation = await login(page);
+  const secondaryContexts = await Promise.all([
+    browser.newContext({ baseURL: 'http://127.0.0.1:4173' }),
+    browser.newContext({ baseURL: 'http://127.0.0.1:4173' }),
+  ]);
+  try {
+    const secondaryPages = await Promise.all(
+      secondaryContexts.map(async (context) => {
+        const secondary = await context.newPage();
+        await secondary.goto('/');
+        await expect(secondary.getByRole('heading', { name: 'Вход' })).toBeVisible();
+        await secondary.getByLabel('Email').fill(E2E_EMAIL);
+        await secondary.getByLabel('Пароль').fill(E2E_PASSWORD);
+        await secondary.getByRole('button', { name: 'Войти' }).click();
+        await expect(
+          secondary.getByRole('navigation', { name: 'Основная навигация' }),
+        ).toBeVisible();
+        return secondary;
+      }),
+    );
+
+    await navigation
+      .getByRole('button', { name: 'Настройки', exact: true })
+      .click();
+    const sessions = page.getByRole('region', { name: 'Активные сессии' });
+    await expect(sessions.getByText('Текущая сессия', { exact: true })).toBeVisible();
+    await expect(sessions.getByText('Другая сессия', { exact: true })).toHaveCount(2);
+
+    page.once('dialog', (dialog) => dialog.accept());
+    const targetedResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' &&
+        /\/api\/auth\/sessions\/[0-9a-f-]{36}$/.test(response.url()),
+    );
+    await sessions
+      .getByRole('button', { name: 'Завершить сессию', exact: true })
+      .first()
+      .click();
+    expect((await targetedResponse).status()).toBe(200);
+    await expect(sessions.getByText('Сессия завершена.', { exact: true })).toBeVisible();
+    await expect(sessions.getByText('Другая сессия', { exact: true })).toHaveCount(1);
+
+    page.once('dialog', (dialog) => dialog.accept());
+    const revokeOthersResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/auth/sessions/revoke-other'),
+    );
+    await sessions
+      .getByRole('button', { name: 'Завершить все остальные', exact: true })
+      .click();
+    expect((await revokeOthersResponse).status()).toBe(200);
+    await expect(
+      sessions.getByText('Все остальные сессии завершены.', { exact: true }),
+    ).toBeVisible();
+    await expect(sessions.getByText('Других активных сессий нет.')).toBeVisible();
+    await expect(
+      page.getByRole('navigation', { name: 'Основная навигация' }),
+    ).toBeVisible();
+
+    for (const secondary of secondaryPages) {
+      await secondary.reload();
+      await expect(secondary.getByRole('heading', { name: 'Вход' })).toBeVisible();
+    }
+  } finally {
+    await Promise.all(secondaryContexts.map((context) => context.close()));
+  }
+});
+
 test('Audio workspace processes a device WAV in-browser without uploading source bytes', async ({
   page,
 }) => {
