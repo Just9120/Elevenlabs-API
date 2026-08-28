@@ -101,9 +101,11 @@ export type TranscriptionJob = {
 };
 export type JobState = {
   loading: boolean;
+  loadingMore: boolean;
   error: string;
   loaded: boolean;
   items: TranscriptionJob[];
+  nextCursor: string | null;
 };
 
 export function jobTitle(job: TranscriptionJob) {

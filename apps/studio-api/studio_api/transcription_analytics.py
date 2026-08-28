@@ -177,6 +177,8 @@ def load_transcription_analytics_payload(
     project_id: str,
     since: datetime | None = None,
 ):
+    from sqlalchemy import and_, func
+
     from .models import (
         ProviderCredential,
         TranscriptionJob,
@@ -185,68 +187,172 @@ def load_transcription_analytics_payload(
         TranscriptionJobSourceAttempt,
     )
 
-    jobs_query = db.query(TranscriptionJob).filter(
-            TranscriptionJob.owner_user_id == owner_user_id,
-            TranscriptionJob.project_id == project_id,
-        )
+    scope_filters = [
+        TranscriptionJob.owner_user_id == owner_user_id,
+        TranscriptionJob.project_id == project_id,
+    ]
     if since is not None:
-        jobs_query = jobs_query.filter(TranscriptionJob.created_at > since)
-    jobs = jobs_query.all()
-    job_ids = [job.id for job in jobs]
-    credential_ids = {
-        job.provider_credential_id for job in jobs if job.provider_credential_id
-    }
-    credentials = (
-        db.query(ProviderCredential)
-        .filter(
-            ProviderCredential.user_id == owner_user_id,
-            ProviderCredential.id.in_(credential_ids),
+        scope_filters.append(TranscriptionJob.created_at > since)
+
+    outcomes = {status: 0 for status in JOB_STATUSES}
+    provider_model = {"elevenlabs_scribe_v2": 0, "unknown": 0}
+    language_mode = {"ru": 0, "en": 0, "detect": 0, "other": 0}
+    diarization = {"enabled": 0, "disabled": 0}
+    total_jobs = 0
+
+    configuration_rows = (
+        db.query(
+            TranscriptionJob.status,
+            TranscriptionJob.provider,
+            ProviderCredential.provider,
+            TranscriptionJob.language,
+            TranscriptionJob.options_json,
+            func.count(TranscriptionJob.id),
         )
-        .all()
-        if credential_ids
-        else []
+        .outerjoin(
+            ProviderCredential,
+            and_(
+                ProviderCredential.id == TranscriptionJob.provider_credential_id,
+                ProviderCredential.user_id == owner_user_id,
+            ),
+        )
+        .filter(*scope_filters)
+        .group_by(
+            TranscriptionJob.status,
+            TranscriptionJob.provider,
+            ProviderCredential.provider,
+            TranscriptionJob.language,
+            TranscriptionJob.options_json,
+        )
+        .yield_per(500)
     )
-    provider_by_credential_id = {
-        credential.id: _enum_value(credential.provider) for credential in credentials
-    }
-    source_count = (
-        db.query(TranscriptionJobSource)
-        .join(TranscriptionJob, TranscriptionJob.id == TranscriptionJobSource.job_id)
-        .filter(
-            TranscriptionJob.owner_user_id == owner_user_id,
-            TranscriptionJob.project_id == project_id,
-            TranscriptionJob.id.in_(job_ids),
+    for (
+        status,
+        explicit_provider,
+        credential_provider,
+        language,
+        options_json,
+        raw_count,
+    ) in configuration_rows:
+        count = max(0, int(raw_count or 0))
+        total_jobs += count
+        status_key = _enum_value(status)
+        if status_key in outcomes:
+            outcomes[status_key] += count
+        selected_provider = _enum_value(credential_provider).strip().lower()
+        if selected_provider != "elevenlabs":
+            selected_provider = str(explicit_provider or "").strip().lower()
+        provider_model[
+            "elevenlabs_scribe_v2"
+            if selected_provider == "elevenlabs"
+            else "unknown"
+        ] += count
+        selected_language = browser_language_mode(language)
+        language_mode[
+            selected_language
+            if selected_language in {"ru", "en", "detect"}
+            else "other"
+        ] += count
+        diarization[
+            "enabled" if job_diarization_enabled(options_json) else "disabled"
+        ] += count
+
+    def related_count(model: Any) -> int:
+        return int(
+            db.query(func.count(model.id))
+            .join(TranscriptionJob, TranscriptionJob.id == model.job_id)
+            .filter(*scope_filters)
+            .scalar()
+            or 0
         )
-        .count()
-    ) if job_ids else 0
-    output_count = (
-        db.query(TranscriptionJobOutput)
-        .join(TranscriptionJob, TranscriptionJob.id == TranscriptionJobOutput.job_id)
-        .filter(
-            TranscriptionJob.owner_user_id == owner_user_id,
-            TranscriptionJob.project_id == project_id,
-            TranscriptionJob.id.in_(job_ids),
+
+    def duration_summary(
+        *,
+        started_column: Any,
+        finished_column: Any,
+        join_job: bool = False,
+    ) -> dict[str, int | float | None]:
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        query = db.query(started_column, finished_column)
+        if join_job:
+            query = query.select_from(TranscriptionJobSourceAttempt).join(
+                TranscriptionJob,
+                TranscriptionJob.id == TranscriptionJobSourceAttempt.job_id,
+            )
+        query = query.filter(
+            *scope_filters,
+            started_column.is_not(None),
+            finished_column.is_not(None),
+            finished_column >= started_column,
         )
-        .count()
-    ) if job_ids else 0
-    attempts = (
-        db.query(TranscriptionJobSourceAttempt)
-        .join(
-            TranscriptionJob,
-            TranscriptionJob.id == TranscriptionJobSourceAttempt.job_id,
+        if dialect_name == "postgresql":
+            seconds = func.extract("epoch", finished_column - started_column)
+            count, average, p50, p95 = query.with_entities(
+                func.count(),
+                func.avg(seconds),
+                func.percentile_cont(0.5).within_group(seconds),
+                func.percentile_disc(0.95).within_group(seconds),
+            ).one()
+            return {
+                "sample_count": int(count or 0),
+                "average_seconds": round(float(average), 1) if average is not None else None,
+                "p50_seconds": round(float(p50), 1) if p50 is not None else None,
+                "p95_seconds": round(float(p95), 1) if p95 is not None else None,
+            }
+        # SQLite is used by local/unit validation. Stream its small test rows;
+        # production PostgreSQL always uses the exact server-side aggregate.
+        return _duration_summary(
+            (finished - started).total_seconds()
+            for started, finished in query.yield_per(500)
         )
-        .filter(
-            TranscriptionJob.owner_user_id == owner_user_id,
-            TranscriptionJob.project_id == project_id,
-            TranscriptionJob.id.in_(job_ids),
-        )
-        .all()
-    ) if job_ids else []
-    return build_transcription_analytics_payload(
-        jobs=jobs,
-        source_count=source_count,
-        output_count=output_count,
-        attempts=attempts,
-        provider_by_credential_id=provider_by_credential_id,
-        since=since,
+
+    source_count = related_count(TranscriptionJobSource)
+    output_count = related_count(TranscriptionJobOutput)
+    terminal_jobs = sum(
+        outcomes[status] for status in ("completed", "failed", "cancelled")
     )
+    successful_jobs = outcomes["completed"]
+    return {
+        "scope": "project_since_reset" if since is not None else "project_all_time",
+        "totals": {
+            "jobs": total_jobs,
+            "sources": source_count,
+            "outputs": output_count,
+        },
+        "outcomes": outcomes,
+        "success": {
+            "successful_jobs": successful_jobs,
+            "terminal_jobs": terminal_jobs,
+            "percentage": (
+                round(successful_jobs / terminal_jobs * 100, 1)
+                if terminal_jobs > 0
+                else None
+            ),
+        },
+        "configuration": {
+            "provider_model": provider_model,
+            "language_mode": language_mode,
+            "diarization": diarization,
+        },
+        "durations": {
+            "queue": duration_summary(
+                started_column=TranscriptionJob.created_at,
+                finished_column=TranscriptionJob.started_at,
+            ),
+            "processing": duration_summary(
+                started_column=TranscriptionJob.started_at,
+                finished_column=TranscriptionJob.finished_at,
+            ),
+            "provider_processing": duration_summary(
+                started_column=TranscriptionJobSourceAttempt.provider_request_started_at,
+                finished_column=TranscriptionJobSourceAttempt.provider_response_returned_at,
+                join_job=True,
+            ),
+            "post_provider_output": duration_summary(
+                started_column=TranscriptionJobSourceAttempt.provider_response_returned_at,
+                finished_column=TranscriptionJobSourceAttempt.completed_at,
+                join_job=True,
+            ),
+        },
+    }

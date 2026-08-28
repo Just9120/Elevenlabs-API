@@ -82,7 +82,7 @@ def test_realtime_draft_schema_is_encrypted_scoped_bounded_and_additive():
     script = ScriptDirectory.from_config(Config("apps/studio-api/alembic.ini"))
     revision = script.get_revision("0023_realtime_drafts")
     assert revision.down_revision == "0022_account_operability"
-    assert script.get_heads() == ["0026_runtime_component_status"]
+    assert script.get_heads() == ["0027_query_bounds"]
     migration = (
         ROOT
         / "apps/studio-api/alembic/versions/0023_realtime_transcript_drafts.py"
@@ -238,3 +238,40 @@ def test_realtime_draft_owner_scope_tamper_and_expiry_fail_closed(draft_db):
     assert cleanup_expired_realtime_drafts(db, now=now) == 1
     db.commit()
     assert db.execute(select(RealtimeTranscriptDraft)).scalar_one_or_none() is None
+
+
+def test_realtime_draft_cleanup_is_bounded_and_repeatable(draft_db):
+    from studio_api.models import RealtimeTranscriptDraft
+    from studio_api.realtime_drafts import (
+        cleanup_expired_realtime_drafts,
+        save_realtime_draft,
+    )
+
+    db, project, _ = draft_db
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    for index in range(4):
+        save_realtime_draft(
+            db,
+            owner_user_id="owner-1",
+            project=project,
+            client_session_id=f"session_{index}_123456789",
+            revision=1,
+            committed_segments=[str(index)],
+            partial="",
+            settings=DraftSettings(),
+            now=now,
+        )
+    db.commit()
+    rows = db.execute(
+        select(RealtimeTranscriptDraft).order_by(RealtimeTranscriptDraft.id)
+    ).scalars().all()
+    for row in rows[:3]:
+        row.expires_at = now - timedelta(seconds=1)
+    db.commit()
+
+    assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 2
+    db.commit()
+    assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 1
+    db.commit()
+    assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 0
+    assert db.query(RealtimeTranscriptDraft).count() == 1

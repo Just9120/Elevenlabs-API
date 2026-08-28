@@ -90,11 +90,12 @@ import {
   parseJobSummaryResponse,
   requestJobDetail,
   requestJobOutputs,
-  requestProjectJobCollection,
-  requestProjectSourceCollection,
+  requestProjectJobPage,
+  requestProjectSourcePage,
 } from "./projectCollectionContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
 import { AudioPreparationPage } from "./AudioPreparationPage";
+import { appendUniqueItems } from "./collectionPageModel";
 import {
   isApprovedOutputUrl,
   type JobDetailState,
@@ -259,7 +260,12 @@ function isExpectedOkResponse(candidate: unknown): candidate is { ok: true } {
   );
 }
 type Audit = { id: string; type: string; created_at: string };
-function parseAuditCollection(candidate: unknown): Audit[] | null {
+type AuditPage = {
+  items: Audit[];
+  nextCursor: string | null;
+  pageSize: number;
+};
+function parseAuditCollection(candidate: unknown): AuditPage | null {
   if (!candidate || typeof candidate !== "object") return null;
   const rawEvents = (candidate as { events?: unknown }).events;
   if (!Array.isArray(rawEvents) || rawEvents.length > 50) return null;
@@ -288,16 +294,48 @@ function parseAuditCollection(candidate: unknown): Audit[] | null {
   if (new Set(events.map((event) => event.id)).size !== events.length) {
     return null;
   }
-  return events;
+  const rawCursor = (candidate as { next_cursor?: unknown }).next_cursor;
+  const rawPageSize = (candidate as { page_size?: unknown }).page_size;
+  const nextCursor = rawCursor === undefined ? null : rawCursor;
+  const pageSize = rawPageSize === undefined ? 50 : rawPageSize;
+  if (
+    !Number.isSafeInteger(pageSize) ||
+    (pageSize as number) < 1 ||
+    (pageSize as number) > 100 ||
+    events.length > (pageSize as number) ||
+    (nextCursor !== null &&
+      (typeof nextCursor !== "string" ||
+        nextCursor.length === 0 ||
+        nextCursor.length > 1_200 ||
+        !/^[A-Za-z0-9_-]+$/.test(nextCursor) ||
+        events.length !== pageSize))
+  ) {
+    return null;
+  }
+  return { items: events, nextCursor, pageSize: pageSize as number };
 }
-async function requestAuditCollection(signal?: AbortSignal): Promise<Audit[]> {
-  const candidate = await api<unknown>("/audit-events", {
+async function requestAuditCollection(
+  signal?: AbortSignal,
+  cursor: string | null = null,
+): Promise<AuditPage> {
+  if (!cursor) {
+    const candidate = await api<unknown>("/audit-events", {
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    });
+    const page = parseAuditCollection(candidate);
+    if (page === null) throw new Error("invalid_audit_events_response");
+    return page;
+  }
+  const search = new URLSearchParams({ page_size: "50" });
+  search.set("cursor", cursor);
+  const candidate = await api<unknown>(`/audit-events?${search.toString()}`, {
     signal,
     ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
   });
-  const events = parseAuditCollection(candidate);
-  if (events === null) throw new Error("invalid_audit_events_response");
-  return events;
+  const page = parseAuditCollection(candidate);
+  if (page === null) throw new Error("invalid_audit_events_response");
+  return page;
 }
 type DiagnosticsSystem = {
   environment?: string;
@@ -696,7 +734,12 @@ function isExpectedProject(candidate: unknown): candidate is Project {
     nullableDate(project.archived_at)
   );
 }
-function parseProjectCollection(candidate: unknown): Project[] | null {
+type ProjectPage = {
+  items: Project[];
+  nextCursor: string | null;
+  pageSize: number;
+};
+function parseProjectCollection(candidate: unknown): ProjectPage | null {
   if (!candidate || typeof candidate !== "object") return null;
   const projects = (candidate as { projects?: unknown }).projects;
   if (!Array.isArray(projects) || !projects.every(isExpectedProject)) {
@@ -705,7 +748,25 @@ function parseProjectCollection(candidate: unknown): Project[] | null {
   if (new Set(projects.map((project) => project.id)).size !== projects.length) {
     return null;
   }
-  return projects;
+  const rawCursor = (candidate as { next_cursor?: unknown }).next_cursor;
+  const rawPageSize = (candidate as { page_size?: unknown }).page_size;
+  const nextCursor = rawCursor === undefined ? null : rawCursor;
+  const pageSize = rawPageSize === undefined ? 50 : rawPageSize;
+  if (
+    !Number.isSafeInteger(pageSize) ||
+    (pageSize as number) < 1 ||
+    (pageSize as number) > 100 ||
+    projects.length > (pageSize as number) ||
+    (nextCursor !== null &&
+      (typeof nextCursor !== "string" ||
+        nextCursor.length === 0 ||
+        nextCursor.length > 1_200 ||
+        !/^[A-Za-z0-9_-]+$/.test(nextCursor) ||
+        projects.length !== pageSize))
+  ) {
+    return null;
+  }
+  return { items: projects, nextCursor, pageSize: pageSize as number };
 }
 function parseTranscriptionWorkspace(candidate: unknown): Project | null {
   if (!candidate || typeof candidate !== "object") return null;
@@ -721,14 +782,26 @@ function parseTranscriptionWorkspace(candidate: unknown): Project | null {
 }
 async function requestProjectCollection(
   signal?: AbortSignal,
-): Promise<Project[]> {
-  const candidate = await api<unknown>("/projects", {
+  cursor: string | null = null,
+): Promise<ProjectPage> {
+  if (!cursor) {
+    const candidate = await api<unknown>("/projects", {
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    });
+    const page = parseProjectCollection(candidate);
+    if (page === null) throw new Error("invalid_projects_response");
+    return page;
+  }
+  const search = new URLSearchParams({ page_size: "50" });
+  search.set("cursor", cursor);
+  const candidate = await api<unknown>(`/projects?${search.toString()}`, {
     signal,
     ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
   });
-  const projects = parseProjectCollection(candidate);
-  if (projects === null) throw new Error("invalid_projects_response");
-  return projects;
+  const page = parseProjectCollection(candidate);
+  if (page === null) throw new Error("invalid_projects_response");
+  return page;
 }
 type GoogleConnection = {
   connected: boolean;
@@ -875,16 +948,21 @@ type SessionBootstrapState = {
 };
 const emptySourceState = {
   loading: false,
+  loadingMore: false,
   error: "",
   loaded: false,
   items: [] as Source[],
+  nextCursor: null as string | null,
 };
 const emptyJobState: JobState = {
   loading: false,
+  loadingMore: false,
   error: "",
   loaded: false,
   items: [],
+  nextCursor: null,
 };
+
 function isExpectedGooglePickerSession(
   candidate: unknown,
 ): candidate is PickerSession {
@@ -1396,8 +1474,10 @@ function PreparationPanel({
   beginGooglePicker,
   finishGooglePicker,
   onLoadSources,
+  onLoadMoreSources,
   onReloadSources,
   onReloadJobs,
+  onLoadMoreJobs,
   pendingJobMutations,
   jobMutationNotices,
   beginJobMutation,
@@ -1430,8 +1510,10 @@ function PreparationPanel({
     outcome?: GooglePickerOutcome,
   ) => void;
   onLoadSources: (projectId: string) => void;
+  onLoadMoreSources: (projectId: string, cursor: string) => void;
   onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
+  onLoadMoreJobs: (projectId: string, cursor: string) => void;
   pendingJobMutations: ReadonlySet<string>;
   jobMutationNotices: Readonly<Record<string, JobMutationNotice>>;
   beginJobMutation: (kind: JobMutationKind, jobId: string) => boolean;
@@ -1975,26 +2057,14 @@ function PreparationPanel({
   ): Promise<LocalUploadCompletionState> {
     try {
       const result = await runBoundedRequest((signal) =>
-        api<unknown>(`/projects/${project.id}/sources`, {
+        api<unknown>(`/sources/${sourceId}`, {
           signal,
           cache: "no-store",
         }),
       );
       if (result.status === "timed_out") return { status: "unavailable" };
       const value = result.value;
-      if (!value || typeof value !== "object" || !("sources" in value)) {
-        return { status: "unavailable" };
-      }
-      const items = (value as { sources?: unknown }).sources;
-      if (!Array.isArray(items)) return { status: "unavailable" };
-      const matches = items.filter(
-        (item) =>
-          item &&
-          typeof item === "object" &&
-          (item as { id?: unknown }).id === sourceId,
-      );
-      if (matches.length !== 1) return { status: "unavailable" };
-      const source = matches[0];
+      const source = value;
       const expected = { sourceId, projectId: project.id, mimeType, sizeBytes };
       if (isExpectedCompletedLocalSource(source, expected)) {
         return { status: "uploaded", source };
@@ -3671,6 +3741,7 @@ function PreparationPanel({
   }, [displayJobs]);
   const currentJobIds = displayJobs
     .filter((job) => ["queued", "processing"].includes(job.status))
+    .slice(0, 50)
     .map((job) => job.id)
     .sort()
     .join(",");
@@ -3688,7 +3759,9 @@ function PreparationPanel({
               data: previous?.data ?? null,
             }));
         });
-        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`, {
+        const progressSearch = new URLSearchParams();
+        requestedIds.forEach((jobId) => progressSearch.append("job_id", jobId));
+        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress?${progressSearch.toString()}`, {
           signal,
           ignoredAbortReason: JOB_PROGRESS_POLLING_STOP_REASON,
         });
@@ -4123,6 +4196,20 @@ function PreparationPanel({
           {!sources.loaded && (
             <button type="button" onClick={() => onLoadSources(project.id)}>
               Загрузить сохранённые файлы Studio
+            </button>
+          )}
+          {sources.nextCursor && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={sources.loadingMore}
+              onClick={() =>
+                onLoadMoreSources(project.id, sources.nextCursor ?? "")
+              }
+            >
+              {sources.loadingMore
+                ? "Загружаем файлы…"
+                : "Показать ещё сохранённые файлы"}
             </button>
           )}
           {sources.loaded && usableSources.length === 0 && (
@@ -4886,6 +4973,18 @@ function PreparationPanel({
           </p>
         )}
         {recentTranscriptions.map(renderTranscriptionPresentation)}
+        {jobs.nextCursor && (
+          <button
+            type="button"
+            className="secondary"
+            disabled={jobs.loadingMore}
+            onClick={() => onLoadMoreJobs(project.id, jobs.nextCursor ?? "")}
+          >
+            {jobs.loadingMore
+              ? "Загружаем транскрибации…"
+              : "Показать ещё транскрибации"}
+          </button>
+        )}
       </details>{" "}
       {historyClearOpen && (
         <ConfirmClearDialog
@@ -4994,8 +5093,8 @@ function OverviewPage({
       requestEpochsRef.current,
       "overview:projects",
       requestProjectCollection,
-      (nextProjects) => {
-        setProjects(nextProjects.filter((project) => !project.archived_at));
+      (page) => {
+        setProjects(page.items.filter((project) => !project.archived_at));
         setProjectsError(false);
         setProjectsLoading(false);
       },
@@ -5206,6 +5305,10 @@ function ProjectsPage({
   onRequestedSourceHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsNextCursor, setProjectsNextCursor] = useState<string | null>(
+    null,
+  );
+  const [projectsLoadingMore, setProjectsLoadingMore] = useState(false);
   const [sources, setSources] = useState<
     Record<string, typeof emptySourceState>
   >({});
@@ -5413,7 +5516,16 @@ function ProjectsPage({
       },
     );
   };
-  const applyProjectCollection = (nextProjects: Project[]) => {
+  const applyProjectCollection = (
+    nextProjects: Project[],
+    nextCursor: string | null,
+    append = false,
+  ) => {
+    setProjectsNextCursor(nextCursor);
+    if (append) {
+      setProjects((current) => appendUniqueItems(current, nextProjects));
+      return;
+    }
     setProjects(nextProjects);
     setSelectedProjectId((current) => {
       if (
@@ -5449,7 +5561,7 @@ function ProjectsPage({
           ? parseTranscriptionWorkspace(request.value)
           : null;
       if (workspace) {
-        applyProjectCollection([workspace]);
+        applyProjectCollection([workspace], null);
         return;
       }
       const reconciliation = await runBoundedRequest(
@@ -5458,11 +5570,14 @@ function ProjectsPage({
       );
       if (
         reconciliation.status !== "completed" ||
-        reconciliation.value.length === 0
+        reconciliation.value.items.length === 0
       ) {
         throw new Error("transcription_workspace_not_observed");
       }
-      applyProjectCollection(reconciliation.value);
+      applyProjectCollection(
+        reconciliation.value.items,
+        reconciliation.value.nextCursor,
+      );
     } catch (workspaceError) {
       setError(
         workspaceError instanceof ApiError
@@ -5481,12 +5596,12 @@ function ProjectsPage({
       requestEpochsRef.current,
       "projects",
       requestProjectCollection,
-      (nextProjects) => {
-        if (nextProjects.length === 0) {
+      (page) => {
+        if (page.items.length === 0) {
           void ensureWorkspace();
           return;
         }
-        applyProjectCollection(nextProjects);
+        applyProjectCollection(page.items, page.nextCursor);
         setLoading(false);
         setError("");
       },
@@ -5497,6 +5612,28 @@ function ProjectsPage({
             : "Не удалось загрузить транскрибации.",
         );
         setLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadMoreProjects = () => {
+    if (!projectsNextCursor || projectsLoadingMore) return;
+    const cursor = projectsNextCursor;
+    setProjectsLoadingMore(true);
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "projects:more",
+      (signal) => requestProjectCollection(signal, cursor),
+      (page) => {
+        applyProjectCollection(page.items, page.nextCursor, true);
+        setProjectsLoadingMore(false);
+      },
+      () => {
+        setProjectsLoadingMore(false);
+        setError("Не удалось загрузить следующие рабочие области.");
       },
       {
         controllers: requestControllersRef.current,
@@ -5525,28 +5662,34 @@ function ProjectsPage({
   useEffect(() => {
     if (active) loadGoogleConnection();
   }, [active]);
-  const loadSources = (projectId: string) => {
+  const loadSources = (projectId: string, cursor: string | null = null) => {
+    const append = cursor !== null;
     const requestKey = `sources:${projectId}`;
     setSources((current) => ({
       ...current,
       [projectId]: {
         ...(current[projectId] ?? emptySourceState),
-        loading: true,
+        loading: !append,
+        loadingMore: append,
         error: "",
       },
     }));
     void settleLatestRequest(
       requestEpochsRef.current,
       requestKey,
-      (signal) => requestProjectSourceCollection(projectId, signal),
-      (result) =>
+      (signal) => requestProjectSourcePage(projectId, cursor, signal),
+      (page) =>
         setSources((current) => ({
           ...current,
           [projectId]: {
             loading: false,
+            loadingMore: false,
             error: "",
             loaded: true,
-            items: result,
+            items: append
+              ? appendUniqueItems(current[projectId]?.items ?? [], page.items)
+              : page.items,
+            nextCursor: page.nextCursor,
           },
         })),
       () =>
@@ -5554,9 +5697,11 @@ function ProjectsPage({
           ...current,
           [projectId]: {
             loading: false,
+            loadingMore: false,
             error: "Не удалось загрузить сохранённые файлы Studio.",
             loaded: true,
             items: current[projectId]?.items ?? [],
+            nextCursor: current[projectId]?.nextCursor ?? null,
           },
         })),
       {
@@ -5565,28 +5710,34 @@ function ProjectsPage({
       },
     );
   };
-  const loadJobs = (projectId: string) => {
+  const loadJobs = (projectId: string, cursor: string | null = null) => {
+    const append = cursor !== null;
     const requestKey = `jobs:${projectId}`;
     setJobs((current) => ({
       ...current,
       [projectId]: {
         ...(current[projectId] ?? emptyJobState),
-        loading: true,
+        loading: !append,
+        loadingMore: append,
         error: "",
       },
     }));
     void settleLatestRequest(
       requestEpochsRef.current,
       requestKey,
-      (signal) => requestProjectJobCollection(projectId, signal),
-      (result) =>
+      (signal) => requestProjectJobPage(projectId, cursor, signal),
+      (page) =>
         setJobs((current) => ({
           ...current,
           [projectId]: {
             loading: false,
+            loadingMore: false,
             error: "",
             loaded: true,
-            items: result,
+            items: append
+              ? appendUniqueItems(current[projectId]?.items ?? [], page.items)
+              : page.items,
+            nextCursor: page.nextCursor,
           },
         })),
       () =>
@@ -5594,9 +5745,11 @@ function ProjectsPage({
           ...current,
           [projectId]: {
             loading: false,
+            loadingMore: false,
             error: "Не удалось загрузить задачи проекта.",
             loaded: true,
             items: current[projectId]?.items ?? [],
+            nextCursor: current[projectId]?.nextCursor ?? null,
           },
         })),
       {
@@ -5684,6 +5837,18 @@ function ProjectsPage({
               </button>
             ))}
           </div>
+          {projectsNextCursor && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={projectsLoadingMore}
+              onClick={loadMoreProjects}
+            >
+              {projectsLoadingMore
+                ? "Загружаем рабочие области…"
+                : "Показать ещё рабочие области"}
+            </button>
+          )}
         </details>
       )}
       {!loading && !error && selectedProject ? (
@@ -5758,8 +5923,14 @@ function ProjectsPage({
                   beginGooglePicker={beginGooglePicker}
                   finishGooglePicker={finishGooglePicker}
                   onLoadSources={loadSources}
+                  onLoadMoreSources={(projectId, cursor) =>
+                    loadSources(projectId, cursor)
+                  }
                   onReloadSources={loadSources}
                   onReloadJobs={loadJobs}
+                  onLoadMoreJobs={(projectId, cursor) =>
+                    loadJobs(projectId, cursor)
+                  }
                   pendingJobMutations={pendingJobMutations}
                   jobMutationNotices={jobMutationNotices}
                   beginJobMutation={beginJobMutation}
@@ -6069,15 +6240,34 @@ function SourceStorageSettings({
   >({});
   const loadedOnceRef = useRef(false);
 
-  const loadSources = async (projectId: string) => {
-    setSources((current) => ({ ...current, loading: true, error: "" }));
+  const loadSources = async (
+    projectId: string,
+    cursor: string | null = null,
+  ) => {
+    const append = cursor !== null;
+    setSources((current) => ({
+      ...current,
+      loading: !append,
+      loadingMore: append,
+      error: "",
+    }));
     try {
-      const items = await requestProjectSourceCollection(projectId);
-      setSources({ loading: false, error: "", loaded: true, items });
+      const page = await requestProjectSourcePage(projectId, cursor);
+      setSources((current) => ({
+        loading: false,
+        loadingMore: false,
+        error: "",
+        loaded: true,
+        items: append
+          ? appendUniqueItems(current.items, page.items)
+          : page.items,
+        nextCursor: page.nextCursor,
+      }));
     } catch {
       setSources((current) => ({
         ...current,
         loading: false,
+        loadingMore: false,
         loaded: true,
         error: "Не удалось загрузить сохранённые файлы Studio.",
       }));
@@ -6087,8 +6277,9 @@ function SourceStorageSettings({
   const loadWorkspace = async () => {
     setWorkspaceState("loading");
     try {
-      const projects = await requestProjectCollection();
-      const current = projects.find((project) => project.archived_at === null) ?? null;
+      const page = await requestProjectCollection();
+      const current =
+        page.items.find((project) => project.archived_at === null) ?? null;
       setWorkspace(current);
       setWorkspaceState("ready");
       if (current) await loadSources(current.id);
@@ -6158,6 +6349,7 @@ function SourceStorageSettings({
           onCsrf={onCsrf}
           sources={sources}
           onReload={loadSources}
+          onLoadMore={(projectId, cursor) => loadSources(projectId, cursor)}
           onSourceRemoved={(source) =>
             setSources((current) => ({
               ...current,
@@ -6267,6 +6459,8 @@ function SettingsPage({
   );
   const settingsMountedRef = useRef(true);
   const [events, setEvents] = useState<Audit[]>([]);
+  const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
+  const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const [auditState, setAuditState] = useState<
     "loading" | "ready" | "error"
   >("loading");
@@ -6393,20 +6587,33 @@ function SettingsPage({
     settingsMountedRef.current
       ? loadAccountPreferences({ reportFailure: false })
       : readAccountPreferencesBounded();
-  const loadAuditEvents = async ({ reportFailure = true } = {}) => {
+  const loadAuditEvents = async ({
+    reportFailure = true,
+    cursor = null,
+  }: {
+    reportFailure?: boolean;
+    cursor?: string | null;
+  } = {}) => {
+    const append = cursor !== null;
     const hadConfirmedEvents = auditState === "ready";
-    if (!hadConfirmedEvents) setAuditState("loading");
+    if (!hadConfirmedEvents && !append) setAuditState("loading");
+    if (append) setAuditLoadingMore(true);
     if (reportFailure) setAuditMessage("");
     await settleLatestRequest(
       auditRequestEpochsRef.current,
       "settings:audit-events",
-      requestAuditCollection,
-      (nextEvents) => {
-        setEvents(nextEvents);
+      (signal) => requestAuditCollection(signal, cursor),
+      (page) => {
+        setEvents((current) =>
+          append ? appendUniqueItems(current, page.items) : page.items,
+        );
+        setAuditNextCursor(page.nextCursor);
+        setAuditLoadingMore(false);
         setAuditState("ready");
         setAuditMessage("");
       },
       () => {
+        setAuditLoadingMore(false);
         setAuditState(hadConfirmedEvents ? "ready" : "error");
         if (reportFailure) {
           setAuditMessage(
@@ -7116,6 +7323,11 @@ function SettingsPage({
             auditState={auditState}
             auditMessage={auditMessage}
             onRetryAudit={() => void loadAuditEvents()}
+            auditNextCursor={auditNextCursor}
+            auditLoadingMore={auditLoadingMore}
+            onLoadMoreAudit={() =>
+              void loadAuditEvents({ cursor: auditNextCursor })
+            }
           />
         </div>
       ) : (
@@ -7662,6 +7874,9 @@ function DiagnosticsSettings({
   auditState,
   auditMessage,
   onRetryAudit,
+  auditNextCursor,
+  auditLoadingMore,
+  onLoadMoreAudit,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
@@ -7669,6 +7884,9 @@ function DiagnosticsSettings({
   auditState: "loading" | "ready" | "error";
   auditMessage: string;
   onRetryAudit: () => void;
+  auditNextCursor: string | null;
+  auditLoadingMore: boolean;
+  onLoadMoreAudit: () => void;
 }) {
   const [system, setSystem] = useState<DiagnosticsSystem | null>(null);
   const [systemState, setSystemState] = useState<"loading" | "ready" | "error">(
@@ -8467,6 +8685,18 @@ function DiagnosticsSettings({
               </li>
             ))}
           </ul>
+        )}
+        {auditState === "ready" && auditNextCursor && (
+          <button
+            type="button"
+            className="secondary"
+            disabled={auditLoadingMore}
+            onClick={onLoadMoreAudit}
+          >
+            {auditLoadingMore
+              ? "Загружаем события…"
+              : "Показать ещё события аудита"}
+          </button>
         )}
         {auditState === "ready" &&
           visibleAuditEvents.length === 0 &&

@@ -129,9 +129,56 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0026_runtime_component_status", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0027_query_bounds", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
+
+
+def test_query_bound_indexes_are_applied_to_postgresql():
+    expected = {
+        "projects": "ix_projects_owner_active_updated_id",
+        "sources": "ix_sources_project_deleted_created_id",
+        "transcription_jobs": "ix_transcription_jobs_project_owner_created_id",
+        "audit_events": "ix_audit_events_subject_created_id",
+        "transcription_provider_part_checkpoints": "ix_provider_part_checkpoints_expiry_id",
+        "realtime_transcript_drafts": "ix_realtime_drafts_expiry_id",
+        "audio_preparation_jobs": "ix_audio_preparation_jobs_owner_project_created_id",
+    }
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        for table, index_name in expected.items():
+            assert index_name in {
+                index["name"] for index in inspector.get_indexes(table)
+            }
+
+
+def test_query_bound_index_migration_round_trip():
+    expected = {
+        "projects": "ix_projects_owner_active_updated_id",
+        "sources": "ix_sources_project_deleted_created_id",
+        "transcription_jobs": "ix_transcription_jobs_project_owner_created_id",
+        "audit_events": "ix_audit_events_subject_created_id",
+        "transcription_provider_part_checkpoints": "ix_provider_part_checkpoints_expiry_id",
+        "realtime_transcript_drafts": "ix_realtime_drafts_expiry_id",
+        "audio_preparation_jobs": "ix_audio_preparation_jobs_owner_project_created_id",
+    }
+    with isolated_migration_database("studio_query_bounds") as (temp_engine, env):
+        run_alembic("0026_runtime_component_status", env=env)
+        run_alembic("0027_query_bounds", env=env)
+        with temp_engine.connect() as conn:
+            inspector = inspect(conn)
+            for table, index_name in expected.items():
+                assert index_name in {
+                    index["name"] for index in inspector.get_indexes(table)
+                }
+        run_alembic("0026_runtime_component_status", env=env, command="downgrade")
+        with temp_engine.connect() as conn:
+            inspector = inspect(conn)
+            for table, index_name in expected.items():
+                assert index_name not in {
+                    index["name"] for index in inspector.get_indexes(table)
+                }
+        run_alembic("head", env=env)
 
 
 def test_catalog_metadata_apply_is_idempotent_on_postgresql():
@@ -1243,6 +1290,159 @@ def test_project_validation_failures():
     assert c.post("/api/projects", json={"title": "x" * 161}, headers=headers).status_code == 422
     assert c.post("/api/projects", json={"title": "Ok", "description": "x" * 2001}, headers=headers).status_code == 422
 
+
+def test_project_pages_are_stable_signed_owner_and_surface_bound():
+    email = "project-pages@example.com"
+    pw = admin(email)
+    client = TestClient(app)
+    login(client, pw, email)
+    timestamp = (utcnow() + timedelta(days=1)).replace(microsecond=0)
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter(User.email == email).one()
+        rows = [
+            Project(
+                id=str(uuid.uuid4()),
+                owner_user_id=owner.id,
+                title=f"Page {index}",
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            for index in range(4)
+        ]
+        db.add_all(rows)
+        db.commit()
+        expected = sorted((row.id for row in rows), reverse=True)
+    finally:
+        db.close()
+
+    first = client.get("/api/projects", params={"page_size": 2})
+    assert first.status_code == 200
+    first_body = first.json()
+    assert [row["id"] for row in first_body["projects"]] == expected[:2]
+    assert first_body["page_size"] == 2
+    assert isinstance(first_body["next_cursor"], str)
+
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter(User.email == email).one()
+        db.add(
+            Project(
+                owner_user_id=owner.id,
+                title="Concurrent newer",
+                created_at=timestamp + timedelta(minutes=1),
+                updated_at=timestamp + timedelta(minutes=1),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    second = client.get(
+        "/api/projects",
+        params={"page_size": 2, "cursor": first_body["next_cursor"]},
+    )
+    assert second.status_code == 200
+    assert [row["id"] for row in second.json()["projects"]] == expected[2:]
+    assert not (
+        {row["id"] for row in first_body["projects"]}
+        & {row["id"] for row in second.json()["projects"]}
+    )
+
+    other_email = "project-pages-other@example.com"
+    other_client = TestClient(app)
+    login(other_client, admin(other_email), other_email)
+    assert other_client.get(
+        "/api/projects",
+        params={"cursor": first_body["next_cursor"]},
+    ).status_code == 422
+    assert client.get(
+        "/api/audit-events",
+        params={"cursor": first_body["next_cursor"]},
+    ).status_code == 422
+
+
+def test_source_job_and_audit_pages_are_non_overlapping_and_scope_bound():
+    email = "collection-pages@example.com"
+    pw = admin(email)
+    client = TestClient(app)
+    login(client, pw, email)
+    timestamp = (utcnow() + timedelta(days=1)).replace(microsecond=0)
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter(User.email == email).one()
+        project = Project(owner_user_id=owner.id, title="Paged collection")
+        other_project = Project(owner_user_id=owner.id, title="Other scope")
+        db.add_all([project, other_project])
+        db.flush()
+        sources = [
+            Source(
+                id=str(uuid.uuid4()),
+                project_id=project.id,
+                source_type=SourceType.google_drive,
+                original_filename=f"source-{index}.mp3",
+                upload_status=SourceUploadStatus.uploaded,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            for index in range(3)
+        ]
+        jobs = [
+            TranscriptionJob(
+                id=str(uuid.uuid4()),
+                project_id=project.id,
+                owner_user_id=owner.id,
+                status=JobStatus.queued,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            for _index in range(3)
+        ]
+        events = [
+            AuditEvent(
+                id=str(uuid.uuid4()),
+                subject_user_id=owner.id,
+                event_type=f"page.event.{index}",
+                metadata_json="{}",
+                created_at=timestamp,
+            )
+            for index in range(3)
+        ]
+        db.add_all([*sources, *jobs, *events])
+        db.commit()
+        project_id = project.id
+        other_project_id = other_project.id
+        expected_sources = sorted((row.id for row in sources), reverse=True)
+        expected_jobs = sorted((row.id for row in jobs), reverse=True)
+        expected_events = sorted((row.id for row in events), reverse=True)
+    finally:
+        db.close()
+
+    for path, key, expected in (
+        (f"/api/projects/{project_id}/sources", "sources", expected_sources),
+        (f"/api/projects/{project_id}/jobs", "jobs", expected_jobs),
+        ("/api/audit-events", "events", expected_events),
+    ):
+        first = client.get(path, params={"page_size": 2})
+        assert first.status_code == 200
+        first_body = first.json()
+        assert [row["id"] for row in first_body[key]] == expected[:2]
+        second = client.get(
+            path,
+            params={"page_size": 2, "cursor": first_body["next_cursor"]},
+        )
+        assert second.status_code == 200
+        assert [row["id"] for row in second.json()[key]] == expected[2:]
+        assert second.json()["next_cursor"] is None
+
+    source_cursor = client.get(
+        f"/api/projects/{project_id}/sources", params={"page_size": 2}
+    ).json()["next_cursor"]
+    assert client.get(
+        f"/api/projects/{other_project_id}/sources",
+        params={"cursor": source_cursor},
+    ).status_code == 422
+
 class FakeStorage:
     def __init__(self):
         self.deleted = []
@@ -1880,8 +2080,16 @@ def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):
     sid = r.json()["source_id"]
     assert c2.post(f"/api/sources/{sid}/local-upload/complete", headers=h2).status_code == 404
     assert c1.post(f"/api/sources/{sid}/local-upload/complete", headers=h1).status_code == 200
+    assert c2.get(f"/api/sources/{sid}").status_code == 404
+    owned = c1.get(f"/api/sources/{sid}")
+    assert owned.status_code == 200
+    assert owned.json()["id"] == sid
+    assert owned.json()["deleted_at"] is None
     assert c2.delete(f"/api/sources/{sid}", headers=h2).status_code == 404
     assert c1.delete(f"/api/sources/{sid}", headers=h1).status_code == 200
+    deleted = c1.get(f"/api/sources/{sid}")
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_at"] is not None
     assert c1.delete(f"/api/sources/{sid}", headers=h1).status_code == 200
     assert fake.deleted == []
 
@@ -2918,7 +3126,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0026_runtime_component_status"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0027_query_bounds"
 
 
 
@@ -2953,7 +3161,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0026_runtime_component_status"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0027_query_bounds"
 
 
 
@@ -3644,7 +3852,9 @@ def test_project_job_progress_is_owner_scoped_no_store_and_browser_safe():
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
     body = response.json()
-    assert set(body) == {"jobs"}
+    assert set(body) == {"jobs", "limit", "truncated"}
+    assert body["limit"] == 100
+    assert body["truncated"] is False
     assert len(body["jobs"]) == 1
     progress = body["jobs"][0]
     assert set(progress) == JOB_PROGRESS_TOP_KEYS
@@ -3672,6 +3882,22 @@ def test_project_job_progress_is_owner_scoped_no_store_and_browser_safe():
         "failure_code",
     ):
         assert marker not in response.text
+
+    explicit = c1.get(
+        f"/api/projects/{pid1}/jobs/progress", params=[("job_id", jid1)]
+    )
+    assert explicit.status_code == 200
+    assert explicit.json()["limit"] == 1
+    assert explicit.json()["truncated"] is False
+    assert [row["job_id"] for row in explicit.json()["jobs"]] == [jid1]
+    assert c1.get(
+        f"/api/projects/{pid1}/jobs/progress",
+        params=[("job_id", jid1), ("job_id", jid1)],
+    ).status_code == 422
+    assert c1.get(
+        f"/api/projects/{pid1}/jobs/progress",
+        params=[("job_id", str(uuid.uuid4())) for _ in range(51)],
+    ).status_code == 422
 
     anon = TestClient(app)
     assert anon.get(f"/api/projects/{pid1}/jobs/progress").status_code == 401
@@ -6592,7 +6818,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0026_runtime_component_status"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0027_query_bounds"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

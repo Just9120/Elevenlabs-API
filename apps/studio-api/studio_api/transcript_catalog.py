@@ -16,6 +16,8 @@ CURRENT_TRANSCRIPTION_PROVIDER = "elevenlabs"
 CURRENT_TRANSCRIPTION_MODEL = "scribe_v2"
 CURRENT_TRANSCRIPT_STANDARD = "transcript_doc_v1.2"
 GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND = "google_docs_transcript"
+CATALOG_QUERY_EVIDENCE_BUDGET = 1000
+CATALOG_SOURCE_LOCK_BUDGET = 1000
 
 
 class CatalogSourceIdentityKind(str, Enum):
@@ -57,6 +59,7 @@ class AcceptedTranscriptEvidence:
     source_identity: CatalogSourceIdentity
     settings: EffectiveTranscriptionSettings | None
     transcript_standard: str
+    count: int = 1
 
 
 @dataclass(frozen=True)
@@ -173,6 +176,11 @@ def accepted_evidence_from_rows(
     evidence: list[AcceptedTranscriptEvidence] = []
     for raw_row in rows:
         row = tuple(raw_row)
+        count = 1
+        if len(row) in {10, 12}:
+            *row_values, raw_count = row
+            row = tuple(row_values)
+            count = max(1, int(raw_count or 1))
         if len(row) == 9:
             row = (*row[:7], None, None, *row[7:])
         if len(row) != 11:
@@ -209,6 +217,7 @@ def accepted_evidence_from_rows(
                     media_clip_end_seconds=media_clip_end_seconds,
                 ),
                 transcript_standard=str(transcript_standard or ""),
+                count=count,
             )
         )
     return tuple(evidence)
@@ -219,16 +228,25 @@ def accepted_catalog_evidence_from_rows(
 ) -> tuple[AcceptedTranscriptEvidence, ...]:
     """Restore accepted evidence only from explicitly linked catalog metadata."""
     evidence: list[AcceptedTranscriptEvidence] = []
-    for (
-        source_identity_kind,
-        source_identity_value,
-        settings_status,
-        provider,
-        model,
-        language_mode,
-        diarization_enabled,
-        transcript_standard,
-    ) in rows:
+    for raw_row in rows:
+        row = tuple(raw_row)
+        count = 1
+        if len(row) == 9:
+            *row_values, raw_count = row
+            row = tuple(row_values)
+            count = max(1, int(raw_count or 1))
+        if len(row) != 8:
+            continue
+        (
+            source_identity_kind,
+            source_identity_value,
+            settings_status,
+            provider,
+            model,
+            language_mode,
+            diarization_enabled,
+            transcript_standard,
+        ) = row
         try:
             identity_kind = CatalogSourceIdentityKind(
                 _enum_value(source_identity_kind)
@@ -267,6 +285,7 @@ def accepted_catalog_evidence_from_rows(
                 # cannot silently become an exact no-match decision.
                 settings=settings,
                 transcript_standard=str(transcript_standard or ""),
+                count=count,
             )
         )
     return tuple(evidence)
@@ -311,10 +330,24 @@ def classify_existing_results(
             status = ExistingResultMatchStatus.no_match
         matches[source_id] = ExistingResultMatch(
             status=status,
-            accepted_output_count=len(relevant),
-            matching_settings_count=len(matching_settings),
+            accepted_output_count=sum(row.count for row in relevant),
+            matching_settings_count=sum(row.count for row in matching_settings),
         )
     return matches
+
+
+def _indeterminate_existing_result_matches(
+    sources: Iterable[Any],
+) -> dict[str, ExistingResultMatch]:
+    return {
+        source_id: ExistingResultMatch(
+            status=ExistingResultMatchStatus.indeterminate,
+            accepted_output_count=0,
+            matching_settings_count=0,
+        )
+        for source in sources
+        if (source_id := _clean_private_identity(getattr(source, "id", None)))
+    }
 
 
 def load_existing_result_matches(
@@ -324,7 +357,7 @@ def load_existing_result_matches(
     sources: Iterable[Any],
     target_settings: EffectiveTranscriptionSettings,
 ) -> dict[str, ExistingResultMatch]:
-    from sqlalchemy import and_, or_
+    from sqlalchemy import and_, func, or_
 
     from .models import (
         Project,
@@ -384,7 +417,7 @@ def load_existing_result_matches(
             TranscriptionJob.media_clip_end_seconds,
             TranscriptionJobOutput.output_kind,
             TranscriptionJobOutput.transcript_standard,
-            TranscriptionJobOutput.document_id,
+            func.count(TranscriptionJobOutput.id),
         )
         .join(
             TranscriptionJobSource,
@@ -417,14 +450,24 @@ def load_existing_result_matches(
     )
     if manifest_reset_at is not None:
         output_query = output_query.filter(TranscriptionJobOutput.persisted_at > manifest_reset_at)
-    output_rows = output_query.all()
-    output_document_ids = {
-        document_id
-        for row in output_rows
-        if (document_id := _clean_private_identity(row[11]))
-    }
+    output_query = output_query.group_by(
+        Source.id,
+        Source.source_type,
+        Source.drive_file_id,
+        TranscriptionJob.provider,
+        ProviderCredential.provider,
+        TranscriptionJob.language,
+        TranscriptionJob.options_json,
+        TranscriptionJob.media_clip_start_seconds,
+        TranscriptionJob.media_clip_end_seconds,
+        TranscriptionJobOutput.output_kind,
+        TranscriptionJobOutput.transcript_standard,
+    )
+    output_rows = output_query.limit(CATALOG_QUERY_EVIDENCE_BUDGET + 1).all()
+    if len(output_rows) > CATALOG_QUERY_EVIDENCE_BUDGET:
+        return _indeterminate_existing_result_matches(source_rows)
     accepted_evidence = list(
-        accepted_evidence_from_rows(row[:11] for row in output_rows)
+        accepted_evidence_from_rows(output_rows)
     )
 
     catalog_identity_filters = []
@@ -455,19 +498,57 @@ def load_existing_result_matches(
         TranscriptCatalogEntry.language_mode,
         TranscriptCatalogEntry.diarization_enabled,
         TranscriptCatalogEntry.transcript_standard,
+        func.count(TranscriptCatalogEntry.id),
     ).filter(
         TranscriptCatalogEntry.owner_user_id == owner_user_id,
         or_(*catalog_identity_filters),
     )
     if manifest_reset_at is not None:
         catalog_query = catalog_query.filter(TranscriptCatalogEntry.updated_at > manifest_reset_at)
-    if output_document_ids:
-        catalog_query = catalog_query.filter(
-            TranscriptCatalogEntry.document_id.notin_(output_document_ids)
+    # Preserve the old owner/selected-identity dedup boundary without building
+    # a cardinality-sized document-id set in application memory.
+    output_exists_query = (
+        db.query(TranscriptionJobOutput.id)
+        .join(
+            TranscriptionJobSource,
+            TranscriptionJobSource.id == TranscriptionJobOutput.job_source_id,
         )
-    accepted_evidence.extend(
-        accepted_catalog_evidence_from_rows(catalog_query.all())
+        .join(
+            TranscriptionJob,
+            TranscriptionJob.id == TranscriptionJobSource.job_id,
+        )
+        .join(Source, Source.id == TranscriptionJobSource.source_id)
+        .join(Project, Project.id == Source.project_id)
+        .filter(
+            TranscriptionJobOutput.document_id
+            == TranscriptCatalogEntry.document_id,
+            TranscriptionJobOutput.output_kind
+            == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
+            TranscriptionJob.owner_user_id == owner_user_id,
+            Project.owner_user_id == owner_user_id,
+            TranscriptionJob.project_id == Source.project_id,
+            or_(*identity_filters),
+        )
     )
+    if manifest_reset_at is not None:
+        output_exists_query = output_exists_query.filter(
+            TranscriptionJobOutput.persisted_at > manifest_reset_at
+        )
+    catalog_query = catalog_query.filter(~output_exists_query.exists()).group_by(
+        TranscriptCatalogEntry.source_identity_kind,
+        TranscriptCatalogEntry.source_identity_value,
+        TranscriptCatalogEntry.settings_status,
+        TranscriptCatalogEntry.provider,
+        TranscriptCatalogEntry.model,
+        TranscriptCatalogEntry.language_mode,
+        TranscriptCatalogEntry.diarization_enabled,
+        TranscriptCatalogEntry.transcript_standard,
+    )
+    remaining_budget = CATALOG_QUERY_EVIDENCE_BUDGET - len(output_rows)
+    catalog_rows = catalog_query.limit(remaining_budget + 1).all()
+    if len(catalog_rows) > remaining_budget:
+        return _indeterminate_existing_result_matches(source_rows)
+    accepted_evidence.extend(accepted_catalog_evidence_from_rows(catalog_rows))
 
     return classify_existing_results(
         sources=source_rows,
@@ -514,7 +595,7 @@ def load_provider_attempt_authorities(
     exclude_job_id: str | None = None,
 ) -> dict[str, ProviderAttemptAuthorityStatus]:
     """Classify owner-scoped paid-call authority without exposing identities."""
-    from sqlalchemy import and_, or_
+    from sqlalchemy import and_, func, or_
 
     from .models import (
         Project,
@@ -570,7 +651,7 @@ def load_provider_attempt_authorities(
             TranscriptionJob.media_clip_end_seconds,
             TranscriptionJob.status,
             TranscriptionJobSourceAttempt.retry_disposition,
-            TranscriptionJobOutput.id,
+            func.count(TranscriptionJobOutput.id),
         )
         .select_from(Source)
         .join(
@@ -619,6 +700,26 @@ def load_provider_attempt_authorities(
     )
     if exclude_job_id is not None:
         query = query.filter(TranscriptionJob.id != exclude_job_id)
+    query = query.group_by(
+        Source.id,
+        Source.source_type,
+        Source.drive_file_id,
+        TranscriptionJob.provider,
+        ProviderCredential.provider,
+        TranscriptionJob.language,
+        TranscriptionJob.options_json,
+        TranscriptionJob.media_clip_start_seconds,
+        TranscriptionJob.media_clip_end_seconds,
+        TranscriptionJob.status,
+        TranscriptionJobSourceAttempt.retry_disposition,
+    )
+    query_rows = query.limit(CATALOG_QUERY_EVIDENCE_BUDGET + 1).all()
+    if len(query_rows) > CATALOG_QUERY_EVIDENCE_BUDGET:
+        return {
+            source_id: ProviderAttemptAuthorityStatus.unresolved
+            for source in source_rows
+            if (source_id := _clean_private_identity(getattr(source, "id", None)))
+        }
     evidence = tuple(
         ProviderAttemptEvidence(
             source_identity=catalog_source_identity(
@@ -634,7 +735,7 @@ def load_provider_attempt_authorities(
             ),
             job_status=_enum_value(job_status),
             retry_disposition=_enum_value(retry_disposition),
-            accepted_output_persisted=output_id is not None,
+            accepted_output_persisted=bool(output_count),
         )
         for (
             source_id,
@@ -648,8 +749,8 @@ def load_provider_attempt_authorities(
             media_clip_end_seconds,
             job_status,
             retry_disposition,
-            output_id,
-        ) in query.all()
+            output_count,
+        ) in query_rows
         if catalog_source_identity(
             _SourceIdentityProjection(source_id, source_type, drive_file_id)
         )
@@ -750,7 +851,7 @@ def lock_catalog_source_identities(
     if not identity_filters:
         return ()
 
-    return tuple(
+    rows = tuple(
         db.execute(
             select(Source)
             .join(Project, Project.id == Source.project_id)
@@ -759,6 +860,7 @@ def lock_catalog_source_identities(
                 or_(*identity_filters),
             )
             .order_by(Source.id.asc())
+            .limit(CATALOG_SOURCE_LOCK_BUDGET + 1)
             # PostgreSQL FOR NO KEY UPDATE conflicts with the worker's source
             # FOR UPDATE while still allowing unrelated FK KEY SHARE access.
             .with_for_update(key_share=True, of=Source)
@@ -767,6 +869,9 @@ def lock_catalog_source_identities(
         .scalars()
         .all()
     )
+    # Empty is fail-closed for every caller: create-time validation gets an
+    # unresolved catalog decision and the worker refuses the paid-call gate.
+    return () if len(rows) > CATALOG_SOURCE_LOCK_BUDGET else rows
 
 
 @dataclass(frozen=True)

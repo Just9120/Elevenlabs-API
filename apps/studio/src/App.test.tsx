@@ -178,6 +178,9 @@ function batchPreflightJson(init?: RequestInit) {
 function isBatchPreflightRequest(url: string, init?: RequestInit) {
   return url.endsWith("/jobs/batch/preflight") && init?.method === "POST";
 }
+function requestPath(url: string) {
+  return new URL(url, "http://localhost").pathname;
+}
 function progressStages(
   current:
     | "preparation"
@@ -1721,13 +1724,8 @@ describe("Studio PWA", () => {
     const requestSignals: AbortSignal[] = [];
     let deleteStarted = false;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (
-        url === "/api/projects/p1/sources" &&
-        !init?.method &&
-        deleteStarted
-      ) {
-        return json({ sources: [] });
-      }
+      if (url === "/api/sources/s1" && !init?.method && deleteStarted)
+        return json({}, false, 404);
       if (url === "/api/sources/s1" && init?.method === "DELETE") {
         deleteStarted = true;
         const signal = init.signal;
@@ -1766,7 +1764,7 @@ describe("Studio PWA", () => {
       expect(
         baseFetch.mock.calls.some(
           ([url, init]) =>
-            url === "/api/projects/p1/sources" &&
+            url === "/api/sources/s1" &&
             init?.cache === "no-store",
         ),
       ).toBe(true);
@@ -5654,7 +5652,7 @@ describe("Studio PWA", () => {
               },
             ],
           });
-        if (url.endsWith("/api/projects/p1/jobs/progress"))
+        if (requestPath(url) === "/api/projects/p1/jobs/progress")
           return json({
             jobs: [
               {
@@ -5701,6 +5699,8 @@ describe("Studio PWA", () => {
                 ],
               },
             ],
+            truncated: false,
+            limit: 2,
           });
         if (isBatchPreflightRequest(url, init))
           return batchPreflightJson(init);
@@ -5884,7 +5884,7 @@ describe("Studio PWA", () => {
     ).toHaveTextContent("Выполняется");
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
-        ([url]) => url === "/api/projects/p1/jobs/progress",
+        ([url]) => requestPath(String(url)) === "/api/projects/p1/jobs/progress",
       ),
     ).toHaveLength(1);
     expect(screen.queryByText("Error code: SAFE_CODE")).not.toBeInTheDocument();
@@ -11702,12 +11702,11 @@ describe("Studio PWA", () => {
     let completionCalls = 0;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (
-        url === "/api/projects/p1/sources" &&
+        url === "/api/sources/local-source-1" &&
         !init?.method &&
         completionCalls === 1
       ) {
-        return json({
-          sources: [
+        return json(
             {
               id: "local-source-1",
               project_id: "p1",
@@ -11725,8 +11724,7 @@ describe("Studio PWA", () => {
               created_at: "2026-07-01T00:00:00Z",
               updated_at: "2026-07-01T00:00:00Z",
             },
-          ],
-        });
+        );
       }
       if (
         String(url).endsWith("/local-upload/complete") &&
@@ -11776,12 +11774,11 @@ describe("Studio PWA", () => {
     let rejectedCompletion = false;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (
-        url === "/api/projects/p1/sources" &&
+        url === "/api/sources/local-source-1" &&
         !init?.method &&
         rejectedCompletion
       ) {
-        return json({
-          sources: [
+        return json(
             {
               id: "local-source-1",
               project_id: "p1",
@@ -11791,8 +11788,7 @@ describe("Studio PWA", () => {
               size_bytes: 7,
               deleted_at: null,
             },
-          ],
-        });
+        );
       }      if (
         String(url).endsWith("/local-upload/complete") &&
         init?.method === "POST" &&
@@ -11819,7 +11815,7 @@ describe("Studio PWA", () => {
     expect(
       baseFetch.mock.calls.some(
         ([url, init]) =>
-          url === "/api/projects/p1/sources" &&
+          url === "/api/sources/local-source-1" &&
           init?.cache === "no-store",
       ),
     ).toBe(true);
@@ -11854,12 +11850,11 @@ describe("Studio PWA", () => {
     let completionCalls = 0;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (
-        url === "/api/projects/p1/sources" &&
+        url === "/api/sources/local-source-1" &&
         !init?.method &&
         completionCalls === 1
       ) {
-        return json({
-          sources: [
+        return json(
             {
               id: "local-source-1",
               project_id: "p1",
@@ -11869,8 +11864,7 @@ describe("Studio PWA", () => {
               size_bytes: 7,
               deleted_at: null,
             },
-          ],
-        });
+        );
       }
       if (
         String(url).endsWith("/local-upload/complete") &&
@@ -11932,7 +11926,7 @@ describe("Studio PWA", () => {
       expect(
         baseFetch.mock.calls.some(
           ([url, init]) =>
-            url === "/api/projects/p1/sources" &&
+            url === "/api/sources/local-source-1" &&
             init?.cache === "no-store",
         ),
       ).toBe(true);

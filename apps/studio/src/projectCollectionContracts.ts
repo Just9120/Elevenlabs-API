@@ -26,6 +26,16 @@ const SOURCE_STATUSES = new Set([
   "failed",
 ]);
 
+export type CollectionPage<T> = {
+  items: T[];
+  nextCursor: string | null;
+  pageSize: number;
+};
+
+const DEFAULT_COLLECTION_PAGE_SIZE = 50;
+const MAX_COLLECTION_PAGE_SIZE = 100;
+const SIGNED_CURSOR_RE = /^[A-Za-z0-9_-]+$/;
+
 export function parseProjectSourceCollection(
   candidate: unknown,
   projectId: string,
@@ -38,6 +48,14 @@ export function parseProjectSourceCollection(
     sources.push(source);
   }
   return hasUniqueIds(sources) ? sources : null;
+}
+
+export function parseProjectSourcePage(
+  candidate: unknown,
+  projectId: string,
+): CollectionPage<Source> | null {
+  const items = parseProjectSourceCollection(candidate, projectId);
+  return items ? parseCollectionPage(candidate, "sources", items) : null;
 }
 
 export function parseProjectJobCollection(
@@ -59,6 +77,14 @@ export function parseProjectJobCollection(
     jobs.push(job);
   }
   return hasUniqueIds(jobs) ? jobs : null;
+}
+
+export function parseProjectJobPage(
+  candidate: unknown,
+  projectId: string,
+): CollectionPage<TranscriptionJob> | null {
+  const items = parseProjectJobCollection(candidate, projectId);
+  return items ? parseCollectionPage(candidate, "jobs", items) : null;
 }
 
 export function parseJobDetailResponse(
@@ -148,6 +174,21 @@ export async function requestProjectSourceCollection(
   return sources;
 }
 
+export async function requestProjectSourcePage(
+  projectId: string,
+  cursor: string | null = null,
+  signal?: AbortSignal,
+): Promise<CollectionPage<Source>> {
+  const candidate = await requestCollectionPage(
+    `/projects/${projectId}/sources`,
+    cursor,
+    signal,
+  );
+  const page = parseProjectSourcePage(candidate, projectId);
+  if (!page) throw new Error("invalid_project_source_page");
+  return page;
+}
+
 export async function requestProjectJobCollection(
   projectId: string,
   signal?: AbortSignal,
@@ -159,6 +200,78 @@ export async function requestProjectJobCollection(
   const jobs = parseProjectJobCollection(candidate, projectId);
   if (!jobs) throw new Error("invalid_project_job_collection");
   return jobs;
+}
+
+export async function requestProjectJobPage(
+  projectId: string,
+  cursor: string | null = null,
+  signal?: AbortSignal,
+): Promise<CollectionPage<TranscriptionJob>> {
+  const candidate = await requestCollectionPage(
+    `/projects/${projectId}/jobs`,
+    cursor,
+    signal,
+  );
+  const page = parseProjectJobPage(candidate, projectId);
+  if (!page) throw new Error("invalid_project_job_page");
+  return page;
+}
+
+function requestCollectionPage(
+  path: string,
+  cursor: string | null,
+  signal?: AbortSignal,
+) {
+  if (!cursor) {
+    return api<unknown>(path, {
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    });
+  }
+  const search = new URLSearchParams({
+    page_size: String(DEFAULT_COLLECTION_PAGE_SIZE),
+  });
+  search.set("cursor", cursor);
+  return api<unknown>(`${path}?${search.toString()}`, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+}
+
+function parseCollectionPage<T>(
+  candidate: unknown,
+  collectionKey: "sources" | "jobs",
+  items: T[],
+): CollectionPage<T> | null {
+  if (!isRecord(candidate) || !Array.isArray(candidate[collectionKey])) {
+    return null;
+  }
+  const rawPageSize = candidate.page_size;
+  const pageSize =
+    rawPageSize === undefined
+      ? DEFAULT_COLLECTION_PAGE_SIZE
+      : rawPageSize;
+  if (
+    !Number.isSafeInteger(pageSize) ||
+    (pageSize as number) < 1 ||
+    (pageSize as number) > MAX_COLLECTION_PAGE_SIZE ||
+    items.length > (pageSize as number)
+  ) {
+    return null;
+  }
+  const rawCursor = candidate.next_cursor;
+  const nextCursor = rawCursor === undefined ? null : rawCursor;
+  if (
+    nextCursor !== null &&
+    (typeof nextCursor !== "string" ||
+      nextCursor.length === 0 ||
+      nextCursor.length > 1_200 ||
+      !SIGNED_CURSOR_RE.test(nextCursor) ||
+      items.length !== pageSize)
+  ) {
+    return null;
+  }
+  return { items, nextCursor, pageSize: pageSize as number };
 }
 
 export async function requestJobDetail(

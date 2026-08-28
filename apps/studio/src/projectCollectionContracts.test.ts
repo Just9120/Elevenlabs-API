@@ -4,7 +4,9 @@ import {
   parseJobOutputsResponse,
   parseJobSummaryResponse,
   parseProjectJobCollection,
+  parseProjectJobPage,
   parseProjectSourceCollection,
+  parseProjectSourcePage,
 } from "./projectCollectionContracts";
 
 const source = {
@@ -53,6 +55,40 @@ const job = {
 };
 
 describe("project collection contracts", () => {
+  it("validates bounded signed page envelopes", () => {
+    const cursor = "signed_cursor-1";
+    expect(
+      parseProjectSourcePage(
+        { sources: [source], next_cursor: cursor, page_size: 1 },
+        "project-safe",
+      ),
+    ).toEqual({ items: [source], nextCursor: cursor, pageSize: 1 });
+    expect(
+      parseProjectJobPage(
+        { jobs: [job], next_cursor: null, page_size: 50 },
+        "project-safe",
+      ),
+    ).toEqual({ items: [job], nextCursor: null, pageSize: 50 });
+    expect(
+      parseProjectSourcePage(
+        { sources: [source], next_cursor: "unsafe cursor", page_size: 1 },
+        "project-safe",
+      ),
+    ).toBeNull();
+    expect(
+      parseProjectSourcePage(
+        { sources: [source], next_cursor: cursor, page_size: 2 },
+        "project-safe",
+      ),
+    ).toBeNull();
+    expect(
+      parseProjectJobPage(
+        { jobs: [job], next_cursor: null, page_size: 101 },
+        "project-safe",
+      ),
+    ).toBeNull();
+  });
+
   it("reconstructs safe source fields and discards private extras", () => {
     const parsed = parseProjectSourceCollection(
       {

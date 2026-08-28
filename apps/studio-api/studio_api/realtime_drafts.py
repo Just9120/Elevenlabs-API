@@ -194,23 +194,42 @@ def delete_realtime_draft(
     return bool(result.rowcount)
 
 
+DEFAULT_REALTIME_DRAFT_CLEANUP_BATCH_SIZE = 500
+MAX_REALTIME_DRAFT_CLEANUP_BATCH_SIZE = 1000
+
+
 def cleanup_expired_realtime_drafts(
     db: Session,
     *,
     now: datetime,
     owner_user_id: str | None = None,
     project_id: str | None = None,
+    limit: int = DEFAULT_REALTIME_DRAFT_CLEANUP_BATCH_SIZE,
 ) -> int:
-    statement = delete(RealtimeTranscriptDraft).where(
+    safe_limit = max(1, min(int(limit), MAX_REALTIME_DRAFT_CLEANUP_BATCH_SIZE))
+    expired_ids = select(RealtimeTranscriptDraft.id).where(
         RealtimeTranscriptDraft.expires_at <= now
     )
     if owner_user_id is not None:
-        statement = statement.where(
+        expired_ids = expired_ids.where(
             RealtimeTranscriptDraft.owner_user_id == owner_user_id
         )
     if project_id is not None:
-        statement = statement.where(RealtimeTranscriptDraft.project_id == project_id)
-    return int(db.execute(statement).rowcount or 0)
+        expired_ids = expired_ids.where(
+            RealtimeTranscriptDraft.project_id == project_id
+        )
+    expired_ids = expired_ids.order_by(
+        RealtimeTranscriptDraft.expires_at.asc(),
+        RealtimeTranscriptDraft.id.asc(),
+    ).limit(safe_limit)
+    return int(
+        db.execute(
+            delete(RealtimeTranscriptDraft).where(
+                RealtimeTranscriptDraft.id.in_(expired_ids)
+            )
+        ).rowcount
+        or 0
+    )
 
 
 def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftContent:

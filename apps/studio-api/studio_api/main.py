@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from .audit import audit
 from .auth_retention import cleanup_expired_auth_state
+from .collection_pagination import CollectionCursorError, DEFAULT_COLLECTION_PAGE_SIZE, MAX_COLLECTION_CURSOR_LENGTH, MAX_COLLECTION_PAGE_SIZE, decode_collection_cursor, page_envelope
 from .config import get_settings
 from .db import Base, engine, get_db
 from .deps import current_session, get_client_ip, require_csrf, require_same_origin
@@ -722,10 +723,24 @@ def owned_project_or_404(db: Session, user: User, project_id: str) -> Project:
     return p
 
 @app.get("/api/projects")
-def list_projects(pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair
-    rows=db.query(Project).filter(Project.owner_user_id==user.id, Project.archived_at.is_(None)).order_by(Project.updated_at.desc(), Project.created_at.desc()).all()
-    return {"projects":[project_payload(p) for p in rows]}
+def list_projects(
+    cursor: str|None=Query(None, max_length=MAX_COLLECTION_CURSOR_LENGTH),
+    page_size: int=Query(DEFAULT_COLLECTION_PAGE_SIZE, ge=1, le=MAX_COLLECTION_PAGE_SIZE),
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair
+    try:
+        position=decode_collection_cursor(cursor, secret=sess.csrf_hash, owner_user_id=user.id, surface="projects")
+    except CollectionCursorError:
+        raise HTTPException(422, "Invalid projects cursor") from None
+    query=db.query(Project).filter(Project.owner_user_id==user.id, Project.archived_at.is_(None))
+    if position:
+        updated_at,row_id=position
+        query=query.filter((Project.updated_at < updated_at) | ((Project.updated_at == updated_at) & (Project.id < row_id)))
+    rows=query.order_by(Project.updated_at.desc(), Project.id.desc()).limit(page_size+1).all()
+    rows,next_cursor=page_envelope(rows, page_size=page_size, timestamp_attribute="updated_at", secret=sess.csrf_hash, owner_user_id=user.id, surface="projects")
+    return {"projects":[project_payload(p) for p in rows], "next_cursor": next_cursor, "page_size": page_size}
 
 @app.post("/api/transcriptions/workspace")
 def ensure_transcription_workspace(
@@ -790,10 +805,21 @@ def owned_source_or_404(db: Session, user: User, source_id: str) -> Source:
     return src
 
 @app.get("/api/projects/{project_id}/sources")
-def list_sources(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair; p=owned_project_or_404(db,user,project_id)
+def list_sources(
+    project_id: str,
+    cursor: str|None=Query(None, max_length=MAX_COLLECTION_CURSOR_LENGTH),
+    page_size: int=Query(DEFAULT_COLLECTION_PAGE_SIZE, ge=1, le=MAX_COLLECTION_PAGE_SIZE),
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair; p=owned_project_or_404(db,user,project_id)
+    scope={"project_id": p.id}
+    try:
+        position=decode_collection_cursor(cursor, secret=sess.csrf_hash, owner_user_id=user.id, surface="sources", scope=scope)
+    except CollectionCursorError:
+        raise HTTPException(422, "Invalid sources cursor") from None
     now=utcnow()
-    rows=db.query(Source).filter(
+    query=db.query(Source).filter(
         Source.project_id==p.id,
         Source.deleted_at.is_(None),
         or_(
@@ -803,9 +829,13 @@ def list_sources(project_id: str, pair=Depends(current_session), db: Session=Dep
                 or_(Source.expires_at.is_(None), Source.expires_at>now),
             ),
         ),
-    ).order_by(Source.created_at.desc()).all()
-    return {"sources":[source_payload(r) for r in rows]}
-
+    )
+    if position:
+        created_at,row_id=position
+        query=query.filter((Source.created_at < created_at) | ((Source.created_at == created_at) & (Source.id < row_id)))
+    rows=query.order_by(Source.created_at.desc(), Source.id.desc()).limit(page_size+1).all()
+    rows,next_cursor=page_envelope(rows, page_size=page_size, timestamp_attribute="created_at", secret=sess.csrf_hash, owner_user_id=user.id, surface="sources", scope=scope)
+    return {"sources":[source_payload(r) for r in rows], "next_cursor": next_cursor, "page_size": page_size}
 def _browser_capability_cache_headers(response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
@@ -1568,6 +1598,20 @@ def _batch_target_settings(*, language: str, diarization_enabled: bool, media_cl
 def _batch_decision_key(source, media_clip) -> str:
     return f"{source.id}:{media_clip.start_seconds}:{media_clip.end_seconds}"
 
+def _require_catalog_identity_locks(db: Session, user: User, sources):
+    locked = lock_catalog_source_identities(
+        db,
+        owner_user_id=user.id,
+        sources=sources,
+    )
+    selected_ids = {source.id for source in sources}
+    if not selected_ids.issubset({source.id for source in locked}):
+        raise HTTPException(
+            409,
+            detail={"reason": "catalog_query_budget_exceeded"},
+        )
+    return locked
+
 def _load_batch_existing_result_matches(db: Session, user: User, sources, media_clips, *, language: str, diarization_enabled: bool):
     decisions={}
     for source,media_clip in zip(sources,media_clips,strict=True):
@@ -1639,7 +1683,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     try:
         jobs=[]
-        lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
+        _require_catalog_identity_locks(db, user, sources)
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
         existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,language=language,diarization_enabled=data.options.diarize)
         provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,language=language,diarization_enabled=data.options.diarize)
@@ -1758,6 +1802,12 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
         raise HTTPException(status_code=409, detail={"reason": result.reason.value})
     db.commit()
     return {"ok": True, "source_state": result.source_state, "storage_cleanup": result.storage_cleanup}
+
+
+@app.get("/api/sources/{source_id}")
+def get_source(source_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    return source_payload(owned_source_or_404(db,user,source_id))
 
 
 def _raise_audio_preparation_error(exc: Exception) -> None:
@@ -1894,13 +1944,28 @@ def download_audio_preparation(job_id: str, pair=Depends(current_session), db: S
 
 
 @app.get("/api/projects/{project_id}/jobs")
-def list_project_jobs(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair; p=owned_project_or_404(db,user,project_id)
+def list_project_jobs(
+    project_id: str,
+    cursor: str|None=Query(None, max_length=MAX_COLLECTION_CURSOR_LENGTH),
+    page_size: int=Query(DEFAULT_COLLECTION_PAGE_SIZE, ge=1, le=MAX_COLLECTION_PAGE_SIZE),
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair; p=owned_project_or_404(db,user,project_id)
+    scope={"project_id": p.id}
+    try:
+        position=decode_collection_cursor(cursor, secret=sess.csrf_hash, owner_user_id=user.id, surface="jobs", scope=scope)
+    except CollectionCursorError:
+        raise HTTPException(422, "Invalid jobs cursor") from None
     query=db.query(TranscriptionJob).options(selectinload(TranscriptionJob.speakers)).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
     if p.history_reset_at is not None:
         query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at))
-    rows=query.order_by(TranscriptionJob.created_at.desc()).all()
-    return {"jobs":[job_payload(r) for r in rows]}
+    if position:
+        created_at,row_id=position
+        query=query.filter((TranscriptionJob.created_at < created_at) | ((TranscriptionJob.created_at == created_at) & (TranscriptionJob.id < row_id)))
+    rows=query.order_by(TranscriptionJob.created_at.desc(), TranscriptionJob.id.desc()).limit(page_size+1).all()
+    rows,next_cursor=page_envelope(rows, page_size=page_size, timestamp_attribute="created_at", secret=sess.csrf_hash, owner_user_id=user.id, surface="jobs", scope=scope)
+    return {"jobs":[job_payload(r) for r in rows], "next_cursor": next_cursor, "page_size": page_size}
 
 @app.post("/api/projects/{project_id}/history/clear")
 def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -1913,11 +1978,19 @@ def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(
     return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
 @app.get("/api/projects/{project_id}/jobs/progress")
-def get_project_job_progress(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+def get_project_job_progress(response: Response, project_id: str, job_id: list[str]=Query(default=[]), pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id); _browser_capability_cache_headers(response)
-    rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing])).order_by(TranscriptionJob.created_at.desc()).all()
+    if len(job_id)>50 or len(job_id)!=len(set(job_id)) or any(not valid_uuid(value) for value in job_id):
+        raise HTTPException(422, "Invalid job progress scope")
+    query=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]))
+    if job_id:
+        query=query.filter(TranscriptionJob.id.in_(job_id))
+    limit=len(job_id) if job_id else 100
+    rows=query.order_by(TranscriptionJob.created_at.desc(), TranscriptionJob.id.desc()).limit(limit+1).all()
+    truncated=len(rows)>limit
+    rows=rows[:limit]
     try:
-        return {"jobs": load_browser_job_progress_payloads(db, rows)}
+        return {"jobs": load_browser_job_progress_payloads(db, rows), "truncated": truncated, "limit": limit}
     except Exception:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить прогресс задач") from None
 
@@ -1949,7 +2022,7 @@ def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, re
     language=clean_job_language(data.language)
     options_json=safe_job_options(data.options)
     sources=validate_job_sources(db, p.id, data.source_ids)
-    lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
+    _require_catalog_identity_locks(db, user, sources)
     sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
     existing_result_matches=load_existing_result_matches(
         db,
@@ -2955,6 +3028,21 @@ def delete_credential(credential_id: str, pair=Depends(require_csrf), db: Sessio
     audit(db,"credential.deleted",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id); db.commit(); return {"ok": True}
 
 @app.get("/api/audit-events")
-def audit_events(pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair; rows=db.query(AuditEvent).filter(AuditEvent.subject_user_id==user.id).order_by(AuditEvent.created_at.desc()).limit(50).all()
-    return {"events":[{"id":r.id,"type":r.event_type,"metadata":json.loads(r.metadata_json),"created_at":r.created_at.isoformat()} for r in rows]}
+def audit_events(
+    cursor: str|None=Query(None, max_length=MAX_COLLECTION_CURSOR_LENGTH),
+    page_size: int=Query(DEFAULT_COLLECTION_PAGE_SIZE, ge=1, le=MAX_COLLECTION_PAGE_SIZE),
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    sess,user=pair
+    try:
+        position=decode_collection_cursor(cursor, secret=sess.csrf_hash, owner_user_id=user.id, surface="audit-events")
+    except CollectionCursorError:
+        raise HTTPException(422, "Invalid audit cursor") from None
+    query=db.query(AuditEvent).filter(AuditEvent.subject_user_id==user.id)
+    if position:
+        created_at,row_id=position
+        query=query.filter((AuditEvent.created_at < created_at) | ((AuditEvent.created_at == created_at) & (AuditEvent.id < row_id)))
+    rows=query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(page_size+1).all()
+    rows,next_cursor=page_envelope(rows, page_size=page_size, timestamp_attribute="created_at", secret=sess.csrf_hash, owner_user_id=user.id, surface="audit-events")
+    return {"events":[{"id":r.id,"type":r.event_type,"metadata":json.loads(r.metadata_json),"created_at":r.created_at.isoformat()} for r in rows], "next_cursor": next_cursor, "page_size": page_size}
