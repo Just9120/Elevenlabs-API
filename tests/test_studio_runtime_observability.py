@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,13 +11,18 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
-os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("STUDIO_APP_ORIGIN", "https://studio.test")
-os.environ.setdefault("STUDIO_COOKIE_SECURE", "false")
+
+
+@pytest.fixture(autouse=True)
+def runtime_test_environment(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv("STUDIO_APP_ORIGIN", "https://studio.test")
+    monkeypatch.setenv("STUDIO_COOKIE_SECURE", "false")
 
 
 def identity(component: str = "worker", commit: str = "a" * 40):
