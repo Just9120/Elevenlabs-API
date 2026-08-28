@@ -2,71 +2,89 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-OBSERVABILITY-RUNTIME-01` — substantial runtime observability без commercial contour.
-- **State:** `IN_PROGRESS` — Goal явно авторизована, exact base/branch зафиксированы, implementation начата.
-- **Authorization source:** explicit user instruction 2026-08-28 «если все ок, то давай делать более существенный goal» после review production diagnostics.
-- **Scope:** закрыть canonical `OBSERV-06`, `OBSERV-08`, `OBSERV-09`, `OBSERV-11..OBSERV-14`, `OBSERV-22`, `OBSERV-24..OBSERV-28`: точные release/build/commit identities реально запущенных web/API/worker и exact DB schema revision; отдельные API и worker liveness/readiness contracts; authenticated admin health с bounded queue, object-storage и STT-provider status без paid/provider mutation; safe frontend incident correlation для 4xx и unhandled rejections; automated unit/integration/UI/contract coverage; exact-head CI, protected backward-compatible migration, API/web/manual worker deployment и bounded authenticated production LIVE.
-- **Non-goals:** commercial contour; external alert delivery; active paid STT probes; `trace_id` через весь pipeline; audit-role/DB least-privilege redesign; storage lifecycle redesign; provider fallback; unrelated product features.
+- **ID / title:** `PWA-QUERY-BOUNDS-01` — bounded growing collections, analytics и cleanup без commercial contour.
+- **State:** `IN_PROGRESS` — implementation и test-only corrections готовы; explicit owner approval 2026-08-28 разрешил exceptional correction push в PR `#251`.
+- **Authorization source:** explicit user instruction 2026-08-28 «приступай» после согласования substantial Goal без commercial scope; explicit user instruction 2026-08-28 «разрешаю» на exceptional correction push после подтверждённых CI test-contract failures.
+- **Scope:** evidence-based inventory owner-scoped projects, sources, transcription jobs/progress/analytics, transcript duplicate/catalog authority, diagnostics, audit, sessions и applicable cleanup paths; deterministic signed keyset pagination и hard page limits для подтверждённых unbounded browser collections; устранение подтверждённых N+1/unbounded materialization; только доказанные PostgreSQL composite indexes; batch-bounded и идемпотентные retention/cleanup paths; focused/full PostgreSQL и frontend contract tests, query/load/concurrency budgets; exact-head CI, protected additive migration, API/web/manual worker delivery и bounded authenticated production LIVE. В том же implementation PR синхронизируется фактическое closure предыдущей Goal.
+- **Non-goals:** commercial contour; новые product features; изменение canonical requirements/AC/denominator; storage bucket/lifecycle redesign; DB-role/least-privilege redesign; provider calls/spend; alert delivery; broad retention-policy change; unrelated refactors.
 - **Goal AC:**
-  1. `POR-01`: diagnostics fail closed и показывают отдельные exact release/build/commit identities реально запущенных web, API и worker, а также exact DB schema revision; `unknown`, target-only identity и подмена одного компонента другим не считаются success.
-  2. `POR-02`: backend предоставляет отдельные process-only liveness и dependency/schema-aware readiness probes; legacy `/api/healthz` остаётся backward-compatible readiness alias, ответы bounded и не раскрывают secrets/user data.
-  3. `POR-03`: worker предоставляет отдельные process liveness и dependency/schema readiness contracts; Docker healthcheck использует readiness, а diagnostics отличают absent/stale worker от healthy.
-  4. `POR-04`: authenticated admin health показывает bounded queue, object-storage и STT-provider status; storage check read-only, provider check не вызывает paid transcription и не мутирует provider state.
-  5. `POR-05`: frontend 4xx и unhandled rejection evidence сохраняет safe original response request ID, bounded exact HTTP status и endpoint group либо safe rejection category, без stack/raw payload/message/user data/secrets.
-  6. `POR-06`: authoritative runtime component identity/heartbeat persistence backward-compatible; diagnostic reads не изменяют состояние, stale/absent distinguishable, rollback старого API/worker безопасен.
-  7. `POR-07`: Compose/build/deploy передают и проверяют exact component identities без broad env rewrite, secret changes или ослабления migration/worker/Environment gates.
-  8. `POR-08`: focused и full tests, exact PR-head required CI, protected migration, API/web deployment, manual drained worker deployment и bounded authenticated production LIVE подтверждают все applicable contracts.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE ❌`.
-- **Known blockers/dependencies:** production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+  1. `PQB-01`: inventory классифицирует каждую in-scope collection/query/cleanup surface как already bounded, remediation или explicit defer с фактическим основанием; generated/vendored code не смешивается с runtime findings.
+  2. `PQB-02`: projects, sources, transcription jobs и audit history возвращаются owner-scoped страницами с deterministic `(timestamp, id)` order, hard page maximum, signed session-bound cursor и filter/scope binding; invalid/cross-owner/cross-surface cursor fail closed.
+  3. `PQB-03`: web client валидирует page envelope, не создаёт duplicates при append, сбрасывает stale cursor при authoritative reload и даёт пользователю bounded доступ к следующей странице без eager all-pages fetch.
+  4. `PQB-04`: job progress принимает только bounded explicit displayed job set; compatibility read без IDs имеет hard maximum и сообщает truncation, не создавая N+1.
+  5. `PQB-05`: transcription analytics сохраняет exact current semantics, но не materialize все jobs, attempts или ID list; query count остаётся constant относительно cardinality, а PostgreSQL выполняет aggregate/percentile work server-side.
+  6. `PQB-06`: transcript duplicate/catalog и competing-provider authority не загружают unlimited duplicate history; aggregation/dedup или explicit budget exhaustion сохраняют fail-closed paid-call boundary и exact accepted-result counts.
+  7. `PQB-07`: auth/diagnostics/source cleanup остаются подтверждённо bounded; provider-checkpoint и realtime-draft cleanup удаляют deterministic limited batches, повторный запуск идемпотентен и не пропускает оставшийся backlog.
+  8. `PQB-08`: additive Alembic revision добавляет только indexes, соответствующие exact owner/project/filter/order query shapes; upgrade/downgrade и schema-head validation подтверждены на PostgreSQL.
+  9. `PQB-09`: focused tests подтверждают hard maxima, stable/non-overlapping cursors при equal timestamps и concurrent newer inserts, owner/surface binding, frontend append/reset, constant query budgets, exact analytics и cleanup backlog batching; full backend/frontend/static/build suites зелёные.
+  10. `PQB-10`: exact PR-head required CI, protected migration, API/web deployment, drained manual worker deployment и bounded authenticated LIVE подтверждают page limits/cursors, analytics shape, cleanup readiness и exact running revision без provider mutation.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** push gate снят explicit owner approval. После green CI production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T08:37:08Z.
-- Session mode: authorized full delivery Goal; commercial и перечисленные non-goals запрещены.
-- Base branch/SHA: fetched clean `origin/main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; open PR отсутствовали.
-- Working branch: `codex/pwa-observability-runtime-01`; создана от exact verified base SHA выше.
-- Last verified revision: `d0ea1fadb1b386d396a89b8512c9efe620adc43c`; commits `0f8a3d7`, `9eb5447`, `53a69ac`, `b9fd15f`, `d0ea1fa` покрывают Goal contract, runtime implementation, heartbeat write-path optimization, checkpoint и confirmed-CI test-isolation fix.
-- Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: additive `0026_runtime_component_status`; exact component-baked web/API/worker release/build/commit metadata; coherent platform release fail-closed across all three components; exact schema read; API and worker split liveness/readiness; process-incarnation-aware worker heartbeat; bounded queue/read-only storage/config-only STT health; safe frontend exact HTTP/request/rejection correlation; diagnostics UI/export; Compose/deploy/migration/preflight wiring; architecture/runbook/security current-head synchronization. Secondary `last_seen_at` indexes intentionally отсутствуют, чтобы repeated heartbeat updates оставались PostgreSQL HOT-capable.
-- Current step: отправить один grouped follow-up batch после confirmed repository CI failure.
-- Next exact action: push local fix+checkpoint в PR `#250`, затем проверить exact new-head required checks без manual rerun.
-- Validation and Evidence: initial PR head `b9fd15f` получил `Studio PWA CI 33155726226`: `studio ✅`, `browser-e2e ✅`. Repository CI `33155726209` завершился failure после `1358 passed, 1 error`: новый test module на collection выставлял process-global SQLite URL, и последующий processing E2E subprocess ошибочно запускал historical PostgreSQL migrations на SQLite. Fix `d0ea1fa` заменил module-level mutation на autouse `monkeypatch` fixture. После fix focused `31 passed`; full portable `1083 passed, 5 skipped`. До failure также прошли `python scripts/ci_checks.py`, full frontend Vitest `611 passed`, ESLint, production build, exact build-meta smoke и static CI/CD contracts. TEST/CI остаются partial/failed до green checks exact new PR head.
-- Pull Request / CI / deployment: PR `#250` (`https://github.com/Just9120/Elevenlabs-API/pull/250`); initial head `b9fd15fd160cec571cdc81132561218ed642aa88`; one grouped follow-up push ожидается после confirmed CI failure. Deployment absent; expected components migration + API + web + worker, full protected delivery обязателен.
-- Blockers: implementation blocker отсутствует. PostgreSQL/Redis integration подтверждается только CI host; external gates ожидаются на protected migration, manual worker drain/deploy и authenticated LIVE.
-- Unverified assumptions: production storage `head_bucket` и provider configured-status будут bounded с actual runtime credentials; проверка должна подтвердить отсутствие paid/provider mutation и safe report fields. Exact component identities ещё не подтверждены running production evidence.
+- Updated (UTC): 2026-08-28T11:13:08Z.
+- Session mode: authorized full-delivery Goal; commercial и перечисленные non-goals запрещены.
+- Base branch/SHA: fetched clean `origin/main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; local `main` был exact и clean, open PR отсутствовали.
+- Working branch: `codex/pwa-query-bounds-01`; создана от exact verified base SHA выше, tracks `origin/main` до первого push.
+- Last verified revision: remote PR head `926a26665d35049b8ba4769a0fe7ec01589ada43`; migration/fresh schema, Studio lane и `1370/1372` full tests подтверждены, но два test contracts и browser URL matcher не прошли.
+- Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
+- Completed: previous observability closure reconciled; inventory завершён; reusable signed collection cursor/page contract применён к projects/sources/jobs/audit; frontend получил validated append/reset/load-more; progress читает explicit bounded job set; analytics переведена на constant-query aggregates; catalog/provider authority получила grouped evidence и fail-closed budgets; provider-checkpoint/realtime cleanup выполняется deterministic batches; additive `0027_query_bounds` добавляет exact-shape indexes. Generated/vendored code не затрагивался.
+- Current step: authorization gate снят; подготовить и отправить единым exceptional batch локальный correction commit и этот checkpoint в PR `#251`.
+- Next exact action: выполнить один разрешённый push, затем дождаться автоматически запущенных required checks без speculative/manual rerun.
+- Validation and Evidence: base ancestry/worktree/remotes verified; open PR на старте отсутствовал. Passed locally: repository `ci_checks`; Python compile; 68 focused backend tests (47 collection/analytics/catalog/realtime/retry/schema/observability + 21 diagnostics/progress); frontend Vitest `613/613`; frontend lint; production build; `git diff --check`. Fresh-index guard после CI failure: schema/runtime `9/9` passed. Bash-only host-preflight suite нельзя повторить в текущем Windows runner (`bash` отсутствует); изменённые head assertions и весь PostgreSQL/migration/core path остаются обязательным follow-up CI evidence.
+- Pull Request / CI / deployment: PR `#251`; initial head `522b33c`, grouped follow-up head `926a266`. Follow-up Studio run `33164971929` прошёл; fresh browser migration и repository migration/round-trip/index tests прошли. Repository run `33164971922`: `1370 passed`, 2 failed — audit pagination test не учитывал более старые owner events, history-clear test ожидал legacy response без page envelope. Browser job `98828091337`: 8 passed, 1 failed, 3 skipped — E2E ожидал URL без новых `job_id` query params. Все три test-only corrections готовы локально; manual rerun не запускался. Deployment отсутствует.
+- Blockers: immediate blocker отсутствует. PostgreSQL/full CI, protected migration, worker drain/deploy и authenticated LIVE остаются обязательными gates; новый code push после этого exceptional batch потребует отдельного решения только если CI обнаружит новый defect.
+- Unverified assumptions: PostgreSQL реализует проверенные SQLAlchemy shapes и migration round-trip без dialect drift; production planner выберет новые indexes на representative cardinality; production backlog может быть меньше page/batch boundary, поэтому LIVE подтверждает contract/identity/readiness, а hard maxima остаются TEST/CI evidence. Проверить фактически.
 - Preserved pre-existing changes: отсутствуют.
+
+### In-scope query inventory
+
+| Surface | До Goal | Decision / фактическое основание |
+|---|---|---|
+| Projects, project Sources, transcription Jobs, Audit events | Owner/project filters, но три primary browser reads materialize весь результат; audit возвращал только первые 50 без continuation | `REFACTOR`: signed session-bound keyset `(timestamp, id)`, default `50`, hard max `100`, `limit + 1`, scope/surface binding; frontend append/reset/dedup. |
+| Displayed job progress | Project-wide materialization | `REFACTOR`: repeated explicit `job_id`, не более 50 unique UUID; compatibility read bounded `100 + 1` и сообщает `truncated`. |
+| Transcription analytics | Загружала all-time jobs/attempts и строила `job_id IN (...)` в application memory | `REFACTOR`: exact grouped counts и PostgreSQL aggregate/percentile queries; constant query count относительно cardinality, без entity/ID-list materialization. |
+| Transcript duplicate/catalog и competing-provider authority | История evidence могла materialize unlimited rows/IDs | `CONSOLIDATE`: SQL grouping/counts, общий evidence budget `1000`, source-lock budget `1000`; exhaustion возвращает indeterminate/unresolved и не разрешает paid boundary. |
+| Provider-part checkpoints и realtime drafts expiry | Один cleanup мог удалить весь backlog | `REFACTOR`: deterministic `(expires_at, id)` batches, default `500`, hard max `1000`; повторный запуск обрабатывает остаток. |
+| Diagnostics events/reports/expiry | Уже signed keyset max `200`, report/cleanup hard limits | `DOCUMENT`: сохранить существующий bounded contract; reusable signing вынесен без изменения diagnostic cursor namespace. |
+| Active auth sessions | Уже `limit + 1`, hard max `100`, explicit `truncated` | `DOCUMENT`: remediation не требуется. |
+| Audio-preparation jobs | Уже owner/project scoped и hard max `100` | `DOCUMENT`: payload остаётся bounded; добавить supporting owner/project/order index, соответствующий существующему query shape. |
+| Source storage cleanup | Уже bounded deterministic worker maintenance | `DOCUMENT`: behavior не менять в этой Goal. |
+| Output-folder Favorites, speaker profiles и credential lists | Owner-scoped, текущая ожидаемая cardinality мала, но hard pagination отсутствует; speaker-profile payload имеет отдельные relationship reads | `DEFER`: не являются growing primary browser collections текущей Goal; будущая pagination/N+1 Goal требует отдельного UI/API contract. |
+| Generated/vendored code | Не является runtime query authority этого repository | `N/A`: исключено из findings и изменений. |
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Текущий snapshot независимо пересчитан после сверки production diagnostics; previous snapshot сохранён только для сравнения.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Технические Goal AC не добавлены в canonical denominator. Current snapshot независимо пересчитан после фактического delivery предыдущей Goal; previous snapshot сохранён только для сравнения.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **38,2% (`203/532`)** | **38,7% (`206/532`)** | `PWASEC-07..09` теперь подтверждены полным delivery; `OBSERV-24..26` сняты из numerator, потому что production diagnostics показал три `unknown`. Net numerator вернулся к `203`, но состав выполненных AC изменился. |
-| **Non-commercial scope** | **70,0% (`203/290`)** | **71,0% (`206/290`)** | Colab `31/31` + personal PWA `172/259`; denominator не менялся. |
+| **Полный canonical scope** | **40,6% (`216/532`)** | **38,2% (`203/532`)** | 13 observability AC подтверждены exact code/test/CI/deploy/LIVE на PR `#250`; denominator не менялся. |
+| **Non-commercial scope** | **74,5% (`216/290`)** | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `185/259`. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Вне Goal; implementation запрещена. |
-| **Google Colab canonical** | **100% (`31/31`)** | **100% (`31/31`)** | Вне Goal; runtime risk не меняет numerator. |
-| **Personal Studio PWA canonical** | **66,4% (`172/259`)** | **67,6% (`175/259`)** | Session-control `3/3` подтверждены, но три ранее засчитанные build-identity AC фактически не выполнены. |
-| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **50,0% (`9/18`)** | `PWASEC-07..09` подтверждены PR/CI/deploy/LIVE. |
-| `OBSERVABILITY-AUDIT-02` | **34,3% (`12/35`)** | **42,9% (`15/35`)** | `OBSERV-24..26` false positive: exact production report показывает `unknown`; Goal target после 13 AC — `25/35 = 71,4%`. |
-| Остальные existing epics | **100% (`132/132`)** | **100% (`132/132`)** | AC completion в этом аудите не изменился. |
+| **Google Colab canonical** | **100% (`31/31`)** | **100% (`31/31`)** | Вне Goal; numerator не менялся. |
+| **Personal Studio PWA canonical** | **71,4% (`185/259`)** | **66,4% (`172/259`)** | `OBSERV-06/08/09/11..14/22/24..28` подтверждены полным delivery. |
+| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **50,0% (`9/18`)** | Не затронут. |
+| `OBSERVABILITY-AUDIT-02` | **71,4% (`25/35`)** | **34,3% (`12/35`)** | `13/13` AC предыдущей Goal подтверждены exact running web/API/worker/schema identity и bounded runtime health. |
+| Остальные existing epics | **100% (`132/132`)** | **100% (`132/132`)** | Product AC completion не изменился. |
 
-Target при выполнении всех 13 canonical Goal AC: observability `25/35 = 71,4%`; personal PWA `185/259 = 71,4%`; non-commercial `216/290 = 74,5%`; full canonical `216/532 = 40,6%`.
+Расхождение current/previous больше 10 п.п. у observability (`+37,1` п.п.): причина — полный delivery 13 заранее определённых canonical AC, а не новый denominator. `PWA-QUERY-BOUNDS-01` не повышает product readiness без выполнения уже существующего canonical AC.
 
 ## Candidate next Goals
 
 1. `SPEC-GAPS-DECISIONS-03` — принять bounded решения по сохранённым conflicts/ambiguities; implementation не начинается автоматически.
 2. `DB-LEAST-PRIVILEGE-01` — evidence actual roles и отдельные migration/application roles с backup/rollback plan.
-3. `PWA-QUERY-BOUNDS-01` — pagination/retention/query budgets и load/concurrency validation растущих collections.
-4. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
+3. `PWA-STORAGE-ISOLATION-01` — разделить Audio Preparation references и transcription intake на разные lifecycle namespaces/buckets после architecture decision.
 
 ## Risks и boundaries
 
-- Liveness доказывает только жизнь процесса; readiness отдельно проверяет dependencies/schema и не должна превращаться в расходный provider probe.
-- Build identities независимы по компонентам: target Git SHA нельзя выдавать за фактически запущенный web/API/worker без component-specific Evidence.
-- Diagnostic ingestion request ID не является original failed request ID; поля должны оставаться раздельными и safe.
-- Ручное удаление object напрямую в R2 обходит application lifecycle; Goal не меняет storage ownership/lifecycle.
+- Pagination не должна скрывать current active jobs, ломать optimistic source reconciliation или превращаться в eager fetch всего backlog.
+- Exact all-time analytics имеет O(N) database work; Goal ограничивает browser payload, application memory и query count, но не подменяет exact totals sampling-оценкой.
+- Transcript duplicate/provider authority fail-closed важнее latency: budget exhaustion не может разрешать paid provider call.
+- Composite indexes имеют write/storage cost; migration добавляет только подтверждённые query-shape indexes и проверяется `EXPLAIN`/schema evidence.
+- Post-deploy metadata writer отсутствует; protections не обходятся и отдельный docs-only follow-up PR не создаётся.
 
 ## Sources of truth
 
@@ -74,5 +92,4 @@ Target при выполнении всех 13 canonical Goal AC: observability 
 - Product scope/AC: `docs/project-spec.md`.
 - Current Goal/checkpoint/readiness: этот документ.
 - CI/CD safety: `docs/ci-cd-rules.md`.
-- Actual architecture: `docs/architecture.md`.
-- Historical evidence: `docs/delivery-plan-archive.md`.
+- Current architecture/runtime boundaries: `docs/architecture.md` и applicable runbooks.

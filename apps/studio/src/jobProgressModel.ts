@@ -48,7 +48,11 @@ export type JobProgress = {
   current_stage: JobProgressStageKey | null;
   sources: JobSourceProgress[];
 };
-export type ProjectJobProgressResponse = { jobs: JobProgress[] };
+export type ProjectJobProgressResponse = {
+  jobs: JobProgress[];
+  truncated: boolean;
+  limit: number;
+};
 export type JobProgressState = {
   loading: boolean;
   error: string;
@@ -178,7 +182,16 @@ const APPLICABILITY = new Set<JobProgressStage["applicability"]>([
 export function parseProjectJobProgressResponse(
   value: unknown,
 ): ProjectJobProgressResponse | null {
-  if (!isRecord(value) || !hasExactKeys(value, ["jobs"]) || !Array.isArray(value.jobs))
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["jobs", "limit", "truncated"]) ||
+    !Array.isArray(value.jobs) ||
+    typeof value.truncated !== "boolean" ||
+    !Number.isSafeInteger(value.limit) ||
+    (value.limit as number) < 0 ||
+    (value.limit as number) > 100 ||
+    value.jobs.length > (value.limit as number)
+  )
     return null;
   const parsed: JobProgress[] = [];
   const jobIds = new Set<string>();
@@ -188,7 +201,11 @@ export function parseProjectJobProgressResponse(
     jobIds.add(progress.job_id);
     parsed.push(progress);
   }
-  return { jobs: parsed };
+  return {
+    jobs: parsed,
+    truncated: value.truncated,
+    limit: value.limit as number,
+  };
 }
 
 function parseJobProgress(value: unknown): JobProgress | null {

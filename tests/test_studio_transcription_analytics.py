@@ -6,6 +6,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
@@ -228,3 +231,111 @@ def test_analytics_identifies_a_reset_scope_without_exposing_the_timestamp():
 
     assert payload["scope"] == "project_since_reset"
     assert reset_at.isoformat() not in json.dumps(payload)
+
+
+def test_database_analytics_is_exact_and_uses_constant_query_count(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    from studio_api.config import get_settings
+
+    get_settings.cache_clear()
+    from studio_api.db import Base
+    from studio_api.models import (
+        JobStatus,
+        Project,
+        Source,
+        SourceType,
+        SourceUploadStatus,
+        TranscriptionJob,
+        TranscriptionJobSource,
+        User,
+    )
+    from studio_api.transcription_analytics import load_transcription_analytics_payload
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        db.add(User(id="owner-analytics", email="analytics@example.test"))
+        db.add(
+            Project(
+                id="project-analytics",
+                owner_user_id="owner-analytics",
+                title="Analytics",
+            )
+        )
+        for index in range(25):
+            created_at = now + timedelta(seconds=index)
+            job_row = TranscriptionJob(
+                id=f"job-{index}",
+                project_id="project-analytics",
+                owner_user_id="owner-analytics",
+                status=(JobStatus.completed if index % 2 == 0 else JobStatus.failed),
+                provider="elevenlabs",
+                language="ru" if index % 3 else "en",
+                options_json='{"diarize":true}' if index % 4 == 0 else None,
+                created_at=created_at,
+                started_at=created_at + timedelta(seconds=10),
+                finished_at=created_at + timedelta(seconds=40),
+            )
+            source_row = Source(
+                id=f"source-{index}",
+                project_id="project-analytics",
+                source_type=SourceType.local_upload,
+                original_filename=f"{index}.mp3",
+                upload_status=SourceUploadStatus.uploaded,
+            )
+            db.add_all(
+                [
+                    job_row,
+                    source_row,
+                    TranscriptionJobSource(
+                        id=f"relation-{index}",
+                        job_id=job_row.id,
+                        source_id=source_row.id,
+                        position=0,
+                    ),
+                ]
+            )
+        db.commit()
+
+        query_count = 0
+
+        def count_selects(_conn, _cursor, statement, _parameters, _context, _many):
+            nonlocal query_count
+            if statement.lstrip().upper().startswith("SELECT"):
+                query_count += 1
+
+        event.listen(engine, "before_cursor_execute", count_selects)
+        payload = load_transcription_analytics_payload(
+            db,
+            owner_user_id="owner-analytics",
+            project_id="project-analytics",
+        )
+        event.remove(engine, "before_cursor_execute", count_selects)
+
+    engine.dispose()
+    assert query_count == 7
+    assert payload["totals"] == {"jobs": 25, "sources": 25, "outputs": 0}
+    assert payload["outcomes"]["completed"] == 13
+    assert payload["outcomes"]["failed"] == 12
+    assert payload["success"] == {
+        "successful_jobs": 13,
+        "terminal_jobs": 25,
+        "percentage": 52.0,
+    }
+    assert payload["configuration"]["provider_model"] == {
+        "elevenlabs_scribe_v2": 25,
+        "unknown": 0,
+    }
+    assert payload["durations"]["queue"] == {
+        "sample_count": 25,
+        "average_seconds": 10.0,
+        "p50_seconds": 10.0,
+        "p95_seconds": 10.0,
+    }
+    assert payload["durations"]["processing"] == {
+        "sample_count": 25,
+        "average_seconds": 30.0,
+        "p50_seconds": 30.0,
+        "p95_seconds": 30.0,
+    }

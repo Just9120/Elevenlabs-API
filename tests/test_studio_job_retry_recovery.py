@@ -63,8 +63,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0026_runtime_component_status"]
-    assert script.get_current_head() == "0026_runtime_component_status"
+    assert script.get_heads() == ["0027_query_bounds"]
+    assert script.get_current_head() == "0027_query_bounds"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():
@@ -321,6 +321,63 @@ def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
     )
     assert queued is not None and queued.transitioned is True
     assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 0
+
+
+def test_expired_partial_checkpoint_cleanup_is_bounded(sqlite_db):
+    from studio_api.provider_part_checkpoints import (
+        cleanup_expired_provider_part_checkpoints,
+    )
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=4,
+        status="failed",
+    )
+    for index, relation in enumerate(rels):
+        sqlite_db.add(
+            m.TranscriptionProviderPartCheckpoint(
+                owner_user_id=job.owner_user_id,
+                project_id=job.project_id,
+                job_id=job.id,
+                job_source_id=relation.id,
+                part_index=0,
+                total_parts=2,
+                timeline_offset_seconds=0,
+                duration_seconds=10,
+                provider="elevenlabs",
+                model="scribe_v2",
+                ciphertext=b"ciphertext",
+                nonce=b"nonce",
+                key_id="key-v1",
+                payload_hmac="a" * 64,
+                created_at=now - timedelta(hours=2),
+                expires_at=(
+                    now - timedelta(seconds=1)
+                    if index < 3
+                    else now + timedelta(hours=1)
+                ),
+            )
+        )
+    sqlite_db.commit()
+
+    assert cleanup_expired_provider_part_checkpoints(
+        sqlite_db,
+        now=now,
+        limit=2,
+    ) == 2
+    sqlite_db.commit()
+    assert cleanup_expired_provider_part_checkpoints(
+        sqlite_db,
+        now=now,
+        limit=2,
+    ) == 1
+    sqlite_db.commit()
+    assert cleanup_expired_provider_part_checkpoints(
+        sqlite_db,
+        now=now,
+        limit=2,
+    ) == 0
+    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 1
 
 
 @pytest.mark.parametrize("stage,disp,reason", [

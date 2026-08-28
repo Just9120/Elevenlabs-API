@@ -70,6 +70,10 @@ function trackExternalOrJobMutations(page: Page) {
   return requests;
 }
 
+function isJobProgressUrl(value: string) {
+  return new URL(value).pathname.endsWith('/jobs/progress');
+}
+
 function browserLocalWavFixture() {
   const sampleRate = 8_000;
   const frames = sampleRate / 4;
@@ -837,7 +841,7 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
   const initialProgressResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/jobs/progress'),
+      isJobProgressUrl(response.url()),
   );
   await openResultTranscriptions(page, navigation);
 
@@ -864,7 +868,7 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
   ).toContainText('Ожидает');
 
   let failedRefreshes = 0;
-  await page.route('**/api/projects/*/jobs/progress', async (route) => {
+  await page.route((url) => isJobProgressUrl(url.href), async (route) => {
     if (route.request().method() !== 'GET') {
       await route.continue();
       return;
@@ -879,7 +883,7 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
   const failedProgressResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/jobs/progress') &&
+      isJobProgressUrl(response.url()) &&
       response.status() === 503,
   );
 
@@ -913,7 +917,7 @@ test('processing cancellation records a request without claiming completion', as
   const progressResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/jobs/progress'),
+      isJobProgressUrl(response.url()),
   );
   await openResultTranscriptions(page, navigation);
 
@@ -1054,7 +1058,7 @@ test('queued cancellation performs one bounded API mutation', async ({
   const progressResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/jobs/progress'),
+      isJobProgressUrl(response.url()),
   );
   await openResultTranscriptions(page, navigation);
 

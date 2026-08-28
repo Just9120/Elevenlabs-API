@@ -9,6 +9,8 @@ import {
 } from "./jobProgressModel";
 
 const valid = {
+  truncated: false,
+  limit: 1,
   jobs: [
     {
       job_id: "job-1",

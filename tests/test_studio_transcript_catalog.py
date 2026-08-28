@@ -178,6 +178,39 @@ def test_catalog_classifies_exact_standardization_unknown_and_different_settings
     assert matches["different"].matching_settings_count == 0
 
 
+def test_catalog_aggregated_evidence_preserves_exact_counts():
+    from studio_api.transcript_catalog import (
+        ExistingResultMatchStatus,
+        accepted_catalog_evidence_from_rows,
+        accepted_evidence_from_rows,
+        classify_existing_results,
+        current_effective_settings,
+    )
+
+    candidate = source("aggregated-source")
+    target = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+    )
+    output_row = evidence_row(
+        source_id=candidate.id,
+        source_type="local_upload",
+    )
+    evidence = accepted_evidence_from_rows([(*output_row, 37)])
+    evidence += accepted_catalog_evidence_from_rows(
+        [(*catalog_evidence_row(source_identity_value=candidate.id), 13)]
+    )
+
+    match = classify_existing_results(
+        sources=(candidate,),
+        evidence=evidence,
+        target_settings=target,
+    )[candidate.id]
+    assert match.status == ExistingResultMatchStatus.accepted_match
+    assert match.accepted_output_count == 50
+    assert match.matching_settings_count == 50
+
+
 def test_catalog_matches_reselected_google_file_across_studio_source_rows():
     from studio_api.transcript_catalog import (
         ExistingResultMatchStatus,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64, hashlib, hmac, json, logging, re, secrets
+import hashlib, json, logging, re, secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .config import get_settings
 from .db import SessionLocal
+from .signed_cursor import decode_signed_cursor, decode_signed_cursor_payload, encode_signed_cursor
 from .models import AudioPreparationJob, DiagnosticComponent, DiagnosticEvent, DiagnosticLevel, Project, TranscriptionJob, User
 
 LOGGER = logging.getLogger("studio_api.diagnostics")
@@ -384,37 +385,14 @@ def resolve_job_correlation_id(*, owner_user_id: str, job_id: str, session_facto
 def cursor_context(*, owner_user_id: str, start: datetime, end: datetime, level=None, component=None, event_code=None, project_id=None, job_id=None) -> dict[str, Any]:
     return {"owner": owner_user_id, "start": _as_utc_naive(start).isoformat(), "end": _as_utc_naive(end).isoformat(), "level": level, "component": component, "event_code": event_code, "project_id": project_id, "job_id": job_id}
 
-def _cursor_key(secret: str) -> bytes:
-    return hashlib.sha256(("studio-diagnostics-cursor-v1:" + secret).encode()).digest()
-
 def encode_cursor(dt: datetime, event_id: str, context: dict[str, Any], secret: str) -> str:
-    payload = {"v": 1, "t": _as_utc_naive(dt).isoformat(), "i": event_id, "c": context}
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    sig = hmac.new(_cursor_key(secret), raw, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(raw + sig).decode().rstrip("=")
+    return encode_signed_cursor(dt, event_id, context, secret, namespace="studio-diagnostics-cursor-v1")
 
 def decode_cursor(cursor: str, context: dict[str, Any], secret: str) -> tuple[datetime, str] | None:
-    decoded = decode_cursor_payload(cursor, secret)
-    if not decoded:
-        return None
-    dt, eid, signed_context = decoded
-    return (dt, eid) if signed_context == context else None
+    return decode_signed_cursor(cursor, context, secret, namespace="studio-diagnostics-cursor-v1")
 
 def decode_cursor_payload(cursor: str, secret: str) -> tuple[datetime, str, dict[str, Any]] | None:
-    try:
-        if not isinstance(cursor, str) or len(cursor) > 1200 or not re.fullmatch(r"[A-Za-z0-9_-]+", cursor): return None
-        data = base64.urlsafe_b64decode((cursor + "=" * (-len(cursor) % 4)).encode())
-        if len(data) <= 32: return None
-        raw, sig = data[:-32], data[-32:]
-        expected = hmac.new(_cursor_key(secret), raw, hashlib.sha256).digest()
-        if not hmac.compare_digest(sig, expected): return None
-        payload = json.loads(raw)
-        signed_context = payload.get("c")
-        if payload.get("v") != 1 or not isinstance(signed_context, dict): return None
-        dt = datetime.fromisoformat(payload["t"]); eid = payload["i"]
-        return (_as_utc_naive(dt), eid, signed_context) if isinstance(eid, str) and len(eid) <= 64 else None
-    except Exception:
-        return None
+    return decode_signed_cursor_payload(cursor, secret, namespace="studio-diagnostics-cursor-v1")
 
 def markdown_escape(value: Any) -> str:
     text = str(value if value is not None else "")

@@ -11,9 +11,11 @@ import {
 
 type SourcesState = {
   loading: boolean;
+  loadingMore: boolean;
   error: string;
   loaded: boolean;
   items: Source[];
+  nextCursor: string | null;
 };
 
 export type SourceDeletionNotice = {
@@ -50,24 +52,14 @@ function isAmbiguousDeletionFailure(error: unknown) {
   );
 }
 
-function sourceListConfirmsAbsence(value: unknown, sourceId: string) {
-  if (!value || typeof value !== "object" || !("sources" in value)) {
-    return false;
-  }
-  const items = (value as { sources?: unknown }).sources;
-  if (!Array.isArray(items)) return false;
-  const ids: string[] = [];
-  for (const item of items) {
-    if (
-      !item ||
-      typeof item !== "object" ||
-      typeof (item as { id?: unknown }).id !== "string"
-    ) {
-      return false;
-    }
-    ids.push((item as { id: string }).id);
-  }
-  return !ids.includes(sourceId);
+function sourceReadConfirmsDeletion(value: unknown, sourceId: string) {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { id?: unknown }).id === sourceId &&
+    (value as { upload_status?: unknown }).upload_status === "deleted" &&
+    typeof (value as { deleted_at?: unknown }).deleted_at === "string"
+  );
 }
 
 function safeConfirm(message: string) {
@@ -84,6 +76,7 @@ export function SourcesPanel({
   onCsrf,
   sources,
   onReload,
+  onLoadMore,
   onSourceRemoved,
   pendingDeletionIds,
   deletionNotices,
@@ -95,6 +88,7 @@ export function SourcesPanel({
   onCsrf: (csrf: string) => void;
   sources: SourcesState;
   onReload: (projectId: string) => void;
+  onLoadMore: (projectId: string, cursor: string) => void;
   onSourceRemoved?: (
     source: Source,
     storageCleanup?: SourceDeletionResponse["storage_cleanup"],
@@ -131,19 +125,23 @@ export function SourcesPanel({
   async function reconcileAmbiguousDeletion(source: Source) {
     try {
       const result = await runBoundedRequest((signal) =>
-        api<unknown>(`/projects/${project.id}/sources`, {
+        api<unknown>(`/sources/${source.id}`, {
           signal,
           cache: "no-store",
         }),
       );
       if (
         result.status === "completed" &&
-        sourceListConfirmsAbsence(result.value, source.id)
+        sourceReadConfirmsDeletion(result.value, source.id)
       ) {
         applyConfirmedDeletion(source);
         return true;
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        applyConfirmedDeletion(source);
+        return true;
+      }
       // The predefined ambiguous outcome below remains authoritative.
     }
     onReload(project.id);
@@ -329,6 +327,18 @@ export function SourcesPanel({
           </details>
         </article>
       ))}
+      {sources.nextCursor && (
+        <button
+          type="button"
+          className="secondary"
+          disabled={sources.loadingMore}
+          onClick={() => onLoadMore(project.id, sources.nextCursor ?? "")}
+        >
+          {sources.loadingMore
+            ? "Загружаем файлы…"
+            : "Показать ещё файлы"}
+        </button>
+      )}
       <p className="notice">
         Этот раздел предназначен для просмотра безопасных метаданных и удаления
         файлов из Studio. Исходные файлы Google Drive при этом не удаляются.

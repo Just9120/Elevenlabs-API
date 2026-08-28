@@ -151,7 +151,7 @@ class Project(Base):
     analytics_reset_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     sources: Mapped[list["Source"]]=relationship("Source", back_populates="project")
     jobs: Mapped[list["TranscriptionJob"]]=relationship("TranscriptionJob", back_populates="project")
-    __table_args__=(Index("ix_projects_owner_active_updated", "owner_user_id", "archived_at", "updated_at"),)
+    __table_args__=(Index("ix_projects_owner_active_updated", "owner_user_id", "archived_at", "updated_at"), Index("ix_projects_owner_active_updated_id", "owner_user_id", "archived_at", "updated_at", "id"),)
 
 class OutputFolderFavorite(Base):
     __tablename__="output_folder_favorites"
@@ -196,7 +196,7 @@ class Source(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
-    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
+    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
 
 class TranscriptionJob(Base):
     __tablename__="transcription_jobs"
@@ -234,7 +234,7 @@ class TranscriptionJob(Base):
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
     speakers: Mapped[list["TranscriptionJobSpeaker"]]=relationship("TranscriptionJobSpeaker", order_by="TranscriptionJobSpeaker.display_ordinal")
-    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
 
     def apply_output_folder_snapshot(self, *, folder_id=None, folder_url=None, folder_name=None):
         from .job_output_folder_selection import normalize_drive_id, normalize_drive_url, normalize_optional_name
@@ -346,6 +346,7 @@ class AudioPreparationJob(Base):
         CheckConstraint("((output_destination = 'download' AND output_drive_folder_id IS NULL AND output_drive_folder_url IS NULL AND output_drive_folder_name IS NULL) OR (output_destination = 'google_drive' AND output_drive_folder_id IS NOT NULL AND output_drive_folder_url IS NOT NULL AND output_drive_folder_name IS NOT NULL))", name="ck_audio_preparation_jobs_destination_snapshot"),
         CheckConstraint("((output_drive_file_id IS NULL AND output_drive_web_view_url IS NULL) OR (output_drive_file_id IS NOT NULL AND output_drive_web_view_url IS NOT NULL))", name="ck_audio_preparation_jobs_drive_output_complete"),
         Index("ix_audio_preparation_jobs_owner_created", "owner_user_id", "created_at"),
+        Index("ix_audio_preparation_jobs_owner_project_created_id", "owner_user_id", "project_id", "created_at", "id"),
         Index("ix_audio_preparation_jobs_claim", "status", "lease_expires_at", "created_at"),
     )
 
@@ -478,6 +479,7 @@ class TranscriptionProviderPartCheckpoint(Base):
         CheckConstraint("length(payload_hmac) = 64", name="ck_provider_part_checkpoint_hmac_length"),
         Index("ix_provider_part_checkpoints_job_source", "job_source_id", "part_index"),
         Index("ix_provider_part_checkpoints_expiry", "expires_at"),
+        Index("ix_provider_part_checkpoints_expiry_id", "expires_at", "id"),
         Index("ix_provider_part_checkpoints_job", "job_id"),
     )
 
@@ -507,6 +509,7 @@ class RealtimeTranscriptDraft(Base):
         CheckConstraint("length(payload_hmac) = 64", name="ck_realtime_drafts_hmac_length"),
         Index("ix_realtime_drafts_owner_project_updated", "owner_user_id", "project_id", "updated_at"),
         Index("ix_realtime_drafts_expiry", "expires_at"),
+        Index("ix_realtime_drafts_expiry_id", "expires_at", "id"),
     )
 
 class TranscriptionOutputReconciliation(Base):
@@ -554,6 +557,7 @@ class AuditEvent(Base):
     event_type: Mapped[str]=mapped_column(String(80), index=True)
     metadata_json: Mapped[str]=mapped_column(Text, default="{}")
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
+    __table_args__=(Index("ix_audit_events_subject_created_id", "subject_user_id", "created_at", "id"),)
 
 
 class DiagnosticDebugSession(Base):

@@ -915,6 +915,18 @@ Goal `PWA-SESSION-CONTROL-01` завершена 2026-08-28 полным deliver
 - Canonical `PWASEC-07..09` выполнены; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - После ancestry/status checks branch удалена local/remote, local `main` синхронизирован с exact merge SHA. Approved metadata writer отсутствовал, поэтому closure reconciled в начале `PWA-OBSERVABILITY-RUNTIME-01`.
 
+## Archived PR #250 runtime observability closure
+
+Goal `PWA-OBSERVABILITY-RUNTIME-01` завершена 2026-08-28 полным protected delivery flow.
+
+- Base: `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; PR `#250` merged как `6cb067d1acea09bc82b70be4c415b6babdce31b2`.
+- Exact PR-head и exact-main repository/Studio/browser required CI завершились success; confirmed repository failure на initial head был исправлен одним grouped follow-up batch без speculative rerun.
+- Web CD `33156427664`, protected migration/API run `33156906021` и manual worker deploy `33157220511` завершились success; final worker status `33157438236` подтвердил `running/healthy/identity_match=yes`.
+- Production schema достигла `0026_runtime_component_status`; protected migration прошла `0025_audio_preparation -> 0026_runtime_component_status` с pre-migration snapshot `a8de340691e3`.
+- Authenticated bounded LIVE подтвердил exact одинаковый commit SHA для web/API/worker, release `0.1.0`, exact schema `0026_runtime_component_status`, backend/PostgreSQL/queue/worker/object-storage readiness и safe STT `configured/probe=not_run`; queue была `0 queued / 0 processing`, browser console warnings/errors отсутствовали.
+- Canonical `OBSERV-06`, `OBSERV-08`, `OBSERV-09`, `OBSERV-11..OBSERV-14`, `OBSERV-22`, `OBSERV-24..OBSERV-28` выполнены (`13/13`); `OBSERVABILITY-AUDIT-02 25/35`, personal PWA `185/259`, non-commercial `216/290`, full canonical `216/532`.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal без отдельного docs-only PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

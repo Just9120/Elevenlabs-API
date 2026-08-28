@@ -223,11 +223,30 @@ def delete_provider_part_checkpoints(
     return int(db.execute(statement).rowcount or 0)
 
 
-def cleanup_expired_provider_part_checkpoints(db: Session, *, now: datetime) -> int:
+DEFAULT_CHECKPOINT_CLEANUP_BATCH_SIZE = 500
+MAX_CHECKPOINT_CLEANUP_BATCH_SIZE = 1000
+
+
+def cleanup_expired_provider_part_checkpoints(
+    db: Session,
+    *,
+    now: datetime,
+    limit: int = DEFAULT_CHECKPOINT_CLEANUP_BATCH_SIZE,
+) -> int:
+    safe_limit = max(1, min(int(limit), MAX_CHECKPOINT_CLEANUP_BATCH_SIZE))
+    expired_ids = (
+        select(TranscriptionProviderPartCheckpoint.id)
+        .where(TranscriptionProviderPartCheckpoint.expires_at <= now)
+        .order_by(
+            TranscriptionProviderPartCheckpoint.expires_at.asc(),
+            TranscriptionProviderPartCheckpoint.id.asc(),
+        )
+        .limit(safe_limit)
+    )
     return int(
         db.execute(
             delete(TranscriptionProviderPartCheckpoint).where(
-                TranscriptionProviderPartCheckpoint.expires_at <= now
+                TranscriptionProviderPartCheckpoint.id.in_(expired_ids)
             )
         ).rowcount
         or 0

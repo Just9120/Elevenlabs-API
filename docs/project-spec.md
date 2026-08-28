@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`. PR `#249` exact-head repository CI `33150834580` и Studio/browser CI `33150834557`, exact-main CI `33151098282`/`33151098265`, CD `33151098248` и authenticated two-session LIVE подтвердили `PWASEC-07..09`. Production diagnostic bundle от 2026-08-28 подтвердил нормальную bounded job/heartbeat/cleanup activity, но web/API/worker build identities равны literal `unknown`; exact release/commit/schema отсутствуют. Поэтому прежние operational отметки `OBSERV-24..26 ✅` сняты как false positive. Исторические delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@6cb067d1acea09bc82b70be4c415b6babdce31b2` (PR `#250`). Exact PR/main CI, web CD `33156427664`, protected migration/API `33156906021`, worker deploy `33157220511`, terminal worker status `33157438236` и bounded authenticated LIVE подтвердили `OBSERV-06/08/09/11..14/22/24..28`: exact одинаковый web/API/worker commit, release `0.1.0`, schema `0026_runtime_component_status`, dependency readiness и safe provider `probe=not_run`. Исторические delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `PWA-OBSERVABILITY-RUNTIME-01` на branch `codex/pwa-observability-runtime-01` от verified base `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; она реализует только `OBSERV-06`, `OBSERV-08`, `OBSERV-09`, `OBSERV-11..OBSERV-14`, `OBSERV-22`, `OBSERV-24..OBSERV-28`. Commercial и alerts/trace/audit least-privilege/storage/provider redesign вне scope.
+Current operational Goal: `PWA-QUERY-BOUNDS-01` на branch `codex/pwa-query-bounds-01` от verified base `main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; она ограничивает growing owner collections, analytics/catalog queries и cleanup batches без изменения canonical requirements/AC/denominator. Commercial, storage redesign, DB least privilege, provider calls/spend и unrelated features вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`31/31`)** | existing `29/29` + `COLAB-LIFECYCLE-02 2/2`; historical runtime risk не меняет numerator |
-| Personal Studio PWA | **66,4% (`172/259`)** | session-control `PWASEC-07..09` delivery подтверждён, но `OBSERV-24..26` сняты из numerator по exact production diagnostics |
-| Non-commercial scope | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `172/259` |
+| Personal Studio PWA | **71,4% (`185/259`)** | `PWASEC-07..09` и 13 observability AC подтверждены полным delivery |
+| Non-commercial scope | **74,5% (`216/290`)** | Colab `31/31` + personal PWA `185/259` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **38,2% (`203/532`)** | `203 / (148 existing + 142 new non-commercial + 50 cross-contour + 192 commercial)` |
+| Полный canonical scope | **40,6% (`216/532`)** | `216 / (148 existing + 142 new non-commercial + 50 cross-contour + 192 commercial)` |
 
-Denominator пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Initial post-reconciliation snapshot `203/532 = 38,2%` вместо прежних `148/148 = 100%` отражал расширение canonical scope, а не регресс существующего кода. После полного delivery `PWASEC-07..09` numerator вырос на три, но независимая production-сверка одновременно сняла три ложноположительные `OBSERV-24..26`, поэтому current numerator снова `203` при изменившемся составе выполненных AC. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Initial post-reconciliation snapshot `203/532 = 38,2%` вместо прежних `148/148 = 100%` отражал расширение canonical scope, а не регресс существующего кода. Полный delivery PR `#250` подтвердил 13 observability AC и поднял numerator до `216`; denominator не изменился. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -635,7 +635,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `OBSERVABILITY-AUDIT-02` — health, tracing, alerts и protected audit
 
-Status: **🟦 IN PROGRESS — 34,3% (`12/35`)**.
+Status: **🟦 IN PROGRESS — 71,4% (`25/35`)**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -644,15 +644,15 @@ Status: **🟦 IN PROGRESS — 34,3% (`12/35`)**.
 | `OBSERV-03` | `trace_id` проходит через весь cross-service pipeline. | — |
 | `OBSERV-04` | Admin health показывает backend status. | ✅ |
 | `OBSERV-05` | Admin health показывает PostgreSQL status. | ✅ |
-| `OBSERV-06` | Admin health показывает queue status. | — |
+| `OBSERV-06` | Admin health показывает queue status. | ✅ |
 | `OBSERV-07` | Admin health показывает worker status. | ✅ |
-| `OBSERV-08` | Admin health показывает S3 status. | — |
-| `OBSERV-09` | Admin health показывает STT provider status. | — |
+| `OBSERV-08` | Admin health показывает S3 status. | ✅ |
+| `OBSERV-09` | Admin health показывает STT provider status. | ✅ |
 | `OBSERV-10` | Admin health показывает email status. | — |
-| `OBSERV-11` | Backend предоставляет отдельный liveness probe. | — |
-| `OBSERV-12` | Backend предоставляет отдельный readiness probe. | — |
-| `OBSERV-13` | Worker предоставляет отдельный liveness probe. | — |
-| `OBSERV-14` | Worker предоставляет отдельный readiness probe. | — |
+| `OBSERV-11` | Backend предоставляет отдельный liveness probe. | ✅ |
+| `OBSERV-12` | Backend предоставляет отдельный readiness probe. | ✅ |
+| `OBSERV-13` | Worker предоставляет отдельный liveness probe. | ✅ |
+| `OBSERV-14` | Worker предоставляет отдельный readiness probe. | ✅ |
 | `OBSERV-15` | Critical-error alerts отправляются. | — |
 | `OBSERV-16` | Stuck-queue alerts отправляются. | — |
 | `OBSERV-17` | Provider-unavailability alerts отправляются. | — |
@@ -660,13 +660,13 @@ Status: **🟦 IN PROGRESS — 34,3% (`12/35`)**.
 | `OBSERV-19` | Alerts отправляются при приближении к storage/API limits. | — |
 | `OBSERV-20` | Secrets исключены из logs и diagnostics. | ✅ |
 | `OBSERV-21` | User data по умолчанию минимизированы в logs и diagnostics. | ✅ |
-| `OBSERV-22` | Diagnostics показывают release version. | — |
+| `OBSERV-22` | Diagnostics показывают release version. | ✅ |
 | `OBSERV-23` | Diagnostics показывают environment. | ✅ |
-| `OBSERV-24` | Diagnostics показывают web build identity. | — |
-| `OBSERV-25` | Diagnostics показывают API build identity. | — |
-| `OBSERV-26` | Diagnostics показывают worker build identity. | — |
-| `OBSERV-27` | Diagnostics показывают exact commit identity. | — |
-| `OBSERV-28` | Diagnostics показывают exact DB schema revision. | — |
+| `OBSERV-24` | Diagnostics показывают web build identity. | ✅ |
+| `OBSERV-25` | Diagnostics показывают API build identity. | ✅ |
+| `OBSERV-26` | Diagnostics показывают worker build identity. | ✅ |
+| `OBSERV-27` | Diagnostics показывают exact commit identity. | ✅ |
+| `OBSERV-28` | Diagnostics показывают exact DB schema revision. | ✅ |
 | `OBSERV-29` | Audit record идентифицирует actor. | ✅ |
 | `OBSERV-30` | Audit record идентифицирует время действия. | ✅ |
 | `OBSERV-31` | Audit record идентифицирует action. | ✅ |
@@ -675,7 +675,7 @@ Status: **🟦 IN PROGRESS — 34,3% (`12/35`)**.
 | `OBSERV-34` | Ordinary application flows не могут удалять audit records. | — |
 | `OBSERV-35` | Очистка History/Analytics не удаляет audit records. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `RELEASE-SAFETY-02` — personal release safety
 
@@ -1084,19 +1084,18 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@3e80fef58f8aab94c5727a7fc7acef300fd8b099` (PR `#249`).
-- Exact-main repository CI `33151098282` и Studio/browser CI `33151098265` завершились success.
-- Studio Platform CD `33151098248` доставил API+web exact merge revision; migration/worker корректно были skipped. Authenticated session-control LIVE подтверждён.
-- Production diagnostic bundle 2026-08-28 не truncated: четыре jobs completed, worker heartbeat/cleanup success, API/worker error/warning absent. Однако web/API/worker identities равны `unknown`, а exact release/commit/schema не представлены; это definitive negative LIVE Evidence для `OBSERV-24..26` и gap для `OBSERV-22/27/28`.
+- Current verified revision: `main@6cb067d1acea09bc82b70be4c415b6babdce31b2` (PR `#250`).
+- Exact PR-head/main repository и Studio/browser CI завершились success; web CD `33156427664`, migration/API `33156906021`, worker deploy `33157220511` и status `33157438236` доставили exact revision.
+- Production schema `0026_runtime_component_status`; authenticated LIVE подтвердил coherent exact web/API/worker SHA, release `0.1.0`, backend/PostgreSQL/queue/worker/storage readiness, queue `0/0` и safe STT configured-status без paid probe.
 - Public root/login/manifest ранее подтверждены; Google Picker и source-cache authenticated LIVE остаются archived external gates. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Завершить `PWA-OBSERVABILITY-RUNTIME-01`: exact component/schema identity, separate health contracts, bounded dependency health, safe incident correlation, tests и полный protected delivery.
-2. Не расширять Goal на alerts, full-pipeline trace, commercial contour, paid provider probes, DB least privilege или storage/provider redesign.
+1. Завершить `PWA-QUERY-BOUNDS-01`: signed keyset pagination/hard limits, exact bounded-memory analytics/catalog authority, batch cleanup, proven indexes, tests и полный protected delivery.
+2. Не расширять Goal на commercial contour, product features, provider calls, DB least privilege или storage/provider redesign.
 3. Разобрать сохранённые SPEC gaps отдельным owner decision packet; не подменять решения defaults текущей реализации.
 4. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
-5. DB least privilege, query bounds/storage isolation и legacy removal остаются отдельными Goals.
+5. DB least privilege, storage isolation и legacy removal остаются отдельными Goals.
 6. Commercial contour включён в durable BACKLOG `0/242`; это не implementation authorization.
 
 ## 10. Supporting documents
