@@ -16,25 +16,25 @@
   6. `POR-06`: authoritative runtime component identity/heartbeat persistence backward-compatible; diagnostic reads не изменяют состояние, stale/absent distinguishable, rollback старого API/worker безопасен.
   7. `POR-07`: Compose/build/deploy передают и проверяют exact component identities без broad env rewrite, secret changes или ослабления migration/worker/Environment gates.
   8. `POR-08`: focused и full tests, exact PR-head required CI, protected migration, API/web deployment, manual drained worker deployment и bounded authenticated production LIVE подтверждают все applicable contracts.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE ❌`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE ❌`.
 - **Known blockers/dependencies:** production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T07:50:16Z.
+- Updated (UTC): 2026-08-28T08:30:57Z.
 - Session mode: authorized full delivery Goal; commercial и перечисленные non-goals запрещены.
 - Base branch/SHA: fetched clean `origin/main@3e80fef58f8aab94c5727a7fc7acef300fd8b099`; open PR отсутствовали.
 - Working branch: `codex/pwa-observability-runtime-01`; создана от exact verified base SHA выше.
-- Last verified revision: `3e80fef58f8aab94c5727a7fc7acef300fd8b099`; Goal commits пока отсутствуют.
+- Last verified revision: `53a69ac`; commits `0f8a3d7`, `9eb5447`, `53a69ac` покрывают Goal contract, runtime implementation и heartbeat write-path optimization.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: production diagnostic bundle `studio-diagnostics-2026-08-28.md` reviewed against exact main code/config. Он подтверждает `environment=production`, но web/API/worker identities равны `unknown`; exact schema/commit/release отсутствуют. Existing `/api/healthz` и worker health смешивают liveness/readiness. Frontend diagnostics ingestion request ID не коррелирует с original failed request.
-- Current step: синхронизировать operational readiness и спроектировать backward-compatible identity/heartbeat contract.
-- Next exact action: реализовать authoritative runtime component identity/heartbeat migration и backend contracts с focused tests.
-- Validation and Evidence: base Git/GitHub state verified; diagnostic report не truncated, показал четыре completed jobs, успешные heartbeat/cleanup и отсутствие API/worker warning/error, поэтому массовый runtime outage не обнаружен. Identity/health findings подтверждены report+config+routes+Compose, а не inferred по одному документу.
+- Completed: additive `0026_runtime_component_status`; exact component-baked web/API/worker release/build/commit metadata; coherent platform release fail-closed across all three components; exact schema read; API and worker split liveness/readiness; process-incarnation-aware worker heartbeat; bounded queue/read-only storage/config-only STT health; safe frontend exact HTTP/request/rejection correlation; diagnostics UI/export; Compose/deploy/migration/preflight wiring; architecture/runbook/security current-head synchronization. Secondary `last_seen_at` indexes intentionally отсутствуют, чтобы repeated heartbeat updates оставались PostgreSQL HOT-capable.
+- Current step: финальная local validation exact commit state перед единственным initial push и PR.
+- Next exact action: повторить full portable/backend и frontend/static checks на branch head, затем выполнить initial push и создать PR.
+- Validation and Evidence: `python scripts/ci_checks.py` passed; portable backend `1083 passed, 5 skipped`; full frontend Vitest `611 passed`; ESLint passed; production build passed с existing chunk-size warning; exact build-meta smoke produced synthetic component/release/40-char commit and then restored fail-closed generated metadata; focused runtime/worker/diagnostics suites passed, latest changed subset `28 passed`; static Linux CI/CD contracts `13 passed, 47 deselected`. `git diff --check` passed. TEST остаётся partial до Linux shell + PostgreSQL/Redis integration и browser/CI checks на exact PR head.
 - Pull Request / CI / deployment: absent. Expected changed components: migration + API + web + worker; full protected delivery обязателен.
-- Blockers: implementation blocker отсутствует. External gates ожидаются только на protected migration, manual worker drain/deploy и authenticated LIVE.
-- Unverified assumptions: read-only storage/provider status можно подтвердить доступными runtime credentials без расходной операции; это должно быть проверено tests и LIVE.
+- Blockers: implementation blocker отсутствует. На Windows host отсутствуют `bash`, Docker/PostgreSQL/Redis, поэтому shell/service integration не считается локально подтверждённым и должен пройти exact-head CI. External gates ожидаются на protected migration, manual worker drain/deploy и authenticated LIVE.
+- Unverified assumptions: production storage `head_bucket` и provider configured-status будут bounded с actual runtime credentials; проверка должна подтвердить отсутствие paid/provider mutation и safe report fields. Exact component identities ещё не подтверждены running production evidence.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
