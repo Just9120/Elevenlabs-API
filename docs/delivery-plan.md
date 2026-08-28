@@ -3,8 +3,8 @@
 ## Current Goal
 
 - **ID / title:** `PWA-QUERY-BOUNDS-01` — bounded growing collections, analytics и cleanup без commercial contour.
-- **State:** `PENDING_EXTERNAL_GATE` — implementation и test-only corrections готовы локально, но согласованный единственный follow-up push уже использован; нужен explicit owner approval на ещё один push в PR `#251`.
-- **Authorization source:** explicit user instruction 2026-08-28 «приступай» после согласования substantial Goal без commercial scope.
+- **State:** `IN_PROGRESS` — implementation и test-only corrections готовы; explicit owner approval 2026-08-28 разрешил exceptional correction push в PR `#251`.
+- **Authorization source:** explicit user instruction 2026-08-28 «приступай» после согласования substantial Goal без commercial scope; explicit user instruction 2026-08-28 «разрешаю» на exceptional correction push после подтверждённых CI test-contract failures.
 - **Scope:** evidence-based inventory owner-scoped projects, sources, transcription jobs/progress/analytics, transcript duplicate/catalog authority, diagnostics, audit, sessions и applicable cleanup paths; deterministic signed keyset pagination и hard page limits для подтверждённых unbounded browser collections; устранение подтверждённых N+1/unbounded materialization; только доказанные PostgreSQL composite indexes; batch-bounded и идемпотентные retention/cleanup paths; focused/full PostgreSQL и frontend contract tests, query/load/concurrency budgets; exact-head CI, protected additive migration, API/web/manual worker delivery и bounded authenticated production LIVE. В том же implementation PR синхронизируется фактическое closure предыдущей Goal.
 - **Non-goals:** commercial contour; новые product features; изменение canonical requirements/AC/denominator; storage bucket/lifecycle redesign; DB-role/least-privilege redesign; provider calls/spend; alert delivery; broad retention-policy change; unrelated refactors.
 - **Goal AC:**
@@ -19,23 +19,23 @@
   9. `PQB-09`: focused tests подтверждают hard maxima, stable/non-overlapping cursors при equal timestamps и concurrent newer inserts, owner/surface binding, frontend append/reset, constant query budgets, exact analytics и cleanup backlog batching; full backend/frontend/static/build suites зелёные.
   10. `PQB-10`: exact PR-head required CI, protected migration, API/web deployment, drained manual worker deployment и bounded authenticated LIVE подтверждают page limits/cursors, analytics shape, cleanup readiness и exact running revision без provider mutation.
 - **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** immediate external gate — explicit owner approval на exceptional второй follow-up push после двух test-contract failures exact head `926a266`. После green CI production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Known blockers/dependencies:** push gate снят explicit owner approval. После green CI production migration требует protected `studio-production-migration` gate; worker deploy manual-only и требует verified drain/status; LIVE требует authenticated admin session. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T10:56:30Z.
+- Updated (UTC): 2026-08-28T11:13:08Z.
 - Session mode: authorized full-delivery Goal; commercial и перечисленные non-goals запрещены.
 - Base branch/SHA: fetched clean `origin/main@6cb067d1acea09bc82b70be4c415b6babdce31b2`; local `main` был exact и clean, open PR отсутствовали.
 - Working branch: `codex/pwa-query-bounds-01`; создана от exact verified base SHA выше, tracks `origin/main` до первого push.
 - Last verified revision: remote PR head `926a26665d35049b8ba4769a0fe7ec01589ada43`; migration/fresh schema, Studio lane и `1370/1372` full tests подтверждены, но два test contracts и browser URL matcher не прошли.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
 - Completed: previous observability closure reconciled; inventory завершён; reusable signed collection cursor/page contract применён к projects/sources/jobs/audit; frontend получил validated append/reset/load-more; progress читает explicit bounded job set; analytics переведена на constant-query aggregates; catalog/provider authority получила grouped evidence и fail-closed budgets; provider-checkpoint/realtime cleanup выполняется deterministic batches; additive `0027_query_bounds` добавляет exact-shape indexes. Generated/vendored code не затрагивался.
-- Current step: test-only corrections подготовлены и локально validated; остановка на required external authorization gate.
-- Next exact action: после explicit owner approval отправить один exceptional push локального correction commit в PR `#251`, затем дождаться автоматически запущенных required checks; без approval не push/re-run/merge.
+- Current step: authorization gate снят; подготовить и отправить единым exceptional batch локальный correction commit и этот checkpoint в PR `#251`.
+- Next exact action: выполнить один разрешённый push, затем дождаться автоматически запущенных required checks без speculative/manual rerun.
 - Validation and Evidence: base ancestry/worktree/remotes verified; open PR на старте отсутствовал. Passed locally: repository `ci_checks`; Python compile; 68 focused backend tests (47 collection/analytics/catalog/realtime/retry/schema/observability + 21 diagnostics/progress); frontend Vitest `613/613`; frontend lint; production build; `git diff --check`. Fresh-index guard после CI failure: schema/runtime `9/9` passed. Bash-only host-preflight suite нельзя повторить в текущем Windows runner (`bash` отсутствует); изменённые head assertions и весь PostgreSQL/migration/core path остаются обязательным follow-up CI evidence.
 - Pull Request / CI / deployment: PR `#251`; initial head `522b33c`, grouped follow-up head `926a266`. Follow-up Studio run `33164971929` прошёл; fresh browser migration и repository migration/round-trip/index tests прошли. Repository run `33164971922`: `1370 passed`, 2 failed — audit pagination test не учитывал более старые owner events, history-clear test ожидал legacy response без page envelope. Browser job `98828091337`: 8 passed, 1 failed, 3 skipped — E2E ожидал URL без новых `job_id` query params. Все три test-only corrections готовы локально; manual rerun не запускался. Deployment отсутствует.
-- Blockers: внешний blocker — лимит push policy; нужен explicit owner approval на ещё один correction push. После него PostgreSQL/full CI, protected migration, worker drain/deploy и authenticated LIVE остаются обязательными gates.
+- Blockers: immediate blocker отсутствует. PostgreSQL/full CI, protected migration, worker drain/deploy и authenticated LIVE остаются обязательными gates; новый code push после этого exceptional batch потребует отдельного решения только если CI обнаружит новый defect.
 - Unverified assumptions: PostgreSQL реализует проверенные SQLAlchemy shapes и migration round-trip без dialect drift; production planner выберет новые indexes на representative cardinality; production backlog может быть меньше page/batch boundary, поэтому LIVE подтверждает contract/identity/readiness, а hard maxima остаются TEST/CI evidence. Проверить фактически.
 - Preserved pre-existing changes: отсутствуют.
 
