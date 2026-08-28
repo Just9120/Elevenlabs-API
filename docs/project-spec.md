@@ -32,17 +32,17 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Verified main baseline: `main@535a015dcef211a930faefe443245ee85ace38b8` (PR `#254`). PR `#253` и bounded LIVE подтвердили app-owned source/output Drive dialogs, search/current-folder/multi-select behavior и явное состояние diarization; PR `#254` исправил shared-folder Drive query. Exact-main CI и web delivery завершились success. Production API/worker остаются на совместимом `cc4347758ebae849c963cbf11be253862c6a1402`, production schema — `0027_query_bounds`; exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `PWA-AUDIO-DIRECT-DRIVE-UPLOAD-01` на branch `codex/pwa-audio-direct-drive-upload-01` от verified base `main@535a015dcef211a930faefe443245ee85ace38b8`. Она переименовывает audio workspace в `Подготовка аудио` и добавляет bounded resumable browser-to-Google-Drive upload исходных audio/video без обработки, S3, Studio Source, FFmpeg и provider calls. Commercial, `transcript_doc`, OAuth scope expansion, DB migration, worker changes и unrelated refactors вне scope.
+Current operational Goal: `PWA-AUDIO-DIRECT-DRIVE-UPLOAD-01` на branch `codex/pwa-audio-direct-drive-upload-01` от verified base `main@535a015dcef211a930faefe443245ee85ace38b8`. Local implementation through `ce126b3` переименовывает audio workspace в `Подготовка аудио` и добавляет bounded resumable browser-to-Google-Drive upload исходных audio/video без обработки, S3, Studio Source, FFmpeg и provider calls. Commercial, `transcript_doc`, OAuth scope expansion, DB migration, worker changes и unrelated refactors вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **96,9% (`31/32`)** | добавлен owner-approved `CB-24`; новый format ещё не реализован |
-| Personal Studio PWA | **68,3% (`190/278`)** | прошлый delivery закрыл `PG-04..08`/`PB-11`; новый audio scope переоткрыл `AP-01` и добавил `AP-25..30` |
-| Non-commercial scope | **71,3% (`221/310`)** | Colab `31/32` + personal PWA `190/278` |
+| Personal Studio PWA | **70,9% (`197/278`)** | local CODE/TEST Evidence выполняет `AP-01` и `AP-25..30`; CI/DEPLOY/LIVE gates ещё открыты |
+| Non-commercial scope | **73,5% (`228/310`)** | Colab `31/32` + personal PWA `197/278` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **40,0% (`221/552`)** | `221 / (310 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **41,3% (`228/552`)** | `228 / (310 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; completed delivery поднял numerator до `222/546`. Текущее решение меняет ещё не выполненную формулировку `AP-01` и добавляет `AP-25..30`, поэтому denominator равен `552`, а independent numerator до нового implementation Evidence — `221`: прежний `AP-01` больше не соответствует согласованному названию. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; completed delivery поднял numerator до `222/546`. Текущее решение изменило формулировку `AP-01` и добавило `AP-25..30`, поэтому denominator равен `552`; local implementation Evidence выполняет все семь новых/reopened AC и поднимает independent numerator с `221` до `228`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -250,13 +250,13 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 76,7% (`23/30`)**. Ранее завершённый processing scope сохранён; согласованное переименование и прямой upload исходных media в Google Drive добавлены в активную Goal.
+Status: **🟦 IN PROGRESS — 100% (`30/30`)**. Все atomic AC имеют local CODE/TEST Evidence; READY gate остаётся открыт до exact-head CI, API/web deployment и authenticated direct-upload LIVE.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder. Отдельный direct-upload mode переносит исходные audio/video с устройства непосредственно в Google Drive без обработки и без промежуточного хранения в Studio.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `AP-01` | Sidebar содержит отдельный пункт `Подготовка аудио` непосредственно перед `Транскрипциями`, а hero той же страницы использует заголовок `Подготовка аудио`. | — |
+| `AP-01` | Sidebar содержит отдельный пункт `Подготовка аудио` непосредственно перед `Транскрипциями`, а hero той же страницы использует заголовок `Подготовка аудио`. | ✅ |
 | `AP-02` | Пользователь выбирает один или несколько доступных owner-scoped media sources и запускает обработку независимо от транскрибации. | ✅ |
 | `AP-03` | До обработки каждый input проверяется через bounded probe на container, codec, duration, audio-stream presence и media integrity; invalid input fail-closed. | ✅ |
 | `AP-04` | Несколько inputs по умолчанию упорядочиваются по authoritative creation time, а пользователь может явно изменить порядок до запуска. | ✅ |
@@ -280,14 +280,16 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-22` | Primary UI использует user-facing scenario/title controls, не показывает technical filename template, называет функцию `Уменьшить длинные паузы в аудио или видео`, использует default `-45 dB` и раскрывает остальные silence parameters только после включения функции. | ✅ |
 | `AP-23` | Download, optional save в явно выбранную Google Drive folder и handoff/reuse в транскрибацию или новую обработку представлены независимыми terminal actions, а не взаимоисключающим выбором результата. | ✅ |
 | `AP-24` | Server-side FLAC создаётся с явной 16-bit sample precision и исходной sample rate, UI раскрывает эти параметры, а FFmpeg filter graph не может неявно повысить output до избыточного 24-bit. | ✅ |
-| `AP-25` | Source actions оформлены как доступный tablist; mode `В Google Drive без обработки` принимает bounded multi-select только поддерживаемых audio/video с устройства и сохраняет исходные bytes, filename и MIME без преобразования. | — |
-| `AP-26` | Для direct-upload mode целевая folder выбирается существующим app-owned output-folder dialog с search/navigation/shared drives и возможностью выбрать current folder, включая empty folder. | — |
-| `AP-27` | Resumable transfer идёт напрямую browser → Google Drive и не отправляет source bytes в Studio API, S3, Studio Source, FFmpeg, transcription или provider; используются только существующие Google OAuth scopes без expansion. | — |
-| `AP-28` | UI показывает current-file и aggregate progress в bytes и процентах, текущую стадию и cancellation; automatic retry/replay отсутствует. | — |
-| `AP-29` | File count, per-file/aggregate size и MIME имеют явные bounds; partial failures изолированы, а manual retry использует устойчивый idempotency marker и не дублирует уже подтверждённые uploads. | — |
-| `AP-30` | API server-side проверяет owner destination и result metadata: file ID, parent, name, MIME, size и idempotency marker; UI показывает только safe Drive links, а token/resumable upload URL/private diagnostics не логируются и не сохраняются. | — |
+| `AP-25` | Source actions оформлены как доступный tablist; mode `В Google Drive без обработки` принимает bounded multi-select только поддерживаемых audio/video с устройства и сохраняет исходные bytes, filename и MIME без преобразования. | ✅ |
+| `AP-26` | Для direct-upload mode целевая folder выбирается существующим app-owned output-folder dialog с search/navigation/shared drives и возможностью выбрать current folder, включая empty folder. | ✅ |
+| `AP-27` | Resumable transfer идёт напрямую browser → Google Drive и не отправляет source bytes в Studio API, S3, Studio Source, FFmpeg, transcription или provider; используются только существующие Google OAuth scopes без expansion. | ✅ |
+| `AP-28` | UI показывает current-file и aggregate progress в bytes и процентах, текущую стадию и cancellation; automatic retry/replay отсутствует. | ✅ |
+| `AP-29` | File count, per-file/aggregate size и MIME имеют явные bounds; partial failures изолированы, а manual retry использует устойчивый idempotency marker и не дублирует уже подтверждённые uploads. | ✅ |
+| `AP-30` | API server-side проверяет owner destination и result metadata: file ID, parent, name, MIME, size и idempotency marker; UI показывает только safe Drive links, а token/resumable upload URL/private diagnostics не логируются и не сохраняются. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+
+Current Goal local Evidence: backend descriptor/capability/result unit tests `3/3`; direct uploader and component regressions cover invalid MIME/bounds, resumable session validation, marker reuse, partial failure, per-file/aggregate progress, multi-file cancellation and explicit safe retry. Full portable Python suite is `1095 passed, 5 skipped`; full Studio Vitest is `627/627`; ESLint, TypeScript/Vite/PWA production build and lightweight repository checks pass. DB-backed API regression is authored but local PostgreSQL/Redis/Docker are unavailable, so `TEST` remains partial until exact-head repository CI.
 
 Verified base delivery: PRs `#234–#235`, final merge `16badb0aa4404ae2616a3d46070925b54b043963`; exact-main repository/Studio CI, protected migration `0025_audio_preparation`, API/worker/web rollout и bounded operation `2ad99ead-1c45-4439-8e8a-d64c2bcc3037` подтвердили preview `0:04 → 0:02`, terminal `completed`, download/Drive/reuse и ephemeral cleanup. PR `#237`, exact-main CI/CD и browser-local production WAV подтвердили новый UX, локальную обработку и независимые actions. Последующий exact worker retest на двух сохранённых OBS/MKV sources дал два независимых `invalid_input` на 5%; initial stream/container numeric-duration fallback оказался недостаточным, поэтому `AP-10` остаётся reopened до hotfix CI/deploy и успешного server concat LIVE.
 
@@ -1106,7 +1108,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 - Current verified repository/web revision: `main@535a015dcef211a930faefe443245ee85ace38b8` (PR `#254`); основной transcription UX PR `#253` и shared-folder query hotfix PR `#254` подтверждены exact-head/main CI, web delivery и authenticated LIVE.
 - Production API/worker revision `cc4347758ebae849c963cbf11be253862c6a1402` остаётся совместимой; production schema — `0027_query_bounds`. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`.
-- `PG-04..08` и `PB-11` подтверждены. Новые `AP-01` и `AP-25..30` ещё не имеют current Goal CODE/TEST/CI/DEPLOY/LIVE Evidence; прошлое Audio Preparation Evidence не засчитывается вместо нового direct-upload contract.
+- `PG-04..08` и `PB-11` подтверждены. `AP-01` и `AP-25..30` имеют current Goal local CODE/partial TEST Evidence through `ce126b3`; CI/DEPLOY/LIVE для нового direct-upload contract ещё отсутствуют, а прошлое Audio Preparation Evidence вместо них не засчитывается.
 
 ## 9. Current critical path
 

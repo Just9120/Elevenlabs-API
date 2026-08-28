@@ -16,24 +16,24 @@
   6. `DDU-06`: API action-scoped session fail-closed проверяет owner/folder/policy, completion повторно читает и проверяет result parent/name/MIME/size/idempotency; tokens/upload-session URLs не логируются, не сохраняются и не попадают в diagnostics.
   7. `DDU-07`: focused frontend/backend tests покрывают bounds, invalid MIME, folder/session/result verification, progress/cancel/partial failure/idempotent retry; full frontend, Python и repository checks green.
   8. `DDU-08`: один validated push/PR; required exact-head checks green; merge gates выполнены; applicable API+web deployment и authenticated owner LIVE подтверждают short-fixture upload, Drive result, progress/cancel/retry без provider call.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** Google resumable upload CORS и exact browser behavior требуют focused/LIVE verification; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Immediate implementation blocker отсутствует.
 - **Stop condition:** все Goal AC и canonical `AP-01`/`AP-25..30` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T18:55:41Z.
+- Updated (UTC): 2026-08-28T19:31:32Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@535a015dcef211a930faefe443245ee85ace38b8`.
 - Working branch: `codex/pwa-audio-direct-drive-upload-01`.
-- Last verified revision: documentation commit `7b8d579` поверх base `535a015dcef211a930faefe443245ee85ace38b8`; canonical Goal/spec/readiness прошли lightweight repository checks.
+- Last verified revision: implementation commit `ce126b3e986b` поверх base `535a015dcef211a930faefe443245ee85ace38b8`; API/frontend source, focused/full local tests, lint и production build подтверждены.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: Git/GitHub baseline подтверждён; `docs/ci-cd-rules.md` и current architecture/code boundaries прочитаны; approved scope атомизирован в `AP-01`/`AP-25..30`; предыдущая Goal reconciled по exact repository/runtime Evidence; commit `7b8d579` создан после `scripts/ci_checks.py` и `git diff --check`.
-- Current step: action-scoped API session/result verification и focused backend tests реализованы локально; подготовить backend commit, затем browser resumable uploader/UI.
-- Next exact action: зафиксировать backend boundary commit; затем реализовать `directDriveUpload.ts` и интеграцию direct-upload tab в `AudioPreparationPage`.
-- Validation and Evidence: backend unit `tests/test_studio_direct_drive_upload.py` — `3 passed`; `compileall` для нового module/main success. Focused DB/API test добавлен, но системный Python 3.12 не содержит `argon2`; он будет выполнен в repository Python 3.11 dependency graph до push. CI/deployment/LIVE отсутствуют.
+- Completed: commits `7b8d579` (Goal/spec), `edfd6f6` (descriptor-bound API issuance/completion verification), `91e5942` (accessible direct-upload UI/resumable transport/tests) и `ce126b3` (multi-file cancellation recovery) созданы reviewable increments. Browser bytes обходят API/S3/Source/FFmpeg/provider; retry сначала ищет exact Drive appProperty marker; API повторно проверяет owner destination и exact result metadata. Architecture и independent readiness синхронизируются в текущем docs increment.
+- Current step: завершить documentation checks и full local validation, затем перед единственным push проверить Actions minutes.
+- Next exact action: выполнить `scripts/ci_checks.py`, `git diff --check`, финальный full frontend/Python validation и review changed-file set; после green commit синхронизации проверить GitHub Actions budget.
+- Validation and Evidence: focused backend unit `3/3`; direct uploader/component/Audio/sidebar/App related suite `239/239`; full portable Python `1095 passed, 5 skipped`; full Studio Vitest `627/627`; ESLint и production TypeScript/Vite/PWA build success. DB-backed API test добавлен, но local PostgreSQL/Redis/Docker/WSL unavailable; exact-head CI обязан выполнить plain service-backed pytest. CI/deployment/LIVE отсутствуют.
 - Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Current web/repository `535a015dcef211a930faefe443245ee85ace38b8`; API/worker `cc4347758ebae849c963cbf11be253862c6a1402`; schema `0027_query_bounds`.
-- Blockers: отсутствуют.
+- Blockers: local service-backed pytest недоступен из-за отсутствующих PostgreSQL/Redis/Docker; это не delivery blocker, потому что unchanged exact-head CI profile поднимает оба сервиса и остаётся обязательным gate.
 - Unverified assumptions: Google upload REST endpoint допускает required production-origin CORS для resumable browser transfer; capability token может безопасно использоваться только в памяти текущего action; Drive eventual consistency не ломает bounded completion verification.
 - Preserved pre-existing changes: отсутствуют.
 
@@ -43,16 +43,16 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **40,0% (`221/552`)** | **40,7% (`222/546`)** | `+6` AP AC; изменённый `AP-01` reopened до Evidence. |
-| **Non-commercial scope** | **71,3% (`221/310`)** | **73,0% (`222/304`)** | Colab `31/32` + personal PWA `190/278`. |
+| **Полный canonical scope** | **41,3% (`228/552`)** | **40,0% (`221/552`)** | Local CODE/TEST Evidence выполняет `AP-01` и `AP-25..30`; denominator не менялся. |
+| **Non-commercial scope** | **73,5% (`228/310`)** | **71,3% (`221/310`)** | Colab `31/32` + personal PWA `197/278`. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | В durable BACKLOG, вне Goal; implementation запрещена. |
 | **Google Colab canonical** | **96,9% (`31/32`)** | **96,9% (`31/32`)** | Current Goal Colab не меняет. |
-| **Personal Studio PWA canonical** | **68,3% (`190/278`)** | **70,2% (`191/272`)** | `+6` AP AC и reopened `AP-01`. |
-| `PWA-AUDIO-PREPARATION-01` | **76,7% (`23/30`)** | **100% (`24/24`)** | Scope расширен прямой загрузкой; это denominator change, не regression existing processing. |
+| **Personal Studio PWA canonical** | **70,9% (`197/278`)** | **68,3% (`190/278`)** | Семь current audio AC получили local implementation Evidence. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`30/30`)** | **76,7% (`23/30`)** | `AP-01` и `AP-25..30` выполнены локально; READY требует CI/DEPLOY/LIVE. |
 | `PWA-GOOGLE-PICKER-UX-01` | **100% (`8/8`)** | **100% (`8/8`)** | PR `#253/#254`, exact-main CI/web/LIVE. |
 | `PWA-BATCH-01` | **100% (`11/11`)** | **100% (`11/11`)** | PR `#253/#254`, exact-main CI/web/LIVE. |
 
-Изменение `PWA-AUDIO-PREPARATION-01` больше `10` п.п. (`−23,3` п.п.) вызвано owner-approved расширением denominator с `24` до `30` и заменой user-facing `AP-01`; existing processing behavior не признано регрессировавшим.
+Изменение `PWA-AUDIO-PREPARATION-01` больше `10` п.п. (`+23,3` п.п.) вызвано выполнением семи ранее открытых AC в local implementation. Статус остаётся `IN PROGRESS`, потому что operational epic требует exact-head CI, API/web deployment и authenticated LIVE.
 
 ## Candidate next Goals
 
