@@ -162,6 +162,7 @@ import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPan
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import { FolderImportDialog } from "./FolderImportDialog";
+import { AccountSessionsPanel } from "./AccountSessionsPanel";
 import {
   buildLocalFolderPreview,
   localFolderRejectedReasonLabel,
@@ -7073,6 +7074,7 @@ function SettingsPage({
                   {logoutError}
                 </p>
               )}
+              <AccountSessionsPanel csrf={csrf} onCsrf={onCsrf} />
             </>
           )}
           {section === "appearance" && (
