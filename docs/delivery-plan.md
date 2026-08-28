@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T19:31:32Z.
+- Updated (UTC): 2026-08-28T19:39:30Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@535a015dcef211a930faefe443245ee85ace38b8`.
 - Working branch: `codex/pwa-audio-direct-drive-upload-01`.
 - Last verified revision: implementation commit `ce126b3e986b` поверх base `535a015dcef211a930faefe443245ee85ace38b8`; API/frontend source, focused/full local tests, lint и production build подтверждены.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
 - Completed: commits `7b8d579` (Goal/spec), `edfd6f6` (descriptor-bound API issuance/completion verification), `91e5942` (accessible direct-upload UI/resumable transport/tests) и `ce126b3` (multi-file cancellation recovery) созданы reviewable increments. Browser bytes обходят API/S3/Source/FFmpeg/provider; retry сначала ищет exact Drive appProperty marker; API повторно проверяет owner destination и exact result metadata. Architecture и independent readiness синхронизируются в текущем docs increment.
-- Current step: завершить documentation checks и full local validation, затем перед единственным push проверить Actions minutes.
-- Next exact action: выполнить `scripts/ci_checks.py`, `git diff --check`, финальный full frontend/Python validation и review changed-file set; после green commit синхронизации проверить GitHub Actions budget.
-- Validation and Evidence: focused backend unit `3/3`; direct uploader/component/Audio/sidebar/App related suite `239/239`; full portable Python `1095 passed, 5 skipped`; full Studio Vitest `627/627`; ESLint и production TypeScript/Vite/PWA build success. DB-backed API test добавлен, но local PostgreSQL/Redis/Docker/WSL unavailable; exact-head CI обязан выполнить plain service-backed pytest. CI/deployment/LIVE отсутствуют.
-- Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Current web/repository `535a015dcef211a930faefe443245ee85ace38b8`; API/worker `cc4347758ebae849c963cbf11be253862c6a1402`; schema `0027_query_bounds`.
+- Current step: initial PR checks проанализированы; исправить stale browser E2E navigation contract и выполнить единственный разрешённый grouped follow-up push.
+- Next exact action: проверить updated Playwright discovery/related tests/lint, создать fix commit и одним batch push обновить PR #255; затем дождаться новых exact-head required checks.
+- Validation and Evidence: focused backend unit `3/3`; direct uploader/component/Audio/sidebar/App related suite `239/239`; full portable Python `1095 passed, 5 skipped`; full Studio Vitest `627/627`; ESLint и production TypeScript/Vite/PWA build success. Initial exact-head repository CI `33204614886` и Studio job `98962371576` passed, включая DB-backed pytest/API regression и image/runtime gates. Browser E2E job `98962371932` failed только на stale sidebar selector `Обработка аудио` до выполнения Audio scenario; selector и новый explicit local tab transition исправлены локально, rerun ещё не запускался.
+- Pull Request / CI / deployment: PR `#255`, initial head `c91bfe84772f35b2a61323e851bd284b9daf761d`; repository CI passed, Studio job passed, browser-e2e failed as classified above. Follow-up push ещё не выполнен. Deployment/LIVE отсутствуют. Current production web/repository `535a015dcef211a930faefe443245ee85ace38b8`; API/worker `cc4347758ebae849c963cbf11be253862c6a1402`; schema `0027_query_bounds`.
 - Blockers: local service-backed pytest недоступен из-за отсутствующих PostgreSQL/Redis/Docker; это не delivery blocker, потому что unchanged exact-head CI profile поднимает оба сервиса и остаётся обязательным gate.
 - Unverified assumptions: Google upload REST endpoint допускает required production-origin CORS для resumable browser transfer; capability token может безопасно использоваться только в памяти текущего action; Drive eventual consistency не ломает bounded completion verification.
 - Preserved pre-existing changes: отсутствуют.
