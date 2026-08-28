@@ -8272,9 +8272,9 @@ function DiagnosticsSettings({
       },
     );
   };
-  const visibleAuditEvents = auditEvents
-    .filter((event) => event.type !== "auth.csrf_refreshed")
-    .slice(0, 20);
+  const visibleAuditEvents = auditEvents.filter(
+    (event) => event.type !== "auth.csrf_refreshed",
+  );
   return (
     <div className="diagnostics-page">
       <h2>Диагностика</h2>

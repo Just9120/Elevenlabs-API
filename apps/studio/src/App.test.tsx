@@ -12774,6 +12774,73 @@ describe("settings diagnostics", () => {
     }
   });
 
+  it("renders appended audit cursor pages without hiding rows behind a presentation cap", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    const auditUrls: string[] = [];
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/audit-events")) {
+          auditUrls.push(url);
+          if (auditUrls.length === 1) {
+            return json({
+              events: Array.from({ length: 50 }, (_, index) => ({
+                id: `audit-${index}`,
+                type: "auth.login",
+                created_at: `2026-08-14T08:00:${String(index).padStart(2, "0")}Z`,
+              })),
+              next_cursor: "audit-next-page",
+              page_size: 50,
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-49",
+                type: "auth.login",
+                created_at: "2026-08-14T08:00:49Z",
+              },
+              {
+                id: "audit-next",
+                type: "credential.revoked",
+                created_at: "2026-08-14T07:59:59Z",
+              },
+            ],
+            next_cursor: null,
+            page_size: 50,
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openDiagnosticsSettings();
+    const auditRegion = screen.getByRole("region", {
+      name: "Аудит безопасности",
+    });
+    await waitFor(() =>
+      expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(50),
+    );
+
+    await userEvent.click(
+      within(auditRegion).getByRole("button", {
+        name: "Показать ещё события аудита",
+      }),
+    );
+
+    expect(
+      await within(auditRegion).findByText(/Ключ отозван/),
+    ).toBeInTheDocument();
+    expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(51);
+    expect(auditUrls).toHaveLength(2);
+    expect(auditUrls[1]).toContain("page_size=50");
+    expect(auditUrls[1]).toContain("cursor=audit-next-page");
+    expect(document.body.textContent).not.toContain("audit-next-page");
+  });
+
   it("keeps a mutation-triggered audit refresh latest-wins", async () => {
     installBasicPlatformSettingsFixture();
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
