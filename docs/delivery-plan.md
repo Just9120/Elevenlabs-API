@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T23:35:00Z.
+- Updated (UTC): 2026-08-28T23:55:49Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@c065b629db9875ddd92bf30ce67d8290c018f067`.
 - Working branch: `codex/transcript-maintenance-workspace-01`.
-- Last verified revision: frontend workspace commit `735c02c` on top of backend `5b7ded4`; docs остаются uncommitted.
+- Last verified revision: initial PR head `fffd196c706f0482d18e75e193be7860058d9b1b` (`735c02c` frontend, `5b7ded4` backend, `fffd196` docs); CI-fix successor пока только local.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: commit `5b7ded4` добавил durable backend/schema/worker; commit `735c02c` добавил app-owned folder/document dialogs, `Транскрибации → Обслуживание`, persisted progress/error UX, Settings connection-only view и frontend regressions. Canonical docs локально готовы.
-- Current step: полная local validation завершена; выполнить один initial push и создать PR.
-- Next exact action: push `codex/transcript-maintenance-workspace-01`, создать PR в `main` и ждать exact-head required checks без speculative rerun.
-- Validation and Evidence: `scripts/ci_checks.py` success; maintenance backend focused `31 passed`; worker Compose `6 passed`; portable Python `1113 passed, 5 skipped`; Studio Vitest `632 passed`; ESLint success; TypeScript/Vite/PWA production build success; `git diff --check` success. Plain local Windows pytest был остановлен после ожидаемых POSIX shell/service-fixture failures; required service-backed full suite остаётся exact-head CI gate.
-- Pull Request / CI / deployment: отсутствуют; initial push теперь разрешён полной local validation. Repository public и использует standard GitHub-hosted runners, поэтому private-repository included Actions minutes не расходуются.
+- Completed: commit `5b7ded4` добавил durable backend/schema/worker; commit `735c02c` добавил app-owned folder/document dialogs, `Транскрибации → Обслуживание`, persisted progress/error UX, Settings connection-only view и frontend regressions; commit `fffd196` синхронизировал canonical/operational docs. Initial push выполнен, открыт PR `#257`. First-head CI классифицирован без rerun: `studio` прошёл; `browser-e2e` ожидал прежнее расположение maintenance в Settings; repository `checks` использовал stale expected Alembic head `0027` в production preflight contract. Оба test-contract drift исправлены локально.
+- Current step: завершить local validation CI-fix successor, выполнить единственный сгруппированный follow-up push и получить exact-successor required checks.
+- Next exact action: после зелёной local validation commit/push CI-fix batch один раз, затем ждать required checks PR `#257` без speculative rerun.
+- Validation and Evidence: исходный scope — maintenance backend focused `31 passed`; worker Compose `6 passed`; portable Python `1113 passed, 5 skipped`. После CI-fix: `scripts/ci_checks.py` success; focused UI `238 passed`; полный Studio Vitest `632 passed`; ESLint success; Playwright inventory `12 tests`; TypeScript/Vite/PWA production build success; `git diff --check` success. POSIX preflight suite локально на Windows не является переносимым из-за Windows/Git-Bash path semantics; exact Linux CI остаётся обязательным gate.
+- Pull Request / CI / deployment: PR `#257`; initial head `fffd196c706f0482d18e75e193be7860058d9b1b`; repository CI run `33221674226` / job `99016825003` failed только на 5 stale-head preflight assertions; Studio PWA run `33221674235`: job `99016824963` passed, browser E2E job `99016825106` failed на одном stale navigation assertion. Deployment не начинался. Repository public и использует standard GitHub-hosted runners, поэтому private-repository included Actions minutes не расходуются.
 - Blockers: отсутствуют.
 - Unverified assumptions: production maintenance grant для того же owner остаётся refreshable из worker; representative canary folder укладывается в bounded traversal; exact production schema/runtime identities будут проверены перед protected delivery.
 - Preserved pre-existing changes: отсутствуют.
