@@ -4,10 +4,12 @@
 
 Этот документ — canonical product/project contract и backlog верхнего уровня. Он определяет актуальный scope, business rules, durable constraints, эпики и atomic acceptance criteria. Текущий delivery state, blockers, readiness и Evidence ведутся в `docs/delivery-plan.md`; история delivery — в `docs/delivery-plan-archive.md`.
 
-Приоритет источников задаёт `AGENTS.md`. Последняя явная инструкция владельца от 2026-08-14 заменила прежнюю модель «стабильный Colab batch + развиваемый Studio» моделью двух production-продуктов, каждый из которых содержит batch и realtime:
+Приоритет источников задаёт `AGENTS.md`. Инструкция владельца от 2026-08-14 заменила прежнюю модель «стабильный Colab batch + развиваемый Studio» моделью двух production-продуктов, каждый из которых содержит batch и realtime:
 
 1. Google Colab: обычная транскрибация и realtime-транскрибация.
 2. VoiceOps Studio PWA: обычная транскрибация и realtime-транскрибация.
+
+Инструкциями владельца от 2026-08-27 и 2026-08-28 полный однозначно атомизированный scope upstream-документа включён в этот canonical contract. Commercial contour включён как `BACKLOG`, но его implementation не авторизована. Source traceability ниже использует `R001–R275` для list items и `N001–N008` для narrative paragraphs в порядке exact Google Doc revision `AIroW35q7CRMBmxDiv0eGwPndvIoeukwsYt52lE34wuTXCS_BKknSg_YarWNdCVNZv0r7sEFvECkb0g7Di32L3qLiCh2_BuJvkFKwtWra6M` от `2026-08-27T11:38:21.346Z`.
 
 Статусы и Evidence в этом документе — operational metadata, а не изменение scope. Их нельзя принимать на веру при следующем аудите.
 
@@ -28,23 +30,25 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`. PR `#245`, exact-main repository CI `33104113256`, Studio/browser CI `33104113243` и Studio Platform CD `33104113313` подтвердили merge, CI и web-only Google Picker deployment; authenticated production LIVE Evidence исправления ещё отсутствует. PR `#244` source-cache/branding также merged/deployed, но его authenticated LIVE остаётся archived external gate. Более ранний exact-main delivery подтвердил web/API/worker Audio scope без migration. Bounded production FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC с исходной sample rate `48 kHz`, duration `7907.718563` секунд и размером `334113611` bytes. Отдельный production upload в `Транскрибациях` показал per-file и aggregate progress от `16%` до `ready` без запуска provider job; ранее Audio upload progress уже наблюдался LIVE.
+Verified main baseline: `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`. Exact-main repository CI `33116072365` и Studio/browser CI `33116072392` завершились success; product code Google Picker после merge `8761e86808e8562eff05588f6f60d15dd04dbcf4` не менялся. PR `#245` и Studio Platform CD `33104113313` подтвердили web-only Google Picker deployment, но authenticated production LIVE Evidence исправления отсутствует. PR `#244` source-cache/branding также merged/deployed, но его authenticated LIVE остаётся archived external gate. PR `#246` исправил webmanifest MIME; CD `33114690923` и public `application/manifest+json` header подтвердили DEPLOY/LIVE. Более ранний exact-main delivery подтвердил web/API/worker Audio scope; bounded FLAC output `78da8f8e-dfb4-47f7-b6db-fb9a64995fb0` подтверждён как 16-bit mono FLAC, `48 kHz`, duration `7907.718563` секунд и `334113611` bytes.
 
-Current operational Goal: `REPO-HARDENING-01` на branch `codex/repository-stabilization-01` от verified base `main@8761e86808e8562eff05588f6f60d15dd04dbcf4`; она не меняет product AC/denominator.
+Current operational Goal: `SPEC-CANONICALIZATION-02` на branch `codex/spec-canonicalization-02` от verified base `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`; она переносит явно согласованный scope в canonical contract без product/commercial implementation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
-| Studio PWA | **100% (`119/119`)** | выполненные AC всех PWA-эпиков / все PWA AC; Google Picker UX `3/3`, CI/DEPLOY подтверждены, LIVE отсутствует |
-| Согласованный current canonical scope | **100% (`148/148`)** | выполненные AC двух продуктов / все утверждённые AC current scope; READY отдельно зависит от обязательных Evidence gates каждого эпика |
+| Google Colab | **100% (`31/31`)** | existing `29/29` + `COLAB-LIFECYCLE-02 2/2`; historical runtime risk не меняет numerator |
+| Personal Studio PWA | **66,4% (`172/259`)** | existing `119/119` + `53/140` новых non-commercial AC; `PARTIAL` считается невыполненным |
+| Non-commercial scope | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `172/259` |
+| Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
+| Полный canonical scope | **38,2% (`203/532`)** | `203 / (148 existing + 142 new non-commercial + 50 cross-contour + 192 commercial)` |
 
-Это не оценка всей upstream product vision. Upstream Google Doc текущей revision содержит `275` list-item requirements (`16` Colab, `158` PWA и `101` commercial), многие из которых compound, future-marked, внешне gated или конфликтуют с current contract. До requirement-by-requirement reconciliation, owner decisions и atomic decomposition корректный denominator и процент полного upstream scope отсутствуют: status — `SPEC RECONCILIATION REQUIRED`, percentage — `N/A`, а не `100%`.
+Denominator пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Поэтому изменение с прежних `148/148 = 100%` до `203/532 = 38,2%` означает расширение canonical scope, а не регресс существующего кода. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
-Owner decision от 2026-08-27: отдельный commercial production для российских пользователей **включён в durable product scope**, но implementation сейчас **не авторизована**. До завершения `SPEC-RECONCILIATION-01` commercial contour имеет lifecycle state **⬜ BACKLOG** и modifier **⛔ BLOCKED (SPEC decomposition / external legal decisions)**.
+Owner decision от 2026-08-27: отдельный commercial production для российских пользователей **включён в durable product scope**, но implementation сейчас **не авторизована**. Commercial contour имеет lifecycle state **⬜ BACKLOG** и modifier **⛔ BLOCKED (implementation authorization / external legal decisions)**.
 
-Обязательная scope boundary для будущей atomic decomposition берётся из upstream commercial section без silent omission: российская infrastructure/data localization; independent environment/resources; registration/auth/TOTP; personal-data lifecycle; cross-border/provider legal gates; replaceable Russian STT production path; quotas/cost accounting; queue fairness; payments/subscriptions/fiscalization; unit economics; least privilege/RLS/audit/backup controls; notifications; legal readiness. Эти категории не считаются выполненными и пока не образуют числовой denominator. Product implementation, CI/CD или production changes этим решением не разрешены.
+Commercial scope атомизирован ниже в `242` AC без silent omission: российская infrastructure/data localization; independent environment/resources; registration/auth/TOTP; personal-data lifecycle; cross-border/provider legal gates; replaceable Russian STT production path; quotas/cost accounting; queue fairness; payments/subscriptions/fiscalization; unit economics; least privilege/RLS/audit/backup controls; notifications; legal readiness. Все `242` AC считаются невыполненными до contour-specific Evidence. Product implementation, CI/CD или production changes этим решением не разрешены.
 
 ## 3. Общие product rules
 
@@ -387,13 +391,668 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
-## 6. Future scope, не включённый в denominator `148`
+## 6. Расширенный canonical scope из upstream revision
 
-### Эпик `PWA-AUTH-HARDENING-02`
+В этот раздел включены все однозначно атомизированные требования exact upstream revision. Existing capability может подтверждать AC, но не авторизует дальнейшую implementation. Новые non-commercial эпики остаются `⬜ BACKLOG`, пока для них не согласована implementation Goal; commercial/cross-contour эпики дополнительно заблокированы до такой authorization и применимых legal/external gates.
 
-Status: **⬜ BACKLOG**. Владелец 2026-08-24 разрешил optional TOTP как отдельную следующую Goal: 2FA должна оставаться добровольной и не блокировать вход, пока пользователь её не включил. Cloudflare Zero Trust и TOTP-подтверждение очистки History/Analytics не авторизованы этой Goal.
+`PARTIAL` не даёт долю numerator: AC либо выполнен полностью, либо считается невыполненным. Для operational/live эпиков `DEPLOY` и `LIVE` обязательны перед `READY`, даже если все AC выполнены по source/tests.
 
-Future auth criteria исключены из текущего denominator до отдельной Goal с согласованными enrollment, recovery, disable и credential-storage boundaries.
+### Нерешённые upstream decisions и SPEC gaps (вне denominator)
+
+Эти записи сохраняют неоднозначные или конфликтующие требования, но не превращают их в выдуманные AC:
+
+| ID | Нерешённый вопрос | Current boundary до owner decision |
+|---|---|---|
+| `SPEC-GAP-UX-01` | Пункт `R031` называет меню `Проекты`, тогда как текущий canonical UX использует `Транскрибации`. | Сохраняется `Транскрибации`; новое переименование не авторизовано. |
+| `SPEC-GAP-AUTH-01` | `R039` объединяет optional TOTP и только рассматриваемый Cloudflare Zero Trust. | TOTP включён в AC; Zero Trust исключён до отдельного security decision. |
+| `SPEC-GAP-DRIVE-01` | `R053` говорит об automatic Drive upload, но `AP-15/AP-23` требуют явное optional действие. | Сохраняется явное optional сохранение без скрытого side effect. |
+| `SPEC-GAP-AUDIO-01` | `R107` не различает MKV/M4A/MP3/WAV/FLAC как input и output formats. | Current WAV/FLAC output contract сохраняется; отдельные input/output matrices требуют решения. |
+| `SPEC-GAP-RT-01` | `R134–R135` требуют auto reconnect/backfill, что конфликтует с current single-use capability/no-auto-reconnect boundary. | Требуется protocol design replay window, dedupe и token rotation. |
+| `SPEC-GAP-RT-02` | `R138` не определяет, означает ли запись realtime session аудио или durable final transcript. | Canonical outcome — durable final text; запись аудио требует отдельного privacy/storage consent. |
+| `SPEC-GAP-CLEAR-01` | `R148/R152` требуют TOTP confirmation для очистки History/Analytics до появления TOTP lifecycle. | Исключено до реализации и отдельной авторизации TOTP. |
+| `SPEC-GAP-CSTAGE-01` | `R029` требует commercial staging только «если нужно», без trigger/DoD. | Не входит в denominator до определения trigger. |
+| `SPEC-GAP-COAUTH-01` | `R193` требует «другие популярные российские OAuth providers» без списка. | Yandex ID и VK ID включены; остальные providers требуют явного решения. |
+| `RUNTIME-RISK-COLAB-01` | `N001` сообщает о периодическом пропадании Colab realtime capture. | `CR-06` сохраняет completed Evidence, но zero-known-risk не заявляется; нужна bounded reproduction Goal. |
+
+### Эпик `COLAB-LIFECYCLE-02` — замороженный lifecycle Colab
+
+Status: **🟩 READY — 100% (`2/2`)**. Это durable scope boundary, а не feature implementation.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `COLABL-01` | Новые PWA/commercial features не переносятся в Colab. | ✅ |
+| `COLABL-02` | После feature freeze Colab изменяется только через явно авторизованные bugfixes. | ✅ |
+
+Evidence: `SPEC ✅ | CODE N/A | TEST N/A | CI N/A | DEPLOY N/A | LIVE N/A`.
+
+### Эпик `PWA-SECURITY-HARDENING-02` — personal auth и security lifecycle
+
+Status: **⬜ BACKLOG — 33,3% (`6/18`)**. Новая implementation не авторизована; optional TOTP не блокирует вход до явного включения пользователем.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `PWASEC-01` | Provider API keys шифруются at rest. | ✅ |
+| `PWASEC-02` | Google OAuth refresh tokens шифруются at rest. | ✅ |
+| `PWASEC-03` | Local passwords хранятся только как one-way password hash. | ✅ |
+| `PWASEC-04` | Upload policy ограничивает максимальный размер source file. | ✅ |
+| `PWASEC-05` | Batch/upload policy ограничивает максимальное число files. | ✅ |
+| `PWASEC-06` | Transcription policy ограничивает максимальную media duration. | — |
+| `PWASEC-07` | Пользователь может просмотреть active sessions. | — |
+| `PWASEC-08` | Пользователь может отозвать одну выбранную active session. | — |
+| `PWASEC-09` | Пользователь может отозвать все другие active sessions. | — |
+| `PWASEC-10` | Critical actions требуют recent re-authentication. | — |
+| `PWASEC-11` | Login защищён отдельным brute-force limit. | ✅ |
+| `PWASEC-12` | Password reset защищён отдельным brute-force limit. | — |
+| `PWASEC-13` | TOTP verification защищена отдельным brute-force limit. | — |
+| `PWASEC-14` | Personal TOTP остаётся optional, пока пользователь явно его не включил. | — |
+| `PWASEC-15` | TOTP использует стандартный protocol и не привязан к одному authenticator app. | — |
+| `PWASEC-16` | TOTP enrollment имеет проверяемую secret-confirmation boundary. | — |
+| `PWASEC-17` | TOTP recovery определён и протестирован. | — |
+| `PWASEC-18` | TOTP disable требует безопасной owner verification. | — |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+
+### Эпик `GOOGLE-DRIVE-RELIABILITY-02` — Drive upload/token/preflight reliability
+
+Status: **⬜ BACKLOG — 100% (`6/6`)**. AC выполнены existing implementation, но эпик не `READY` до отдельной exact-revision delivery/LIVE verification новых canonical gates.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `GOOGLE-01` | Upload обработанного media в Google Drive поддерживает resumable protocol. | ✅ |
+| `GOOGLE-02` | Invalid/revoked Google grant создаёт явное состояние reconnect. | ✅ |
+| `GOOGLE-03` | Disconnect удаляет сохранённый Google token material. | ✅ |
+| `GOOGLE-04` | Disconnect пытается выполнить provider-side token revocation, когда это поддерживается. | ✅ |
+| `GOOGLE-05` | До provider spend повторно проверяется доступность source. | ✅ |
+| `GOOGLE-06` | До provider spend повторно проверяется возможность записи в target folder. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+
+### Эпик `STORAGE-LIFECYCLE-02` — полный storage lifecycle
+
+Status: **⬜ BACKLOG — 28,6% (`6/21`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `STORAG-01` | Все большие S3-compatible uploads поддерживают resumable или multipart protocol. | — |
+| `STORAG-02` | Abandoned upload sessions периодически очищаются. | — |
+| `STORAG-03` | Failed/request-scoped FFmpeg temporary files очищаются. | ✅ |
+| `STORAG-04` | Orphaned storage objects периодически reconciliate и очищаются. | — |
+| `STORAG-05` | Cleanup удаляет obsolete object versions при включённом storage versioning. | — |
+| `STORAG-06` | Original transcription sources имеют явную retention policy. | ✅ |
+| `STORAG-07` | Processed audio outputs имеют явную retention policy. | ✅ |
+| `STORAG-08` | Audio-processing reference files имеют явную retention policy. | ✅ |
+| `STORAG-09` | Transcription reference files имеют отдельную явную retention policy. | — |
+| `STORAG-10` | Internal transcript data имеет явную retention policy. | — |
+| `STORAG-11` | Temporary files имеют явную retention/TTL policy. | ✅ |
+| `STORAG-12` | History data имеет явную retention policy. | — |
+| `STORAG-13` | Analytics data имеет явную retention policy. | — |
+| `STORAG-14` | Diagnostic/log data имеет явную retention policy. | ✅ |
+| `STORAG-15` | Deletion считается завершённым только после подтверждения cleanup всеми internal stores. | — |
+| `STORAG-16` | Audio-processing references и transcription references являются разными data classes. | — |
+| `STORAG-17` | Audio-reference использует отдельный S3 bucket. | — |
+| `STORAG-18` | Transcription-reference использует отдельный S3 bucket. | — |
+| `STORAG-19` | Audio-reference bucket имеет независимые lifecycle rules. | — |
+| `STORAG-20` | Transcription-reference bucket имеет независимые lifecycle rules. | — |
+| `STORAG-21` | Два reference buckets имеют независимо ограниченные access permissions. | — |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+
+### Эпик `STT-PROVIDER-ABSTRACTION-01` — provider-neutral STT contract
+
+Status: **⬜ BACKLOG — 7,1% (`1/14`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `STTPRO-01` | Batch STT выполняется через provider-neutral interface. | — |
+| `STTPRO-02` | Realtime STT выполняется через provider-neutral interface. | — |
+| `STTPRO-03` | Provider capability metadata фиксирует supported operating modes. | — |
+| `STTPRO-04` | Provider capability metadata фиксирует supported languages. | — |
+| `STTPRO-05` | Provider capability metadata фиксирует diarization support. | — |
+| `STTPRO-06` | Provider capability metadata фиксирует dictionary support. | — |
+| `STTPRO-07` | Provider capability metadata фиксирует file constraints. | — |
+| `STTPRO-08` | User-facing economic mode маппится на configured provider capability. | — |
+| `STTPRO-09` | User-facing standard mode маппится на configured provider capability. | — |
+| `STTPRO-10` | User-facing premium mode маппится на configured provider capability. | — |
+| `STTPRO-11` | User-facing realtime mode маппится на configured provider capability. | — |
+| `STTPRO-12` | Provider/mode health может остановить новый dispatch после массовых failures. | — |
+| `STTPRO-13` | Automatic cross-provider fallback не выполняется. | ✅ |
+| `STTPRO-14` | BYOK eligibility конфигурируется отдельно для каждого provider. | — |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+
+### Эпик `YANDEX-STT-01` — Yandex SpeechKit provider
+
+Status: **⬜ BACKLOG — 0% (`0/5`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `YANDEX-01` | Yandex SpeechKit поддерживает обычную batch transcription. | — |
+| `YANDEX-02` | Yandex SpeechKit поддерживает deferred transcription. | — |
+| `YANDEX-03` | Yandex SpeechKit поддерживает realtime transcription. | — |
+| `YANDEX-04` | Deferred Yandex jobs сохраняют provider operation ID. | — |
+| `YANDEX-05` | Deferred Yandex jobs poll и сохраняют terminal provider result. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `PWA-DICTIONARIES-01` — пользовательские словари
+
+Status: **⬜ BACKLOG — 0% (`0/1`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `PWADIC-01` | Owner-scoped dictionaries поддерживают terms, surnames, names и abbreviations для улучшения STT. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `PWA-WORKER-ISOLATION-02` — worker resource и privilege boundary
+
+Status: **⬜ BACKLOG — 33,3% (`1/3`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `PWAWOR-01` | Media/FFmpeg worker работает как component, отделённый от API process. | ✅ |
+| `PWAWOR-02` | Media/FFmpeg worker имеет явные CPU/memory/process resource bounds. | — |
+| `PWAWOR-03` | Media/FFmpeg worker имеет минимально необходимые filesystem/network/database privileges. | — |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+
+### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
+
+Status: **⬜ BACKLOG — 81,3% (`13/16`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `JOBREL-01` | Transcription jobs используют durable queue. | ✅ |
+| `JOBREL-02` | Каждая job сохраняет явное processing-stage state. | ✅ |
+| `JOBREL-03` | Каждая job сохраняет last safe checkpoint. | ✅ |
+| `JOBREL-04` | Interrupted jobs восстанавливаются после backend/worker restart. | ✅ |
+| `JOBREL-05` | Автоматически повторяются только доказуемо безопасные transient failures. | — |
+| `JOBREL-06` | Retry/recovery не дублирует provider operations. | ✅ |
+| `JOBREL-07` | Retry/recovery не дублирует Google Docs outputs. | ✅ |
+| `JOBREL-08` | Retry/recovery не дублирует storage files. | ✅ |
+| `JOBREL-09` | Retry/recovery не дублирует notifications. | — |
+| `JOBREL-10` | Critical job/queue/service events имеют guaranteed-delivery mechanism. | — |
+| `JOBREL-11` | Queued transcription можно отменить. | ✅ |
+| `JOBREL-12` | Для running transcription можно запросить cancel; она останавливается на safe boundaries. | ✅ |
+| `JOBREL-13` | Server job продолжается после закрытия PWA пользователем. | ✅ |
+| `JOBREL-14` | UI показывает текущую processing stage. | ✅ |
+| `JOBREL-15` | Source availability проверяется до provider dispatch. | ✅ |
+| `JOBREL-16` | Target write readiness проверяется до provider dispatch. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+
+### Эпик `JOB-NOTIFICATIONS-01` — уведомления о завершении/error
+
+Status: **⬜ BACKLOG — 0% (`0/6`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `JOBNOT-01` | Web Push уведомляет об успешном завершении. | — |
+| `JOBNOT-02` | Web Push уведомляет о terminal error. | — |
+| `JOBNOT-03` | Email уведомляет об успешном завершении. | — |
+| `JOBNOT-04` | Email уведомляет о terminal error. | — |
+| `JOBNOT-05` | Telegram может уведомлять об успешном завершении. | — |
+| `JOBNOT-06` | Telegram может уведомлять о terminal error. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `REALTIME-CONTINUITY-02` — expanded realtime consumers
+
+Status: **⬜ BACKLOG — 0% (`0/5`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `REALTI-01` | Capture-source loss и STT-connection loss отображаются как разные user-visible errors. | — |
+| `REALTI-02` | Realtime subtitles доступны через отдельный browser/OBS overlay. | — |
+| `REALTI-03` | Realtime subtitles могут передаваться в YouTube Live. | — |
+| `REALTI-04` | Realtime subtitles могут передаваться другому явно поддержанному external consumer. | — |
+| `REALTI-05` | Failure одного external realtime consumer не останавливает primary session. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `TRANSCRIPT-EXPORTS-02` — дополнительные export formats
+
+Status: **⬜ BACKLOG — 0% (`0/3`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `TRANSC-01` | Confirmed transcript экспортируется как Markdown. | — |
+| `TRANSC-02` | Confirmed timed transcript экспортируется как SRT. | — |
+| `TRANSC-03` | Confirmed timed transcript экспортируется как VTT. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `USAGE-COST-ACCOUNTING-01` — personal usage/cost evidence
+
+Status: **⬜ BACKLOG — 0% (`0/2`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `USAGEC-01` | Каждая transcription job хранит фактически billed audio duration. | — |
+| `USAGEC-02` | Каждая transcription job хранит фактическую provider cost и currency. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `OBSERVABILITY-AUDIT-02` — health, tracing, alerts и protected audit
+
+Status: **⬜ BACKLOG — 42,9% (`15/35`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `OBSERV-01` | `job_id` проходит через весь batch pipeline. | ✅ |
+| `OBSERV-02` | `request_id` проходит через request-to-job boundary. | ✅ |
+| `OBSERV-03` | `trace_id` проходит через весь cross-service pipeline. | — |
+| `OBSERV-04` | Admin health показывает backend status. | ✅ |
+| `OBSERV-05` | Admin health показывает PostgreSQL status. | ✅ |
+| `OBSERV-06` | Admin health показывает queue status. | — |
+| `OBSERV-07` | Admin health показывает worker status. | ✅ |
+| `OBSERV-08` | Admin health показывает S3 status. | — |
+| `OBSERV-09` | Admin health показывает STT provider status. | — |
+| `OBSERV-10` | Admin health показывает email status. | — |
+| `OBSERV-11` | Backend предоставляет отдельный liveness probe. | — |
+| `OBSERV-12` | Backend предоставляет отдельный readiness probe. | — |
+| `OBSERV-13` | Worker предоставляет отдельный liveness probe. | — |
+| `OBSERV-14` | Worker предоставляет отдельный readiness probe. | — |
+| `OBSERV-15` | Critical-error alerts отправляются. | — |
+| `OBSERV-16` | Stuck-queue alerts отправляются. | — |
+| `OBSERV-17` | Provider-unavailability alerts отправляются. | — |
+| `OBSERV-18` | Backup/cleanup failure alerts отправляются. | — |
+| `OBSERV-19` | Alerts отправляются при приближении к storage/API limits. | — |
+| `OBSERV-20` | Secrets исключены из logs и diagnostics. | ✅ |
+| `OBSERV-21` | User data по умолчанию минимизированы в logs и diagnostics. | ✅ |
+| `OBSERV-22` | Diagnostics показывают release version. | — |
+| `OBSERV-23` | Diagnostics показывают environment. | ✅ |
+| `OBSERV-24` | Diagnostics показывают web build identity. | ✅ |
+| `OBSERV-25` | Diagnostics показывают API build identity. | ✅ |
+| `OBSERV-26` | Diagnostics показывают worker build identity. | ✅ |
+| `OBSERV-27` | Diagnostics показывают exact commit identity. | — |
+| `OBSERV-28` | Diagnostics показывают exact DB schema revision. | — |
+| `OBSERV-29` | Audit record идентифицирует actor. | ✅ |
+| `OBSERV-30` | Audit record идентифицирует время действия. | ✅ |
+| `OBSERV-31` | Audit record идентифицирует action. | ✅ |
+| `OBSERV-32` | Audit record идентифицирует operation outcome. | — |
+| `OBSERV-33` | Ordinary application flows не могут изменять прошлые audit records. | — |
+| `OBSERV-34` | Ordinary application flows не могут удалять audit records. | — |
+| `OBSERV-35` | Очистка History/Analytics не удаляет audit records. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+
+### Эпик `RELEASE-SAFETY-02` — personal release safety
+
+Status: **⬜ BACKLOG — 100% (`5/5`)**. AC подтверждены existing repository contracts, но lifecycle остаётся BACKLOG до отдельной closure Goal.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `RELEAS-01` | Все PostgreSQL schema changes используют versioned migrations. | ✅ |
+| `RELEAS-02` | Personal production имеет tested rollback procedure. | ✅ |
+| `RELEAS-03` | Deployment валидирует required environment configuration. | ✅ |
+| `RELEAS-04` | Deployment валидирует required secrets без раскрытия values. | ✅ |
+| `RELEAS-05` | Deployment fail-closed при отсутствии critical settings. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE N/A`.
+
+### Commercial/cross-contour boundary
+
+Следующие `242` AC имеют status **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/242`)**. Их implementation не авторизована. Existing personal code не считается `CODE/TEST/CI/DEPLOY/LIVE` Evidence для отдельного commercial contour.
+
+### Эпик `ENVIRONMENT-CAPABILITIES-01` — единый codebase и изолированные contours
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/50`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `EVC-01` | Personal и commercial используют единый основной codebase. | — |
+| `EVC-02` | Personal и commercial используют единый `main`. | — |
+| `EVC-03` | Commercial не поддерживается как постоянно расходящаяся branch. | — |
+| `EVC-04` | Personal и commercial разворачиваются как отдельные environments. | — |
+| `EVC-05` | Personal и commercial имеют отдельные configs. | — |
+| `EVC-06` | Personal и commercial имеют отдельные secrets. | — |
+| `EVC-07` | Personal и commercial имеют отдельные databases. | — |
+| `EVC-08` | Personal и commercial имеют отдельные S3 resources. | — |
+| `EVC-09` | Personal и commercial имеют отдельные API keys. | — |
+| `EVC-10` | Personal и commercial имеют отдельные OAuth credentials. | — |
+| `EVC-11` | Personal и commercial имеют отдельные domains. | — |
+| `EVC-12` | Остальные environment-specific settings разделены по contour. | — |
+| `EVC-13` | Personal включает все approved commercial capabilities. | — |
+| `EVC-14` | Personal может включать дополнительные foreign/experimental/admin capabilities. | — |
+| `EVC-15` | Commercial изолирован инфраструктурно, а не только frontend visibility. | — |
+| `EVC-16` | Credentials неиспользуемого commercial provider отсутствуют в commercial environment. | — |
+| `EVC-17` | Contour differences задаются configuration. | — |
+| `EVC-18` | Contour differences задаются capability model. | — |
+| `EVC-19` | Contour differences задаются bounded feature flags. | — |
+| `EVC-20` | Contour differences задаются подключаемыми modules/providers. | — |
+| `EVC-21` | Contour differences не размазаны множеством ad-hoc conditionals. | — |
+| `EVC-22` | Personal и commercial деплоятся независимо. | — |
+| `EVC-23` | Personal UI имеет режим `только commercial capabilities`. | — |
+| `EVC-24` | Personal UI имеет режим `только personal-only capabilities`. | — |
+| `EVC-25` | Personal UI имеет режим `все capabilities`. | — |
+| `EVC-26` | Personal UI capability mode не меняет backend. | — |
+| `EVC-27` | Personal UI capability mode не меняет environment. | — |
+| `EVC-28` | Personal UI capability mode не меняет database. | — |
+| `EVC-29` | Personal UI capability mode не меняет S3/storage. | — |
+| `EVC-30` | Personal UI capability mode не меняет STT credentials. | — |
+| `EVC-31` | Commercial-view mode в personal воспроизводит approved commercial UX/UI. | — |
+| `EVC-32` | Personal и commercial имеют независимый rollback. | — |
+| `EVC-33` | STT provider заменяется через bounded interface. | — |
+| `EVC-34` | S3/storage provider заменяется через bounded interface. | — |
+| `EVC-35` | Authorization provider заменяется через bounded interface. | — |
+| `EVC-36` | Notification provider заменяется через bounded interface. | — |
+| `EVC-37` | Core entities поддерживают `user_id`/`tenant_id` ownership. | — |
+| `EVC-38` | Personal admin auth не блокирует future user roles/access control. | — |
+| `EVC-39` | STT provider implementations являются отдельными modules. | — |
+| `EVC-40` | Storage implementations являются отдельными modules. | — |
+| `EVC-41` | Authorization implementations являются отдельными modules. | — |
+| `EVC-42` | Notification implementations являются отдельными modules. | — |
+| `EVC-43` | Другие external integrations являются capability-scoped modules. | — |
+| `EVC-44` | Audio processing boundary заменяема независимо. | — |
+| `EVC-45` | Transcription boundary заменяема независимо. | — |
+| `EVC-46` | Google Drive boundary заменяема независимо. | — |
+| `EVC-47` | File-storage boundary заменяема независимо. | — |
+| `EVC-48` | Document-creation boundary заменяема независимо. | — |
+| `EVC-49` | Unused integration code не делает capability доступной в commercial. | — |
+| `EVC-50` | Российские и иностранные providers используют общий interface, когда capabilities совместимы. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-INFRA-DATA-01` — infrastructure и localization
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/20`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CINF-01` | Основной commercial production backend размещается на российской инфраструктуре, пригодной для обработки данных российских пользователей. | — |
+| `CINF-02` | Основная PostgreSQL database размещается на территории РФ. | — |
+| `CINF-03` | Commercial S3 использует S3-compatible storage российского provider вместо Cloudflare R2. | — |
+| `CINF-04` | PostgreSQL backups соблюдают localization requirements. | — |
+| `CINF-05` | Backups пользовательских данных соблюдают localization requirements. | — |
+| `CINF-06` | Temporary FFmpeg files хранятся на российской инфраструктуре. | — |
+| `CINF-07` | Intermediate processing results хранятся на российской инфраструктуре. | — |
+| `CINF-08` | Logs, analytics и diagnostics не отправляют персональные данные в зарубежные services без контроля. | — |
+| `CINF-09` | Cloudflare и другие foreign infrastructure services проверяются по фактическому data flow. | — |
+| `CINF-10` | Commercial использует отдельный PostgreSQL. | — |
+| `CINF-11` | Commercial использует отдельное S3 storage. | — |
+| `CINF-12` | Commercial использует отдельные secrets. | — |
+| `CINF-13` | Commercial использует отдельные API keys. | — |
+| `CINF-14` | Commercial использует отдельные OAuth credentials. | — |
+| `CINF-15` | Остальные production resources commercial изолированы от personal. | — |
+| `CINF-16` | Для PostgreSQL утверждён RPO. | — |
+| `CINF-17` | Для PostgreSQL утверждён RTO. | — |
+| `CINF-18` | Point-in-time restore реализован и проверен. | — |
+| `CINF-19` | Реальное восстановление данных из backup регулярно проверяется. | — |
+| `CINF-20` | Удалённые пользователем данные не возвращаются в production после restore старого backup. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-IDENTITY-01` — registration, auth и TOTP
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/18`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CID-01` | Основной способ registration/auth пользователей — email + password. | — |
+| `CID-02` | Registration допускает Gmail и другие foreign email addresses. | — |
+| `CID-03` | Foreign email не интерпретируется как Google OAuth login. | — |
+| `CID-04` | После registration email подтверждается. | — |
+| `CID-05` | Password reset использует one-time token. | — |
+| `CID-06` | Password reset token имеет ограниченный lifetime. | — |
+| `CID-07` | Password reset не раскрывает existence account и fail-closed обрабатывает повтор. | — |
+| `CID-08` | System emails отправляет transactional email provider. | — |
+| `CID-09` | Transactional email использует собственный domain. | — |
+| `CID-10` | Google OAuth не используется для registration/auth в российском commercial production. | — |
+| `CID-11` | Yandex ID доступен как optional OAuth provider. | — |
+| `CID-12` | VK ID доступен как optional OAuth provider. | — |
+| `CID-13` | Google OAuth используется только для подключения Google Drive. | — |
+| `CID-14` | Допустимость Google Drive OAuth подтверждена актуальным legal gate. | — |
+| `CID-15` | Доступна optional TOTP 2FA. | — |
+| `CID-16` | TOTP совместим с разными standard authenticator apps. | — |
+| `CID-17` | Определён безопасный account recovery. | — |
+| `CID-18` | Определён безопасный second-factor reset. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-DATA-GOVERNANCE-01` — персональные данные
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/26`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CDG-01` | Первичная запись персональных данных выполняется в РФ. | — |
+| `CDG-02` | Систематизация персональных данных выполняется в РФ. | — |
+| `CDG-03` | Накопление персональных данных выполняется в РФ. | — |
+| `CDG-04` | Хранение персональных данных выполняется в РФ. | — |
+| `CDG-05` | Изменение персональных данных выполняется в РФ. | — |
+| `CDG-06` | Извлечение персональных данных выполняется в РФ. | — |
+| `CDG-07` | Определён полный перечень персональных данных сервиса. | — |
+| `CDG-08` | Определены data rules для audio recordings. | — |
+| `CDG-09` | Определены data rules для transcripts. | — |
+| `CDG-10` | Определены data rules для speaker voices. | — |
+| `CDG-11` | Определены data rules для email. | — |
+| `CDG-12` | Определены data rules для IP addresses. | — |
+| `CDG-13` | Определены data rules для OAuth tokens. | — |
+| `CDG-14` | Определены data rules для diagnostic data. | — |
+| `CDG-15` | Для каждого data type определена processing purpose. | — |
+| `CDG-16` | Для каждого data type определено legal basis. | — |
+| `CDG-17` | Для каждого data type определён retention period. | — |
+| `CDG-18` | Данные удаляются после истечения retention period. | — |
+| `CDG-19` | Данные удаляются по подтверждённому user request. | — |
+| `CDG-20` | Пользователь может удалить account. | — |
+| `CDG-21` | Account deletion очищает связанные user data. | — |
+| `CDG-22` | Account deletion очищает сохранённые OAuth tokens. | — |
+| `CDG-23` | Подготовлена policy обработки персональных данных. | — |
+| `CDG-24` | Подготовлено user agreement и/или public offer. | — |
+| `CDG-25` | Подготовлены необходимые consents на обработку персональных данных. | — |
+| `CDG-26` | Проверена необходимость уведомления Роскомнадзора как operator персональных данных. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-CROSS-BORDER-01` — foreign services и legal gates
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/14`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CXB-01` | Для каждого foreign service определён передаваемый набор user data. | — |
+| `CXB-02` | Foreign STT provider проверен по законодательству РФ. | — |
+| `CXB-03` | Foreign STT provider проверен по своим terms of use. | — |
+| `CXB-04` | Cross-border data transfer foreign STT provider отдельно проверен. | — |
+| `CXB-05` | Российский STT provider является полноценным production вариантом. | — |
+| `CXB-06` | Commercial production не зависит от ElevenLabs или другого foreign STT provider. | — |
+| `CXB-07` | ElevenLabs может быть включён только как additional provider. | — |
+| `CXB-08` | Использование ElevenLabs в commercial разрешено отдельным legal opinion. | — |
+| `CXB-09` | Техническая возможность foreign provider не считается legal permission для commercial. | — |
+| `CXB-10` | Production не зависит полностью от одного foreign AI provider. | — |
+| `CXB-11` | STT architecture позволяет отключить/заменить provider без переделки всей системы. | — |
+| `CXB-12` | Google Drive является external user integration. | — |
+| `CXB-13` | Google Drive не является primary internal storage сервиса. | — |
+| `CXB-14` | Google Drive OAuth отделён от OAuth login в сам сервис. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-STT-QUOTA-01` — provider tariffs, quotas и dispatch
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/16`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CSQ-01` | Для каждого STT provider хранится applicable tariff. | — |
+| `CSQ-02` | Для каждого STT provider хранится transcription cost. | — |
+| `CSQ-03` | Для каждой job учитываются фактически использованные minutes/hours. | — |
+| `CSQ-04` | Пользователи имеют monthly quotas. | — |
+| `CSQ-05` | User quota проверяется до job. | — |
+| `CSQ-06` | Global quota проверяется до job. | — |
+| `CSQ-07` | Expected job spend резервируется на время выполнения. | — |
+| `CSQ-08` | Parallel jobs не могут потратить один и тот же quota balance. | — |
+| `CSQ-09` | Global API spend limits предотвращают accidental/malicious balance exhaustion. | — |
+| `CSQ-10` | Пользователь выбирает понятный режим по price/capabilities. | — |
+| `CSQ-11` | Конкретный STT provider скрыт из обычного commercial UX. | — |
+| `CSQ-12` | Отдельный STT provider можно аварийно отключить. | — |
+| `CSQ-13` | При provider outage связанный mode временно блокируется. | — |
+| `CSQ-14` | Job не переключается автоматически на другой provider. | — |
+| `CSQ-15` | BYOK доступен только при technical compatibility provider. | — |
+| `CSQ-16` | BYOK доступен только после legal permission provider. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-SPEAKER-PRIVACY-01` — diarization без biometrics
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/3`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CSP-01` | Commercial показывает обычные diarization labels `Speaker 1`, `Speaker 2`. | — |
+| `CSP-02` | Commercial не выполняет automatic voice-reference/voiceprint identification. | — |
+| `CSP-03` | Voice identification не добавляется до отдельной legal проработки biometric personal data. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-QUEUE-FAIRNESS-01` — fair resource allocation
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/6`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CQF-01` | Ограничены concurrently running jobs пользователя/тарифа. | — |
+| `CQF-02` | Ограничены queued jobs пользователя/тарифа. | — |
+| `CQF-03` | Ограничены concurrently running jobs всей системы. | — |
+| `CQF-04` | Ограничены queued jobs всей системы. | — |
+| `CQF-05` | Один пользователь не может занять всю queue. | — |
+| `CQF-06` | Один пользователь не может занять все worker resources. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-BILLING-01` — payments, subscriptions и fiscalization
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/27`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CBI-01` | Определена legal form коммерческой деятельности, например ИП. | — |
+| `CBI-02` | Выбран российский payment provider. | — |
+| `CBI-03` | Payment provider поддерживает recurring payments. | — |
+| `CBI-04` | Payments fiscalized. | — |
+| `CBI-05` | Пользователю отправляется receipt. | — |
+| `CBI-06` | Определены tariffs. | — |
+| `CBI-07` | Реализованы subscriptions. | — |
+| `CBI-08` | Реализованы quota по tariffs. | — |
+| `CBI-09` | Реализована purchase дополнительных hours. | — |
+| `CBI-10` | Ведётся internal payment accounting. | — |
+| `CBI-11` | Ведётся internal accounting оказанных услуг. | — |
+| `CBI-12` | Billing/usage accounting отделён от ordinary analytics. | — |
+| `CBI-13` | Очистка ordinary analytics не удаляет billing/usage accounting. | — |
+| `CBI-14` | Job хранит immutable tariff snapshot. | — |
+| `CBI-15` | Job хранит immutable mode snapshot. | — |
+| `CBI-16` | Job хранит immutable calculation-rules snapshot. | — |
+| `CBI-17` | Payment/subscription state восстанавливается после missed webhook. | — |
+| `CBI-18` | Repeated webhook обрабатывается idempotently. | — |
+| `CBI-19` | Repeated provider event не создаёт double charge. | — |
+| `CBI-20` | Repeated provider event не начисляет quota дважды. | — |
+| `CBI-21` | Repeated provider event не продлевает subscription дважды. | — |
+| `CBI-22` | Subscription cancellation обрабатывается корректно. | — |
+| `CBI-23` | Payment refund обрабатывается корректно. | — |
+| `CBI-24` | Failed recurring charge обрабатывается корректно. | — |
+| `CBI-25` | Admin видит tariffs. | — |
+| `CBI-26` | Admin видит payments. | — |
+| `CBI-27` | Admin видит API spend. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-ECONOMICS-01` — unit economics
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/15`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CEC-01` | Для каждой job собирается STT cost. | — |
+| `CEC-02` | Собирается storage cost. | — |
+| `CEC-03` | Собирается compute cost. | — |
+| `CEC-04` | Собирается network traffic cost. | — |
+| `CEC-05` | Учитывается payment-provider commission. | — |
+| `CEC-06` | Учитывается fiscalization cost. | — |
+| `CEC-07` | Учитываются taxes. | — |
+| `CEC-08` | Учитываются другие mandatory business expenses. | — |
+| `CEC-09` | Рассчитывается cost per transcription hour для каждого provider/mode. | — |
+| `CEC-10` | Рассчитывается average cost одного active user. | — |
+| `CEC-11` | Рассчитывается ARPU. | — |
+| `CEC-12` | Рассчитывается contribution margin. | — |
+| `CEC-13` | Рассчитывается retention. | — |
+| `CEC-14` | Рассчитывается LTV. | — |
+| `CEC-15` | До advertising launch определён maximum allowed acquisition cost. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-SECURITY-01` — least privilege, tenancy и backups
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/21`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CSEC-01` | Все STT provider API keys хранятся только на backend. | — |
+| `CSEC-02` | API keys шифруются at rest. | — |
+| `CSEC-03` | OAuth refresh tokens шифруются at rest. | — |
+| `CSEC-04` | Другие application secrets шифруются at rest. | — |
+| `CSEC-05` | Encryption keys хранятся отдельно от primary database. | — |
+| `CSEC-06` | Database не доступна напрямую из internet. | — |
+| `CSEC-07` | Production app не подключается к database как superuser. | — |
+| `CSEC-08` | Все user data разделены по `user_id` или `tenant_id`. | — |
+| `CSEC-09` | File access проверяется по current user/tenant. | — |
+| `CSEC-10` | Job access проверяется по current user/tenant. | — |
+| `CSEC-11` | Transcription access проверяется по current user/tenant. | — |
+| `CSEC-12` | Integration access проверяется по current user/tenant. | — |
+| `CSEC-13` | Основные user-owned tables используют PostgreSQL RLS как дополнительную isolation layer. | — |
+| `CSEC-14` | Critical actions записываются в audit log. | — |
+| `CSEC-15` | User/API rate limits включены. | — |
+| `CSEC-16` | Concurrent running jobs ограничены. | — |
+| `CSEC-17` | Media/FFmpeg workers отделены от API. | — |
+| `CSEC-18` | Media/FFmpeg workers имеют minimum required privileges. | — |
+| `CSEC-19` | Database backup выполняется регулярно. | — |
+| `CSEC-20` | Database restore регулярно проверяется. | — |
+| `CSEC-21` | Credentials personal и commercial production никогда не переиспользуются между contours. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-NOTIFICATIONS-01` — replaceable notification providers
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/8`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CNOT-01` | Для transactional email выбран российский provider. | — |
+| `CNOT-02` | Для system notifications выбран российский provider. | — |
+| `CNOT-03` | Для external notification services определён передаваемый набор personal data. | — |
+| `CNOT-04` | Web Push реализован отдельным module. | — |
+| `CNOT-05` | Email реализован отдельным module. | — |
+| `CNOT-06` | Messenger notifications реализованы отдельным module. | — |
+| `CNOT-07` | Notification provider можно заменить. | — |
+| `CNOT-08` | Notification provider можно отключить. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+
+### Эпик `COMMERCIAL-LEGAL-01` — launch legal readiness
+
+Status: **⬜ BACKLOG ⛔ BLOCKED — 0% (`0/18`)**.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `CLEG-01` | До public commercial launch проведена legal review фактического user-data flow. | — |
+| `CLEG-02` | Personal-data policy соответствует фактическому backend behavior. | — |
+| `CLEG-03` | Cross-border transfer через Google Drive проверен отдельно. | — |
+| `CLEG-04` | Cross-border transfer для каждого foreign STT provider проверен отдельно. | — |
+| `CLEG-05` | Допустимость ElevenLabs проверена отдельно. | — |
+| `CLEG-06` | Допустимость каждой другой foreign integration проверена отдельно. | — |
+| `CLEG-07` | Подготовлено user agreement/public offer. | — |
+| `CLEG-08` | Подготовлена personal-data processing policy. | — |
+| `CLEG-09` | Подготовлены необходимые consents. | — |
+| `CLEG-10` | Определён retention audio recordings. | — |
+| `CLEG-11` | Определено deletion audio recordings. | — |
+| `CLEG-12` | Определён retention transcripts. | — |
+| `CLEG-13` | Определено deletion transcripts. | — |
+| `CLEG-14` | Пользователь подтверждает право загружать и обрабатывать передаваемые audio recordings. | — |
+| `CLEG-15` | Пользователь может отозвать consents. | — |
+| `CLEG-16` | Пользователь может отключить external integrations. | — |
+| `CLEG-17` | При отключении integration связанные tokens удаляются. | — |
+| `CLEG-18` | Перед production launch актуальные legal requirements проверяются повторно. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 7. Durable technical и safety constraints
 
@@ -425,19 +1084,20 @@ Future auth criteria исключены из текущего denominator до �
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd` (PR `#246`).
-- Exact-main repository CI: run `33114690918`, success.
-- Exact-main Studio/browser CI: run `33114690898`, jobs `studio` и `browser-e2e` success.
-- Studio Platform CD run `33114690923` завершил web-only deployment; migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
+- Current verified revision: `main@f6b0d70e751673ea4edb11c655a732d594ff8f31` (PR `#247`).
+- Exact-main repository CI: run `33116072365`, success.
+- Exact-main Studio/browser CI: run `33116072392`, jobs `studio` и `browser-e2e` success.
+- Studio Platform CD run `33114690923` завершил web-only deployment revision `5a4115aed22497c7cb5c6a4d38258dbcf27641bd`; subsequent `f6b0d70` изменил только CI/docs/tests, поэтому новый deployment был N/A. Migration/API/worker были корректно skipped. Public `/api/healthz` 2026-08-27 ранее вернул `database=reachable`, `migrations=current`, но exact production schema/component identities этим не доказаны.
 - Public root и login shell доступны, required security headers присутствуют. `/manifest.webmanifest?rev=5a4115a` 2026-08-27 вернул `200` и `Content-Type: application/manifest+json`; MIME remediation имеет `DEPLOY/LIVE ✅`. Authenticated source-cache LIVE не выполнен. Historical runtime identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Выполнить current operational `REPO-HARDENING-01`: documentation truth, bounded manifest MIME remediation и CI efficiency без сокращения quality gates.
-2. Не менять product AC/denominator, OAuth scopes, backend/schema/worker, production CD safety contract или commercial implementation.
-3. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
-4. DB least privilege, exact-revision CD redesign, query bounds/storage isolation и legacy removal остаются отдельными Goals.
-5. Commercial contour включён в durable BACKLOG, но implementation не входит в текущую Goal.
+1. Завершить `SPEC-CANONICALIZATION-02`: document validation, PR, exact-head CI и merge нового denominator `532`.
+2. Не начинать non-commercial или commercial implementation без отдельной bounded Goal.
+3. Разобрать сохранённые SPEC gaps отдельным owner decision packet; не подменять решения defaults текущей реализации.
+4. Google Picker и source-cache authenticated LIVE остаются archived external gates и не считаются выполненными.
+5. DB least privilege, exact-revision CD redesign, query bounds/storage isolation и legacy removal остаются отдельными Goals.
+6. Commercial contour включён в durable BACKLOG `0/242`; это не implementation authorization.
 
 ## 10. Supporting documents
 

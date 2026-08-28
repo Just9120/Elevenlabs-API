@@ -7,16 +7,17 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current product scope для verified `main@5a4115aed22497c7cb5c6a4d38258dbcf27641bd`:
+Актуальная независимо пересчитанная готовность current product scope для verified `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`:
 
-- Google Colab: **100% (`29/29`)**.
-- VoiceOps Studio PWA: **100% (`119/119`)**.
-- согласованный current canonical scope: **100% (`148/148`)**.
-- полный scope upstream requirements: **не рассчитан — `SPEC RECONCILIATION REQUIRED`**.
+- Google Colab: **100% (`31/31`)**.
+- Personal VoiceOps Studio PWA: **66,4% (`172/259`)**.
+- non-commercial scope: **70,0% (`203/290`)**.
+- commercial/cross-contour backlog: **0% (`0/242`)**.
+- полный canonical scope: **38,2% (`203/532`)**.
 
-`148/148` не означает готовность всей заявленной product vision или production READY: это только denominator уже согласованных atomic AC в `docs/project-spec.md`. `PWA-GOOGLE-PICKER-UX-01` имеет `3/3`, exact-main CI и web deployment после PR `#245`, но authenticated production LIVE исправления ещё не зафиксировано. PR `#246` синхронизировал documentation truth, исправил public webmanifest MIME, усилил и ускорил CI; production header подтверждён как `application/manifest+json`. Upstream Google Doc содержит и другие новые/частично конфликтующие требования, которые должны пройти reconciliation до полного расчёта. Source-cache LIVE также остаётся отдельным archived external gate.
+Предыдущие `148/148` не были оценкой всей product vision. После явного согласования upstream scope denominator расширен до `532`: existing `148` AC + `142` новых non-commercial + `50` cross-contour + `192` commercial. Numerator `203` состоит из прежних `148` и `55` новых подтверждённых AC; это расширение scope, а не регресс кода. `PWA-GOOGLE-PICKER-UX-01` и `PWA-TRANSCRIPTIONS-UX-01` имеют выполненные AC, но authenticated production `LIVE —`; у `PWA-MANIFEST-01` — `LIVE ◐`.
 
-Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. До завершения atomic decomposition общий project percentage остаётся `N/A`.
+Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. Commercial/cross-contour denominator `242` уже canonical, readiness `0/242`; существующий personal code не считается commercial Evidence.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
