@@ -16,25 +16,25 @@
   6. `TUX-06`: `PB-11` — composer и preflight явно показывают `Разделение спикеров: включено/выключено`; enabled state заметно не только цветом.
   7. `TUX-07`: focused tests покрывают empty current folder, folder/file search, escaped query, pagination, selection persistence/dedup/max, stale/cancel/error/timeout, shared Drive и diarization states; full frontend test/lint/build и repository checks green.
   8. `TUX-08`: exact PR-head required checks, web-only delivery exact merged revision и authenticated LIVE подтверждают три picker modes, search/current-folder/multi-select/scroll behavior и обе diarization states без provider call.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** immediate blocker отсутствует. Authenticated Google Drive LIVE требует существующую owner session и доступные representative folders/media; GitHub Actions minutes расходуются только на один validated initial push и автоматические required checks. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`: PR `#253` и exact-main web delivery зелёные, authenticated LIVE подтвердил основные flows и выявил bounded shared-folder query defect, который исправляется отдельным hotfix в той же Goal.
+- **Known blockers/dependencies:** immediate external blocker отсутствует. Authenticated LIVE на `web-4aea847` выявил неверную Drive query-форму `sharedWithMe = true`; official Drive grammar требует standalone term `sharedWithMe`. Hotfix не меняет OAuth, backend или deployment topology. GitHub Actions minutes расходуются только на validated hotfix push и автоматически запущенные required checks. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и canonical `PG-04..08`/`PB-11` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к `transcript_doc` или другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T16:45:54Z.
+- Updated (UTC): 2026-08-28T17:12:37Z.
 - Session mode: authorized full-delivery Goal; commercial, `transcript_doc` implementation и перечисленные non-goals запрещены.
-- Base branch/SHA: verified `origin/main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`.
-- Working branch: `codex/pwa-transcription-ux-polish-01`, создана от exact base.
-- Last verified revision: implementation `a82bdc0742b1a95def836f212d44747162bb0b44`; commit покрыт focused/full frontend tests, lint, production build и diff check.
+- Base branch/SHA: hotfix branch создана от verified merged `origin/main@4aea84705b1210a775bfe3d8e50d870f3ed605fe` (PR `#253`).
+- Working branch: `codex/pwa-transcription-ux-polish-01-live-hotfix`.
+- Last verified revision: deployed implementation `4aea84705b1210a775bfe3d8e50d870f3ed605fe`; uncommitted hotfix заменяет invalid `sharedWithMe = true` на canonical standalone `sharedWithMe` и покрыт full local validation.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: commit `edf3741` синхронизировал canonical AC/readiness/previous Goal archive; commit `a82bdc0` перевёл source files/source folder/output folder на reusable app-owned Drive dialog с server MIME policy, bounded search/pagination, shared Drive navigation, selection persistence/max `50` и scroll/focus/timeout safety; composer/preflight получили explicit diarization states. New/updated tests покрывают оба состояния, empty folder, search escaping, pagination/dedup, max selection, stale abort, shared drive, safe error/timeout и native non-goal modes.
-- Current step: local validation завершена; подготовить единственный initial push и Pull Request.
-- Next exact action: выполнить final `git fetch`, подтвердить неизменность `origin/main@ea92ac67` и clean worktree, затем один раз push branch и создать PR с exact head.
-- Validation and Evidence: `SPEC/CODE/TEST ✅`: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, repository `scripts/ci_checks.py` success, isolated committed Python 3.11 graph `1092 passed / 5 skipped`, Playwright discovery `12` tests, `git diff --check` green. System Python collection failure был локальным dependency drift и устранён для validation через non-mutating isolated `uv` environment; global packages не менялись. Build сохраняет existing non-blocking chunk-size warning. Remote CI/DEPLOY/LIVE ещё не выполнялись.
-- Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Production web baseline `ea92ac67`; API/worker `cc434775`; schema `0027_query_bounds`.
-- Blockers: отсутствуют. Возможный external gate — недостаточный representative Drive data/session для authenticated LIVE; до фактической проверки это не blocker.
-- Unverified assumptions: Drive API search возвращает accessible items в рамках existing OAuth scopes; MIME policy достаточно выразима для server-equivalent client filter, при этом backend exact-ID validation остаётся final authority; production representative media/folders доступны владельцу.
+- Completed: PR `#253` merged как `4aea847`; PR-head `CI/checks`, `Studio PWA CI/studio` и `browser-e2e` green. Exact-main runs `33192022059` (`CI`) и `33192022106` (`Studio PWA CI`) green; CD `33192022175` correctly deployed only web, а API/worker/migration jobs skipped. Authenticated diagnostics подтвердили exact `web-4aea847`, production readiness и unchanged API/worker `cc434775`. LIVE подтвердил source files/source folder/output folder dialogs, synthetic bounded search без пользовательских selection mutations, current-folder enablement, scroll lock/release и оба diarization states; provider/job calls не выполнялись. LIVE также точно локализовал partial failure `Доступные мне папки` в invalid query syntax.
+- Current step: local hotfix validation завершена; создать focused commit, подтвердить unchanged `origin/main` и выполнить единственный hotfix push/PR.
+- Next exact action: commit трёх reviewed files; затем final `git fetch`, clean worktree/base verification, один push hotfix branch и PR.
+- Validation and Evidence: original scope local `SPEC/CODE/TEST ✅`: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, repository `scripts/ci_checks.py` success, isolated committed Python 3.11 graph `1092 passed / 5 skipped`, Playwright discovery `12` tests, `git diff --check` green. Hotfix повторно подтвердил focused picker `8/8`, full frontend Vitest `619/619`, full ESLint, production TypeScript/Vite/PWA build, repository checks и `git diff --check`; exact regression assertion фиксирует canonical shared-folder query. Build сохраняет existing non-blocking chunk-size warning.
+- Pull Request / CI / deployment: PR `#253` merged; exact deployed web `4aea84705b1210a775bfe3d8e50d870f3ed605fe`. Hotfix PR ещё не создан. Production API/worker `cc434775`; schema `0027_query_bounds`.
+- Blockers: отсутствуют; bounded hotfix должен пройти exact-head CI, web-only redeploy и repeated authenticated LIVE.
+- Unverified assumptions: после исправления canonical `sharedWithMe` production Drive API вернёт shared-folder page без partial alert; representative private folder/file names не читаются и не включаются в delivery evidence, backend exact-ID validation остаётся final authority.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
