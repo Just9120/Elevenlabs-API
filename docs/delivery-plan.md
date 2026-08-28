@@ -16,22 +16,22 @@
   6. `TUX-06`: `PB-11` — composer и preflight явно показывают `Разделение спикеров: включено/выключено`; enabled state заметно не только цветом.
   7. `TUX-07`: focused tests покрывают empty current folder, folder/file search, escaped query, pagination, selection persistence/dedup/max, stale/cancel/error/timeout, shared Drive и diarization states; full frontend test/lint/build и repository checks green.
   8. `TUX-08`: exact PR-head required checks, web-only delivery exact merged revision и authenticated LIVE подтверждают три picker modes, search/current-folder/multi-select/scroll behavior и обе diarization states без provider call.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** immediate blocker отсутствует. Authenticated Google Drive LIVE требует существующую owner session и доступные representative folders/media; GitHub Actions minutes расходуются только на один validated initial push и автоматические required checks. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и canonical `PG-04..08`/`PB-11` подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к `transcript_doc` или другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T16:42:28Z.
+- Updated (UTC): 2026-08-28T16:45:54Z.
 - Session mode: authorized full-delivery Goal; commercial, `transcript_doc` implementation и перечисленные non-goals запрещены.
 - Base branch/SHA: verified `origin/main@ea92ac671a31cb70dd8f59c78561ee1e5fcf4fbe`.
 - Working branch: `codex/pwa-transcription-ux-polish-01`, создана от exact base.
-- Last verified revision: documentation checkpoint `edf37413e0f2cdb50b9a70d54006837a74a9551c`; canonical AC/readiness/Goal contract validation covered by this commit.
+- Last verified revision: implementation `a82bdc0742b1a95def836f212d44747162bb0b44`; commit покрыт focused/full frontend tests, lint, production build и diff check.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: Git/GitHub state и no-open-PR проверены; applicable contracts/runbooks и current Drive Picker/tests изучены; owner-approved AC атомизированы; commit `edf3741` синхронизировал spec, readiness denominator, previous Goal archive и durable checkpoint. Проверка подтвердила `546` unique AC rows и arithmetic `216/546`, `185/272`, `31/32`; `git diff --check` green.
-- Current step: зафиксировать locally validated picker/diarization implementation отдельным reviewable commit.
-- Next exact action: создать implementation commit, обновить checkpoint на exact SHA и выполнить repository-wide local validation перед единственным initial push.
-- Validation and Evidence: `SPEC ✅`; implementation local state: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, `git diff --check` green. Build сохраняет existing non-blocking chunk-size warning; CODE/TEST ещё не синхронизированы как delivery Evidence до commit/CI.
+- Completed: commit `edf3741` синхронизировал canonical AC/readiness/previous Goal archive; commit `a82bdc0` перевёл source files/source folder/output folder на reusable app-owned Drive dialog с server MIME policy, bounded search/pagination, shared Drive navigation, selection persistence/max `50` и scroll/focus/timeout safety; composer/preflight получили explicit diarization states. New/updated tests покрывают оба состояния, empty folder, search escaping, pagination/dedup, max selection, stale abort, shared drive, safe error/timeout и native non-goal modes.
+- Current step: local validation завершена; подготовить единственный initial push и Pull Request.
+- Next exact action: выполнить final `git fetch`, подтвердить неизменность `origin/main@ea92ac67` и clean worktree, затем один раз push branch и создать PR с exact head.
+- Validation and Evidence: `SPEC/CODE/TEST ✅`: focused picker `8/8`, focused App `221/221`, full frontend Vitest `619/619`, ESLint success, production TypeScript/Vite/PWA build success, repository `scripts/ci_checks.py` success, isolated committed Python 3.11 graph `1092 passed / 5 skipped`, Playwright discovery `12` tests, `git diff --check` green. System Python collection failure был локальным dependency drift и устранён для validation через non-mutating isolated `uv` environment; global packages не менялись. Build сохраняет existing non-blocking chunk-size warning. Remote CI/DEPLOY/LIVE ещё не выполнялись.
 - Pull Request / CI / deployment: PR не создан; push запрещён до полной local validation. Production web baseline `ea92ac67`; API/worker `cc434775`; schema `0027_query_bounds`.
 - Blockers: отсутствуют. Возможный external gate — недостаточный representative Drive data/session для authenticated LIVE; до фактической проверки это не blocker.
 - Unverified assumptions: Drive API search возвращает accessible items в рамках existing OAuth scopes; MIME policy достаточно выразима для server-equivalent client filter, при этом backend exact-ID validation остаётся final authority; production representative media/folders доступны владельцу.
