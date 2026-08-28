@@ -223,6 +223,141 @@ describe("app-owned Google Drive picker", () => {
     });
   });
 
+  it("uses the app-owned searchable picker for a transcript folder", async () => {
+    const observedQueries: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.pathname.endsWith("/files/root")) {
+          return Promise.resolve(json(rootPayload()));
+        }
+        if (url.pathname.endsWith("/drives")) {
+          return Promise.resolve(json({ drives: [] }));
+        }
+        const query = url.searchParams.get("q") ?? "";
+        if (query.includes("sharedWithMe")) {
+          return Promise.resolve(json({ files: [] }));
+        }
+        observedQueries.push(query);
+        if (query.includes("name contains")) {
+          return Promise.resolve(
+            json({
+              files: [
+                {
+                  id: "transcript-folder-id",
+                  name: "Созвоны команды",
+                  mimeType: FOLDER_MIME_TYPE,
+                },
+              ],
+            }),
+          );
+        }
+        return Promise.resolve(json({ files: [] }));
+      }),
+    );
+
+    const { resultPromise } = await startPicker(
+      "transcript-folder",
+      pickerSession(),
+    );
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Выберите папку с транскриптами",
+      }),
+    ).toBeInTheDocument();
+    const search = screen.getByLabelText(
+      "Поиск папок с транскриптами по началу названия",
+    );
+    await userEvent.type(search, "Созвоны");
+    await userEvent.click(screen.getByRole("button", { name: "Найти" }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Открыть папку «Созвоны команды»",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Выбрать эту папку" }),
+    );
+
+    await expect(resultPromise).resolves.toMatchObject({
+      action: "picked",
+      docs: [{ id: "transcript-folder-id", name: "Созвоны команды" }],
+    });
+    expect(
+      observedQueries.some((query) => query.includes("name contains 'Созвоны'")),
+    ).toBe(true);
+  });
+
+  it("searches and selects one Google Doc in the app-owned transcript picker", async () => {
+    const googleDoc = {
+      id: "google-doc-id",
+      name: "Синк с разработкой",
+      mimeType: "application/vnd.google-apps.document",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.pathname.endsWith("/files/root")) {
+          return Promise.resolve(json(rootPayload()));
+        }
+        if (url.pathname.endsWith("/drives")) {
+          return Promise.resolve(json({ drives: [] }));
+        }
+        const query = url.searchParams.get("q") ?? "";
+        if (query.includes("sharedWithMe")) {
+          return Promise.resolve(json({ files: [] }));
+        }
+        return Promise.resolve(
+          json({
+            files: query.includes("name contains")
+              ? [
+                  googleDoc,
+                  {
+                    id: "pdf-id",
+                    name: "Синк.pdf",
+                    mimeType: "application/pdf",
+                  },
+                ]
+              : [],
+          }),
+        );
+      }),
+    );
+
+    const { resultPromise } = await startPicker(
+      "transcript-document",
+      pickerSession(),
+    );
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Выберите Google Doc с транскриптом",
+      }),
+    ).toBeInTheDocument();
+    const search = screen.getByLabelText(
+      "Поиск Google Docs по началу названия",
+    );
+    await userEvent.type(search, "Синк");
+    await userEvent.click(screen.getByRole("button", { name: "Найти" }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Выбрать файл «Синк с разработкой»",
+      }),
+    );
+    expect(screen.queryByText("Синк.pdf")).not.toBeInTheDocument();
+    expect(screen.getByText("Выбран один Google Doc")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Выбрать Google Doc" }),
+    );
+    await expect(resultPromise).resolves.toEqual({
+      action: "picked",
+      docs: [googleDoc],
+    });
+    expect(document.documentElement.style.overflow).toBe("");
+    expect(document.body.style.overflow).toBe("");
+  });
+
   it("paginates source files explicitly and preserves deduplicated selections across search", async () => {
     const fileOne = {
       id: "file-1",

@@ -2748,7 +2748,7 @@ describe("Studio PWA", () => {
       scope_ready: true,
     };
     const pickedPromise = googlePicker.openGooglePicker(
-      "transcript-document",
+      "catalog-folder",
       pickerSession,
     );
     expect(pickerSession.access_token).toBe("");
@@ -2766,7 +2766,7 @@ describe("Studio PWA", () => {
         {
           id: "document-1",
           name: "Name",
-          mimeType: "application/vnd.google-apps.document",
+          mimeType: "application/vnd.google-apps.folder",
         },
       ],
     });
@@ -2777,7 +2777,7 @@ describe("Studio PWA", () => {
         {
           id: "document-1",
           name: "Name",
-          mimeType: "application/vnd.google-apps.document",
+          mimeType: "application/vnd.google-apps.folder",
         },
       ],
     });
@@ -2801,7 +2801,7 @@ describe("Studio PWA", () => {
     expect(document.body.style.overflow).toBe("");
 
     callback = null;
-    const errorPromise = googlePicker.openGooglePicker("transcript-document", {
+    const errorPromise = googlePicker.openGooglePicker("catalog-folder", {
       access_token: "ya29.error",
       api_key: "public",
       app_id: "app",
@@ -2840,7 +2840,7 @@ describe("Studio PWA", () => {
     expect(Number.isInteger(computed.height)).toBe(true);
   });
 
-  it("keeps catalog and transcript modes on the native Google Picker", async () => {
+  it("keeps only the catalog compatibility mode on the native Google Picker", async () => {
     googlePicker.resetGooglePickerLoaderForTests();
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
@@ -2971,58 +2971,16 @@ describe("Studio PWA", () => {
     callback?.({ action: "cancel" });
     await expect(catalogFolderPromise).resolves.toEqual({ action: "cancel" });
 
-    callback = null;
-    const transcriptFolderPromise = googlePicker.openGooglePicker(
-      "transcript-folder",
-      {
-        access_token: "ya29.transcript-folder",
-        api_key: "public",
-        app_id: "app",
-        scope_ready: true,
-      },
-    );
-    await waitFor(() => expect(callback).not.toBeNull());
-    callback?.({ action: "cancel" });
-    await expect(transcriptFolderPromise).resolves.toEqual({
-      action: "cancel",
-    });
-
-    callback = null;
-    const transcriptDocumentPromise = googlePicker.openGooglePicker(
-      "transcript-document",
-      {
-        access_token: "ya29.transcript-document",
-        api_key: "public",
-        app_id: "app",
-        scope_ready: true,
-      },
-    );
-    await waitFor(() => expect(callback).not.toBeNull());
-    callback?.({ action: "cancel" });
-    await expect(transcriptDocumentPromise).resolves.toEqual({
-      action: "cancel",
-    });
-
-    expect(viewIds).toEqual(["folders", "folders", "docs"]);
-    expect(viewModes).toEqual(["list", "list", "list"]);
-    expect(viewParents).toEqual(["root", "root", "root"]);
-    expect(includeFolders).toEqual([true, true, true]);
-    expect(viewMimeTypes).toEqual([
-      "application/vnd.google-apps.document",
-    ]);
-    expect(selectFolderEnabled).toEqual([true, true]);
+    expect(viewIds).toEqual(["folders"]);
+    expect(viewModes).toEqual(["list"]);
+    expect(viewParents).toEqual(["root"]);
+    expect(includeFolders).toEqual([true]);
+    expect(viewMimeTypes).toEqual([]);
+    expect(selectFolderEnabled).toEqual([true]);
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
       args: ["Выберите папку каталога транскриптов"],
-    });
-    expect(builderCalls).toContainEqual({
-      method: "setTitle",
-      args: ["Выберите папку с транскриптами"],
-    });
-    expect(builderCalls).toContainEqual({
-      method: "setTitle",
-      args: ["Выберите один Google Doc"],
     });
     expect(builderCalls).toContainEqual({
       method: "setSize",
@@ -3037,29 +2995,17 @@ describe("Studio PWA", () => {
       args: ["ya29.catalog"],
     });
     expect(builderCalls).toContainEqual({
-      method: "setOAuthToken",
-      args: ["ya29.transcript-folder"],
-    });
-    expect(builderCalls).toContainEqual({
-      method: "setOAuthToken",
-      args: ["ya29.transcript-document"],
-    });
-    expect(builderCalls).toContainEqual({
       method: "setDeveloperKey",
       args: ["public"],
     });
     expect(builderCalls).toContainEqual({ method: "setAppId", args: ["app"] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [1] });
-    expect(builderCalls).toContainEqual({
-      method: "setSelectableMimeTypes",
-      args: ["application/vnd.google-apps.document"],
-    });
     expect(
       builderCalls.filter((call) => call.method === "enableFeature"),
     ).toEqual([]);
     expect(
       builderCalls.filter((call) => call.method === "setCallback"),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
     expect(
       builderCalls.some((call) => call.args.includes("support_drives")),
     ).toBe(false);
@@ -3084,17 +3030,50 @@ describe("Studio PWA", () => {
     await screen.findByText(/Ключи провайдеров/);
     expect(
       screen.getByRole("heading", {
-        name: "Стандартизация Google Docs",
+        name: "Доступ Google для обслуживания",
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", {
-        name: "Манифест Studio",
+      screen.queryByRole("heading", {
+        name: "Стандартизация Google Docs",
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Транскрибации → Обслуживание/)).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("opens transcript maintenance as a dedicated Transcriptions workspace", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/api/transcript-maintenance/runs?workflow=")) {
+        return json({ run: null });
+      }
+      return defaultFetch!(url, init);
+    });
+    renderApp();
+    await openProjectsPage();
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Обслуживание" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Две независимые операции",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Стандартизация Google Docs" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Манифест Studio" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Обслуживание" }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 
   it("persists the local-source retention choice through account settings", async () => {

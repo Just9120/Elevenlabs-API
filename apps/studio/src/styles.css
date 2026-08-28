@@ -1109,12 +1109,30 @@ code {
 }
 .transcript-maintenance-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 .transcript-maintenance-operation {
   align-content: start;
   margin-top: 0;
+}
+.maintenance-run-progress {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--studio-accent) 55%, var(--studio-border));
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--studio-accent) 10%, transparent);
+}
+.maintenance-run-progress > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.maintenance-run-progress progress {
+  width: 100%;
+  accent-color: var(--studio-accent);
 }
 .transcript-catalog-migration {
   display: grid;

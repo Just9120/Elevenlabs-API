@@ -201,7 +201,10 @@ const singleCatalogApply = {
   selection_summary: singleSelectionSummary,
 };
 
-function renderPanel(pickerReady = true) {
+function renderPanel(
+  pickerReady = true,
+  view: "connections" | "workspace" = "workspace",
+) {
   return render(
     <TranscriptCatalogMigrationPanel
       csrf="csrf-safe"
@@ -210,8 +213,96 @@ function renderPanel(pickerReady = true) {
       googleLoading={false}
       pickerReady={pickerReady}
       maintenanceOauthResult={null}
+      view={view}
     />,
   );
+}
+
+const runIds = {
+  standardizationDryRun: "00000000-0000-4000-8000-000000000001",
+  standardizationApply: "00000000-0000-4000-8000-000000000002",
+  catalogDryRun: "00000000-0000-4000-8000-000000000003",
+  catalogApply: "00000000-0000-4000-8000-000000000004",
+} as const;
+
+function completedRun(
+  id: string,
+  result:
+    | typeof standardizationDryRun
+    | typeof standardizationApply
+    | typeof catalogDryRun
+    | typeof catalogApply,
+  selectionMode: "folder_tree" | "single_document" = "folder_tree",
+  targetName = "Безопасное название",
+) {
+  return {
+    id,
+    workflow: result.workflow,
+    operation: result.operation,
+    selection_mode: selectionMode,
+    target_name: targetName,
+    preview_run_id:
+      result.operation === "apply"
+        ? result.workflow === "standardization"
+          ? runIds.standardizationDryRun
+          : runIds.catalogDryRun
+        : null,
+    status: "succeeded",
+    current_stage: "completed",
+    progress: { completed: 2, total: 2 },
+    result,
+    error: null,
+    created_at: "2026-08-29T00:00:00Z",
+    started_at: "2026-08-29T00:00:01Z",
+    finished_at: "2026-08-29T00:00:02Z",
+  };
+}
+
+function failedRun(
+  id: string,
+  code: string,
+  retryable = false,
+  targetName = "Безопасное название",
+) {
+  return {
+    id,
+    workflow: "standardization",
+    operation: "apply",
+    selection_mode: "folder_tree",
+    target_name: targetName,
+    preview_run_id: runIds.standardizationDryRun,
+    status: "failed",
+    current_stage: "failed",
+    progress: { completed: 0, total: null },
+    result: null,
+    error: { code, retryable },
+    created_at: "2026-08-29T00:00:00Z",
+    started_at: "2026-08-29T00:00:01Z",
+    finished_at: "2026-08-29T00:00:02Z",
+  };
+}
+
+function queuedRun(id: string, targetName: string) {
+  return {
+    id,
+    workflow: "standardization",
+    operation: "dry_run",
+    selection_mode: "folder_tree",
+    target_name: targetName,
+    preview_run_id: null,
+    status: "queued",
+    current_stage: "queued",
+    progress: { completed: 0, total: null },
+    result: null,
+    error: null,
+    created_at: "2026-08-29T00:00:00Z",
+    started_at: null,
+    finished_at: null,
+  };
+}
+
+function isLatestRunRequest(url: string) {
+  return url.includes("/api/transcript-maintenance/runs?workflow=");
 }
 
 function sessionResponse() {
@@ -295,6 +386,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
   it("clears the manifest only after an explicit Да confirmation", async () => {
     const fetchMock = vi.fn((url: string) => {
+      if (isLatestRunRequest(url)) return json({ run: null });
       if (url.endsWith("/api/google/maintenance/connection")) {
         return json(readyMaintenanceConnection);
       }
@@ -344,6 +436,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
   it("runs separate recursive folder, dry-run, and apply flows", async () => {
     const fetchMock = vi.fn((url: string) => {
+      if (isLatestRunRequest(url)) return json({ run: null });
       if (url.endsWith("/api/google/maintenance/connection")) {
         return json(readyMaintenanceConnection);
       }
@@ -355,28 +448,47 @@ describe("TranscriptCatalogMigrationPanel", () => {
           "/api/transcript-maintenance/standardization/dry-run",
         )
       ) {
-        return json(standardizationDryRun);
+        return json(
+          completedRun(
+            runIds.standardizationDryRun,
+            standardizationDryRun,
+          ),
+          true,
+          202,
+        );
       }
       if (
         url.endsWith(
           "/api/transcript-maintenance/standardization/apply",
         )
       ) {
-        return json(standardizationApply);
+        return json(
+          completedRun(runIds.standardizationApply, standardizationApply),
+          true,
+          202,
+        );
       }
       if (
         url.endsWith(
           "/api/transcript-maintenance/catalog-import/dry-run",
         )
       ) {
-        return json(catalogDryRun);
+        return json(
+          completedRun(runIds.catalogDryRun, catalogDryRun),
+          true,
+          202,
+        );
       }
       if (
         url.endsWith(
           "/api/transcript-maintenance/catalog-import/apply",
         )
       ) {
-        return json(catalogApply);
+        return json(
+          completedRun(runIds.catalogApply, catalogApply),
+          true,
+          202,
+        );
       }
       return json({}, false, 404);
     });
@@ -496,13 +608,18 @@ describe("TranscriptCatalogMigrationPanel", () => {
     expect(standardDryRequest?.[1]).toEqual(
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
-          selection_mode: "folder_tree",
-          folder_id: "private-standard-folder",
-        }),
+        body: expect.any(String),
         headers: expect.objectContaining({
           "x-csrf-token": "csrf-safe",
         }),
+      }),
+    );
+    expect(JSON.parse(String(standardDryRequest?.[1]?.body))).toEqual(
+      expect.objectContaining({
+        selection_mode: "folder_tree",
+        folder_id: "private-standard-folder",
+        target_name: "Архив стандартов",
+        idempotency_key: expect.any(String),
       }),
     );
     const catalogApplyRequest = fetchMock.mock.calls.find(([url]) =>
@@ -513,13 +630,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
     expect(catalogApplyRequest?.[1]).toEqual(
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
-          selection_mode: "folder_tree",
-          folder_id: "private-catalog-folder",
-          confirm_apply: true,
-        }),
+        body: expect.any(String),
       }),
     );
+    expect(JSON.parse(String(catalogApplyRequest?.[1]?.body))).toEqual({
+      confirm_apply: true,
+      preview_run_id: runIds.catalogDryRun,
+      idempotency_key: expect.any(String),
+    });
     for (const privateValue of [
       "private-access-token",
       "private-standard-folder",
@@ -533,6 +651,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
   it("supports an independent single-document mode for each operation", async () => {
     const fetchMock = vi.fn((url: string) => {
+      if (isLatestRunRequest(url)) return json({ run: null });
       if (url.endsWith("/api/google/maintenance/connection")) {
         return json(readyMaintenanceConnection);
       }
@@ -544,21 +663,45 @@ describe("TranscriptCatalogMigrationPanel", () => {
           "/api/transcript-maintenance/standardization/dry-run",
         )
       ) {
-        return json(singleStandardizationDryRun);
+        return json(
+          completedRun(
+            runIds.standardizationDryRun,
+            singleStandardizationDryRun,
+            "single_document",
+          ),
+          true,
+          202,
+        );
       }
       if (
         url.endsWith(
           "/api/transcript-maintenance/catalog-import/dry-run",
         )
       ) {
-        return json(singleCatalogDryRun);
+        return json(
+          completedRun(
+            runIds.catalogDryRun,
+            singleCatalogDryRun,
+            "single_document",
+          ),
+          true,
+          202,
+        );
       }
       if (
         url.endsWith(
           "/api/transcript-maintenance/catalog-import/apply",
         )
       ) {
-        return json(singleCatalogApply);
+        return json(
+          completedRun(
+            runIds.catalogApply,
+            singleCatalogApply,
+            "single_document",
+          ),
+          true,
+          202,
+        );
       }
       return json({}, false, 404);
     });
@@ -673,10 +816,15 @@ describe("TranscriptCatalogMigrationPanel", () => {
     );
     expect(standardDryRequest?.[1]).toEqual(
       expect.objectContaining({
-        body: JSON.stringify({
-          selection_mode: "single_document",
-          document_id: "private-standard-document",
-        }),
+        body: expect.any(String),
+      }),
+    );
+    expect(JSON.parse(String(standardDryRequest?.[1]?.body))).toEqual(
+      expect.objectContaining({
+        selection_mode: "single_document",
+        document_id: "private-standard-document",
+        target_name: "Один документ стандартизации",
+        idempotency_key: expect.any(String),
       }),
     );
     const catalogApplyRequest = fetchMock.mock.calls.find(([url]) =>
@@ -686,13 +834,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
     );
     expect(catalogApplyRequest?.[1]).toEqual(
       expect.objectContaining({
-        body: JSON.stringify({
-          selection_mode: "single_document",
-          document_id: "private-catalog-document",
-          confirm_apply: true,
-        }),
+        body: expect.any(String),
       }),
     );
+    expect(JSON.parse(String(catalogApplyRequest?.[1]?.body))).toEqual({
+      confirm_apply: true,
+      preview_run_id: runIds.catalogDryRun,
+      idempotency_key: expect.any(String),
+    });
 
     await userEvent.selectOptions(standardMode, "folder_tree");
     expect(
@@ -719,13 +868,26 @@ describe("TranscriptCatalogMigrationPanel", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (isLatestRunRequest(url)) return json({ run: null });
         if (url.endsWith("/api/google/maintenance/connection")) {
           return json(readyMaintenanceConnection);
         }
         if (url.endsWith("/api/google/picker/session")) {
           return sessionResponse();
         }
-        return json(standardizationDryRun);
+        if (url.endsWith("/standardization/dry-run")) {
+          return json(
+            completedRun(
+              runIds.standardizationDryRun,
+              standardizationDryRun,
+              "folder_tree",
+              "Архив",
+            ),
+            true,
+            202,
+          );
+        }
+        return json({}, false, 404);
       }),
     );
     vi.spyOn(googlePicker, "openGooglePicker")
@@ -772,10 +934,75 @@ describe("TranscriptCatalogMigrationPanel", () => {
     expect(region).toHaveTextContent("Корневая папка: Другой архив");
   });
 
+  it("restores a durable run and follows it to completion after reload", async () => {
+    const queued = queuedRun(
+      runIds.standardizationDryRun,
+      "Архив после перезагрузки",
+    );
+    const completed = completedRun(
+      runIds.standardizationDryRun,
+      standardizationDryRun,
+      "folder_tree",
+      "Архив после перезагрузки",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/api/google/maintenance/connection")) {
+          return json(readyMaintenanceConnection);
+        }
+        if (url.includes("runs?workflow=standardization")) {
+          return json({ run: queued });
+        }
+        if (url.includes("runs?workflow=catalog_import")) {
+          return json({ run: null });
+        }
+        if (url.endsWith(`/api/transcript-maintenance/runs/${queued.id}`)) {
+          return json(completed);
+        }
+        return json({}, false, 404);
+      }),
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 1_200 ? 100 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderPanel();
+      const region = await screen.findByRole("region", {
+        name: "Стандартизация Google Docs",
+      });
+      expect(
+        await within(region).findByText("Ожидает свободного worker"),
+      ).toBeInTheDocument();
+      expect(
+        await within(region).findByLabelText(
+          "Результат dry-run: Стандартизация Google Docs",
+        ),
+      ).toHaveTextContent("Лекция для обновления");
+      expect(region).toHaveTextContent("Архив после перезагрузки");
+      expect(
+        within(region).getByRole("button", { name: "Сменить папку" }),
+      ).toBeEnabled();
+      expect(
+        within(region).getByRole("button", { name: "Запустить dry-run" }),
+      ).toBeDisabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("requires a fresh dry-run after a safe apply failure", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (isLatestRunRequest(url)) return json({ run: null });
         if (url.endsWith("/api/google/maintenance/connection")) {
           return json(readyMaintenanceConnection);
         }
@@ -783,18 +1010,26 @@ describe("TranscriptCatalogMigrationPanel", () => {
           return sessionResponse();
         }
         if (url.endsWith("/dry-run")) {
-          return json(standardizationDryRun);
+          return json(
+            completedRun(
+              runIds.standardizationDryRun,
+              standardizationDryRun,
+              "folder_tree",
+              "Изменяемый архив",
+            ),
+            true,
+            202,
+          );
         }
         return json(
-          {
-            detail: {
-              reason: "catalog_document_revision_changed",
-              retryable: true,
-              raw_google_error: "private raw response",
-            },
-          },
-          false,
-          409,
+          failedRun(
+            runIds.standardizationApply,
+            "catalog_document_revision_changed",
+            true,
+            "Изменяемый архив",
+          ),
+          true,
+          202,
         );
       }),
     );
@@ -868,18 +1103,16 @@ describe("TranscriptCatalogMigrationPanel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderPanel();
+    renderPanel(true, "connections");
 
     expect(
       await screen.findByText(
         "Блокер: отдельный доступ Google для обслуживания не подключён.",
       ),
     ).toBeInTheDocument();
-    for (const button of screen.getAllByRole("button", {
-      name: "Выбрать папку",
-    })) {
-      expect(button).toBeDisabled();
-    }
+    expect(
+      screen.queryByRole("button", { name: "Выбрать папку" }),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Подключить доступ" }),
@@ -918,7 +1151,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       ),
     );
 
-    renderPanel();
+    renderPanel(true, "connections");
 
     expect(
       await screen.findByText(
@@ -966,7 +1199,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
         )) as typeof setTimeout);
 
     try {
-      renderPanel();
+      renderPanel(true, "connections");
       expect(
         await screen.findByText(
           "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
@@ -997,7 +1230,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
         return new Promise<Response>(() => undefined);
       }),
     );
-    const { unmount } = renderPanel();
+    const { unmount } = renderPanel(true, "connections");
     await waitFor(() => expect(signal).toBeDefined());
 
     unmount();
