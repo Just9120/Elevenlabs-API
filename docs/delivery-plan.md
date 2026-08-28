@@ -15,25 +15,25 @@
   5. `PSC-05`: ambiguous mutation failure reconciliate через authoritative list; UI не сообщает ложный success и не удаляет last-confirmed state при transient read failure.
   6. `PSC-06`: list/revoke operations имеют bounded rate limits и safe audit events; credential/session secrets не попадают в response/log/test evidence.
   7. `PSC-07`: focused API/UI/browser tests, full local validation, exact PR-head required CI, merge, applicable API/web deployment и bounded authenticated two-session LIVE завершены.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** LIVE требует две независимые authenticated owner sessions без раскрытия credentials; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Existing `sessions` table уже имеет required timestamps/revocation fields, поэтому migration предварительно не ожидается.
 - **Stop condition:** все Goal AC подтверждены required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T06:43:23Z.
+- Updated (UTC): 2026-08-28T07:14:35Z.
 - Session mode: authorized full delivery Goal; commercial и перечисленные non-goals запрещены.
 - Base branch/SHA: fetched `origin/main@baa55d695c015385ba992b87c505d1a1fc116df3`; local `main` clean, совпадал с origin; open PR отсутствовали.
 - Working branch: `codex/pwa-session-control-01`; создана от exact verified base SHA выше.
-- Last verified revision: base `main@baa55d695c015385ba992b87c505d1a1fc116df3`.
+- Last verified revision: code/test revision `2b75d033c832fd57787c5a3635f6c42a40dbecbe`; metadata below описывает это exact состояние без self-referential commit loop.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: stale `SPEC-CANONICALIZATION-02` actual state recovered: PR `#248` merged as `baa55d6`; exact-head CI `33147462748` and exact-main CI `33147622878` success; docs-only deploy/LIVE N/A. New base/branch and existing Session model/revoke-other foundation verified.
-- Current step: implement bounded owner-scoped session service/API and focused backend tests.
-- Next exact action: add `session_control` domain module, list/targeted-revoke routes and API tests before UI work.
-- Validation and Evidence: exact-main repository CI `33147622878` success on `baa55d6`; latest Studio/browser CI `33116072392` success on unchanged product-code baseline `f6b0d70`. New exact-head CI remains mandatory.
+- Completed: commits `937715a` (bounded owner-scoped API/security routes), `05e376e` (Settings UI, strict DTO, reconciliation и browser flow), `244b53b` (App test harness), `c8b2bc1` (safe targeted audit evidence), `2b75d03` (SQLite domain coverage). Current marker, owner isolation, active-only filters, targeted/revoke-all idempotency, rate limits, CSRF/same-origin, no-store, confirmations и last-confirmed-state behavior реализованы без schema migration или worker changes.
+- Current step: зафиксировать synchronized readiness/checkpoint, перепроверить remote base и выполнить единственный initial push/PR.
+- Next exact action: создать documentation/checkpoint commit, `git fetch` и проверить отсутствие base drift, затем один раз push branch и открыть PR.
+- Validation and Evidence: Python compile success; pinned temporary-venv suite `31 passed` (session-control domain + audit/source lifecycle + browser/CI contracts); Studio focused session tests `7/7`; full Vitest `610/610`; ESLint success; production build success; Playwright discovery `12 tests`. Backend route integration и browser execution не запускались локально из-за отсутствия PostgreSQL/Redis и остаются обязательными exact-head CI gates. GitHub repo visibility через `gh` — `PUBLIC`; все workflows используют standard `ubuntu-latest`, для которых Actions usage public repository не расходует included minutes. Billing endpoint недоступен текущему token без дополнительного `user` scope, но minute allowance к этим standard public runs неприменим; larger runners не настроены.
 - Pull Request / CI / deployment: PR/push absent. Expected changed components: API + web; migration/worker N/A unless verified implementation evidence changes this conclusion.
-- Blockers: no implementation blocker. Potential LIVE external gate: second authenticated owner browser context.
-- Unverified assumptions: existing Session timestamps are sufficient for useful list without device/IP tracking; no schema migration is expected.
+- Blockers: no implementation blocker. Potential LIVE external gate: возможность создать вторую независимую authenticated owner session в production без передачи credentials агенту.
+- Unverified assumptions: production CD корректно определит только API+web changes и не запустит migration/worker; это должно быть подтверждено фактическим CD plan/run.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
@@ -42,12 +42,12 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **38,2% (`203/532`)** | **38,2% (`203/532`)** | Goal start: implementation ещё не изменила product AC. |
-| **Non-commercial scope** | **70,0% (`203/290`)** | **70,0% (`203/290`)** | Goal start: `PWASEC-07..09` ещё не выполнены. |
+| **Полный canonical scope** | **38,7% (`206/532`)** | **38,2% (`203/532`)** | `PWASEC-07..09` подтверждены exact branch code и local tests; `206/532`. |
+| **Non-commercial scope** | **71,0% (`206/290`)** | **70,0% (`203/290`)** | Colab `31/31` + personal PWA `175/259`; `206/290`. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Вне Goal; implementation запрещена. |
 | **Google Colab canonical** | **100% (`31/31`)** | **100% (`31/31`)** | Вне Goal; runtime risk не меняет numerator. |
-| **Personal Studio PWA canonical** | **66,4% (`172/259`)** | **66,4% (`172/259`)** | Goal start; target после `PWASEC-07..09` — `175/259`. |
-| `PWA-SECURITY-HARDENING-02` | **33,3% (`6/18`)** | **33,3% (`6/18`)** | Target Goal — `9/18`; остальные security AC вне scope. |
+| **Personal Studio PWA canonical** | **67,6% (`175/259`)** | **66,4% (`172/259`)** | Выполнены три canonical session-control AC; delivery Evidence ещё gate-ит READY. |
+| `PWA-SECURITY-HARDENING-02` | **50,0% (`9/18`)** | **33,3% (`6/18`)** | `PWASEC-07..09` выполнены; остальные девять security AC вне Goal. |
 | `PWA-GOOGLE-PICKER-UX-01` | **100% (`3/3`)** | **100% (`3/3`)** | PR `#245`, exact-main CI и web deployment подтверждены; authenticated source/output-folder LIVE исправления ещё не зафиксировано как Evidence. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | DEPLOY теперь ✅ после PR `#244`; authenticated LIVE остаётся `—`. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Representative folder import/clear mutation LIVE остаётся `◐`. |
