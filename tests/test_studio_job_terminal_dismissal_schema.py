@@ -23,7 +23,7 @@ def test_job_model_exposes_durable_terminal_dismissal(monkeypatch):
 def test_terminal_dismissal_is_part_of_unreleased_progress_migration():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC)))
 
-    assert script.get_heads() == ["0027_query_bounds"]
+    assert script.get_heads() == ["0028_transcript_maintenance_runs"]
     revision = script.get_revision("0018_job_part_progress")
     assert revision is not None
     assert revision.down_revision == "0017_google_maintenance_oauth"

@@ -5321,6 +5321,10 @@ function ProjectsPage({
   onRequestedProjectHandled,
   requestedSourceId,
   onRequestedSourceHandled,
+  requestedTranscriptionMode,
+  onRequestedTranscriptionModeHandled,
+  maintenanceOauthResult,
+  onOpenMaintenanceConnections,
 }: {
   active: boolean;
   ownerUserId: string;
@@ -5330,6 +5334,10 @@ function ProjectsPage({
   onRequestedProjectHandled: () => void;
   requestedSourceId: string | null;
   onRequestedSourceHandled: () => void;
+  requestedTranscriptionMode: "maintenance" | null;
+  onRequestedTranscriptionModeHandled: () => void;
+  maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
+  onOpenMaintenanceConnections: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsNextCursor, setProjectsNextCursor] = useState<string | null>(
@@ -5352,9 +5360,9 @@ function ProjectsPage({
   const [googlePickerNotices, setGooglePickerNotices] = useState<
     Record<string, GooglePickerNotice>
   >({});
-  const [transcriptionMode, setTranscriptionMode] = useState<"batch" | "live">(
-    "batch",
-  );
+  const [transcriptionMode, setTranscriptionMode] = useState<
+    "batch" | "live" | "maintenance"
+  >("batch");
   const [liveTranscripts, setLiveTranscripts] = useState<
     Record<string, string[]>
   >({});
@@ -5810,6 +5818,13 @@ function ProjectsPage({
     loadSources(selectedProject.id);
   }, [active, selectedProject?.id]);
   useEffect(() => setTranscriptionMode("batch"), [selectedProject?.id]);
+  useEffect(() => {
+    if (!selectedProject || requestedTranscriptionMode !== "maintenance") {
+      return;
+    }
+    setTranscriptionMode("maintenance");
+    onRequestedTranscriptionModeHandled();
+  }, [requestedTranscriptionMode, selectedProject?.id]);
   return (
     <section className="page transcriptions-page">
       <header className="page-header">
@@ -5888,7 +5903,7 @@ function ProjectsPage({
           <div
             className="tabs transcription-mode-tabs"
             role="tablist"
-            aria-label="Режим транскрибации"
+            aria-label="Рабочие разделы транскрибации"
           >
                 <button
                   id="transcription-tab-batch"
@@ -5901,7 +5916,7 @@ function ProjectsPage({
                   onKeyDown={(event) =>
                     navigateTabList(
                       event,
-                      ["batch", "live"] as const,
+                      ["batch", "live", "maintenance"] as const,
                       setTranscriptionMode,
                     )
                   }
@@ -5919,12 +5934,30 @@ function ProjectsPage({
                   onKeyDown={(event) =>
                     navigateTabList(
                       event,
-                      ["batch", "live"] as const,
+                      ["batch", "live", "maintenance"] as const,
                       setTranscriptionMode,
                     )
                   }
                 >
                   Live-транскрибация
+                </button>
+                <button
+                  id="transcription-tab-maintenance"
+                  type="button"
+                  role="tab"
+                  aria-controls="transcription-panel-maintenance"
+                  aria-selected={transcriptionMode === "maintenance"}
+                  tabIndex={transcriptionMode === "maintenance" ? 0 : -1}
+                  onClick={() => setTranscriptionMode("maintenance")}
+                  onKeyDown={(event) =>
+                    navigateTabList(
+                      event,
+                      ["batch", "live", "maintenance"] as const,
+                      setTranscriptionMode,
+                    )
+                  }
+                >
+                  Обслуживание
                 </button>
               </div>
               <div
@@ -6004,6 +6037,25 @@ function ProjectsPage({
                     }))
                   }
                 />
+              </div>
+              <div
+                id="transcription-panel-maintenance"
+                role="tabpanel"
+                aria-labelledby="transcription-tab-maintenance"
+                hidden={transcriptionMode !== "maintenance"}
+              >
+                {transcriptionMode === "maintenance" && (
+                  <TranscriptCatalogMigrationPanel
+                    csrf={csrf}
+                    onCsrf={onCsrf}
+                    googleConnected={googleConnection?.connected === true}
+                    googleLoading={googleConnectionState === "loading"}
+                    pickerReady={googleConnection?.picker_ready === true}
+                    maintenanceOauthResult={maintenanceOauthResult}
+                    view="workspace"
+                    onOpenConnections={onOpenMaintenanceConnections}
+                  />
+                )}
               </div>
         </article>
       ) : !loading && !error && projects.length > 0 ? (
@@ -6237,6 +6289,12 @@ function auditLabel(type: string) {
       "Стандартизация Google Docs применена",
     "transcript_catalog.import_applied":
       "Метаданные добавлены в манифест Studio",
+    "transcript_maintenance.queued":
+      "Операция обслуживания поставлена в очередь",
+    "transcript_maintenance.completed":
+      "Операция обслуживания завершена",
+    "transcript_maintenance.failed":
+      "Операция обслуживания остановлена",
     "transcript_catalog.cleared": "Манифест Studio очищен",
     "history.cleared": "История транскрибаций очищена",
     "analytics.cleared": "Аналитика транскрибаций очищена",
@@ -6434,6 +6492,7 @@ function SettingsPage({
   acknowledgeGoogleConnectionMutationRefresh,
   section,
   onSectionChange,
+  onOpenMaintenance,
 }: {
   user: User;
   csrf: string;
@@ -6476,6 +6535,7 @@ function SettingsPage({
   acknowledgeGoogleConnectionMutationRefresh: () => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
+  onOpenMaintenance: () => void;
 }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
@@ -7857,6 +7917,8 @@ function SettingsPage({
             googleLoading={googleLoading}
             pickerReady={googleConnection?.picker_ready === true}
             maintenanceOauthResult={maintenanceOauthResult}
+            view="connections"
+            onOpenWorkspace={onOpenMaintenance}
           />
             </section>
           )}
@@ -8757,6 +8819,8 @@ function PlatformShell() {
   const [requestedSourceId, setRequestedSourceId] = useState<string | null>(
     null,
   );
+  const [requestedTranscriptionMode, setRequestedTranscriptionMode] =
+    useState<"maintenance" | null>(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const credentialMutationGenerationRef = useRef(0);
   const activeCredentialMutationsRef = useRef(
@@ -9180,6 +9244,14 @@ function PlatformShell() {
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
               requestedSourceId={requestedSourceId}
               onRequestedSourceHandled={() => setRequestedSourceId(null)}
+              requestedTranscriptionMode={requestedTranscriptionMode}
+              onRequestedTranscriptionModeHandled={() =>
+                setRequestedTranscriptionMode(null)
+              }
+              maintenanceOauthResult={maintenanceOauthResult}
+              onOpenMaintenanceConnections={() =>
+                navigate("settings", "connections")
+              }
             />
           </div>
         )}
@@ -9226,6 +9298,12 @@ function PlatformShell() {
             }
             section={settingsSection}
             onSectionChange={(section) => navigate("settings", section)}
+            onOpenMaintenance={() => {
+              setRequestedProjectId(null);
+              setRequestedSourceId(null);
+              setRequestedTranscriptionMode("maintenance");
+              navigate("projects");
+            }}
           />
         )}
       </main>

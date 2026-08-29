@@ -1,6 +1,7 @@
 import {
   parseTranscriptCatalogImportApply,
   parseTranscriptCatalogImportDryRun,
+  parseTranscriptMaintenanceRun,
   parseTranscriptStandardizationApply,
   parseTranscriptStandardizationDryRun,
 } from "./transcriptMaintenanceModel";
@@ -14,6 +15,51 @@ const selectionSummary = {
 };
 
 describe("transcript maintenance response model", () => {
+  it("parses durable run progress and rejects unsafe terminal shapes", () => {
+    const queued = parseTranscriptMaintenanceRun({
+      id: "00000000-0000-4000-8000-000000000001",
+      workflow: "standardization",
+      operation: "dry_run",
+      selection_mode: "folder_tree",
+      target_name: "Архив созвонов",
+      preview_run_id: null,
+      status: "queued",
+      current_stage: "queued",
+      progress: { completed: 0, total: null },
+      result: null,
+      error: null,
+      created_at: "2026-08-29T00:00:00Z",
+      started_at: null,
+      finished_at: null,
+      private_folder_id: "must-not-survive",
+    });
+    expect(queued.progress).toEqual({ completed: 0, total: null });
+    expect(JSON.stringify(queued)).not.toContain("must-not-survive");
+
+    expect(() =>
+      parseTranscriptMaintenanceRun({
+        ...queued,
+        status: "succeeded",
+        current_stage: "completed",
+        result: null,
+        finished_at: "2026-08-29T00:00:01Z",
+      }),
+    ).toThrow("invalid transcript maintenance run");
+    expect(() =>
+      parseTranscriptMaintenanceRun({
+        ...queued,
+        status: "failed",
+        current_stage: "failed",
+        error: {
+          code: "catalog_google_timeout",
+          retryable: "yes",
+          raw_google_error: "private",
+        },
+        finished_at: "2026-08-29T00:00:01Z",
+      }),
+    ).toThrow("invalid maintenance error");
+  });
+
   it("parses standardization without accepting catalog actions", () => {
     const dryRun = parseTranscriptStandardizationDryRun({
       workflow: "standardization",

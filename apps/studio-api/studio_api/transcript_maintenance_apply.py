@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from enum import Enum
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from .source_creation import parse_authoritative_source_created_at
 from .source_creation_authority import (
@@ -81,6 +81,7 @@ def execute_transcript_standardization_apply(
     candidates: Iterable[TranscriptStandardizationCandidate],
     source_created_at_by_document_id: Mapping[str, str] | None = None,
     standardizer: GoogleTranscriptCatalogStandardizer | None = None,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> dict:
     """Standardize only eligible selected Docs, without catalog access."""
 
@@ -113,12 +114,12 @@ def execute_transcript_standardization_apply(
 
     outcomes = []
     items = []
-    for candidate, decision, plan_item in zip(
+    for position, (candidate, decision, plan_item) in enumerate(zip(
         candidate_rows,
         decisions,
         plan["items"],
         strict=True,
-    ):
+    ), start=1):
         if decision.action == TranscriptStandardizationAction.blocked:
             outcome = TranscriptStandardizationApplyOutcome.blocked
             reason = decision.reason
@@ -169,6 +170,8 @@ def execute_transcript_standardization_apply(
                 "reason_code": reason.value if reason else None,
             }
         )
+        if progress is not None:
+            progress("applying", position, len(candidate_rows))
 
     return {
         "workflow": plan["workflow"],

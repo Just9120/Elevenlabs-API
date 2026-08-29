@@ -75,4 +75,11 @@ def claim_next_studio_work(db: Session, **kwargs):
         return audio_result
     from .job_processing_runner import claim_next_and_orchestrate_processing_job
 
-    return claim_next_and_orchestrate_processing_job(db, **kwargs)
+    processing_result = claim_next_and_orchestrate_processing_job(db, **kwargs)
+    if processing_result is not None:
+        return processing_result
+    from .transcript_maintenance_worker import (
+        claim_next_and_process_transcript_maintenance,
+    )
+
+    return claim_next_and_process_transcript_maintenance(db, **kwargs)

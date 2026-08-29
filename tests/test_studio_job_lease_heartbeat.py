@@ -48,6 +48,40 @@ def test_job_lease_error_rolls_back_closes_and_normalizes_reason():
     assert "SECRET" not in repr(hb.result()) and "RuntimeError" not in repr(hb.result())
 
 
+def test_maintenance_lease_error_is_normalized_without_raw_state():
+    from studio_api.job_lease_heartbeat import (
+        LEASE_HEARTBEAT_STAGE_MAINTENANCE,
+        LeaseHeartbeat,
+    )
+    from studio_api.transcript_maintenance_runs import (
+        TranscriptMaintenanceRunError,
+        TranscriptMaintenanceRunReason,
+    )
+
+    events = []
+
+    def renewer(db, **kw):
+        raise TranscriptMaintenanceRunError(
+            TranscriptMaintenanceRunReason.lease_not_owned
+        )
+
+    heartbeat = LeaseHeartbeat(
+        session_factory=lambda: Session(events),
+        job_id="maintenance-run",
+        lease_owner_id="owner",
+        lease_generation=2,
+        lease_ttl=timedelta(seconds=300),
+        heartbeat_interval=timedelta(seconds=60),
+        stage=LEASE_HEARTBEAT_STAGE_MAINTENANCE,
+        lease_renewer=renewer,
+    )
+    heartbeat._renew_once()
+
+    assert [event[0] for event in events] == ["rollback", "close"]
+    assert heartbeat.failed
+    assert heartbeat.failure_reason == "lease_heartbeat_not_owned"
+
+
 def test_commit_failure_rolls_back_and_is_redacted():
     from studio_api.job_lease_heartbeat import LeaseHeartbeat, LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER
     events=[]

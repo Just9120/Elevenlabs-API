@@ -72,10 +72,6 @@ const PICKER_INTERACTION_TIMEOUT_MS = 300_000;
 const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
-const TRANSCRIPT_FOLDER_PICKER_TITLE =
-  "Выберите папку с транскриптами";
-const TRANSCRIPT_DOCUMENT_PICKER_TITLE = "Выберите один Google Doc";
-const GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document";
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
 const PICKER_VIEWPORT_MARGIN = 48;
@@ -196,14 +192,14 @@ export async function openGooglePicker(
   if (
     mode === "sources" ||
     mode === "source-folder" ||
-    mode === "output-folder"
+    mode === "output-folder" ||
+    mode === "transcript-folder" ||
+    mode === "transcript-document"
   ) {
     return openGoogleDrivePicker(mode, session, options.sourceMimePolicy);
   }
   const folderMode =
-    mode === "catalog-folder" ||
-    mode === "transcript-folder";
-  const documentMode = mode === "transcript-document";
+    mode === "catalog-folder";
   let token = session.access_token;
   session.access_token = "";
   try {
@@ -256,9 +252,6 @@ export async function openGooglePicker(
       if (folderMode) {
         view.setSelectFolderEnabled?.(true);
       }
-      if (documentMode) {
-        view.setMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
-      }
       const { width, height } = computeGooglePickerSize(
         window.innerWidth,
         window.innerHeight,
@@ -267,18 +260,9 @@ export async function openGooglePicker(
       builder.addView(view);
       builder.setLocale(PICKER_LOCALE);
       builder.setSize(width, height);
-      builder.setTitle(
-        documentMode
-          ? TRANSCRIPT_DOCUMENT_PICKER_TITLE
-          : mode === "transcript-folder"
-          ? TRANSCRIPT_FOLDER_PICKER_TITLE
-          : CATALOG_FOLDER_PICKER_TITLE,
-      );
+      builder.setTitle(CATALOG_FOLDER_PICKER_TITLE);
       builder.setOrigin(window.location.origin);
-      builder.setMaxItems(folderMode || documentMode ? 1 : 50);
-      if (documentMode) {
-        builder.setSelectableMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
-      }
+      builder.setMaxItems(1);
       builder.setOAuthToken(token);
       builder.setDeveloperKey(session.api_key);
       builder.setAppId(session.app_id);

@@ -14,14 +14,8 @@ from pydantic import (
 from sqlalchemy.orm import Session
 
 from .audit import audit
-from .config import Settings, get_settings
 from .db import get_db
-from .deps import require_csrf
-from .google_connection_access import (
-    GoogleConnectionAccessError,
-    GoogleConnectionAccessReason,
-    refresh_user_google_maintenance_access_token,
-)
+from .deps import current_session, require_csrf
 from .rate_limit import RateLimiter
 from .security import utcnow
 from .models import (
@@ -31,30 +25,19 @@ from .models import (
     User,
 )
 from .transcript_catalog import GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND
-from .transcript_catalog_apply import (
-    apply_transcript_catalog_import_metadata,
-)
-from .transcript_catalog_scan import (
-    CatalogGoogleReadError,
-    CatalogGoogleReadReason,
-)
-from .transcript_catalog_standardize import (
-    CatalogGoogleWriteError,
-    CatalogGoogleWriteReason,
-)
-from .transcript_document_selection import (
-    TranscriptDocumentSelectionError,
-    TranscriptDocumentSelectionReason,
-)
 from .transcript_maintenance_dry_run import (
     TranscriptMaintenanceSelectionMode,
-    build_transcript_catalog_import_dry_run,
-    build_transcript_standardization_dry_run,
-    inspect_transcript_catalog_import_selection,
-    inspect_transcript_standardization_selection,
 )
-from .transcript_maintenance_apply import (
-    execute_transcript_standardization_apply,
+from .transcript_maintenance_runs import (
+    TranscriptMaintenanceOperation,
+    TranscriptMaintenanceRunError,
+    TranscriptMaintenanceRunReason,
+    TranscriptMaintenanceWorkflow,
+    create_transcript_maintenance_apply_run,
+    create_transcript_maintenance_run,
+    latest_transcript_maintenance_run,
+    owned_transcript_maintenance_run,
+    transcript_maintenance_run_payload,
 )
 
 
@@ -177,6 +160,8 @@ class TranscriptMaintenanceTargetIn(BaseModel):
         min_length=1,
         max_length=256,
     )
+    target_name: str = Field(min_length=1, max_length=512)
+    idempotency_key: str = Field(min_length=16, max_length=64)
 
     @field_validator("folder_id", "document_id")
     @classmethod
@@ -195,6 +180,22 @@ class TranscriptMaintenanceTargetIn(BaseModel):
             raise ValueError("Некорректный ID Google Drive")
         return cleaned
 
+    @field_validator("target_name")
+    @classmethod
+    def valid_target_name(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("Укажите название выбранного объекта")
+        return cleaned
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def valid_idempotency_key(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not all(character.isalnum() or character in "_-" for character in cleaned):
+            raise ValueError("Некорректный idempotency key")
+        return cleaned
+
     @model_validator(mode="after")
     def exactly_one_target(self):
         if self.selection_mode == TranscriptMaintenanceSelectionMode.folder_tree:
@@ -208,8 +209,12 @@ class TranscriptMaintenanceTargetIn(BaseModel):
         return self
 
 
-class TranscriptMaintenanceApplyIn(TranscriptMaintenanceTargetIn):
+class TranscriptMaintenanceApplyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     confirm_apply: StrictBool
+    preview_run_id: str = Field(min_length=36, max_length=36)
+    idempotency_key: str = Field(min_length=16, max_length=64)
 
     @field_validator("confirm_apply")
     @classmethod
@@ -217,6 +222,14 @@ class TranscriptMaintenanceApplyIn(TranscriptMaintenanceTargetIn):
         if value is not True:
             raise ValueError("Подтвердите применение операции")
         return value
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def valid_idempotency_key(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not all(character.isalnum() or character in "_-" for character in cleaned):
+            raise ValueError("Некорректный idempotency key")
+        return cleaned
 
 
 @legacy_router.post("/dry-run")
@@ -259,13 +272,12 @@ def apply_transcript_catalog_migration(
     )
 
 
-@maintenance_router.post("/standardization/dry-run")
+@maintenance_router.post("/standardization/dry-run", status_code=status.HTTP_202_ACCEPTED)
 def dry_run_transcript_standardization(
     data: TranscriptMaintenanceTargetIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
     _, user = pair
     catalog_limiter.check(
@@ -274,32 +286,21 @@ def dry_run_transcript_standardization(
         3600,
     )
     _no_store(response)
-    try:
-        access_token = _maintenance_access_token(db, user.id, settings)
-        return build_transcript_standardization_dry_run(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            **_maintenance_target(data),
-        )
-    except GoogleConnectionAccessError as exc:
-        db.rollback()
-        _raise_connection_error(exc)
-    except TranscriptDocumentSelectionError as exc:
-        db.rollback()
-        _raise_selection_error(exc)
-    except CatalogGoogleReadError as exc:
-        db.rollback()
-        _raise_read_error(exc)
+    return _create_maintenance_run(
+        db,
+        owner_user_id=user.id,
+        workflow=TranscriptMaintenanceWorkflow.standardization,
+        operation=TranscriptMaintenanceOperation.dry_run,
+        data=data,
+    )
 
 
-@maintenance_router.post("/catalog-import/dry-run")
+@maintenance_router.post("/catalog-import/dry-run", status_code=status.HTTP_202_ACCEPTED)
 def dry_run_transcript_catalog_import(
     data: TranscriptMaintenanceTargetIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
     _, user = pair
     catalog_limiter.check(
@@ -308,32 +309,21 @@ def dry_run_transcript_catalog_import(
         3600,
     )
     _no_store(response)
-    try:
-        access_token = _maintenance_access_token(db, user.id, settings)
-        return build_transcript_catalog_import_dry_run(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            **_maintenance_target(data),
-        )
-    except GoogleConnectionAccessError as exc:
-        db.rollback()
-        _raise_connection_error(exc)
-    except TranscriptDocumentSelectionError as exc:
-        db.rollback()
-        _raise_selection_error(exc)
-    except CatalogGoogleReadError as exc:
-        db.rollback()
-        _raise_read_error(exc)
+    return _create_maintenance_run(
+        db,
+        owner_user_id=user.id,
+        workflow=TranscriptMaintenanceWorkflow.catalog_import,
+        operation=TranscriptMaintenanceOperation.dry_run,
+        data=data,
+    )
 
 
-@maintenance_router.post("/standardization/apply")
+@maintenance_router.post("/standardization/apply", status_code=status.HTTP_202_ACCEPTED)
 def apply_transcript_standardization(
     data: TranscriptMaintenanceApplyIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
     _, user = pair
     catalog_limiter.check(
@@ -342,56 +332,21 @@ def apply_transcript_standardization(
         3600,
     )
     _no_store(response)
-    try:
-        access_token = _maintenance_access_token(db, user.id, settings)
-        inspection = inspect_transcript_standardization_selection(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            **_maintenance_target(data),
-        )
-        payload = execute_transcript_standardization_apply(
-            access_token=access_token,
-            candidates=inspection.candidates,
-            source_created_at_by_document_id=(
-                inspection.source_created_at_by_document_id
-            ),
-        )
-        payload["selection_summary"] = dict(
-            inspection.selection_summary
-        )
-        audit(
-            db,
-            "transcript_standardization.applied",
-            actor_user_id=user.id,
-            subject_user_id=user.id,
-        )
-        db.commit()
-        return payload
-    except GoogleConnectionAccessError as exc:
-        db.rollback()
-        _raise_connection_error(exc)
-    except TranscriptDocumentSelectionError as exc:
-        db.rollback()
-        _raise_selection_error(exc)
-    except CatalogGoogleReadError as exc:
-        db.rollback()
-        _raise_read_error(exc)
-    except CatalogGoogleWriteError as exc:
-        db.rollback()
-        _raise_write_error(exc)
-    except Exception:
-        db.rollback()
-        raise
+    return _create_maintenance_run(
+        db,
+        owner_user_id=user.id,
+        workflow=TranscriptMaintenanceWorkflow.standardization,
+        operation=TranscriptMaintenanceOperation.apply,
+        data=data,
+    )
 
 
-@maintenance_router.post("/catalog-import/apply")
+@maintenance_router.post("/catalog-import/apply", status_code=status.HTTP_202_ACCEPTED)
 def apply_transcript_catalog_import(
     data: TranscriptMaintenanceApplyIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
     _, user = pair
     catalog_limiter.check(
@@ -400,64 +355,98 @@ def apply_transcript_catalog_import(
         3600,
     )
     _no_store(response)
-    try:
-        access_token = _maintenance_access_token(db, user.id, settings)
-        inspection = inspect_transcript_catalog_import_selection(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            **_maintenance_target(data),
-        )
-        payload = apply_transcript_catalog_import_metadata(
-            db,
-            owner_user_id=user.id,
-            candidates=inspection.candidates,
-        )
-        payload["selection_summary"] = dict(
-            inspection.selection_summary
-        )
-        audit(
-            db,
-            "transcript_catalog.import_applied",
-            actor_user_id=user.id,
-            subject_user_id=user.id,
-        )
-        db.commit()
-        return payload
-    except GoogleConnectionAccessError as exc:
-        db.rollback()
-        _raise_connection_error(exc)
-    except TranscriptDocumentSelectionError as exc:
-        db.rollback()
-        _raise_selection_error(exc)
-    except CatalogGoogleReadError as exc:
-        db.rollback()
-        _raise_read_error(exc)
-    except Exception:
-        db.rollback()
-        raise
-
-
-def _maintenance_access_token(
-    db: Session,
-    user_id: str,
-    settings: Settings,
-) -> str:
-    return refresh_user_google_maintenance_access_token(
+    return _create_maintenance_run(
         db,
-        user_id=user_id,
-        settings=settings,
+        owner_user_id=user.id,
+        workflow=TranscriptMaintenanceWorkflow.catalog_import,
+        operation=TranscriptMaintenanceOperation.apply,
+        data=data,
     )
 
 
-def _maintenance_target(
-    data: TranscriptMaintenanceTargetIn,
+@maintenance_router.get("/runs")
+def read_latest_transcript_maintenance_run(
+    workflow: TranscriptMaintenanceWorkflow,
+    response: Response,
+    pair=Depends(current_session),
+    db: Session = Depends(get_db),
+):
+    _, user = pair
+    _no_store(response)
+    run = latest_transcript_maintenance_run(
+        db,
+        owner_user_id=user.id,
+        workflow=workflow,
+    )
+    return {"run": transcript_maintenance_run_payload(run) if run else None}
+
+
+@maintenance_router.get("/runs/{run_id}")
+def read_transcript_maintenance_run(
+    run_id: str,
+    response: Response,
+    pair=Depends(current_session),
+    db: Session = Depends(get_db),
+):
+    _, user = pair
+    _no_store(response)
+    try:
+        run = owned_transcript_maintenance_run(
+            db,
+            owner_user_id=user.id,
+            run_id=run_id,
+        )
+    except TranscriptMaintenanceRunError:
+        _raise_catalog_error(
+            status.HTTP_404_NOT_FOUND,
+            reason=TranscriptMaintenanceRunReason.run_not_found.value,
+            retryable=False,
+        )
+    return transcript_maintenance_run_payload(run)
+
+
+def _create_maintenance_run(
+    db: Session,
+    *,
+    owner_user_id: str,
+    workflow: TranscriptMaintenanceWorkflow,
+    operation: TranscriptMaintenanceOperation,
+    data: TranscriptMaintenanceTargetIn | TranscriptMaintenanceApplyIn,
 ) -> dict[str, object]:
-    return {
-        "selection_mode": data.selection_mode,
-        "folder_id": data.folder_id,
-        "document_id": data.document_id,
-    }
+    try:
+        if isinstance(data, TranscriptMaintenanceApplyIn):
+            run = create_transcript_maintenance_apply_run(
+                db,
+                owner_user_id=owner_user_id,
+                workflow=workflow,
+                preview_run_id=data.preview_run_id,
+                idempotency_key=data.idempotency_key,
+            )
+        else:
+            run = create_transcript_maintenance_run(
+                db,
+                owner_user_id=owner_user_id,
+                workflow=workflow,
+                operation=operation,
+                selection_mode=data.selection_mode,
+                folder_id=data.folder_id,
+                document_id=data.document_id,
+                target_name=data.target_name,
+                idempotency_key=data.idempotency_key,
+            )
+    except TranscriptMaintenanceRunError as exc:
+        db.rollback()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.reason == TranscriptMaintenanceRunReason.run_not_found
+            else status.HTTP_409_CONFLICT
+        )
+        _raise_catalog_error(
+            status_code,
+            reason=exc.reason.value,
+            retryable=False,
+        )
+    return transcript_maintenance_run_payload(run)
 
 
 def _no_store(response: Response) -> None:
@@ -478,232 +467,6 @@ def _raise_catalog_error(
             "retryable": retryable,
         },
         headers=_NO_STORE_HEADERS,
-    )
-
-
-def _raise_connection_error(
-    error: GoogleConnectionAccessError,
-) -> NoReturn:
-    status_code, reason, retryable = {
-        GoogleConnectionAccessReason.missing: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_connection_missing",
-            False,
-        ),
-        GoogleConnectionAccessReason.inactive: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_connection_inactive",
-            False,
-        ),
-        GoogleConnectionAccessReason.reauthorization_required: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_reauthorization_required",
-            False,
-        ),
-        GoogleConnectionAccessReason.scope_unavailable: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_scope_unavailable",
-            False,
-        ),
-        GoogleConnectionAccessReason.maintenance_missing: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_maintenance_connection_missing",
-            False,
-        ),
-        GoogleConnectionAccessReason.maintenance_inactive: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_maintenance_connection_inactive",
-            False,
-        ),
-        GoogleConnectionAccessReason.maintenance_account_mismatch: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_maintenance_account_mismatch",
-            False,
-        ),
-        GoogleConnectionAccessReason.config_unavailable: (
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "catalog_google_config_unavailable",
-            False,
-        ),
-        GoogleConnectionAccessReason.token_unavailable: (
-            status.HTTP_502_BAD_GATEWAY,
-            "catalog_google_token_unavailable",
-            True,
-        ),
-    }[error.reason]
-    _raise_catalog_error(
-        status_code,
-        reason=reason,
-        retryable=retryable,
-    )
-
-
-def _raise_selection_error(
-    error: TranscriptDocumentSelectionError,
-) -> NoReturn:
-    reason = {
-        TranscriptDocumentSelectionReason.invalid: (
-            "transcript_selection_invalid"
-        ),
-        TranscriptDocumentSelectionReason.empty: (
-            "transcript_selection_empty"
-        ),
-        TranscriptDocumentSelectionReason.limit_exceeded: (
-            "transcript_selection_limit_exceeded"
-        ),
-        TranscriptDocumentSelectionReason.duplicate: (
-            "transcript_selection_duplicate"
-        ),
-        TranscriptDocumentSelectionReason.folder_invalid: (
-            "transcript_folder_invalid"
-        ),
-        TranscriptDocumentSelectionReason.document_invalid: (
-            "transcript_document_invalid"
-        ),
-        TranscriptDocumentSelectionReason.document_not_google_doc: (
-            "transcript_document_not_google_doc"
-        ),
-        TranscriptDocumentSelectionReason.document_out_of_folder: (
-            "transcript_document_out_of_folder"
-        ),
-        TranscriptDocumentSelectionReason.document_trashed: (
-            "transcript_document_trashed"
-        ),
-    }[error.reason]
-    _raise_catalog_error(
-        status.HTTP_422_UNPROCESSABLE_CONTENT,
-        reason=reason,
-        retryable=False,
-    )
-
-
-def _raise_read_error(error: CatalogGoogleReadError) -> NoReturn:
-    status_code, reason, retryable = {
-        CatalogGoogleReadReason.authentication_rejected: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_reauthorization_required",
-            False,
-        ),
-        CatalogGoogleReadReason.request_rejected: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_folder_unavailable",
-            False,
-        ),
-        CatalogGoogleReadReason.rate_limited: (
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "catalog_google_rate_limited",
-            True,
-        ),
-        CatalogGoogleReadReason.unavailable: (
-            status.HTTP_502_BAD_GATEWAY,
-            "catalog_google_unavailable",
-            True,
-        ),
-        CatalogGoogleReadReason.timeout: (
-            status.HTTP_504_GATEWAY_TIMEOUT,
-            "catalog_google_timeout",
-            True,
-        ),
-        CatalogGoogleReadReason.malformed_response: (
-            status.HTTP_502_BAD_GATEWAY,
-            "catalog_google_response_invalid",
-            False,
-        ),
-        CatalogGoogleReadReason.incomplete_search: (
-            status.HTTP_409_CONFLICT,
-            "catalog_scan_incomplete",
-            True,
-        ),
-        CatalogGoogleReadReason.limit_exceeded: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_scan_limit_exceeded",
-            False,
-        ),
-        CatalogGoogleReadReason.document_not_found: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_document_unavailable",
-            False,
-        ),
-    }[error.reason]
-    _raise_catalog_error(
-        status_code,
-        reason=reason,
-        retryable=retryable,
-    )
-
-
-def _raise_write_error(error: CatalogGoogleWriteError) -> NoReturn:
-    status_code, reason, retryable = {
-        CatalogGoogleWriteReason.authentication_rejected: (
-            status.HTTP_409_CONFLICT,
-            "catalog_google_reauthorization_required",
-            False,
-        ),
-        CatalogGoogleWriteReason.request_rejected: (
-            status.HTTP_409_CONFLICT,
-            "catalog_document_write_rejected",
-            False,
-        ),
-        CatalogGoogleWriteReason.rate_limited: (
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "catalog_google_rate_limited",
-            True,
-        ),
-        CatalogGoogleWriteReason.unavailable: (
-            status.HTTP_502_BAD_GATEWAY,
-            "catalog_google_unavailable",
-            True,
-        ),
-        CatalogGoogleWriteReason.timeout: (
-            status.HTTP_504_GATEWAY_TIMEOUT,
-            "catalog_google_timeout",
-            True,
-        ),
-        CatalogGoogleWriteReason.malformed_response: (
-            status.HTTP_502_BAD_GATEWAY,
-            "catalog_google_response_invalid",
-            False,
-        ),
-        CatalogGoogleWriteReason.document_not_found: (
-            status.HTTP_409_CONFLICT,
-            "catalog_document_unavailable",
-            False,
-        ),
-        CatalogGoogleWriteReason.revision_conflict_or_rejected: (
-            status.HTTP_409_CONFLICT,
-            "catalog_document_revision_changed",
-            True,
-        ),
-        CatalogGoogleWriteReason.multiple_tabs: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_document_multiple_tabs",
-            False,
-        ),
-        CatalogGoogleWriteReason.unsupported_content: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_document_content_unsupported",
-            False,
-        ),
-        CatalogGoogleWriteReason.classification_changed: (
-            status.HTTP_409_CONFLICT,
-            "catalog_document_classification_changed",
-            True,
-        ),
-        CatalogGoogleWriteReason.empty_transcript: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_document_empty",
-            False,
-        ),
-        CatalogGoogleWriteReason.limit_exceeded: (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "catalog_document_limit_exceeded",
-            False,
-        ),
-    }[error.reason]
-    _raise_catalog_error(
-        status_code,
-        reason=reason,
-        retryable=retryable,
     )
 
 

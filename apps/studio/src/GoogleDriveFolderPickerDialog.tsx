@@ -18,6 +18,7 @@ import type {
 
 const DRIVE_API_ROOT = "https://www.googleapis.com/drive/v3";
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+const GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document";
 const MAX_LIST_PAGES = 10;
 const MAX_SOURCE_SELECTIONS = 50;
 const PAGE_SIZE = 100;
@@ -26,7 +27,9 @@ const INTERACTION_TIMEOUT_MS = 300_000;
 export type AppOwnedDrivePickerMode =
   | "sources"
   | "source-folder"
-  | "output-folder";
+  | "output-folder"
+  | "transcript-folder"
+  | "transcript-document";
 
 export type DriveSourceMimePolicy = {
   supported_mime_prefixes: string[];
@@ -111,7 +114,10 @@ function parseDriveItem(
   const mimeType =
     typeof candidate.mimeType === "string" ? candidate.mimeType : "";
   const isFolder = mimeType === FOLDER_MIME_TYPE;
-  if (!isFolder && (mode !== "sources" || !isSupportedMimeType(mimeType, policy))) {
+  const supportedFile =
+    (mode === "sources" && isSupportedMimeType(mimeType, policy)) ||
+    (mode === "transcript-document" && mimeType === GOOGLE_DOC_MIME_TYPE);
+  if (!isFolder && !supportedFile) {
     return null;
   }
   return {
@@ -157,6 +163,9 @@ function itemMimeQuery(
   policy: DriveSourceMimePolicy,
 ): string {
   if (mode !== "sources") {
+    if (mode === "transcript-document") {
+      return `(mimeType = '${FOLDER_MIME_TYPE}' or mimeType = '${GOOGLE_DOC_MIME_TYPE}')`;
+    }
     return `mimeType = '${FOLDER_MIME_TYPE}'`;
   }
   const mediaClauses = [
@@ -405,6 +414,26 @@ function pickerCopy(mode: AppOwnedDrivePickerMode): {
       closeLabel: "Закрыть выбор исходной папки",
       searchLabel: "Поиск папок по началу названия",
       searchPlaceholder: "Например, Записи встреч",
+    };
+  }
+  if (mode === "transcript-folder") {
+    return {
+      title: "Выберите папку с транскриптами",
+      description:
+        "Откройте папку, которую нужно проверить вместе со всеми подпапками, и подтвердите её кнопкой ниже.",
+      closeLabel: "Закрыть выбор папки с транскриптами",
+      searchLabel: "Поиск папок с транскриптами по началу названия",
+      searchPlaceholder: "Например, Созвоны",
+    };
+  }
+  if (mode === "transcript-document") {
+    return {
+      title: "Выберите Google Doc с транскриптом",
+      description:
+        "Откройте нужную папку, выберите один Google Doc и подтвердите выбор.",
+      closeLabel: "Закрыть выбор Google Doc",
+      searchLabel: "Поиск Google Docs по началу названия",
+      searchPlaceholder: "Например, Синк с разработкой",
     };
   }
   return {
@@ -721,6 +750,9 @@ function GoogleDrivePickerDialog({
       const next = new Map(currentSelection);
       if (next.has(file.id)) {
         next.delete(file.id);
+      } else if (mode === "transcript-document") {
+        next.clear();
+        next.set(file.id, file);
       } else if (next.size < MAX_SOURCE_SELECTIONS) {
         next.set(file.id, file);
       }
@@ -909,6 +941,8 @@ function GoogleDrivePickerDialog({
                 ? "Ничего не найдено. Проверьте начало названия."
                 : mode === "sources"
                   ? "Внутри нет поддерживаемых аудио или видео."
+                  : mode === "transcript-document"
+                    ? "Внутри нет Google Docs. Откройте другую папку или используйте поиск."
                   : "Внутри нет папок. Текущую папку можно выбрать."}
             </p>
           )}
@@ -931,9 +965,11 @@ function GoogleDrivePickerDialog({
               </ul>
             </section>
           )}
-          {mode === "sources" && files.length > 0 && (
+          {(mode === "sources" || mode === "transcript-document") && files.length > 0 && (
             <section aria-labelledby={`${titleId}-files`}>
-              <h3 id={`${titleId}-files`}>Аудио и видео</h3>
+              <h3 id={`${titleId}-files`}>
+                {mode === "sources" ? "Аудио и видео" : "Google Docs"}
+              </h3>
               <ul className="google-drive-folder-list">
                 {files.map((file) => {
                   const checked = selected.has(file.id);
@@ -944,10 +980,16 @@ function GoogleDrivePickerDialog({
                         className="google-drive-folder-row google-drive-file-row"
                         aria-pressed={checked}
                         aria-label={`${checked ? "Убрать" : "Выбрать"} файл «${file.name}»`}
-                        disabled={!checked && selected.size >= MAX_SOURCE_SELECTIONS}
+                        disabled={
+                          mode === "sources" &&
+                          !checked &&
+                          selected.size >= MAX_SOURCE_SELECTIONS
+                        }
                         onClick={() => toggleFile(file)}
                       >
-                        <span aria-hidden="true">🎧</span>
+                        <span aria-hidden="true">
+                          {mode === "sources" ? "🎧" : "📄"}
+                        </span>
                         <span>
                           <strong>{file.name}</strong>
                           <small>{file.mimeType}</small>
@@ -987,13 +1029,17 @@ function GoogleDrivePickerDialog({
           )}
         </div>
 
-        {mode === "sources" && selected.size > 0 && (
+        {(mode === "sources" || mode === "transcript-document") && selected.size > 0 && (
           <section
             className="google-drive-picker-selection"
             aria-label="Выбранные файлы"
           >
             <div>
-              <strong>Выбрано: {selected.size} из {MAX_SOURCE_SELECTIONS}</strong>
+              <strong>
+                {mode === "sources"
+                  ? `Выбрано: ${selected.size} из ${MAX_SOURCE_SELECTIONS}`
+                  : "Выбран один Google Doc"}
+              </strong>
               <button
                 type="button"
                 className="secondary"
@@ -1020,14 +1066,16 @@ function GoogleDrivePickerDialog({
         )}
 
         <footer className="actions google-drive-folder-picker-actions">
-          {mode === "sources" ? (
+          {mode === "sources" || mode === "transcript-document" ? (
             <button
               type="button"
               className="primary"
               disabled={selected.size === 0}
               onClick={() => onSelect([...selected.values()])}
             >
-              Добавить выбранные файлы ({selected.size})
+              {mode === "sources"
+                ? `Добавить выбранные файлы (${selected.size})`
+                : "Выбрать Google Doc"}
             </button>
           ) : (
             <button
@@ -1040,7 +1088,11 @@ function GoogleDrivePickerDialog({
             </button>
           )}
           <span className="muted">
-            {current ? `Текущая папка: ${current.name}` : "Загрузка…"}
+            {current
+              ? mode === "transcript-document"
+                ? `Открытая папка: ${current.name}`
+                : `Текущая папка: ${current.name}`
+              : "Загрузка…"}
           </span>
         </footer>
       </section>

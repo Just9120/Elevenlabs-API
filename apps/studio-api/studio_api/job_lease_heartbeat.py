@@ -12,7 +12,8 @@ from .security import utcnow
 
 LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER = "source_provider"
 LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT = "google_output"
-LEASE_HEARTBEAT_STAGES = frozenset({LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER, LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT})
+LEASE_HEARTBEAT_STAGE_MAINTENANCE = "transcript_maintenance"
+LEASE_HEARTBEAT_STAGES = frozenset({LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER, LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT, LEASE_HEARTBEAT_STAGE_MAINTENANCE})
 
 
 class LeaseHeartbeatFailureReason(str, Enum):
@@ -209,11 +210,16 @@ def _default_lease_renewer(*args, **kwargs):
     return renew_job_lease(*args, **kwargs)
 
 def _looks_like_job_lease_error(exc: BaseException) -> bool:
-    return exc.__class__.__name__ == "JobLeaseError" and hasattr(exc, "reason")
+    return exc.__class__.__name__ in {
+        "JobLeaseError",
+        "TranscriptMaintenanceRunError",
+    } and hasattr(exc, "reason")
 
 def _map_lease_reason(reason) -> LeaseHeartbeatFailureReason:
     value = getattr(reason, "value", reason)
     if value == "lease_not_owned":
+        return LeaseHeartbeatFailureReason.lease_heartbeat_not_owned
+    if value == "transcript_maintenance_lease_not_owned":
         return LeaseHeartbeatFailureReason.lease_heartbeat_not_owned
     if value == "lease_not_active":
         return LeaseHeartbeatFailureReason.lease_heartbeat_expired

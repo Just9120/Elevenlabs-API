@@ -14,10 +14,7 @@ import {
   type GoogleMaintenanceOauthResult,
 } from "./googleOauthResult";
 import {
-  parseTranscriptCatalogImportApply,
-  parseTranscriptCatalogImportDryRun,
-  parseTranscriptStandardizationApply,
-  parseTranscriptStandardizationDryRun,
+  parseTranscriptMaintenanceRun,
   type CatalogImportAction,
   type CatalogImportOutcome,
   type MaintenanceReason,
@@ -29,6 +26,7 @@ import {
   type TranscriptImportStatus,
   type TranscriptMaintenanceApply,
   type TranscriptMaintenanceDryRun,
+  type TranscriptMaintenanceRun,
   type TranscriptMaintenanceWorkflow,
   type TranscriptSettingsStatus,
   type TranscriptStandardStatus,
@@ -377,6 +375,10 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Google Drive не ответил вовремя. Повторите попытку.",
   catalog_google_response_invalid:
     "Google Drive вернул неожиданный ответ. Повторите попытку позже.",
+  catalog_scan_incomplete:
+    "Google Drive вернул неполный список. Повторите dry-run.",
+  catalog_scan_limit_exceeded:
+    "Выбранная папка слишком большая для одной операции. Выберите более узкую папку.",
   catalog_document_unavailable:
     "Один из документов стал недоступен. Запустите dry-run заново.",
   catalog_document_write_rejected:
@@ -399,6 +401,16 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Выберите документ в формате Google Docs.",
   transcript_document_trashed:
     "Выбранный документ находится в корзине Google Drive.",
+  transcript_maintenance_run_in_progress:
+    "Для этой операции уже выполняется задача. Дождитесь её завершения.",
+  transcript_maintenance_idempotency_conflict:
+    "Запрос операции конфликтует с ранее созданной задачей. Обновите страницу.",
+  transcript_maintenance_preview_invalid:
+    "Dry-run больше не подходит для применения. Запустите dry-run заново.",
+  transcript_maintenance_attempts_exhausted:
+    "Операция не завершилась после нескольких безопасных попыток. Запустите dry-run заново.",
+  transcript_maintenance_internal_error:
+    "Операция остановлена из-за внутренней ошибки. Повторите dry-run; если ошибка повторится, скачайте диагностику.",
 };
 
 const OPERATION_COPY = {
@@ -429,9 +441,23 @@ function maintenanceTarget(
   selectionMode: TranscriptMaintenanceSelectionMode,
   target: SelectedTarget,
 ) {
+  const common = {
+    target_name: target.name,
+    idempotency_key: newIdempotencyKey(),
+  };
   return selectionMode === "folder_tree"
-    ? { selection_mode: selectionMode, folder_id: target.id }
-    : { selection_mode: selectionMode, document_id: target.id };
+    ? { ...common, selection_mode: selectionMode, folder_id: target.id }
+    : { ...common, selection_mode: selectionMode, document_id: target.id };
+}
+
+function newIdempotencyKey(): string {
+  try {
+    return crypto.randomUUID().replaceAll("-", "");
+  } catch {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+      .padEnd(16, "0")
+      .slice(0, 64);
+  }
 }
 
 function apiReason(error: unknown): string | null {
@@ -453,6 +479,35 @@ function maintenanceErrorMessage(error: unknown): string {
   return "Не удалось выполнить операцию. Повторите попытку.";
 }
 
+function maintenanceRunErrorMessage(run: TranscriptMaintenanceRun): string {
+  const code = run.error?.code;
+  if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  return run.error?.retryable
+    ? "Операция временно не завершилась. Повторите dry-run."
+    : "Операция остановлена безопасно. Проверьте доступ и повторите dry-run.";
+}
+
+function parseLatestRun(value: unknown): TranscriptMaintenanceRun | null {
+  if (!value || typeof value !== "object") {
+    throw new Error("invalid maintenance latest response");
+  }
+  const run = (value as { run?: unknown }).run;
+  return run === null ? null : parseTranscriptMaintenanceRun(run);
+}
+
+const RUN_STAGE_LABELS: Record<
+  TranscriptMaintenanceRun["current_stage"],
+  string
+> = {
+  queued: "Ожидает свободного worker",
+  authorizing: "Проверяем доступ Google",
+  scanning: "Сканируем папки Google Drive",
+  inspecting: "Проверяем Google Docs",
+  applying: "Применяем подтверждённую операцию",
+  completed: "Операция завершена",
+  failed: "Операция остановлена",
+};
+
 function safeName(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const cleaned = value.trim();
@@ -465,24 +520,6 @@ function explicitConfirmation(message: string): boolean {
   } catch {
     return false;
   }
-}
-
-function parseDryRun(
-  workflow: TranscriptMaintenanceWorkflow,
-  value: unknown,
-): TranscriptMaintenanceDryRun {
-  return workflow === "standardization"
-    ? parseTranscriptStandardizationDryRun(value)
-    : parseTranscriptCatalogImportDryRun(value);
-}
-
-function parseApply(
-  workflow: TranscriptMaintenanceWorkflow,
-  value: unknown,
-): TranscriptMaintenanceApply {
-  return workflow === "standardization"
-    ? parseTranscriptStandardizationApply(value)
-    : parseTranscriptCatalogImportApply(value);
 }
 
 function actionableCount(result: TranscriptMaintenanceDryRun): number {
@@ -835,21 +872,105 @@ function MaintenanceOperationCard({
   );
   const [applyResult, setApplyResult] =
     useState<TranscriptMaintenanceApply | null>(null);
+  const [previewRunId, setPreviewRunId] = useState<string | null>(null);
+  const [activeRun, setActiveRun] =
+    useState<TranscriptMaintenanceRun | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
   const [message, setMessage] = useState("");
   const pickerActive = useRef(false);
-  const operationActive = useRef(false);
+  const runInProgress =
+    activeRun?.status === "queued" || activeRun?.status === "running";
+
+  function acceptRun(run: TranscriptMaintenanceRun) {
+    if (run.workflow !== workflow) {
+      throw new Error("invalid maintenance run workflow");
+    }
+    setActiveRun(run);
+    setSelectionMode(run.selection_mode);
+    setSelectedTarget((current) =>
+      current?.name === run.target_name
+        ? current
+        : { id: "", name: run.target_name },
+    );
+    if (run.status === "failed") {
+      setMessage(maintenanceRunErrorMessage(run));
+      setDryRun(null);
+      setPreviewRunId(null);
+      return;
+    }
+    if (run.status !== "succeeded" || !run.result) return;
+    setMessage("");
+    if (run.operation === "dry_run") {
+      setDryRun(run.result as TranscriptMaintenanceDryRun);
+      setPreviewRunId(run.id);
+      setApplyResult(null);
+    } else {
+      setApplyResult(run.result as TranscriptMaintenanceApply);
+      setDryRun(null);
+      setPreviewRunId(null);
+    }
+  }
 
   useEffect(() => {
-    if (operationReady) return;
-    setSelectedTarget(null);
-    setDryRun(null);
-    setApplyResult(null);
-  }, [operationReady]);
+    if (!operationReady) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    void api<unknown>(
+      `/transcript-maintenance/runs?workflow=${encodeURIComponent(workflow)}`,
+      { signal: controller.signal },
+    ).then(
+      (value) => {
+        if (cancelled) return;
+        const run = parseLatestRun(value);
+        if (run) acceptRun(run);
+      },
+      () => {
+        if (!cancelled) {
+          setMessage("Не удалось восстановить состояние обслуживания.");
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [operationReady, workflow]);
+
+  useEffect(() => {
+    if (!runInProgress || !activeRun) return;
+    let cancelled = false;
+    let timer = 0;
+    const controller = new AbortController();
+    const poll = async () => {
+      try {
+        const value = await api<unknown>(
+          `/transcript-maintenance/runs/${activeRun.id}`,
+          { signal: controller.signal },
+        );
+        if (cancelled) return;
+        acceptRun(parseTranscriptMaintenanceRun(value));
+      } catch {
+        if (!cancelled) {
+          setMessage(
+            "Не удалось обновить прогресс. Повторяем проверку автоматически…",
+          );
+          timer = window.setTimeout(() => void poll(), 2_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void poll(), 1_200);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [activeRun?.id, activeRun?.status, runInProgress]);
 
   function resetResult() {
     setDryRun(null);
     setApplyResult(null);
+    setPreviewRunId(null);
+    setActiveRun(null);
   }
 
   async function pickerSession(): Promise<PickerSession> {
@@ -869,7 +990,7 @@ function MaintenanceOperationCard({
   }
 
   async function chooseTarget() {
-    if (!operationReady || busy || pickerActive.current) return;
+    if (!operationReady || busy || pickerActive.current || runInProgress) return;
     pickerActive.current = true;
     setBusy("target-picker");
     setMessage("");
@@ -919,12 +1040,12 @@ function MaintenanceOperationCard({
     if (
       !operationReady ||
       !selectedTarget ||
+      !selectedTarget.id ||
       busy ||
-      operationActive.current
+      runInProgress
     ) {
       return;
     }
-    operationActive.current = true;
     setBusy("dry-run");
     setMessage("");
     resetResult();
@@ -938,12 +1059,11 @@ function MaintenanceOperationCard({
           ),
         },
       );
-      setDryRun(parseDryRun(workflow, raw));
+      acceptRun(parseTranscriptMaintenanceRun(raw));
     } catch (error) {
       setDryRun(null);
       setMessage(maintenanceErrorMessage(error));
     } finally {
-      operationActive.current = false;
       setBusy(null);
     }
   }
@@ -953,10 +1073,11 @@ function MaintenanceOperationCard({
       !operationReady ||
       !selectedTarget ||
       !dryRun ||
+      !previewRunId ||
       dryRun.workflow !== workflow ||
       actionableCount(dryRun) === 0 ||
       busy ||
-      operationActive.current
+      runInProgress
     ) {
       return;
     }
@@ -969,7 +1090,6 @@ function MaintenanceOperationCard({
     ) {
       return;
     }
-    operationActive.current = true;
     setBusy("apply");
     setMessage("");
     try {
@@ -978,18 +1098,17 @@ function MaintenanceOperationCard({
         {
           method: "POST",
           body: JSON.stringify({
-            ...maintenanceTarget(selectionMode, selectedTarget),
             confirm_apply: true,
+            preview_run_id: previewRunId,
+            idempotency_key: newIdempotencyKey(),
           }),
         },
       );
-      setApplyResult(parseApply(workflow, raw));
-      setDryRun(null);
+      acceptRun(parseTranscriptMaintenanceRun(raw));
     } catch (error) {
       setDryRun(null);
       setMessage(maintenanceErrorMessage(error));
     } finally {
-      operationActive.current = false;
       setBusy(null);
     }
   }
@@ -1017,7 +1136,7 @@ function MaintenanceOperationCard({
       <select
         id={`transcript-maintenance-${workflow}-selection-mode`}
         value={selectionMode}
-        disabled={!operationReady || busy !== null}
+        disabled={!operationReady || busy !== null || runInProgress}
         onChange={(event) =>
           changeSelectionMode(
             event.target.value as TranscriptMaintenanceSelectionMode,
@@ -1030,7 +1149,7 @@ function MaintenanceOperationCard({
       <div className="actions">
         <button
           type="button"
-          disabled={!operationReady || busy !== null}
+          disabled={!operationReady || busy !== null || runInProgress}
           onClick={chooseTarget}
         >
           {busy === "target-picker"
@@ -1049,6 +1168,8 @@ function MaintenanceOperationCard({
           disabled={
             !operationReady ||
             !selectedTarget ||
+            !selectedTarget.id ||
+            runInProgress ||
             busy !== null
           }
           onClick={runDryRun}
@@ -1076,6 +1197,28 @@ function MaintenanceOperationCard({
           {message}
         </p>
       )}
+      {activeRun && runInProgress && (
+        <section className="maintenance-run-progress" aria-live="polite">
+          <div>
+            <strong>{RUN_STAGE_LABELS[activeRun.current_stage]}</strong>
+            <span>
+              {activeRun.progress.total === null
+                ? activeRun.progress.completed > 0
+                  ? `Проверено этапов/страниц: ${activeRun.progress.completed}`
+                  : "Операция сохранена и продолжится независимо от страницы"
+                : `${activeRun.progress.completed} из ${activeRun.progress.total}`}
+            </span>
+          </div>
+          <progress
+            max={activeRun.progress.total ?? undefined}
+            value={
+              activeRun.progress.total === null
+                ? undefined
+                : activeRun.progress.completed
+            }
+          />
+        </section>
+      )}
       {dryRun && dryRun.workflow === workflow && (
         <DryRunResult
           result={dryRun}
@@ -1093,7 +1236,13 @@ function MaintenanceOperationCard({
           <button
             type="button"
             className="primary"
-            disabled={!operationReady || busy !== null || actionable === 0}
+            disabled={
+              !operationReady ||
+              busy !== null ||
+              runInProgress ||
+              !previewRunId ||
+              actionable === 0
+            }
             onClick={applyOperation}
           >
             {busy === "apply"
@@ -1116,6 +1265,9 @@ export function TranscriptCatalogMigrationPanel({
   googleLoading,
   pickerReady,
   maintenanceOauthResult,
+  view,
+  onOpenWorkspace,
+  onOpenConnections,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
@@ -1123,6 +1275,9 @@ export function TranscriptCatalogMigrationPanel({
   googleLoading: boolean;
   pickerReady: boolean;
   maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
+  view: "connections" | "workspace";
+  onOpenWorkspace?: () => void;
+  onOpenConnections?: () => void;
 }) {
   const mutate: Mutate = <T,>(path: string, options: RequestInit) =>
     mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
@@ -1270,6 +1425,92 @@ export function TranscriptCatalogMigrationPanel({
         ? googleMaintenanceOauthMessages[maintenanceOauthResult]
         : "";
 
+  if (view === "connections") {
+    return (
+      <section
+        className="transcript-maintenance-panel"
+        aria-labelledby="transcript-maintenance-access-title"
+      >
+        <span className="tag">Подключение для обслуживания</span>
+        <h2 id="transcript-maintenance-access-title">
+          Доступ Google для обслуживания
+        </h2>
+        <p>
+          Этот отдельный server-side доступ нужен для проверки и изменения
+          существующих Google Docs. Сами операции находятся в разделе
+          «Транскрибации → Обслуживание».
+        </p>
+        <section className="card transcript-maintenance-access">
+          <p
+            className={accessStatus.tone}
+            role={accessStatus.tone === "error" ? "alert" : "status"}
+            data-maintenance-state={accessStatus.kind}
+          >
+            {accessStatus.message}
+          </p>
+          {oauthMessage && (
+            <p className="notice" role="status">
+              {oauthMessage}
+            </p>
+          )}
+          <div className="actions">
+            {!maintenanceReady && (
+              <button
+                type="button"
+                className="primary"
+                disabled={
+                  maintenanceLoading ||
+                  maintenanceStarting ||
+                  !maintenanceConnection ||
+                  !pickerReady ||
+                  maintenanceConnection?.configured === false
+                }
+                onClick={connectMaintenance}
+              >
+                {maintenanceStarting
+                  ? "Открываем Google…"
+                  : maintenanceConnection?.reconnect_required
+                    ? "Переподключить доступ"
+                    : "Подключить доступ"}
+              </button>
+            )}
+            {maintenanceConnection?.connected && (
+              <button type="button" onClick={disconnectMaintenance}>
+                Отключить доступ
+              </button>
+            )}
+            {maintenanceReady && onOpenWorkspace && (
+              <button
+                type="button"
+                className="primary"
+                onClick={onOpenWorkspace}
+              >
+                Перейти к обслуживанию
+              </button>
+            )}
+          </div>
+          {maintenanceReadError && (
+            <div className="error">
+              <button
+                type="button"
+                className="secondary"
+                disabled={maintenanceLoading}
+                onClick={() => void loadMaintenanceConnection()}
+              >
+                Повторить проверку доступа
+              </button>
+            </div>
+          )}
+          {maintenanceMessage && (
+            <p className="error" role="alert">
+              {maintenanceMessage}
+            </p>
+          )}
+        </section>
+      </section>
+    );
+  }
+
   return (
     <section
       className="transcript-maintenance-panel"
@@ -1285,6 +1526,14 @@ export function TranscriptCatalogMigrationPanel({
         а добавление в манифест — только метаданные Studio. Режим, объект,
         dry-run и подтверждение у операций раздельные.
       </p>
+      <div className={accessStatus.tone} role={accessStatus.tone === "error" ? "alert" : "status"}>
+        <p>{accessStatus.message}</p>
+        {!operationReady && onOpenConnections && (
+          <button type="button" className="secondary" onClick={onOpenConnections}>
+            Настроить доступ Google
+          </button>
+        )}
+      </div>
       <section className="card transcript-maintenance-access">
         <h3>Очистка манифеста Studio</h3>
         <p>
@@ -1301,77 +1550,6 @@ export function TranscriptCatalogMigrationPanel({
         </button>
         {clearMessage && (
           <p role="status" className="notice">{clearMessage}</p>
-        )}
-      </section>
-      <section
-        className="card transcript-maintenance-access"
-        aria-labelledby="transcript-maintenance-access-title"
-      >
-        <span className="tag">Отдельное разрешение</span>
-        <h3 id="transcript-maintenance-access-title">
-          Доступ Google для обслуживания
-        </h3>
-        <p>
-          Для серверной проверки выбранных папок или документов нужен
-          отдельный доступ к метаданным Drive и Google Docs. Его токены не
-          передаются в браузер. Выберите тот же Google-аккаунт, который
-          подключён выше.
-        </p>
-        <p
-          className={accessStatus.tone}
-          role={accessStatus.tone === "error" ? "alert" : "status"}
-          data-maintenance-state={accessStatus.kind}
-        >
-          {accessStatus.message}
-        </p>
-        {oauthMessage && (
-          <p className="notice" role="status">
-            {oauthMessage}
-          </p>
-        )}
-        <div className="actions">
-          {!maintenanceReady && (
-            <button
-              type="button"
-              className="primary"
-              disabled={
-                maintenanceLoading ||
-                maintenanceStarting ||
-                !maintenanceConnection ||
-                !pickerReady ||
-                maintenanceConnection?.configured === false
-              }
-              onClick={connectMaintenance}
-            >
-              {maintenanceStarting
-                ? "Открываем Google…"
-                : maintenanceConnection?.reconnect_required
-                  ? "Переподключить доступ"
-                  : "Подключить доступ"}
-            </button>
-          )}
-          {maintenanceConnection?.connected && (
-            <button type="button" onClick={disconnectMaintenance}>
-              Отключить доступ
-            </button>
-          )}
-        </div>
-        {maintenanceReadError && (
-          <div className="error">
-            <button
-              type="button"
-              className="secondary"
-              disabled={maintenanceLoading}
-              onClick={() => void loadMaintenanceConnection()}
-            >
-              Повторить проверку доступа
-            </button>
-          </div>
-        )}
-        {maintenanceMessage && (
-          <p className="error" role="alert">
-            {maintenanceMessage}
-          </p>
         )}
       </section>
       <div className="transcript-maintenance-grid">

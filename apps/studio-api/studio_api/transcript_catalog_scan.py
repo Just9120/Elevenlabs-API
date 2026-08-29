@@ -202,6 +202,7 @@ class GoogleTranscriptCatalogReader:
         folder_id: str,
         max_items: int = CATALOG_SCAN_MAX_ITEMS,
         max_pages: int = CATALOG_SCAN_MAX_PAGES,
+        progress: Callable[[str, int, int | None], None] | None = None,
     ) -> CatalogGoogleFolderScan:
         """Recursively list one explicitly selected folder and descendants."""
 
@@ -269,6 +270,8 @@ class GoogleTranscriptCatalogReader:
                     ),
                 )
                 pages_scanned += 1
+                if progress is not None:
+                    progress("scanning", pages_scanned, None)
                 incomplete_search = payload.get("incompleteSearch")
                 if incomplete_search is not None and not isinstance(
                     incomplete_search,

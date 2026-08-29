@@ -149,6 +149,35 @@ export type TranscriptMaintenanceApply =
   | TranscriptStandardizationApply
   | TranscriptCatalogImportApply;
 
+export type TranscriptMaintenanceRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
+export type TranscriptMaintenanceRun = {
+  id: string;
+  workflow: TranscriptMaintenanceWorkflow;
+  operation: "dry_run" | "apply";
+  selection_mode: "folder_tree" | "single_document";
+  target_name: string;
+  preview_run_id: string | null;
+  status: TranscriptMaintenanceRunStatus;
+  current_stage:
+    | "queued"
+    | "authorizing"
+    | "scanning"
+    | "inspecting"
+    | "applying"
+    | "completed"
+    | "failed";
+  progress: { completed: number; total: number | null };
+  result: TranscriptMaintenanceDryRun | TranscriptMaintenanceApply | null;
+  error: { code: string; retryable: boolean } | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
 const STANDARD_STATUSES = new Set<TranscriptStandardStatus>([
   "current",
   "outdated",
@@ -191,6 +220,21 @@ const CATALOG_OUTCOMES = new Set<CatalogImportOutcome>([
   "blocked",
   "standardization_required",
   "conflict",
+]);
+const RUN_STATUSES = new Set<TranscriptMaintenanceRunStatus>([
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+]);
+const RUN_STAGES = new Set<TranscriptMaintenanceRun["current_stage"]>([
+  "queued",
+  "authorizing",
+  "scanning",
+  "inspecting",
+  "applying",
+  "completed",
+  "failed",
 ]);
 const STANDARDIZATION_REASONS = new Set<MaintenanceReason>([
   "document_unreadable",
@@ -486,4 +530,131 @@ export function parseTranscriptCatalogImportApply(
     ),
     selection_summary: selectionSummary(source.selection_summary),
   };
+}
+
+export function parseTranscriptMaintenanceRun(
+  value: unknown,
+): TranscriptMaintenanceRun {
+  const source = record(value, "transcript maintenance run");
+  const workflow = enumValue(
+    source.workflow,
+    new Set<TranscriptMaintenanceWorkflow>([
+      "standardization",
+      "catalog_import",
+    ]),
+    "maintenance workflow",
+  );
+  const operation = enumValue(
+    source.operation,
+    new Set<"dry_run" | "apply">(["dry_run", "apply"]),
+    "maintenance operation",
+  );
+  const status = enumValue(
+    source.status,
+    RUN_STATUSES,
+    "maintenance run status",
+  );
+  const progressSource = record(source.progress, "maintenance progress");
+  const completed = nonNegativeInteger(
+    progressSource.completed,
+    "maintenance progress completed",
+  );
+  const total =
+    progressSource.total === null
+      ? null
+      : nonNegativeInteger(
+          progressSource.total,
+          "maintenance progress total",
+        );
+  if (total !== null && completed > total) {
+    throw new Error("invalid maintenance progress");
+  }
+  const errorSource =
+    source.error === null
+      ? null
+      : record(source.error, "maintenance error");
+  if (
+    errorSource !== null &&
+    (typeof errorSource.code !== "string" ||
+      !errorSource.code ||
+      errorSource.code.length > 80 ||
+      typeof errorSource.retryable !== "boolean")
+  ) {
+    throw new Error("invalid maintenance error");
+  }
+  let result: TranscriptMaintenanceRun["result"] = null;
+  if (source.result !== null) {
+    result =
+      workflow === "standardization"
+        ? operation === "dry_run"
+          ? parseTranscriptStandardizationDryRun(source.result)
+          : parseTranscriptStandardizationApply(source.result)
+        : operation === "dry_run"
+          ? parseTranscriptCatalogImportDryRun(source.result)
+          : parseTranscriptCatalogImportApply(source.result);
+  }
+  if (
+    typeof source.id !== "string" ||
+    source.id.length !== 36 ||
+    typeof source.target_name !== "string" ||
+    !source.target_name.trim() ||
+    source.target_name.length > 512 ||
+    (source.preview_run_id !== null &&
+      (typeof source.preview_run_id !== "string" ||
+        source.preview_run_id.length !== 36)) ||
+    (status === "succeeded" && result === null) ||
+    (status !== "succeeded" && result !== null) ||
+    (status === "failed" && errorSource === null) ||
+    (status !== "failed" && errorSource !== null)
+  ) {
+    throw new Error("invalid transcript maintenance run");
+  }
+  return {
+    id: source.id,
+    workflow,
+    operation,
+    selection_mode: enumValue(
+      source.selection_mode,
+      new Set<"folder_tree" | "single_document">([
+        "folder_tree",
+        "single_document",
+      ]),
+      "maintenance selection mode",
+    ),
+    target_name: source.target_name.trim(),
+    preview_run_id: source.preview_run_id as string | null,
+    status,
+    current_stage: enumValue(
+      source.current_stage,
+      RUN_STAGES,
+      "maintenance run stage",
+    ),
+    progress: { completed, total },
+    result,
+    error: errorSource as { code: string; retryable: boolean } | null,
+    created_at: isoDate(source.created_at, "maintenance created at"),
+    started_at: nullableIsoDate(
+      source.started_at,
+      "maintenance started at",
+    ),
+    finished_at: nullableIsoDate(
+      source.finished_at,
+      "maintenance finished at",
+    ),
+  };
+}
+
+function isoDate(value: unknown, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 64 ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    throw new Error(`invalid ${label}`);
+  }
+  return value;
+}
+
+function nullableIsoDate(value: unknown, label: string): string | null {
+  return value === null ? null : isoDate(value, label);
 }

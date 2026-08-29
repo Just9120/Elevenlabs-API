@@ -623,9 +623,10 @@ test('transcript maintenance stays fail-closed without Google authority', async 
   });
 
   await navigation
-    .getByRole('button', { name: 'Настройки', exact: true })
+    .getByRole('button', { name: 'Транскрибации', exact: true })
     .click();
-  await page.getByRole('tab', { name: 'Подключения' }).click();
+  await expect(page).toHaveURL(/\/transcriptions$/);
+  await page.getByRole('tab', { name: 'Обслуживание' }).click();
 
   const maintenance = page.getByRole('region', {
     name: 'Две независимые операции',

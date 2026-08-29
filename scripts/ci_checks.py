@@ -234,11 +234,12 @@ def check_studio_google_oauth_compose_wiring() -> None:
     for marker in required_api_markers:
         if marker not in api_block:
             fail(f"Studio maintenance OAuth API wiring missing marker: {marker}")
-    if (
-        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_" in worker_block
-        or "studio_google_maintenance_oauth_client_secret" in worker_block
-    ):
-        fail("Studio maintenance OAuth grant must not be injected into studio-worker")
+    for marker in required_api_markers:
+        if marker not in worker_block:
+            fail(
+                "Studio maintenance OAuth worker wiring missing marker: "
+                f"{marker}"
+            )
 
     print("[ci-checks] Studio primary/maintenance Google OAuth wiring checks passed.")
 

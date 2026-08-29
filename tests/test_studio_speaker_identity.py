@@ -84,7 +84,7 @@ def test_speaker_identity_schema_is_owner_scoped_bounded_and_additive():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC)))
     revision = script.get_revision("0024_speaker_identity")
     assert revision.down_revision == "0023_realtime_drafts"
-    assert script.get_heads() == ["0027_query_bounds"]
+    assert script.get_heads() == ["0028_transcript_maintenance_runs"]
     migration = Path(revision.module.__file__).read_text(encoding="utf-8")
     assert 'release_safety = "additive"' in migration
 
