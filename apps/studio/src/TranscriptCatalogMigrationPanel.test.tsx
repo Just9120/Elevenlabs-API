@@ -301,6 +301,21 @@ function queuedRun(id: string, targetName: string) {
   };
 }
 
+function runningRun(
+  id: string,
+  targetName: string,
+  completed: number,
+  total: number,
+) {
+  return {
+    ...queuedRun(id, targetName),
+    status: "running",
+    current_stage: "inspecting",
+    progress: { completed, total },
+    started_at: "2026-08-29T00:00:01Z",
+  };
+}
+
 function isLatestRunRequest(url: string) {
   return url.includes("/api/transcript-maintenance/runs?workflow=");
 }
@@ -993,6 +1008,97 @@ describe("TranscriptCatalogMigrationPanel", () => {
       expect(
         within(region).getByRole("button", { name: "Запустить dry-run" }),
       ).toBeDisabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("keeps polling queued and running maintenance runs without a remount", async () => {
+    const queued = queuedRun(
+      runIds.standardizationDryRun,
+      "Архив с live-прогрессом",
+    );
+    const running117 = runningRun(
+      queued.id,
+      queued.target_name,
+      117,
+      142,
+    );
+    const running118 = runningRun(
+      queued.id,
+      queued.target_name,
+      118,
+      142,
+    );
+    const completed = completedRun(
+      queued.id,
+      standardizationDryRun,
+      "folder_tree",
+      queued.target_name,
+    );
+    let statusRequestCount = 0;
+    let resolveThirdStatus: ((response: Response) => void) | null = null;
+    let resolveFourthStatus: ((response: Response) => void) | null = null;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json(readyMaintenanceConnection);
+      }
+      if (url.includes("runs?workflow=standardization")) {
+        return json({ run: queued });
+      }
+      if (url.includes("runs?workflow=catalog_import")) {
+        return json({ run: null });
+      }
+      if (url.endsWith(`/api/transcript-maintenance/runs/${queued.id}`)) {
+        statusRequestCount += 1;
+        if (statusRequestCount === 1) return json(queued);
+        if (statusRequestCount === 2) return json(running117);
+        if (statusRequestCount === 3) {
+          return new Promise<Response>((resolve) => {
+            resolveThirdStatus = resolve;
+          });
+        }
+        if (statusRequestCount === 4) {
+          return new Promise<Response>((resolve) => {
+            resolveFourthStatus = resolve;
+          });
+        }
+      }
+      return json({}, false, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 1_200 || delay === 2_000 ? 20 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderPanel();
+      const region = await screen.findByRole("region", {
+        name: "Стандартизация Google Docs",
+      });
+      expect(await within(region).findByText("117 из 142")).toBeInTheDocument();
+      await vi.waitFor(() => expect(statusRequestCount).toBe(3));
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/transcript-maintenance/runs/${queued.id}`),
+        expect.objectContaining({ cache: "no-store" }),
+      );
+
+      resolveThirdStatus?.(await json(running118));
+      expect(await within(region).findByText("118 из 142")).toBeInTheDocument();
+      await vi.waitFor(() => expect(statusRequestCount).toBe(4));
+
+      resolveFourthStatus?.(await json(completed));
+      expect(
+        await within(region).findByLabelText(
+          "Результат dry-run: Стандартизация Google Docs",
+        ),
+      ).toHaveTextContent("Лекция для обновления");
     } finally {
       timeoutSpy.mockRestore();
     }
