@@ -2,69 +2,73 @@
 
 ## Current Goal
 
-- **ID / title:** `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01` — live progress и safe legacy `Created at`.
+- **ID / title:** `PWA-USER-UX-STORAGE-ISOLATION-01` — пользовательский UX и изоляция reference storage.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner reports 2026-08-29 о stale progress и массовой блокировке legacy Docs; owner decision: существующий валидный `Created at` не менять, а при отсутствии даты не писать `unknown`, а пропускать поле.
-- **Scope:** непрерывно обновлять queued/running maintenance progress без remount; разрешить explicit legacy Google Docs standardization без исходного media file; сохранять существующий валидный `Created at`, а отсутствующий/невалидный не создавать; сохранить exact-authority/conflict safety; добавить regressions, canonical rule, PR/CI, applicable web/API/worker delivery и bounded authenticated LIVE без provider call.
-- **Non-goals:** commercial contour; provider/STT calls или spend; изменение формата новых transcripts; подстановка Google Doc/job/modified/current time или filename; automatic/bulk apply без explicit preview/confirmation; manifest business rules; OAuth scopes; migration/schema; CI/CD policy/workflow changes; unrelated refactors.
+- **Authorization source:** explicit owner instruction 2026-08-30: весь согласованный production UX/UI audit выполнить единой Goal, дополнительно включить candidate `PWA-STORAGE-ISOLATION-01`, поставить Goal и приступить.
+- **Scope:** выполнить `PUX-01..12` во всех текущих PWA surfaces; сделать primary copy/actions пользовательскими, спрятать implementation details за progressive disclosure, исправить semantic status/error presentation, упростить одиночные/групповые cards и History, сделать maintenance summary-first с bounded list navigation, отделить support/advanced Settings, устранить mobile Drive-dialog overflow; выполнить `STORAG-16..21` через раздельные audio/transcription reference data classes, S3/R2 buckets, credentials и lifecycle configuration с persisted safe routing и backward compatibility; добавить tests/docs, PR/CI, applicable protected delivery и bounded owner LIVE без provider call.
+- **Non-goals:** commercial contour; новый STT/provider, provider call или spend; durable transcript/audio-recording features; `STORAG-01..15`; перенос/удаление существующих objects; bucket/IAM provisioning без отдельной external authorization; DB least privilege; OAuth scopes; изменение `docs/ci-cd-rules.md`, repository protections или deployment topology; unrelated refactors.
 - **Goal AC:**
-  1. `TML-01`: canonical `PD-14`, `PTM-09`, denominator и current checkpoint отражают exact owner decision без ослабления правил новых transcripts.
-  2. `TML-02`: `source_creation_status=unavailable` не блокирует outdated/unstructured legacy Doc; `conflict` и unreadable document остаются blocked.
-  3. `TML-03`: standardization без authoritative source сохраняет валидный существующий `Created at`, а отсутствующий/невалидный полностью пропускает; `Created at: unknown` не генерируется.
-  4. `TML-04`: при authoritative source visible timestamp по-прежнему обязан точно совпадать с source creation time и при необходимости заменяет legacy value.
-  5. `TML-05`: mounted UI автоматически получает fresh `no-store` state queued/running run каждые bounded `2s`, обновляет progress и продолжает до terminal state без reload/tab switch.
-  6. `TML-06`: focused/full local regressions подтверждают legacy date branches, conflict safety, continuous polling и existing maintenance/document behavior.
-  7. `TML-07`: exact-head CI, applicable API/web/worker delivery и bounded authenticated dry-run подтверждают, что legacy rows больше не blocked; representative apply выполняется только после explicit owner preview/confirmation и без provider call.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** worker исполняет standardization apply, поэтому backend change требует совместимого API+worker rollout; worker lifecycle остаётся manual status/drain/deploy/status. Для representative Google Docs mutation нужен explicit owner preview/confirmation и подходящий legacy Doc. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
-- **Stop condition:** все Goal AC, `PD-14` и `PTM-09` имеют required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
+  1. `UXSI-01`: canonical `PUX-01..12`, `STORAG-16..21`, denominator и factual closure PR `#258` синхронизированы без изменения unrelated scope.
+  2. `UXSI-02`: terminal success/failure/cancel имеют разные semantic visual/ARIA tones; raw error code заменён локализованной actionable причиной, а support code доступен только под disclosure.
+  3. `UXSI-03`: single/group transcription cards и History не используют default `Мульти-транскрибация`, `Элемент`, UUID или internal source/output type labels и не дублируют одинаковые metadata/timestamps.
+  4. `UXSI-04`: Dashboard, Audio, ordinary Transcriptions/preflight и Live primary copy/actions описывают пользовательский результат; технические implementation details доступны только явно и вторично.
+  5. `UXSI-05`: maintenance и Settings используют user-task IA/copy, отделяют support/advanced surfaces; maintenance result summary precedes filterable bounded/paginated rows.
+  6. `UXSI-06`: Drive dialogs на `390x844` не имеют horizontal overflow, сохраняют доступные controls и modal scroll isolation.
+  7. `UXSI-07`: новые local references явно относятся к `audio_processing` либо `transcription`, сохраняют exact bucket identity и используют разные configured buckets; existing legacy sources читаются/удаляются без object move.
+  8. `UXSI-08`: audio/transcription buckets имеют разные credential files и independently declared lifecycle policy identifiers; equal/missing identities fail closed, и runtime health проверяет оба boundaries без раскрытия values.
+  9. `UXSI-09`: API/worker upload, completion, materialization, audio output, speaker sample, cleanup и diagnostics выбирают storage по persisted class/bucket и не получают silent cross-bucket fallback.
+  10. `UXSI-10`: focused и full local tests подтверждают UX regressions, narrow viewport, storage configuration/routing/legacy compatibility, secret boundary и existing product behavior.
+  11. `UXSI-11`: один initial push после полной local validation, reviewable PR и exact-head required CI завершаются success; failure исправляется одним grouped follow-up batch.
+  12. `UXSI-12`: applicable migration/API/web/worker delivery соответствует exact merge revision; bounded authenticated UX LIVE и distinct storage runtime Evidence подтверждены либо Goal честно достигает `PENDING_EXTERNAL_GATE` до external bucket/IAM/lifecycle setup.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** production сейчас подтверждён только с одним legacy source bucket/credential boundary. `STORAG-17..21` требуют два реально distinct buckets, credential pairs и lifecycle policies в operator-managed R2/VPS configuration; standard CD не provision-ит и не переписывает их. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; существующие objects не мигрируются автоматически; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-29T08:04:05Z.
+- Updated (UTC): 2026-08-29T22:28:34Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
-- Base branch/SHA: verified `origin/main@52c2adb4621f23fda34dece8a9096b36ae92504a`.
-- Working branch: `codex/maintenance-live-progress-fix`.
-- Last verified revision: initial PR head `131b0506e445e23a5996e94951b8b5d4c069cdef`; current local HEAD содержит локально проверенную grouped review-remediation и ещё не pushed.
-- Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: reproduced polling defect in code — success branch did not schedule the next queued/running poll and requests lacked `no-store`; commit `fa75184` implements bounded recurring polling. Commit `3d45298` removes only the `unavailable` planning blocker, preserves conflict/unreadable safety, makes `Created at` optional for legacy standardization, preserves valid existing date and omits missing/invalid date. Commit `131b050` added canonical `PD-14`/`PTM-09`, Goal/checkpoint и factual archive. Initial branch push и PR `#258` выполнены; exact-head CI прошёл. Automated review выявил три valid consistency defects: unstructured legacy header, Colab fallback через Google Doc `createdTime` и stale checkpoint action. Локальная grouped remediation извлекает date только из существующей transcript metadata, сохраняет exact valid value, пропускает missing/invalid date, не теряет первую строку body и синхронизирует Studio/Colab behavior.
-- Current step: выполнить единственный grouped follow-up push в PR `#258`.
-- Next exact action: после review-remediation commit выполнить один grouped follow-up push и дождаться exact-successor CI/review.
-- Validation and Evidence: review-focused Python `218 passed`; full portable Python `1119 passed, 5 skipped`; full Studio Vitest `633 passed`; ESLint, TypeScript/Vite/PWA production build и `scripts/ci_checks.py` passed. Initial PR head `131b0506e445e23a5996e94951b8b5d4c069cdef` также имел successful repository CI `33241637298` и Studio PWA CI `33241637305`; successor CI после pending follow-up ещё не запускался.
-- Pull Request / CI / deployment: PR `#258` открыт: `https://github.com/Just9120/Elevenlabs-API/pull/258`. Initial exact-head checks successful; review comments `3885974359`, `3885974360`, `3885974362` подтверждены как valid и локально исправлены. Follow-up push, successor CI, merge и deployment ещё не выполнены. Repository public и standard GitHub-hosted CI не расходует private-repository included minutes.
-- Blockers: отсутствуют.
-- Unverified assumptions: representative production dry-run завершится после current owner run; suitable single legacy Doc для mutation может потребовать owner confirmation; exact deployed API/worker/web identities будут проверены после delivery.
-- Preserved pre-existing changes: отсутствуют.
+- Base branch/SHA: verified `origin/main@a31770eabcd7a97acfa084252de06f26d041bc1b`.
+- Working branch: `codex/pwa-user-ux-storage-isolation`.
+- Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-pwa-user-ux-storage-isolation`.
+- Last verified revision: base `a31770eabcd7a97acfa084252de06f26d041bc1b`; текущие documentation edits ещё не committed.
+- Working tree at Goal start: isolated worktree clean. Основной checkout содержал unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми, основной checkout возвращён на `main`.
+- Completed: восстановлен exact Git/GitHub state; PR `#258`, exact-main CI/CD и owner LIVE reconciled; прочитаны repository, architecture и CI/CD contracts; создана active Goal; зафиксирован новый 12-AC UX denominator и scope `STORAG-16..21`; начат storage/config/code inventory.
+- Current step: завершить implementation design и первый documentation/checkpoint commit.
+- Next exact action: проверить canonical docs consistency, выполнить documentation validation и закоммитить Goal/spec/archive checkpoint; затем реализовать semantic status/error и compact transcription presentation.
+- Validation and Evidence: base exact-main repository CI `33242536922`, Studio PWA CI `33242536918`, Platform CD `33242536907`/`33242827363`, worker operations `33242755832`/`33242786300`/`33242964630` — success. Current branch validation ещё не запускалась.
+- Pull Request / CI / deployment: PR отсутствует; branch не pushed. Initial push разрешён только после полной local validation.
+- Blockers: external production bucket/IAM/lifecycle state пока не подтверждён; локальную implementation это не блокирует.
+- Unverified assumptions: provider поддерживает два distinct private S3/R2 buckets и independently scoped credentials/lifecycle; production operator сможет предоставить config без secret disclosure. UX audit основан на authenticated production surface и source review, но все изменённые paths ещё должны пройти narrow and desktop browser regression.
+- Preserved pre-existing changes: шесть `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по current local CODE/TEST; previous snapshot — последний расчёт до добавления `PD-14` и `PTM-09`. Evidence gate-ит READY, но не меняет numerator.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан после explicit owner addition `PUX-01..12`; ни один новый UX AC до implementation не засчитан. `STORAG-16..21` уже входили в previous denominator. Evidence gate-ит READY, но не меняет numerator.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **43,8% (`246/562`)** | **43,6% (`244/560`)** | Owner decision добавила `PD-14` и `PTM-09`; local CODE/TEST выполняют оба, поэтому denominator `+2`, numerator `+2`. |
-| **Non-commercial scope** | **76,9% (`246/320`)** | **76,7% (`244/318`)** | Colab `32/32` + personal PWA `214/288`; commercial не включена в numerator. |
-| **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | В durable BACKLOG, implementation не авторизована. |
-| **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает. |
-| **Personal Studio PWA canonical** | **74,3% (`214/288`)** | **74,1% (`212/286`)** | `PD-14` и `PTM-09` реализованы и локально протестированы; CI/deployment/LIVE текущего исправления ещё gate-ят lifecycle. |
-| `PWA-TRANSCRIPT-MAINTENANCE-01` | **100% (`9/9`)** | **100% (`8/8`)** | `PTM-09` имеет local CODE/TEST; exact-head CI/DEPLOY/LIVE ещё отсутствуют. |
-| `PWA-STANDARDIZATION-01` | **100% (`14/14`)** | **100% (`13/13`)** | `PD-14` реализует exact owner legacy-date rule; exact-head CI/DEPLOY/LIVE ещё отсутствуют. |
-| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Business rules не изменены; representative import/clear LIVE остаётся отдельным Evidence gap эпика. |
+| **Полный canonical scope** | **42,9% (`246/574`)** | **43,8% (`246/562`)** | Owner добавил `12` UX AC, выполнено `0/12`; numerator предыдущего Goal подтверждён exact-main delivery/LIVE. Изменение `-0,9` п.п. |
+| **Non-commercial scope** | **74,1% (`246/332`)** | **76,9% (`246/320`)** | Colab `32/32` + personal PWA `214/300`; denominator `+12`. Изменение `-2,8` п.п. |
+| **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
+| **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
+| **Personal Studio PWA canonical** | **71,3% (`214/300`)** | **74,3% (`214/288`)** | Новый UX denominator `+12`; storage denominator существовал ранее. Изменение `-3,0` п.п. |
+| `PWA-USER-EXPERIENCE-02` | **0% (`0/12`)** | **N/A** | Новый owner-approved epic; audit evidence не считается implementation. |
+| `STORAGE-LIFECYCLE-02` | **28,6% (`6/21`)** | **28,6% (`6/21`)** | Goal авторизует `STORAG-16..21`, но CODE/TEST ещё отсутствуют. |
 
-Ни одна сопоставимая оценка не изменилась более чем на `10` п.п.; расхождение объясняется только двумя новыми owner-approved atomic AC, оба подтверждены local CODE/TEST.
+Ни одна сопоставимая оценка не изменилась более чем на `10` п.п.; новый эпик не сравнивается с отсутствовавшим denominator.
 
 ## Candidate next Goals
 
 1. `DB-LEAST-PRIVILEGE-01` — actual roles Evidence и отдельные migration/application roles с backup/rollback plan.
-2. `PWA-STORAGE-ISOLATION-01` — разделение Audio Preparation references и transcription intake после architecture decision.
+2. `STORAGE-LIFECYCLE-FOLLOWUP-01` — только после отдельного owner decision выбрать bounded subset из `STORAG-01..15`.
 
 ## Risks и boundaries
 
-- Additive schema — protected stateful release; ordinary component CD не применяет migration.
-- Maintenance worker использует отдельный server-only grant; token/secret/Drive IDs не входят в browser state или validation evidence.
-- Dry-run не мутирует. Apply требует explicit owner confirmation и successful preview, но всё равно свежо проверяет Google state перед mutation.
-- Maintenance имеет более низкий claim priority, чем audio preparation и transcription jobs.
-- Authenticated LIVE выполняется только на owner-approved small target и без provider call.
+- Разделение buckets/credentials меняет stateful external configuration. Code/config schema можно доставить reviewably, но production switch требует explicit operator setup и fail-closed preflight.
+- Существующие local Sources остаются в legacy/transcription bucket; Goal не перемещает bytes, не меняет owner retention и не выполняет broad cleanup.
+- API и worker deployment/state различаются; migration остаётся protected `MANUAL_GATED`, worker — manual status/drain/deploy/status.
+- UX не должен скрыть recovery/spend/security warnings: они упрощаются, но actionable confirmation и safety detail остаются доступны.
 - Approved post-deploy metadata writer отсутствует; protection rules не обходятся и отдельный docs-only follow-up PR не создаётся.
 
 ## Sources of truth

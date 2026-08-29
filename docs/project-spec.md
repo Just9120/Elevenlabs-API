@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@52c2adb4621f23fda34dece8a9096b36ae92504a` (PR `#257`). Exact-main CI и protected delivery подтвердили maintenance workspace, schema `0028_transcript_maintenance_runs`, API/web/worker rollout. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@a31770eabcd7a97acfa084252de06f26d041bc1b` (PR `#258`). Exact-main CI, protected API/web/worker delivery и owner LIVE подтвердили continuous maintenance progress, безопасную legacy standardization и массовый explicit apply `141/141` без ошибок. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01` на branch `codex/maintenance-live-progress-fix` от verified base `main@52c2adb4621f23fda34dece8a9096b36ae92504a`. Goal авторизует `PD-14` и `PTM-09`: legacy standardization без обязательного исходного файла, сохранение существующего валидного `Created at` либо отсутствие поля, а также автоматическое browser polling queued/running maintenance runs. Commercial, provider/STT behavior/spend, automatic apply, догадки/подстановка timestamp и ослабление CI/CD safety вне scope.
+Current operational Goal: `PWA-USER-UX-STORAGE-ISOLATION-01` на branch `codex/pwa-user-ux-storage-isolation` от verified base `main@a31770eabcd7a97acfa084252de06f26d041bc1b`. Goal авторизует новый эпик `PWA-USER-EXPERIENCE-02` целиком и `STORAG-16..21`: пользовательский язык и progressive disclosure вместо технической консоли, семантически корректные статусы/ошибки, compact history/maintenance, mobile Drive dialog и раздельные audio/transcription reference storage classes, buckets, lifecycle/access configuration. Commercial, новый STT/provider behavior или spend, unrelated storage lifecycle `STORAG-01..15` и изменение CI/CD safety contract вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **100% (`32/32`)** | local CODE/TEST выполняют `CB-24`; READY остаётся gated current Goal CI/LIVE |
-| Personal Studio PWA | **74,3% (`214/288`)** | local CODE/TEST выполняют `PD-14` и `PTM-09`; exact-head CI/deployment/LIVE текущего исправления ещё не подтверждены |
-| Non-commercial scope | **76,9% (`246/320`)** | Colab `32/32` + personal PWA `214/288` |
+| Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
+| Personal Studio PWA | **71,3% (`214/300`)** | новый owner-approved UX denominator `+12`; до implementation ни один новый `PUX-*` AC не засчитан |
+| Non-commercial scope | **74,1% (`246/332`)** | Colab `32/32` + personal PWA `214/300` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **43,8% (`246/562`)** | `246 / (320 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **42,9% (`246/574`)** | `246 / (332 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, подняв denominator до `560` и numerator до `244`. Последующее owner-решение добавило `PD-14` и `PTM-09`; local CODE/TEST выполняют оба AC, поэтому current denominator равен `562`, numerator — `246`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`; они ещё не выполнены, поэтому current denominator равен `574`, numerator остаётся `246`. `STORAG-16..21` уже входили в denominator и будут менять только numerator после фактического выполнения. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -67,7 +67,7 @@ Commercial scope атомизирован ниже в `242` AC без silent omi
 
 ### Эпик `COLAB-BATCH-01` — batch-транскрибация
 
-Status: **🟦 IN PROGRESS — 100% (`24/24`)**. `CB-24` реализован и подтверждён local CODE/TEST; READY ожидает exact-head CI и owner LIVE на reviewed revision.
+Status: **🟩 READY — 100% (`24/24`)**. `CB-24` и весь batch contour подтверждены CODE/TEST, exact-main CI и bounded owner LIVE на reviewed revision; отдельный deployment unit для Colab не требуется.
 
 Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен; расширенный language-default scope также прошёл applicable CI и owner LIVE gates.
 
@@ -151,6 +151,27 @@ UX/UI-аудит production на viewport `390x844` ранее выявил docu
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
 Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Exact-main CI и subsequent production component deployments подтверждены; bounded LIVE expiry/cleanup coverage остаётся неполным.
+
+### Эпик `PWA-USER-EXPERIENCE-02` — пользовательский язык и progressive disclosure
+
+Status: **🟦 IN PROGRESS — 0% (`0/12`)**. Owner-approved implementation начата Goal `PWA-USER-UX-STORAGE-ISOLATION-01`; текущий production audit является SPEC input, но не CODE/TEST/LIVE Evidence нового поведения.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PUX-01` | Обзор приоритетно показывает пользовательские действия, текущую работу и доступные результаты; configuration counters не выступают главным содержанием страницы. | — |
+| `PUX-02` | Основной flow `Подготовка аудио` описывает варианты выбора по пользовательскому результату; S3, server-side FFmpeg, MIME, bytes и иные implementation details не показываются без явного раскрытия технических деталей. | — |
+| `PUX-03` | Composer и preflight транскрибации используют понятные русские действия и явную non-color-only индикацию важных опций; internal source/output type names и identifiers не входят в default presentation. | — |
+| `PUX-04` | Одиночная job отображается как `Транскрибация`, а batch с несколькими jobs — как `Группа транскрибаций`; служебные labels `Мульти-транскрибация` и `Элемент N` отсутствуют в default presentation. | — |
+| `PUX-05` | Terminal notice имеет семантически корректный visual/ARIA tone для success, failure и cancellation; failed/cancelled state не использует success styling. | — |
+| `PUX-06` | Пользователь видит локализованную actionable ошибку; raw backend/provider error code не показывается по умолчанию и доступен только в явно раскрытых данных для поддержки. | — |
+| `PUX-07` | Job/History cards не дублируют одинаковые timestamps и metadata; UUID, storage/source/output technical types и расширенные processing details находятся под явным disclosure. | — |
+| `PUX-08` | Основной Live flow объясняет захват, временное восстановление и результат пользовательским русским языком; model/VAD/checkpoint/storage/reconnect implementation details находятся под disclosure `Технические детали`. | — |
+| `PUX-09` | Transcript maintenance использует user-task terms (`проверка`, `применение`, `актуальный формат`) в основных controls/messages; `dry-run`, metadata, catalog и standard identifiers показываются только как secondary technical help. | — |
+| `PUX-10` | Maintenance result сначала показывает summary и доступные действия, а длинные document lists имеют filter и bounded pagination/progressive disclosure без unbounded render всех строк. | — |
+| `PUX-11` | В Settings обычные подключения и пользовательские storage preferences отделены от diagnostics, runtime identity, debug/export и maintenance access, которые явно обозначены как раздел для поддержки/расширенные настройки. | — |
+| `PUX-12` | App-owned Google Drive dialog на viewport `390x844` не имеет horizontal overflow, сохраняет читаемые названия и доступные primary/close controls; modal scroll остаётся изолирован от страницы. | — |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
@@ -250,7 +271,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 100% (`30/30`)**. Все atomic AC имеют local CODE/TEST Evidence; READY gate остаётся открыт до exact-head CI, API/web deployment и authenticated direct-upload LIVE.
+Status: **🟩 READY — 100% (`30/30`)**. Все atomic AC, exact-main CI, API/web/worker delivery и authenticated direct-upload/audio-processing LIVE подтверждены completed delivery chain.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder. Отдельный direct-upload mode переносит исходные audio/video с устройства непосредственно в Google Drive без обработки и без промежуточного хранения в Studio.
 
@@ -336,7 +357,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все AC подтверждены local CODE/TEST; READY ожидает exact-head CI, applicable deployment и authenticated LIVE нового/стандартизированного документа.
+Status: **🟩 READY — 100% (`14/14`)**. Exact-main CI, API/web/worker delivery и owner LIVE подтвердили новые `transcript_doc`, recursive preview и explicit массовую legacy standardization `141/141` без ошибок.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -355,15 +376,15 @@ Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все AC подтвержде�
 | `PD-13` | Existing eligible Google Docs приводятся к текущему `transcript_doc` через существующий explicit dry-run/apply standardization flow одной пользовательской операцией; historical version selection не требуется. | ✅ |
 | `PD-14` | Existing legacy Google Doc стандартируется без обязательной связи с исходным media file: валидный существующий `Created at` сохраняется, отсутствующий/невалидный не создаётся и не заменяется `unknown` или догадкой; подтверждённый source-date conflict остаётся blocker. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
-Authoritative source date по-прежнему имеет приоритет и должна точно совпадать с видимым ISO timestamp. Current Goal отдельно разрешает legacy mutation при `source_creation_status=unavailable`: существующий валидный `Created at` сохраняется, отсутствующий или невалидный удаляется; `conflict` остаётся fail-closed. Exact-head CI/deployment/LIVE этого изменения ещё не подтверждены.
+Authoritative source date по-прежнему имеет приоритет и должна точно совпадать с видимым ISO timestamp. Для explicit legacy mutation при `source_creation_status=unavailable` существующий валидный `Created at` сохраняется, отсутствующий или невалидный удаляется; `conflict` остаётся fail-closed. Это поведение подтверждено exact-main CI/deployment и owner LIVE.
 
 ### Эпик `PWA-TRANSCRIPT-MAINTENANCE-01` — workspace и durable execution обслуживания
 
-Status: **🟦 IN PROGRESS — 100% (`9/9`)**. Все AC подтверждены local CODE/TEST; READY требует exact-head CI, applicable API/web delivery и authenticated LIVE representative dry-run/apply.
+Status: **🟩 READY — 100% (`9/9`)**. Exact-main CI, protected API/web/worker delivery и authenticated recursive preview/apply подтвердили durable execution и continuous progress.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -377,7 +398,7 @@ Status: **🟦 IN PROGRESS — 100% (`9/9`)**. Все AC подтвержден�
 | `PTM-08` | Worker обрабатывает maintenance runs только после normal audio-preparation/transcription work; lease generation и heartbeat не позволяют потерявшему lease worker перезаписать reclaimed run. | ✅ |
 | `PTM-09` | Пока owner-scoped maintenance run имеет status `queued` или `running`, открытый workspace автоматически запрашивает fresh `no-store` state и обновляет progress до terminal status без reload, remount или переключения вкладки. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
@@ -510,7 +531,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `STORAGE-LIFECYCLE-02` — полный storage lifecycle
 
-Status: **⬜ BACKLOG — 28,6% (`6/21`)**.
+Status: **🟦 IN PROGRESS — 28,6% (`6/21`)**. Goal `PWA-USER-UX-STORAGE-ISOLATION-01` авторизует только `STORAG-16..21`; остальные незавершённые AC эпика остаются вне implementation scope.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -1125,17 +1146,17 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Current verified repository/web/API revision: `main@26fb497496ed2a418a12afc6b3cf081e45075e57` (PR `#255`); exact-main CI/CD и authenticated LIVE direct Drive upload завершены success.
-- Production worker остаётся на совместимой предыдущей revision; production schema — `0027_query_bounds`. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`.
-- `PG-04..08`, `PB-11`, `AP-01`, `AP-25..30`, `CB-24` и `PD-07..13` подтверждены local CODE/TEST. Document-standard AC ожидают exact-head CI, applicable deployment и LIVE gates current Goal.
+- Current verified repository/web/API/worker revision: `main@a31770eabcd7a97acfa084252de06f26d041bc1b` (PR `#258`); exact-main CI, protected delivery и owner LIVE maintenance apply завершены success.
+- Production schema — `0028_transcript_maintenance_runs`. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
+- Source storage runtime использует один legacy S3/R2 credential/bucket boundary. Раздельные audio/transcription reference buckets, lifecycle и credentials ещё не являются production fact и входят в current Goal как `STORAG-16..21`.
 
 ## 9. Current critical path
 
-1. Завершить `TRANSCRIPT-DOC-STANDARD-01`: versionless localized `transcript_doc`, rich-text styles для новых Studio/Colab documents и existing explicit standardization.
-2. Не расширять current Goal на commercial contour, provider/STT behavior/spend, OAuth scope changes, DB migration, arbitrary Docs editing или unrelated refactors.
-3. Exact-head CI, applicable delivery и authenticated owner LIVE обязательны; LIVE использует уже завершённый transcript/synthetic owner-controlled text и не запускает новый provider job.
-4. DB least privilege, storage isolation и legacy removal вне document-standard path остаются отдельными Goals.
-5. Commercial contour включён в durable BACKLOG `0/242`; это не implementation authorization.
+1. Реализовать и локально подтвердить `PUX-01..12`: user-facing IA/copy, semantic status/errors, compact History/maintenance, progressive disclosure и mobile Drive dialog.
+2. Реализовать `STORAG-16..21` с раздельными fail-closed runtime configuration, persisted bucket routing, credentials и lifecycle contract; существующие objects не перемещать и не удалять.
+3. Выполнить exact-head CI и applicable protected delivery. Storage migration/configuration считается stateful/external gate и не выполняется скрыто standard CD.
+4. Authenticated LIVE не запускает provider job и проверяет bounded UX matrix; storage LIVE требует фактические distinct bucket identities и read/write/cleanup probes без раскрытия names/secrets.
+5. Commercial contour, новый STT/provider behavior/spend, `STORAG-01..15`, DB least privilege и CI/CD policy остаются вне current Goal.
 
 ## 10. Supporting documents
 
