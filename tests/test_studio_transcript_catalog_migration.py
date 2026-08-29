@@ -260,6 +260,22 @@ def test_standardization_plan_contains_no_catalog_action_or_private_identity():
                 ),
             ),
             TranscriptStandardizationCandidate(
+                drive_document_id="private-legacy",
+                name="Legacy without source",
+                standard_status=CatalogDocumentStandardStatus.unstructured,
+                source_creation_status=(
+                    SourceCreationAuthorityStatus.unavailable
+                ),
+            ),
+            TranscriptStandardizationCandidate(
+                drive_document_id="private-conflict",
+                name="Conflicting source date",
+                standard_status=CatalogDocumentStandardStatus.outdated,
+                source_creation_status=(
+                    SourceCreationAuthorityStatus.conflict
+                ),
+            ),
+            TranscriptStandardizationCandidate(
                 drive_document_id="private-unreadable",
                 name="Unreadable",
                 standard_status=CatalogDocumentStandardStatus.unreadable,
@@ -274,17 +290,21 @@ def test_standardization_plan_contains_no_catalog_action_or_private_identity():
     assert [item["action"] for item in payload["items"]] == [
         "standardize_document",
         "unchanged",
+        "standardize_document",
+        "blocked",
         "blocked",
     ]
     assert payload["summary"] == {
-        "standardize_document_count": 1,
+        "standardize_document_count": 2,
         "unchanged_count": 1,
-        "blocked_count": 1,
+        "blocked_count": 2,
     }
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "import_metadata" not in encoded
     assert "standardize_and_import" not in encoded
     assert "private-outdated" not in encoded
+    assert "private-legacy" not in encoded
+    assert "private-conflict" not in encoded
 
 
 def test_catalog_import_plan_requires_current_docs_and_has_no_google_action():

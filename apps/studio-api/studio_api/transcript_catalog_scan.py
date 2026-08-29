@@ -48,8 +48,8 @@ TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
     "Model:",
     "Language:",
     "Speakers:",
-    "Created at:",
 )
+TRANSCRIPT_DATE_METADATA_PREFIX = "Created at:"
 TRANSCRIPT_OPTIONAL_METADATA_PREFIXES = (
     "Segment project:",
     "Segment time range:",
@@ -524,22 +524,31 @@ def classify_transcript_document_standard(
             TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
         )
     )
-    optional_match = all(
-        line.startswith(TRANSCRIPT_OPTIONAL_METADATA_PREFIXES)
-        for line in metadata_lines[required_count:]
-    )
-    if required_match and optional_match:
+    remaining_lines = metadata_lines[required_count:]
+    visible_created_at = None
+    if remaining_lines and remaining_lines[0].startswith(
+        TRANSCRIPT_DATE_METADATA_PREFIX
+    ):
         visible_created_at = parse_transcript_document_created_at(
-            required_lines[-1]
+            remaining_lines[0]
         )
         if visible_created_at is None:
             return CatalogDocumentStandardStatus.outdated
+        remaining_lines = remaining_lines[1:]
+    optional_match = all(
+        line.startswith(TRANSCRIPT_OPTIONAL_METADATA_PREFIXES)
+        for line in remaining_lines
+    )
+    if required_match and optional_match:
         expected_created_at = _normalized_datetime(
             authoritative_created_at
         )
         if (
             expected_created_at is not None
-            and visible_created_at != expected_created_at
+            and (
+                visible_created_at is None
+                or visible_created_at != expected_created_at
+            )
         ):
             return CatalogDocumentStandardStatus.outdated
         return (
@@ -552,6 +561,7 @@ def classify_transcript_document_standard(
         for line in metadata_lines
         for prefix in (
             *TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+            TRANSCRIPT_DATE_METADATA_PREFIX,
             *TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
         )
     ):

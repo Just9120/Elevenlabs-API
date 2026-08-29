@@ -408,19 +408,38 @@ def test_standardization_apply_rejects_invalid_created_time_mapping():
     assert standardizer.writes == []
 
 
-def test_standardization_apply_blocks_missing_source_creation_authority():
+def test_standardization_apply_preserves_or_omits_legacy_created_at():
     from studio_api.transcript_maintenance_apply import (
         execute_transcript_standardization_apply,
     )
 
-    standardizer = StatefulStandardizer({})
+    standardizer = StatefulStandardizer(
+        {
+            "private-with-date": (
+                "Call with date\n\nTranscript metadata\n"
+                "Provider: ElevenLabs\nModel: scribe_v2\n"
+                "Language: ru\nSpeakers: yes\n"
+                "Created at: 2026-06-02T10:26:00Z\n\n"
+                "Transcript\n\nPrivate dated body"
+            ),
+            "private-without-date": (
+                "Call without date\n\nPrivate undated body"
+            ),
+        }
+    )
     payload = execute_transcript_standardization_apply(
         access_token="private-access-token",
         candidates=(
             _candidate(
-                "private-document",
-                name="Document",
+                "private-with-date",
+                name="Call with date",
                 standard="outdated",
+                source_status="unavailable",
+            ),
+            _candidate(
+                "private-without-date",
+                name="Call without date",
+                standard="unstructured",
                 source_status="unavailable",
             ),
         ),
@@ -430,12 +449,31 @@ def test_standardization_apply_blocks_missing_source_creation_authority():
     assert payload["items"] == [
         {
             "position": 0,
-            "name": "Document",
+            "name": "Call with date",
             "source_creation_status": "unavailable",
-            "action": "blocked",
-            "outcome": "blocked",
-            "reason_code": "source_creation_time_unavailable",
-        }
+            "action": "standardize_document",
+            "outcome": "standardized",
+            "reason_code": None,
+        },
+        {
+            "position": 1,
+            "name": "Call without date",
+            "source_creation_status": "unavailable",
+            "action": "standardize_document",
+            "outcome": "standardized",
+            "reason_code": None,
+        },
     ]
-    assert standardizer.reads == []
-    assert standardizer.writes == []
+    dated = standardizer.document_text_by_id["private-with-date"]
+    undated = standardizer.document_text_by_id["private-without-date"]
+    assert "Created at: 2026-06-02T10:26:00Z" in dated
+    assert "Created at:" not in undated
+    assert "Created at: unknown" not in undated
+    assert standardizer.reads == [
+        "private-with-date",
+        "private-without-date",
+    ]
+    assert standardizer.writes == [
+        "private-with-date",
+        "private-without-date",
+    ]

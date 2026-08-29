@@ -13,6 +13,7 @@ from .transcript_catalog_scan import (
     DRIVE_ID_PATTERN,
     GOOGLE_DOCS_DOCUMENTS_URL,
     TRANSCRIPT_BODY_LABEL,
+    TRANSCRIPT_DATE_METADATA_PREFIX,
     TRANSCRIPT_METADATA_LABEL,
     TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
     TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
@@ -238,12 +239,14 @@ def standardize_transcript_document_in_place(
         }
     ):
         raise ValueError("Catalog standardization status is invalid")
-    authoritative_created_at = parse_authoritative_source_created_at(
-        created_time
+    authoritative_created_at = (
+        parse_authoritative_source_created_at(created_time)
+        if created_time is not None
+        else None
     )
-    if authoritative_created_at is None:
+    if created_time is not None and authoritative_created_at is None:
         raise ValueError(
-            "Authoritative source creation time is required"
+            "Authoritative source creation time is invalid"
         )
     transport = standardizer or GoogleTranscriptCatalogStandardizer()
     snapshot = transport.read_document(
@@ -430,20 +433,28 @@ def build_standardized_transcript_document_text(
         raise CatalogGoogleWriteError(
             CatalogGoogleWriteReason.empty_transcript
         )
-    created_at = _visible_timestamp(created_time)
-    if created_at is None:
-        raise ValueError("Authoritative source creation time is required")
+    if created_time is not None:
+        created_at = _visible_timestamp(created_time)
+        if created_at is None:
+            raise ValueError(
+                "Authoritative source creation time is invalid"
+            )
+    else:
+        created_at = _preserved_visible_timestamp(
+            metadata.get("Created at")
+        )
     required_values = {
         "Provider": _metadata_value(metadata.get("Provider")),
         "Model": _metadata_value(metadata.get("Model")),
         "Language": _metadata_value(metadata.get("Language")),
         "Speakers": _metadata_value(metadata.get("Speakers")),
-        "Created at": created_at,
     }
     metadata_lines = [
         f"{label}: {required_values[label]}"
-        for label in ("Provider", "Model", "Language", "Speakers", "Created at")
+        for label in ("Provider", "Model", "Language", "Speakers")
     ]
+    if created_at is not None:
+        metadata_lines.append(f"Created at: {created_at}")
     for prefix in TRANSCRIPT_OPTIONAL_METADATA_PREFIXES:
         label = prefix.removesuffix(":")
         value = metadata.get(label)
@@ -518,6 +529,7 @@ def _metadata_and_transcript_body(
             prefix.removesuffix(":")
             for prefix in (
                 *TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+                TRANSCRIPT_DATE_METADATA_PREFIX,
                 *TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
             )
         }
@@ -637,6 +649,13 @@ def _visible_timestamp(value: object) -> str | None:
         .isoformat()
         .replace("+00:00", "Z")
     )
+
+
+def _preserved_visible_timestamp(value: object) -> str | None:
+    cleaned = value.strip() if isinstance(value, str) else ""
+    if parse_authoritative_source_created_at(cleaned) is None:
+        return None
+    return cleaned
 
 
 def _metadata_value(value: object) -> str:

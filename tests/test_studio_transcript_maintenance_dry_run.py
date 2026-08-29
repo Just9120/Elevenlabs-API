@@ -190,7 +190,7 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
         assert private not in encoded
 
 
-def test_standardization_dry_run_blocks_missing_source_creation_time():
+def test_standardization_dry_run_allows_legacy_without_source_creation_time():
     from studio_api.source_creation_authority import (
         DocumentSourceCreationAuthority,
         SourceCreationAuthorityStatus,
@@ -224,8 +224,8 @@ def test_standardization_dry_run_blocks_missing_source_creation_time():
             "name": "Document",
             "standard_status": "outdated",
             "source_creation_status": "unavailable",
-            "action": "blocked",
-            "reason_code": "source_creation_time_unavailable",
+            "action": "standardize_document",
+            "reason_code": None,
         }
     ]
 
