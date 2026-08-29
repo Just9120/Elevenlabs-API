@@ -551,7 +551,55 @@ def _metadata_and_transcript_body(
         if title_key and first_line_key == title_key
         else lines
     )
-    return {}, normalize_transcript_document_text("\n".join(body_lines))
+    metadata, transcript_lines = _unstructured_legacy_metadata(body_lines)
+    return metadata, normalize_transcript_document_text(
+        "\n".join(transcript_lines)
+    )
+
+
+def _unstructured_legacy_metadata(
+    lines: list[str],
+) -> tuple[dict[str, str], list[str]]:
+    metadata = {}
+    body_lines = []
+    metadata_prefix = True
+    allowed_labels = {
+        prefix.removesuffix(":")
+        for prefix in (
+            *TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+            TRANSCRIPT_DATE_METADATA_PREFIX,
+            *TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
+        )
+    }
+    discarded_labels = {"Source file", "Source mode"}
+    metadata_markers = {
+        TRANSCRIPT_METADATA_LABEL,
+        LEGACY_TRANSCRIPT_METADATA_LABEL,
+    }
+    body_markers = {TRANSCRIPT_BODY_LABEL, LEGACY_TRANSCRIPT_BODY_LABEL}
+
+    for line in lines:
+        stripped = line.strip()
+        if metadata_prefix and not stripped:
+            continue
+        if metadata_prefix and stripped in metadata_markers:
+            continue
+        if metadata_prefix and stripped in body_markers:
+            metadata_prefix = False
+            continue
+        if metadata_prefix and ":" in stripped:
+            label, value = stripped.split(":", 1)
+            normalized_label = label.strip()
+            if normalized_label in allowed_labels:
+                if value.strip():
+                    metadata.setdefault(normalized_label, value.strip())
+                continue
+            if normalized_label in discarded_labels:
+                continue
+        metadata_prefix = False
+        body_lines.append(line)
+
+    return metadata, body_lines
 
 
 def _flatten_tabs(raw_tabs: object) -> list[Mapping[str, Any]]:

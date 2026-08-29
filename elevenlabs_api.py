@@ -3087,10 +3087,11 @@ def build_docs_only_standardized_transcript_document_text(
         provider_model=EXISTING_DOCS_BACKFILL_PROVIDER_MODEL,
         language=EXISTING_DOCS_BACKFILL_LANGUAGE,
         speakers_enabled=EXISTING_DOCS_BACKFILL_SPEAKERS_ENABLED,
-        created_at=format_visible_transcript_timestamp(created_at),
+        created_at=created_at,
         segment_label=existing_metadata.get("Segment project"),
         segment_time_range=existing_metadata.get("Segment time range"),
         original_source_name=existing_metadata.get("Original source"),
+        omit_unknown_created_at=True,
     )
     return build_structured_transcript_document_text(
         document_title=document_title,
@@ -3474,19 +3475,22 @@ def build_transcript_metadata_lines(
     segment_label: Optional[str] = None,
     segment_time_range: Optional[str] = None,
     original_source_name: Optional[str] = None,
+    omit_unknown_created_at: bool = False,
 ) -> list[str]:
     if speakers_enabled is None:
         speakers_value = "unknown"
     else:
         speakers_value = "yes" if speakers_enabled else "no"
 
+    created_at_value = format_transcript_metadata_value(created_at)
     lines = [
         f"Provider: {format_transcript_metadata_value(provider)}",
         f"Model: {format_transcript_metadata_value(provider_model)}",
         f"Language: {format_transcript_metadata_value(language)}",
         f"Speakers: {speakers_value}",
-        f"Created at: {format_transcript_metadata_value(created_at)}",
     ]
+    if created_at_value != "unknown" or not omit_unknown_created_at:
+        lines.append(f"Created at: {created_at_value}")
     if segment_label:
         lines.append(f"Segment project: {format_transcript_metadata_value(segment_label)}")
     if segment_time_range:
@@ -3560,7 +3564,12 @@ STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
     "Model:",
     "Language:",
     "Speakers:",
-    "Created at:",
+)
+STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX = "Created at:"
+STRUCTURED_TRANSCRIPT_OPTIONAL_METADATA_PREFIXES = (
+    "Segment project:",
+    "Segment time range:",
+    "Original source:",
 )
 STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES = (
     "Source file:",
@@ -3597,7 +3606,65 @@ def find_structured_transcript_section_indices(lines: list[str]) -> tuple[int, i
     return -1, -1
 
 
-def extract_existing_transcript_created_at(document_text: str) -> str:
+def split_unstructured_transcript_header(
+    document_text: str,
+    document_title: str = "",
+) -> tuple[dict[str, str], str]:
+    normalized = normalize_doc_plain_text(document_text or "")
+    if not normalized:
+        return {}, ""
+
+    lines = normalized.split("\n")
+    first_line_key = re.sub(r"\s+", " ", lines[0]).strip().casefold()
+    title_key = re.sub(r"\s+", " ", document_title).strip().casefold()
+    known_prefixes = (
+        *STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+        STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX,
+        *STRUCTURED_TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
+        *STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES,
+    )
+    structural_markers = {
+        STRUCTURED_TRANSCRIPT_METADATA_LABEL,
+        LEGACY_STRUCTURED_TRANSCRIPT_METADATA_LABEL,
+    }
+    body_markers = {
+        STRUCTURED_TRANSCRIPT_BODY_LABEL,
+        LEGACY_STRUCTURED_TRANSCRIPT_BODY_LABEL,
+    }
+    index = 1 if title_key and first_line_key == title_key else 0
+    metadata = {}
+
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped or stripped in structural_markers:
+            index += 1
+            continue
+        if stripped in body_markers:
+            index += 1
+            break
+        matched_prefix = next(
+            (
+                prefix
+                for prefix in known_prefixes
+                if stripped.startswith(prefix)
+            ),
+            None,
+        )
+        if matched_prefix is None:
+            break
+        if matched_prefix not in STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES:
+            metadata[matched_prefix.removesuffix(":")] = (
+                stripped.removeprefix(matched_prefix).strip()
+            )
+        index += 1
+
+    return metadata, normalize_doc_plain_text("\n".join(lines[index:]))
+
+
+def extract_existing_transcript_created_at(
+    document_text: str,
+    document_title: str = "",
+) -> str:
     """Extract visible Created at metadata from a structured transcript header only."""
 
     normalized = normalize_doc_plain_text(document_text or "")
@@ -3608,7 +3675,11 @@ def extract_existing_transcript_created_at(document_text: str) -> str:
     metadata_index, transcript_index = find_structured_transcript_section_indices(lines)
 
     if metadata_index < 1 or transcript_index <= metadata_index + 1:
-        return ""
+        metadata, _ = split_unstructured_transcript_header(
+            document_text,
+            document_title,
+        )
+        return metadata.get("Created at", "")
 
     for line in lines[metadata_index + 1:transcript_index]:
         if line.startswith("Created at:"):
@@ -3621,17 +3692,13 @@ def get_existing_google_doc_created_at_source(
     doc_metadata: dict,
     prefer_drive_created_time_for_metadata_refresh: bool = False,
 ) -> str:
-    existing_created_at = extract_existing_transcript_created_at(existing_document_text)
-    has_drive_created_time = format_transcript_metadata_value((doc_metadata or {}).get("createdTime")) != "unknown"
+    existing_created_at = extract_existing_transcript_created_at(
+        existing_document_text,
+        (doc_metadata or {}).get("name", ""),
+    )
 
-    if existing_created_at and is_visible_transcript_timestamp(existing_created_at):
+    if is_preservable_transcript_timestamp(existing_created_at):
         return "existing_metadata"
-    if prefer_drive_created_time_for_metadata_refresh and has_drive_created_time:
-        return "drive_createdTime"
-    if existing_created_at:
-        return "existing_metadata"
-    if has_drive_created_time:
-        return "drive_createdTime"
     return "unknown"
 
 
@@ -3640,28 +3707,35 @@ def is_visible_transcript_timestamp(value: str) -> bool:
     return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", normalized))
 
 
+def is_preservable_transcript_timestamp(value: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+    if is_visible_transcript_timestamp(normalized):
+        return True
+    parse_value = (
+        f"{normalized[:-1]}+00:00"
+        if normalized.endswith("Z")
+        else normalized
+    )
+    try:
+        parsed = datetime.fromisoformat(parse_value)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
 def resolve_existing_google_doc_created_at(
     existing_document_text: str,
     doc_metadata: dict,
     prefer_drive_created_time_for_metadata_refresh: bool = False,
 ) -> str:
-    existing_created_at = extract_existing_transcript_created_at(existing_document_text)
-    drive_created_time = (doc_metadata or {}).get("createdTime", "")
-    has_drive_created_time = format_transcript_metadata_value(drive_created_time) != "unknown"
+    existing_created_at = extract_existing_transcript_created_at(
+        existing_document_text,
+        (doc_metadata or {}).get("name", ""),
+    )
 
-    if existing_created_at and is_visible_transcript_timestamp(existing_created_at):
-        return format_visible_transcript_timestamp(existing_created_at)
-
-    if prefer_drive_created_time_for_metadata_refresh and has_drive_created_time:
-        return format_visible_transcript_timestamp(drive_created_time)
-
-    if existing_created_at:
-        return format_visible_transcript_timestamp(existing_created_at)
-
-    if has_drive_created_time:
-        return format_visible_transcript_timestamp(drive_created_time)
-
-    return "unknown"
+    if is_preservable_transcript_timestamp(existing_created_at):
+        return existing_created_at.strip()
+    return ""
 
 
 def extract_structured_transcript_metadata_values(document_text: str) -> dict[str, str]:
@@ -3677,7 +3751,11 @@ def extract_structured_transcript_metadata_values(document_text: str) -> dict[st
 
     values = {}
     for line in lines[metadata_index + 1:transcript_index]:
-        for prefix in STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES:
+        for prefix in (
+            *STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+            STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX,
+            *STRUCTURED_TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
+        ):
             if line.startswith(prefix):
                 values[prefix[:-1]] = line.removeprefix(prefix).strip()
                 break
@@ -3692,7 +3770,6 @@ def existing_google_doc_backfill_metadata_needs_refresh(document_text: str) -> b
     provider = metadata.get("Provider", "")
     model = metadata.get("Model", "")
     language = metadata.get("Language", "")
-    created_at = metadata.get("Created at", "")
 
     allowed_backfill_values = (
         provider in {"unknown", EXISTING_DOCS_BACKFILL_PROVIDER}
@@ -3706,7 +3783,6 @@ def existing_google_doc_backfill_metadata_needs_refresh(document_text: str) -> b
         provider == "unknown"
         or model == "unknown"
         or language == "unknown"
-        or not is_visible_transcript_timestamp(created_at)
     )
 
 
@@ -3743,19 +3819,35 @@ def is_structured_transcript_document_text(text: str) -> bool:
         return False
 
     metadata_lines = [line for line in lines[metadata_index + 1:transcript_index] if line]
-    if len(metadata_lines) != len(STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES):
+    required_count = len(STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES)
+    if len(metadata_lines) < required_count:
         return False
 
     for line in metadata_lines:
         if any(line.startswith(prefix) for prefix in STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES):
             return False
 
-    return all(
+    if not all(
         line.startswith(prefix)
         for line, prefix in zip(
-            metadata_lines,
+            metadata_lines[:required_count],
             STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
         )
+    ):
+        return False
+    remaining_lines = metadata_lines[required_count:]
+    if remaining_lines and remaining_lines[0].startswith(
+        STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX
+    ):
+        created_at_value = remaining_lines[0].removeprefix(
+            STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX
+        ).strip()
+        if not is_preservable_transcript_timestamp(created_at_value):
+            return False
+        remaining_lines = remaining_lines[1:]
+    return all(
+        line.startswith(STRUCTURED_TRANSCRIPT_OPTIONAL_METADATA_PREFIXES)
+        for line in remaining_lines
     )
 
 
@@ -3778,6 +3870,8 @@ def classify_existing_google_doc_transcript_standard(document_text: str) -> str:
         metadata_lines = [line for line in lines[metadata_index + 1:transcript_index] if line]
         known_prefixes = (
             *STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+            STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX,
+            *STRUCTURED_TRANSCRIPT_OPTIONAL_METADATA_PREFIXES,
             *STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES,
         )
         if any(line.startswith(prefix) for line in metadata_lines for prefix in known_prefixes):
@@ -3798,11 +3892,11 @@ def extract_unstructured_transcript_body_for_backfill(document_text: str, docume
     if metadata_index >= 1 and transcript_index > metadata_index:
         return normalize_doc_plain_text("\n".join(lines[transcript_index + 1:]))
 
-    title_key = re.sub(r"\s+", " ", document_title).strip().casefold()
-    first_line_key = re.sub(r"\s+", " ", lines[0]).strip().casefold() if lines else ""
-    if first_line_key and first_line_key == title_key:
-        return normalize_doc_plain_text("\n".join(lines[1:]))
-    return text
+    _, transcript_body = split_unstructured_transcript_header(
+        document_text,
+        document_title,
+    )
+    return transcript_body
 
 
 def build_backfilled_transcript_document_text(
@@ -3823,7 +3917,8 @@ def build_backfilled_transcript_document_text(
         provider_model=EXISTING_DOCS_BACKFILL_PROVIDER_MODEL,
         language=EXISTING_DOCS_BACKFILL_LANGUAGE,
         speakers_enabled=EXISTING_DOCS_BACKFILL_SPEAKERS_ENABLED,
-        created_at=format_visible_transcript_timestamp(created_at),
+        created_at=created_at,
+        omit_unknown_created_at=True,
     )
     return build_structured_transcript_document_text(
         document_title=document_title,

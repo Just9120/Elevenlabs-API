@@ -53,6 +53,7 @@ HELPER_NAMES = {
     "localize_transcript_speaker_labels",
     "build_structured_transcript_document_text",
     "find_structured_transcript_section_indices",
+    "split_unstructured_transcript_header",
     "build_transcript_doc_style_requests",
     "build_backfilled_transcript_document_text",
     "chunk_text_for_docs",
@@ -62,6 +63,7 @@ HELPER_NAMES = {
     "resolve_existing_google_doc_created_at",
     "extract_existing_transcript_created_at",
     "format_visible_transcript_timestamp",
+    "is_preservable_transcript_timestamp",
     "existing_google_doc_backfill_metadata_needs_refresh",
     "extract_structured_transcript_metadata_values",
     "is_visible_transcript_timestamp",
@@ -207,6 +209,8 @@ def load_text_helpers() -> dict[str, object]:
                     "LEGACY_STRUCTURED_TRANSCRIPT_METADATA_LABEL",
                     "LEGACY_STRUCTURED_TRANSCRIPT_BODY_LABEL",
                     "STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES",
+                    "STRUCTURED_TRANSCRIPT_DATE_METADATA_PREFIX",
+                    "STRUCTURED_TRANSCRIPT_OPTIONAL_METADATA_PREFIXES",
                     "STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES",
                     "FOLDER_MIME",
                     "DOC_MIME",
@@ -889,7 +893,13 @@ def test_extract_existing_transcript_created_at_reads_current_and_legacy_metadat
     assert extract_existing_transcript_created_at(current) == "2026-06-03 11:46 UTC"
     assert extract_existing_transcript_created_at(legacy) == "2026-06-02T10:26:40.369268+00:00"
     assert extract_existing_transcript_created_at("Call\n\nTranscript metadata\nProvider: ElevenLabs\n\nTranscript\n\nBody") == ""
-    assert extract_existing_transcript_created_at("Call\n\nCreated at: 2026-06-03T11:46:04Z\nBody") == ""
+    assert extract_existing_transcript_created_at(
+        "Call\n\nCreated at: 2026-06-03T11:46:04Z\nBody",
+        "Call",
+    ) == "2026-06-03T11:46:04Z"
+    assert extract_existing_transcript_created_at(
+        "First body paragraph\n\nCreated at: 2026-06-03T11:46:04Z"
+    ) == ""
     assert extract_existing_transcript_created_at(
         "Call\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: Русский\n"
         "Speakers: unknown\nCreated at: 2026-06-01T00:00:00+00:00\n\nTranscript\n\n"
@@ -903,21 +913,27 @@ def test_resolve_existing_google_doc_created_at_priority_and_no_now_fallback() -
     assert resolve_existing_google_doc_created_at(
         existing,
         {"createdTime": "2026-06-03T11:46:04Z"},
-    ) == "2026-06-02 10:26 UTC"
+    ) == "2026-06-02T10:26:40.369268+00:00"
     assert resolve_existing_google_doc_created_at(
         existing,
         {"createdTime": "2026-06-03T11:46:04Z"},
         prefer_drive_created_time_for_metadata_refresh=True,
-    ) == "2026-06-03 11:46 UTC"
+    ) == "2026-06-02T10:26:40.369268+00:00"
     assert get_existing_google_doc_created_at_source(existing, {"createdTime": "2026-06-03T11:46:04Z"}) == "existing_metadata"
     assert get_existing_google_doc_created_at_source(
         existing,
         {"createdTime": "2026-06-03T11:46:04Z"},
         prefer_drive_created_time_for_metadata_refresh=True,
-    ) == "drive_createdTime"
-    assert resolve_existing_google_doc_created_at("Call\n\nBody", {"createdTime": "2026-06-03T11:46:04Z"}) == "2026-06-03 11:46 UTC"
-    assert get_existing_google_doc_created_at_source("Call\n\nBody", {"createdTime": "2026-06-03T11:46:04Z"}) == "drive_createdTime"
-    assert resolve_existing_google_doc_created_at("Call\n\nBody", {}) == "unknown"
+    ) == "existing_metadata"
+    assert resolve_existing_google_doc_created_at(
+        "Call\n\nBody",
+        {"createdTime": "2026-06-03T11:46:04Z"},
+    ) == ""
+    assert get_existing_google_doc_created_at_source(
+        "Call\n\nBody",
+        {"createdTime": "2026-06-03T11:46:04Z"},
+    ) == "unknown"
+    assert resolve_existing_google_doc_created_at("Call\n\nBody", {}) == ""
     assert get_existing_google_doc_created_at_source("Call\n\nBody", {}) == "unknown"
     assert resolve_existing_google_doc_created_at("Call\n\nBody", {}) != HELPERS["utc_now_iso"]()
 
@@ -1228,12 +1244,13 @@ def test_is_structured_transcript_document_text_requires_exact_current_metadata_
         )
 
     assert is_structured_transcript_document_text(build_with(valid_metadata))
+    assert is_structured_transcript_document_text(build_with(valid_metadata[:-1]))
 
     invalid_cases = [
-        valid_metadata[:-1],
         [valid_metadata[1], valid_metadata[0], *valid_metadata[2:]],
         [*valid_metadata, valid_metadata[-1]],
         [*valid_metadata, "Duration: unknown"],
+        [*valid_metadata[:-1], "Created at: unknown"],
         ["Source file: call.mp3", *valid_metadata],
         ["Source mode: Google Drive: 1 файл", *valid_metadata],
     ]
@@ -1246,6 +1263,10 @@ def test_extract_unstructured_transcript_body_for_backfill_drops_duplicate_title
 
     assert extract_unstructured_transcript_body_for_backfill(text, "Legacy Call") == "First line.\nSecond line."
     assert extract_unstructured_transcript_body_for_backfill("First line.", "Legacy Call") == "First line."
+    assert extract_unstructured_transcript_body_for_backfill(
+        "First line.\nSecond line.",
+        "Different title",
+    ) == "First line.\nSecond line."
 
 
 def test_build_backfilled_transcript_document_text_uses_temporary_existing_docs_defaults() -> None:
@@ -1264,7 +1285,7 @@ def test_build_backfilled_transcript_document_text_uses_temporary_existing_docs_
         "Model: scribe_v2\n"
         "Language: Русский\n"
         "Speakers: unknown\n"
-        "Created at: 2026-06-01 00:00 UTC\n\n"
+        "Created at: 2026-06-01T00:00:00+00:00\n\n"
         "Транскрипция\n\n"
         "Hello world."
     )
@@ -1455,6 +1476,59 @@ def test_docs_only_dry_run_counts_would_standardize_without_writing() -> None:
     assert writes == []
 
 
+def test_docs_only_apply_omits_missing_date_instead_of_using_doc_created_time() -> None:
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {
+            "id": "doc-1",
+            "name": "Call",
+            "mimeType": DOC_MIME,
+            "createdTime": "2026-06-03T11:46:04Z",
+        },
+    ]
+    HELPERS["extract_google_doc_plain_text"] = (
+        lambda document_id: "Call\n\nHello world."
+    )
+    HELPERS["write_title_and_text_to_doc"] = (
+        lambda **kwargs: writes.append(kwargs)
+    )
+
+    report = standardize_existing_google_docs_in_folder(
+        "root",
+        dry_run=False,
+    )
+
+    assert report["standardized"][0]["created_at_source"] == "unknown"
+    rewritten_text = writes[0]["transcript_text"]
+    assert "Created at:" not in rewritten_text
+    assert is_structured_transcript_document_text(rewritten_text)
+
+
+def test_docs_only_apply_preserves_unstructured_header_date_once() -> None:
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {
+            "id": "doc-1",
+            "name": "Call",
+            "mimeType": DOC_MIME,
+            "createdTime": "2099-01-01T00:00:00Z",
+        },
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: (
+        "Call\n\nCreated at: 2026-06-03T11:46:04Z\n\nHello world."
+    )
+    HELPERS["write_title_and_text_to_doc"] = (
+        lambda **kwargs: writes.append(kwargs)
+    )
+
+    standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    rewritten_text = writes[0]["transcript_text"]
+    assert rewritten_text.count("Created at:") == 1
+    assert "Created at: 2026-06-03T11:46:04Z" in rewritten_text
+    assert rewritten_text.endswith("Hello world.")
+
+
 
 def test_docs_only_dry_run_counts_old_standard_as_would_standardize() -> None:
     writes = []
@@ -1504,7 +1578,7 @@ def test_docs_only_apply_rewrites_old_standard_to_current_and_preserves_body() -
     assert "Model: scribe_v2" in rewritten_text
     assert "Language: Русский" in rewritten_text
     assert "Speakers: unknown" in rewritten_text
-    assert "Created at: 2026-06-02 10:26 UTC" in rewritten_text
+    assert "Created at: 2026-06-02T10:26:40.369268+00:00" in rewritten_text
     assert body in rewritten_text
     assert is_structured_transcript_document_text(rewritten_text)
 
@@ -1580,7 +1654,7 @@ def test_docs_only_metadata_is_honest_and_conservative() -> None:
     assert "Model: scribe_v2" in document_text
     assert "Language: Русский" in document_text
     assert "Speakers: unknown" in document_text
-    assert "Created at: 2026-06-01 00:00 UTC" in document_text
+    assert "Created at: 2026-06-01T00:00:00+00:00" in document_text
 
 
 def test_docs_only_flow_does_not_call_provider_create_doc_or_manifest_helpers() -> None:
@@ -1628,14 +1702,14 @@ def test_docs_only_dry_run_refreshes_current_shaped_old_backfill_without_writing
         "doc_name": "Old Backfill",
         "link": "",
         "structured_status": "current_metadata_refresh",
-        "created_at_source": "drive_createdTime",
+        "created_at_source": "existing_metadata",
         "metadata_defaults_source": "temporary_existing_docs_backfill_defaults",
     }]
     assert report["already_structured"] == []
     assert writes == []
 
 
-def test_docs_only_apply_refreshes_current_shaped_old_backfill_and_prefers_drive_created_time() -> None:
+def test_docs_only_apply_refreshes_old_backfill_and_preserves_existing_date() -> None:
     body = "First line.\n\nSecond line stays exactly the same."
     document_text = build_old_backfill_current_standard_document(title="Old Backfill", body=body)
     writes = []
@@ -1659,8 +1733,8 @@ def test_docs_only_apply_refreshes_current_shaped_old_backfill_and_prefers_drive
     assert "Model: scribe_v2" in rewritten_text
     assert "Language: Русский" in rewritten_text
     assert "Speakers: unknown" in rewritten_text
-    assert "Created at: 2026-06-03 11:46 UTC" in rewritten_text
-    assert "Created at: 2026-06-01 00:00 UTC" not in rewritten_text
+    assert "Created at: 2026-06-01T00:00:00+00:00" in rewritten_text
+    assert "Created at: 2026-06-03 11:46 UTC" not in rewritten_text
     assert "Source file:" not in rewritten_text
     assert "Source mode:" not in rewritten_text
     assert "Standardized at:" not in rewritten_text
@@ -4378,3 +4452,4 @@ def test_existing_segment_doc_standardization_preserves_actual_drive_title_and_m
     assert "Segment project: Tivali" in text
     assert "Segment time range: 00:00-end" in text
     assert "Original source: Синк Tivali 21.06.2026 (2).mp4" in text
+    assert "Created at:" not in text

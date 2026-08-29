@@ -257,6 +257,26 @@ def test_legacy_standardization_preserves_existing_created_at_without_source():
     assert "Created at: 2026-06-02T13:26:00+03:00" in result
 
 
+def test_unstructured_legacy_header_preserves_date_outside_named_sections():
+    from studio_api.transcript_catalog_standardize import (
+        build_standardized_transcript_document_text,
+    )
+
+    result = build_standardized_transcript_document_text(
+        document_name="Legacy dated",
+        existing_document_text=(
+            "Legacy dated\n\nProvider: ElevenLabs\n"
+            "Created at: 2026-06-02T13:26:00+03:00\n\n"
+            "Private body without section markers"
+        ),
+        created_time=None,
+    )
+
+    assert result.count("Created at:") == 1
+    assert "Created at: 2026-06-02T13:26:00+03:00" in result
+    assert result.endswith("Private body without section markers")
+
+
 def test_legacy_standardization_omits_missing_or_invalid_created_at():
     from studio_api.transcript_catalog_migration import (
         CatalogDocumentStandardStatus,
