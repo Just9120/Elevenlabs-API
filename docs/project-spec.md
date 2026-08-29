@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@c065b629db9875ddd92bf30ce67d8290c018f067` (PR `#256`). Exact-main CI и API/web delivery подтвердили versionless rich-text `transcript_doc`; production schema остаётся `0027_query_bounds`. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@52c2adb4621f23fda34dece8a9096b36ae92504a` (PR `#257`). Exact-main CI и protected delivery подтвердили maintenance workspace, schema `0028_transcript_maintenance_runs`, API/web/worker rollout. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `TRANSCRIPT-MAINTENANCE-WORKSPACE-01` на branch `codex/transcript-maintenance-workspace-01` от verified base `main@c065b629db9875ddd92bf30ce67d8290c018f067`. Goal авторизует `PTM-01..08`: отдельный workspace обслуживания в `Транскрибации`, app-owned Google Drive picker и durable owner-scoped background runs вместо long-running HTTP request. Commercial, provider/STT behavior/spend, изменение document standard, automatic apply и ослабление CI/CD safety вне scope.
+Current operational Goal: `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01` на branch `codex/maintenance-live-progress-fix` от verified base `main@52c2adb4621f23fda34dece8a9096b36ae92504a`. Goal авторизует `PD-14` и `PTM-09`: legacy standardization без обязательного исходного файла, сохранение существующего валидного `Created at` либо отсутствие поля, а также автоматическое browser polling queued/running maintenance runs. Commercial, provider/STT behavior/spend, automatic apply, догадки/подстановка timestamp и ослабление CI/CD safety вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | local CODE/TEST выполняют `CB-24`; READY остаётся gated current Goal CI/LIVE |
-| Personal Studio PWA | **74,1% (`212/286`)** | local CODE/TEST выполняют новый bounded maintenance workspace `PTM-01..08`; exact-head CI/deployment/LIVE ещё не подтверждены |
-| Non-commercial scope | **76,7% (`244/318`)** | Colab `32/32` + personal PWA `212/286` |
+| Personal Studio PWA | **74,3% (`214/288`)** | local CODE/TEST выполняют `PD-14` и `PTM-09`; exact-head CI/deployment/LIVE текущего исправления ещё не подтверждены |
+| Non-commercial scope | **76,9% (`246/320`)** | Colab `32/32` + personal PWA `214/288` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **43,6% (`244/560`)** | `244 / (318 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **43,8% (`246/562`)** | `246 / (320 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, поэтому current denominator равен `560`; local CODE/TEST выполняют эти восемь AC и поднимают independent numerator с `236` до `244`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, подняв denominator до `560` и numerator до `244`. Последующее owner-решение добавило `PD-14` и `PTM-09`; local CODE/TEST выполняют оба AC, поэтому current denominator равен `562`, numerator — `246`. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -55,7 +55,7 @@ Commercial scope атомизирован ниже в `242` AC без silent omi
 1. Primary batch artifact — Google Docs transcript; realtime должен позволять скачать подтверждённый текст как `.txt`.
 2. Фраза владельца «импорт транскрипции в виде документа `.txt`» в текущем контракте означает выгрузку/скачивание результата. Import внешнего `.txt` обратно в продукт не включён без отдельного уточнения.
 3. Языковые режимы обоих batch-продуктов: русский, английский и provider auto-detection. В Google Colab auto-detection выбран по умолчанию; русский и английский остаются optional explicit overrides.
-4. Время в metadata документа — ISO 8601 и отражает фактическое создание исходного media file. Время изменения файла, время job и время создания transcript document не являются допустимой заменой.
+4. Для нового transcript время в metadata документа — ISO 8601 и отражает фактическое создание исходного media file. При explicit standardization существующего legacy Google Doc без доступного исходного файла уже присутствующий валидный `Created at` сохраняется; если такого значения нет или оно невалидно, поле полностью пропускается. Время изменения файла, время job/Google Doc, filename и текущее время не являются допустимой заменой; подтверждённый conflict source dates блокирует mutation.
 5. Duplicate protection использует устойчивую source identity: Google Drive file ID и доступные metadata; для local files — content fingerprint и доступные metadata. Filename alone недостаточен.
 6. Accepted-output manifest/catalog record создаётся только после подтверждённого создания Google Docs результата. Operational job state может храниться отдельно, но не должен становиться ложным доказательством успешной транскрибации.
 7. Transcript standardization добавляет metadata header и читабельные абзацы; folder operation охватывает выбранную папку и все вложенные подпапки.
@@ -336,7 +336,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все AC подтверждены local CODE/TEST; READY ожидает exact-head CI, applicable deployment и authenticated LIVE нового/стандартизированного документа.
+Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все AC подтверждены local CODE/TEST; READY ожидает exact-head CI, applicable deployment и authenticated LIVE нового/стандартизированного документа.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -353,16 +353,17 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все AC подтвержде�
 | `PD-11` | Пользовательские структурные labels документа русифицированы; устойчивые technical terms и metadata keys сохраняются на английском. | ✅ |
 | `PD-12` | Каждый новый Studio PWA transcript создаётся в текущем canonical формате `transcript_doc`. | ✅ |
 | `PD-13` | Existing eligible Google Docs приводятся к текущему `transcript_doc` через существующий explicit dry-run/apply standardization flow одной пользовательской операцией; historical version selection не требуется. | ✅ |
+| `PD-14` | Existing legacy Google Doc стандартируется без обязательной связи с исходным media file: валидный существующий `Created at` сохраняется, отсутствующий/невалидный не создаётся и не заменяется `unknown` или догадкой; подтверждённый source-date conflict остаётся blocker. | ✅ |
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
-`main@800bcc820529ff3c78214c129c593d182c621c62` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Bounded production output и repeated single-document dry-run подтвердили authoritative и idempotent path; legacy unknown path остался fail-closed.
+Authoritative source date по-прежнему имеет приоритет и должна точно совпадать с видимым ISO timestamp. Current Goal отдельно разрешает legacy mutation при `source_creation_status=unavailable`: существующий валидный `Created at` сохраняется, отсутствующий или невалидный удаляется; `conflict` остаётся fail-closed. Exact-head CI/deployment/LIVE этого изменения ещё не подтверждены.
 
 ### Эпик `PWA-TRANSCRIPT-MAINTENANCE-01` — workspace и durable execution обслуживания
 
-Status: **🟦 IN PROGRESS — 100% (`8/8`)**. Все AC подтверждены local CODE/TEST; READY требует exact-head CI, protected migration, API/worker/web delivery и authenticated LIVE representative dry-run/apply.
+Status: **🟦 IN PROGRESS — 100% (`9/9`)**. Все AC подтверждены local CODE/TEST; READY требует exact-head CI, applicable API/web delivery и authenticated LIVE representative dry-run/apply.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -374,8 +375,9 @@ Status: **🟦 IN PROGRESS — 100% (`8/8`)**. Все AC подтвержден�
 | `PTM-06` | Повтор запроса idempotent, conflicting replay fail-closed, а один owner не может одновременно запустить два runs одного workflow. | ✅ |
 | `PTM-07` | Timeout, rate limit, auth/scope, selection, revision/write conflict и exhausted retry возвращаются как structured safe error codes с понятным русским действием без raw backend detail. | ✅ |
 | `PTM-08` | Worker обрабатывает maintenance runs только после normal audio-preparation/transcription work; lease generation и heartbeat не позволяют потерявшему lease worker перезаписать reclaimed run. | ✅ |
+| `PTM-09` | Пока owner-scoped maintenance run имеет status `queued` или `running`, открытый workspace автоматически запрашивает fresh `no-store` state и обновляет progress до terminal status без reload, remount или переключения вкладки. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 

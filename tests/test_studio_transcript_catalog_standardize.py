@@ -237,6 +237,78 @@ def test_standardized_text_replaces_opaque_timestamp_with_authority():
     assert "Created at: imported before timestamp policy" not in result
 
 
+def test_legacy_standardization_preserves_existing_created_at_without_source():
+    from studio_api.transcript_catalog_standardize import (
+        build_standardized_transcript_document_text,
+    )
+
+    result = build_standardized_transcript_document_text(
+        document_name="Legacy dated",
+        existing_document_text=(
+            "Old\n\nTranscript metadata\n"
+            "Provider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\n"
+            "Speakers: yes\nCreated at: 2026-06-02T13:26:00+03:00\n\n"
+            "Transcript\n\nBody"
+        ),
+        created_time=None,
+    )
+
+    assert result.count("Created at:") == 1
+    assert "Created at: 2026-06-02T13:26:00+03:00" in result
+
+
+def test_unstructured_legacy_header_preserves_date_outside_named_sections():
+    from studio_api.transcript_catalog_standardize import (
+        build_standardized_transcript_document_text,
+    )
+
+    result = build_standardized_transcript_document_text(
+        document_name="Legacy dated",
+        existing_document_text=(
+            "Legacy dated\n\nProvider: ElevenLabs\n"
+            "Created at: 2026-06-02T13:26:00+03:00\n\n"
+            "Private body without section markers"
+        ),
+        created_time=None,
+    )
+
+    assert result.count("Created at:") == 1
+    assert "Created at: 2026-06-02T13:26:00+03:00" in result
+    assert result.endswith("Private body without section markers")
+
+
+def test_legacy_standardization_omits_missing_or_invalid_created_at():
+    from studio_api.transcript_catalog_migration import (
+        CatalogDocumentStandardStatus,
+    )
+    from studio_api.transcript_catalog_scan import (
+        classify_transcript_document_standard,
+    )
+    from studio_api.transcript_catalog_standardize import (
+        build_standardized_transcript_document_text,
+    )
+
+    for original in (
+        "Old\n\nBody",
+        (
+            "Old\n\nTranscript metadata\nProvider: unknown\n"
+            "Model: unknown\nLanguage: unknown\nSpeakers: unknown\n"
+            "Created at: unknown\n\nTranscript\n\nBody"
+        ),
+    ):
+        result = build_standardized_transcript_document_text(
+            document_name="Legacy undated",
+            existing_document_text=original,
+            created_time=None,
+        )
+
+        assert "Created at:" not in result
+        assert (
+            classify_transcript_document_standard(result)
+            == CatalogDocumentStandardStatus.current
+        )
+
+
 def test_standardizer_reads_one_tab_and_redacts_private_snapshot():
     from studio_api.transcript_catalog_standardize import (
         CATALOG_STANDARDIZATION_GET_FIELDS,

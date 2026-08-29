@@ -2,57 +2,56 @@
 
 ## Current Goal
 
-- **ID / title:** `TRANSCRIPT-MAINTENANCE-WORKSPACE-01` — app-owned workspace и durable transcript maintenance.
+- **ID / title:** `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01` — live progress и safe legacy `Created at`.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction 2026-08-29 «ставь цель и приступай» после production observations: legacy Google picker, неудачное расположение maintenance flow и generic standardization failure.
-- **Scope:** перенести две независимые операции в `Транскрибации → Обслуживание`; оставить в Connections только grants/consent; использовать app-owned searchable folder/Google Doc dialogs; заменить long-running synchronous dry-run/apply на owner-scoped durable background runs с progress, idempotency, preview-bound apply, lease heartbeat/recovery и structured safe errors; добавить additive schema, API/worker/web wiring, tests, documentation, protected delivery и bounded authenticated LIVE.
-- **Non-goals:** commercial contour; provider/STT calls или spend; изменение `transcript_doc`; automatic apply; произвольный Drive/Docs browser access; расширение OAuth scopes; повышение nginx timeout как замена durable execution; изменение `docs/ci-cd-rules.md`; unrelated refactors.
+- **Authorization source:** explicit owner reports 2026-08-29 о stale progress и массовой блокировке legacy Docs; owner decision: существующий валидный `Created at` не менять, а при отсутствии даты не писать `unknown`, а пропускать поле.
+- **Scope:** непрерывно обновлять queued/running maintenance progress без remount; разрешить explicit legacy Google Docs standardization без исходного media file; сохранять существующий валидный `Created at`, а отсутствующий/невалидный не создавать; сохранить exact-authority/conflict safety; добавить regressions, canonical rule, PR/CI, applicable web/API/worker delivery и bounded authenticated LIVE без provider call.
+- **Non-goals:** commercial contour; provider/STT calls или spend; изменение формата новых transcripts; подстановка Google Doc/job/modified/current time или filename; automatic/bulk apply без explicit preview/confirmation; manifest business rules; OAuth scopes; migration/schema; CI/CD policy/workflow changes; unrelated refactors.
 - **Goal AC:**
-  1. `TMW-01`: canonical `PTM-01..08`, denominator и current checkpoint отражают согласованный scope.
-  2. `TMW-02`: Settings содержит только connection/maintenance consent и переход; обе операции доступны в отдельном Transcriptions workspace.
-  3. `TMW-03`: folder/document selection использует app-owned searchable dialog с navigation/current-folder/scroll-lock boundaries; legacy native Picker остаётся только для явно совместимого catalog-folder flow вне maintenance.
-  4. `TMW-04`: POST создаёт durable owner-scoped run и быстро возвращает `202`; GET восстанавливает persisted progress/result после remount/reload.
-  5. `TMW-05`: worker claim/reclaim/heartbeat/fencing, bounded attempts и normal-work priority не допускают concurrent overwrite или starvation обычной обработки.
-  6. `TMW-06`: apply принимает только successful owner preview ID, server-side наследует target и fresh revalidates перед mutation; idempotency/conflict fail closed.
-  7. `TMW-07`: browser DTO/logs не раскрывают Drive/document IDs, tokens, contents или raw Google detail; terminal failures имеют structured safe code/retryability и русское действие.
-  8. `TMW-08`: focused/full local validation, exact-head CI, protected additive migration, API/worker/web delivery и bounded authenticated dry-run/apply LIVE завершаются без provider call.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** migration `0028_transcript_maintenance_runs` должна пройти только protected migration lane до dependent API/worker rollout; worker получает existing separate maintenance OAuth client secret server-side, browser/web — никогда; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`). Immediate implementation blocker отсутствует.
-- **Stop condition:** все Goal AC и `PTM-01..08` имеют required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
+  1. `TML-01`: canonical `PD-14`, `PTM-09`, denominator и current checkpoint отражают exact owner decision без ослабления правил новых transcripts.
+  2. `TML-02`: `source_creation_status=unavailable` не блокирует outdated/unstructured legacy Doc; `conflict` и unreadable document остаются blocked.
+  3. `TML-03`: standardization без authoritative source сохраняет валидный существующий `Created at`, а отсутствующий/невалидный полностью пропускает; `Created at: unknown` не генерируется.
+  4. `TML-04`: при authoritative source visible timestamp по-прежнему обязан точно совпадать с source creation time и при необходимости заменяет legacy value.
+  5. `TML-05`: mounted UI автоматически получает fresh `no-store` state queued/running run каждые bounded `2s`, обновляет progress и продолжает до terminal state без reload/tab switch.
+  6. `TML-06`: focused/full local regressions подтверждают legacy date branches, conflict safety, continuous polling и existing maintenance/document behavior.
+  7. `TML-07`: exact-head CI, applicable API/web/worker delivery и bounded authenticated dry-run подтверждают, что legacy rows больше не blocked; representative apply выполняется только после explicit owner preview/confirmation и без provider call.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** worker исполняет standardization apply, поэтому backend change требует совместимого API+worker rollout; worker lifecycle остаётся manual status/drain/deploy/status. Для representative Google Docs mutation нужен explicit owner preview/confirmation и подходящий legacy Doc. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Stop condition:** все Goal AC, `PD-14` и `PTM-09` имеют required Evidence либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; после closure к другой Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-28T23:55:49Z.
+- Updated (UTC): 2026-08-29T08:04:05Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
-- Base branch/SHA: verified `origin/main@c065b629db9875ddd92bf30ce67d8290c018f067`.
-- Working branch: `codex/transcript-maintenance-workspace-01`.
-- Last verified revision: initial PR head `fffd196c706f0482d18e75e193be7860058d9b1b` (`735c02c` frontend, `5b7ded4` backend, `fffd196` docs); CI-fix successor пока только local.
+- Base branch/SHA: verified `origin/main@52c2adb4621f23fda34dece8a9096b36ae92504a`.
+- Working branch: `codex/maintenance-live-progress-fix`.
+- Last verified revision: initial PR head `131b0506e445e23a5996e94951b8b5d4c069cdef`; current local HEAD содержит локально проверенную grouped review-remediation и ещё не pushed.
 - Working tree at Goal start: clean; unrelated pre-existing changes отсутствовали.
-- Completed: commit `5b7ded4` добавил durable backend/schema/worker; commit `735c02c` добавил app-owned folder/document dialogs, `Транскрибации → Обслуживание`, persisted progress/error UX, Settings connection-only view и frontend regressions; commit `fffd196` синхронизировал canonical/operational docs. Initial push выполнен, открыт PR `#257`. First-head CI классифицирован без rerun: `studio` прошёл; `browser-e2e` ожидал прежнее расположение maintenance в Settings; repository `checks` использовал stale expected Alembic head `0027` в production preflight contract. Оба test-contract drift исправлены локально.
-- Current step: завершить local validation CI-fix successor, выполнить единственный сгруппированный follow-up push и получить exact-successor required checks.
-- Next exact action: после зелёной local validation commit/push CI-fix batch один раз, затем ждать required checks PR `#257` без speculative rerun.
-- Validation and Evidence: исходный scope — maintenance backend focused `31 passed`; worker Compose `6 passed`; portable Python `1113 passed, 5 skipped`. После CI-fix: `scripts/ci_checks.py` success; focused UI `238 passed`; полный Studio Vitest `632 passed`; ESLint success; Playwright inventory `12 tests`; TypeScript/Vite/PWA production build success; `git diff --check` success. POSIX preflight suite локально на Windows не является переносимым из-за Windows/Git-Bash path semantics; exact Linux CI остаётся обязательным gate.
-- Pull Request / CI / deployment: PR `#257`; initial head `fffd196c706f0482d18e75e193be7860058d9b1b`; repository CI run `33221674226` / job `99016825003` failed только на 5 stale-head preflight assertions; Studio PWA run `33221674235`: job `99016824963` passed, browser E2E job `99016825106` failed на одном stale navigation assertion. Deployment не начинался. Repository public и использует standard GitHub-hosted runners, поэтому private-repository included Actions minutes не расходуются.
+- Completed: reproduced polling defect in code — success branch did not schedule the next queued/running poll and requests lacked `no-store`; commit `fa75184` implements bounded recurring polling. Commit `3d45298` removes only the `unavailable` planning blocker, preserves conflict/unreadable safety, makes `Created at` optional for legacy standardization, preserves valid existing date and omits missing/invalid date. Commit `131b050` added canonical `PD-14`/`PTM-09`, Goal/checkpoint и factual archive. Initial branch push и PR `#258` выполнены; exact-head CI прошёл. Automated review выявил три valid consistency defects: unstructured legacy header, Colab fallback через Google Doc `createdTime` и stale checkpoint action. Локальная grouped remediation извлекает date только из существующей transcript metadata, сохраняет exact valid value, пропускает missing/invalid date, не теряет первую строку body и синхронизирует Studio/Colab behavior.
+- Current step: выполнить единственный grouped follow-up push в PR `#258`.
+- Next exact action: после review-remediation commit выполнить один grouped follow-up push и дождаться exact-successor CI/review.
+- Validation and Evidence: review-focused Python `218 passed`; full portable Python `1119 passed, 5 skipped`; full Studio Vitest `633 passed`; ESLint, TypeScript/Vite/PWA production build и `scripts/ci_checks.py` passed. Initial PR head `131b0506e445e23a5996e94951b8b5d4c069cdef` также имел successful repository CI `33241637298` и Studio PWA CI `33241637305`; successor CI после pending follow-up ещё не запускался.
+- Pull Request / CI / deployment: PR `#258` открыт: `https://github.com/Just9120/Elevenlabs-API/pull/258`. Initial exact-head checks successful; review comments `3885974359`, `3885974360`, `3885974362` подтверждены как valid и локально исправлены. Follow-up push, successor CI, merge и deployment ещё не выполнены. Repository public и standard GitHub-hosted CI не расходует private-repository included minutes.
 - Blockers: отсутствуют.
-- Unverified assumptions: production maintenance grant для того же owner остаётся refreshable из worker; representative canary folder укладывается в bounded traversal; exact production schema/runtime identities будут проверены перед protected delivery.
+- Unverified assumptions: representative production dry-run завершится после current owner run; suitable single legacy Doc для mutation может потребовать owner confirmation; exact deployed API/worker/web identities будут проверены после delivery.
 - Preserved pre-existing changes: отсутствуют.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по current local CODE/TEST; previous snapshot — последний расчёт до добавления `PTM-01..08`. Evidence gate-ит READY, но не меняет numerator.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по current local CODE/TEST; previous snapshot — последний расчёт до добавления `PD-14` и `PTM-09`. Evidence gate-ит READY, но не меняет numerator.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **43,6% (`244/560`)** | **42,8% (`236/552`)** | Owner-approved Goal добавила и local CODE/TEST выполняют `PTM-01..08`; denominator `+8`, numerator `+8`. |
-| **Non-commercial scope** | **76,7% (`244/318`)** | **76,1% (`236/310`)** | Colab `32/32` + personal PWA `212/286`; commercial не включена в numerator. |
+| **Полный canonical scope** | **43,8% (`246/562`)** | **43,6% (`244/560`)** | Owner decision добавила `PD-14` и `PTM-09`; local CODE/TEST выполняют оба, поэтому denominator `+2`, numerator `+2`. |
+| **Non-commercial scope** | **76,9% (`246/320`)** | **76,7% (`244/318`)** | Colab `32/32` + personal PWA `214/288`; commercial не включена в numerator. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | В durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает. |
-| **Personal Studio PWA canonical** | **74,1% (`212/286`)** | **73,4% (`204/278`)** | `PTM-01..08` реализованы и локально протестированы; CI/deployment/LIVE ещё gate-ят lifecycle. |
-| `PWA-TRANSCRIPT-MAINTENANCE-01` | **100% (`8/8`)** | **N/A** | Новый explicit scope; local CODE/TEST complete, required CI/DEPLOY/LIVE отсутствуют. |
-| `PWA-STANDARDIZATION-01` | **100% (`13/13`)** | **100% (`13/13`)** | Document-format AC не изменены; current Goal ремонтирует operation UX/execution boundary. |
+| **Personal Studio PWA canonical** | **74,3% (`214/288`)** | **74,1% (`212/286`)** | `PD-14` и `PTM-09` реализованы и локально протестированы; CI/deployment/LIVE текущего исправления ещё gate-ят lifecycle. |
+| `PWA-TRANSCRIPT-MAINTENANCE-01` | **100% (`9/9`)** | **100% (`8/8`)** | `PTM-09` имеет local CODE/TEST; exact-head CI/DEPLOY/LIVE ещё отсутствуют. |
+| `PWA-STANDARDIZATION-01` | **100% (`14/14`)** | **100% (`13/13`)** | `PD-14` реализует exact owner legacy-date rule; exact-head CI/DEPLOY/LIVE ещё отсутствуют. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Business rules не изменены; representative import/clear LIVE остаётся отдельным Evidence gap эпика. |
 
-Ни одна сопоставимая оценка не изменилась более чем на `10` п.п. Новый эпик не имеет предыдущего denominator и поэтому обозначен `N/A`, а не искусственным процентом.
+Ни одна сопоставимая оценка не изменилась более чем на `10` п.п.; расхождение объясняется только двумя новыми owner-approved atomic AC, оба подтверждены local CODE/TEST.
 
 ## Candidate next Goals
 

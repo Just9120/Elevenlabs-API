@@ -971,6 +971,16 @@ Goal `TRANSCRIPT-DOC-STANDARD-01` завершена 2026-08-28 полным del
 - Closure readiness: `236/552`, non-commercial `236/310`, personal PWA `204/278`; document-format AC `8/8`. Последующий owner report о generic maintenance failure относится к synchronous operation execution/UX и стал отдельным scope `TRANSCRIPT-MAINTENANCE-WORKSPACE-01`, а не откатом document-format contract.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal без отдельного docs-only PR.
 
+## Archived PR #257 transcript maintenance workspace delivery
+
+Goal `TRANSCRIPT-MAINTENANCE-WORKSPACE-01` доставила durable maintenance workspace и завершилась как `PENDING_EXTERNAL_GATE`: основной runtime contour развёрнут, но owner LIVE выявил два corrective gaps до representative apply.
+
+- Base: `main@c065b629db9875ddd92bf30ce67d8290c018f067`; PR `#257` head `f95a1c87d853dfff93f3386c61b951b18d34507e` merged как `main@52c2adb4621f23fda34dece8a9096b36ae92504a`.
+- Exact PR-head CI: repository `33222109767`, Studio/browser `33222109701`; exact-main CI: repository `33222285752`, Studio/browser `33222285698`; required jobs завершились success.
+- Web CD `33222285701`, protected migration/API release `33222544738`, worker deploy `33222813698` и terminal worker status `33222993815` завершились success; schema достигла `0028_transcript_maintenance_runs`.
+- Authenticated production dry-run подтвердил app-owned workspace, durable queued/running execution и folder traversal `142/142`, но progress обновлялся только после remount/tab switch, а `141` legacy Google Docs были ошибочно blocked из-за отсутствия исходного media file. Apply не выполнялся.
+- Product `PTM-01..08` остался выполненным; Goal Evidence на archive: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`. Corrective behavior и новое owner-решение о legacy `Created at` вынесены в explicitly authorized Goal `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01`.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

@@ -420,6 +420,7 @@ const OPERATION_COPY = {
       "Обновляет выбранный Google Doc либо рекурсивно сканирует папку и " +
       "обновляет подходящие Google Docs " +
       "до transcript_doc. Уже актуальные документы пропускаются. " +
+      "У legacy-документов существующий Created at сохраняется, а отсутствующий не добавляется. " +
       "Каталог Studio и состояние заданий не изменяются.",
     applyLabel: "Подтвердить стандартизацию",
     resultTitle: "Стандартизация завершена",
@@ -898,8 +899,8 @@ function MaintenanceOperationCard({
       setPreviewRunId(null);
       return;
     }
-    if (run.status !== "succeeded" || !run.result) return;
     setMessage("");
+    if (run.status !== "succeeded" || !run.result) return;
     if (run.operation === "dry_run") {
       setDryRun(run.result as TranscriptMaintenanceDryRun);
       setPreviewRunId(run.id);
@@ -917,7 +918,7 @@ function MaintenanceOperationCard({
     const controller = new AbortController();
     void api<unknown>(
       `/transcript-maintenance/runs?workflow=${encodeURIComponent(workflow)}`,
-      { signal: controller.signal },
+      { cache: "no-store", signal: controller.signal },
     ).then(
       (value) => {
         if (cancelled) return;
@@ -945,10 +946,14 @@ function MaintenanceOperationCard({
       try {
         const value = await api<unknown>(
           `/transcript-maintenance/runs/${activeRun.id}`,
-          { signal: controller.signal },
+          { cache: "no-store", signal: controller.signal },
         );
         if (cancelled) return;
-        acceptRun(parseTranscriptMaintenanceRun(value));
+        const run = parseTranscriptMaintenanceRun(value);
+        acceptRun(run);
+        if (run.status === "queued" || run.status === "running") {
+          timer = window.setTimeout(() => void poll(), 2_000);
+        }
       } catch {
         if (!cancelled) {
           setMessage(

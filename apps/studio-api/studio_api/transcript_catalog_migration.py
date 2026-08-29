@@ -176,12 +176,6 @@ def classify_transcript_standardization_candidate(
     ):
         action = TranscriptStandardizationAction.blocked
         reason = CatalogMigrationBlockReason.source_creation_time_conflict
-    elif (
-        candidate.source_creation_status
-        != SourceCreationAuthorityStatus.authoritative
-    ):
-        action = TranscriptStandardizationAction.blocked
-        reason = CatalogMigrationBlockReason.source_creation_time_unavailable
     elif candidate.standard_status in {
         CatalogDocumentStandardStatus.outdated,
         CatalogDocumentStandardStatus.unstructured,

@@ -621,6 +621,27 @@ def test_catalog_standard_classifier_matches_current_migration_contract(
     assert classify_transcript_document_standard(document_text).value == expected
 
 
+def test_catalog_standard_classifier_accepts_omitted_legacy_created_at_only_without_authority():
+    from datetime import datetime, timezone
+
+    from studio_api.transcript_catalog_scan import (
+        classify_transcript_document_standard,
+    )
+
+    document_text = current_document().replace(
+        "Created at: 2026-07-01T10:00:00Z\n",
+        "",
+    )
+
+    assert classify_transcript_document_standard(document_text).value == "current"
+    assert classify_transcript_document_standard(
+        document_text,
+        authoritative_created_at=datetime(
+            2026, 7, 1, 10, tzinfo=timezone.utc
+        ),
+    ).value == "outdated"
+
+
 def test_catalog_standard_classifier_requires_exact_source_creation_time():
     from datetime import datetime, timezone
 
