@@ -992,6 +992,18 @@ Goal `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01` завершена 2026-08-29 
 - Открытый workspace автоматически обновлял queued/running progress до terminal state без remount/tab switch. `PWA-STANDARDIZATION-01 14/14` и `PWA-TRANSCRIPT-MAINTENANCE-01 9/9` получили required `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому factual closure reconciled в начале следующей authorized code-bearing Goal.
 
+## Archived PRs #259–#260 UX/storage isolation closure
+
+Goal `PWA-USER-UX-STORAGE-ISOLATION-01` завершена 2026-08-30 полным protected delivery flow; image-permission defect, найденный pre-migration gate до state mutation, исправлен bounded hotfix в той же Goal.
+
+- Base: `main@a31770eabcd7a97acfa084252de06f26d041bc1b`; PR `#259` merged как `c11de8af22d694540b26d98c2ec40aab064adf25`; hotfix PR `#260` merged как `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
+- Exact-main repository/Studio CI завершились success. Финальные delivery runs: protected migration/API `33302350705`, web `33302771083`, worker `33302841078`, terminal worker status `33302990622` — success на exact final revision.
+- Production schema достигла `0029_source_reference_class`; web/API/worker получили exact `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` identity.
+- Authenticated bounded LIVE подтвердил user-facing UX, mobile Drive-dialog boundary и distinct transcription/audio reference storage; provider lifecycle rules, independently scoped credentials и cross-bucket denial подтверждены без раскрытия bucket names или secret values.
+- Canonical closure: `PWA-USER-EXPERIENCE-02 12/12`, `STORAGE-LIFECYCLE-02 12/21`; readiness `264/574`, non-commercial `264/332`, personal PWA `232/300`; required Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Release variables возвращены в safe baseline: platform CD enabled, migration/edge releases disabled. Created branches/worktree удалены после ancestry checks; local `main` синхронизирован.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому factual closure reconciled в начале `PWA-WORKER-USAGE-ACCOUNTING-01` без отдельного docs-only PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
