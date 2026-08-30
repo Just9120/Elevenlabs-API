@@ -26,18 +26,18 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-30T10:49:23Z.
+- Updated (UTC): 2026-08-30T10:55:07Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working branch: `codex/pwa-worker-usage-accounting`.
 - Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-worker-usage-accounting`.
-- Last verified revision: pushed `1edebf1` (`ops: gate isolated worker deployment`) поверх accounting commit `95350a3` и isolation commit `0f11d48`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
+- Last verified revision: pushed `fbe74ce` (`test: align accounting integration fixtures`) поверх operations commit `1edebf1`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working tree at Goal start: isolated worktree clean. Основной checkout содержит unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми.
 - Completed: worker получил Compose CPU/memory/no-swap/PID/read-only/tmpfs/capability/network boundaries, отдельный direct-grant `studio_worker` login и fail-closed runtime/preflight inspection; additive `0030_provider_usage_accounting` сохраняет pending/confirmed/uncertain provider-part boundary, job totals, USD tariff snapshot и owner-safe analytics/UI. Public Scribe v2 rate `$0.22/hour` перепроверен 2026-08-30 по official ElevenAPI pricing; invoice/free-quota reconciliation явно исключена.
-- Current step: исправить три неполных integration fixtures по фактическому CI failure, не ослабляя production fail-closed guards.
-- Next exact action: завершить локальную regression validation, создать один grouped CI-fix commit, отправить его одним follow-up push и дождаться required checks.
-- Validation and Evidence: backend focused sets `88 passed` и `70 passed`; frontend full Vitest `637 passed`, current focused Vitest `11 passed`, ESLint и production build success; Python compileall, YAML parse, Bash syntax, `scripts/ci_checks.py` и `git diff --check` success. PR CI run `33307166854`: Studio build/compose `pass` за `2m08s`, browser E2E `pass` за `1m14s`. General CI run `33307166857`: `1427 passed`, три integration fixtures failed; grouped fix готовится. Docker отсутствует локально; Windows-wide pytest не authoritative из-за temp ACL/path conversion.
-- Pull Request / CI / deployment: PR `#261`; initial push `1edebf1` выполнен один раз. `browser-e2e` и `studio` passed; `checks` failed на test-fixture drift и разрешает один grouped follow-up batch. Deployment не начат.
+- Current step: исправить оставшийся integration assertion: новый queued job с zero-initialized accounting является `in_progress`, а `unavailable` зарезервирован для legacy NULL rows.
+- Next exact action: создать минимальный assertion/checkpoint commit, отправить его после второго confirmed CI failure и дождаться required checks.
+- Validation and Evidence: backend focused sets `88 passed` и `70 passed`; frontend full Vitest `637 passed`, current focused Vitest `11 passed`, ESLint и production build success; Python compileall, YAML parse, Bash syntax, `scripts/ci_checks.py` и `git diff --check` success. Second PR runs `33307501418/33307501357`: Studio build/compose `pass` за `2m16s`, browser E2E `pass` за `1m14s`, backend `1429 passed` и один expected-value assertion failed. Docker отсутствует локально; Windows-wide pytest не authoritative из-за temp ACL/path conversion.
+- Pull Request / CI / deployment: PR `#261`; initial push `1edebf1` и grouped follow-up `fbe74ce`. Second runs `33307501418/33307501357`: `browser-e2e` и `studio` passed, migration round-trip и processing E2E passed; `checks` имеет один failed analytics expected-value assertion. Deployment не начат.
 - Blockers: owner decision по semantics `provider cost`; production setup отдельного worker DB password и protected migration approval будут external gates после CI.
 - Unverified assumptions: допустимые resource values должны быть подтверждены effective Compose config и фактической ёмкостью VPS; public provider docs не доказывают invoice debit с учётом free quota.
 - Preserved pre-existing changes: `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.

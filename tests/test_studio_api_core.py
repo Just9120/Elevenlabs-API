@@ -4008,8 +4008,8 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
         "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
         "complete_jobs": 0,
         "uncertain_jobs": 0,
-        "unavailable_jobs": 1,
-        "in_progress_jobs": 0,
+        "unavailable_jobs": 0,
+        "in_progress_jobs": 1,
     }
     assert all(
         summary == {
