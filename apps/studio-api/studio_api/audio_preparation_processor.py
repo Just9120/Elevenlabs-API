@@ -47,7 +47,16 @@ from .models import (
 from .security import utcnow
 from .source_deletion import request_source_deletion
 from .source_policy import is_source_expired, is_supported_source_mime_type
-from .source_storage import SourceObjectReadError, get_source_storage, safe_filename
+from .source_storage import (
+    AUDIO_PROCESSING_REFERENCE_CLASS,
+    SourceObjectReadError,
+    get_source_storage,
+    reference_storage_bucket,
+    reference_storage_isolation_configured,
+    reference_storage_settings,
+    safe_filename,
+    source_reference_class,
+)
 
 
 _COPY_CHUNK_SIZE = 1024 * 1024
@@ -331,10 +340,18 @@ def _materialize_inputs(
             extension = "media"
         path = root / f"input-{item.position:03d}.{extension}"
         if source.source_type is SourceType.local_upload:
-            if source.s3_bucket != settings.source_s3_bucket or not source.s3_object_key:
+            reference_class = source_reference_class(source)
+            if (
+                not reference_storage_isolation_configured(settings)
+                or source.s3_bucket
+                != reference_storage_bucket(settings, reference_class)
+                or not source.s3_object_key
+            ):
                 raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
             try:
-                stream = storage_factory(settings).open_read(source.s3_object_key)
+                stream = storage_factory(
+                    reference_storage_settings(settings, reference_class)
+                ).open_read(source.s3_object_key)
             except SourceObjectReadError as exc:
                 raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable) from exc
         elif source.source_type is SourceType.google_drive and source.drive_file_id:
@@ -374,9 +391,20 @@ def _store_output_source(
     operation_now,
     storage_factory,
 ) -> Source:
+    if not reference_storage_isolation_configured(settings):
+        raise AudioPreparationServiceError(
+            AudioPreparationServiceReason.source_unavailable
+        )
+    bucket = reference_storage_bucket(settings, AUDIO_PROCESSING_REFERENCE_CLASS)
+    if not bucket:
+        raise AudioPreparationServiceError(
+            AudioPreparationServiceReason.source_unavailable
+        )
     source_id = str(uuid.uuid5(OUTPUT_SOURCE_NAMESPACE, job.id))
     key = f"audio-preparation/{job.owner_user_id}/{job.id}/{safe_filename(output_filename)}"
-    storage_factory(settings).put_file(key, output_path, mime_type)
+    storage_factory(
+        reference_storage_settings(settings, AUDIO_PROCESSING_REFERENCE_CLASS)
+    ).put_file(key, output_path, mime_type)
     user = db.get(User, job.owner_user_id)
     if user is None:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.project_unavailable)
@@ -389,8 +417,9 @@ def _store_output_source(
             original_filename=output_filename,
             mime_type=mime_type,
             size_bytes=output_size,
-            s3_bucket=settings.source_s3_bucket,
+            s3_bucket=bucket,
             s3_object_key=key,
+            reference_class=AUDIO_PROCESSING_REFERENCE_CLASS,
             upload_status=SourceUploadStatus.uploaded,
             uploaded_at=_naive_utc(operation_now),
             source_created_at=_naive_utc(creation_time),
@@ -402,8 +431,9 @@ def _store_output_source(
         db.flush()
     elif (
         source.project_id != job.project_id
-        or source.s3_bucket != settings.source_s3_bucket
+        or source.s3_bucket != bucket
         or source.s3_object_key != key
+        or source_reference_class(source) != AUDIO_PROCESSING_REFERENCE_CLASS
         or source.original_filename != output_filename
         or source.mime_type != mime_type
         or source.size_bytes != output_size

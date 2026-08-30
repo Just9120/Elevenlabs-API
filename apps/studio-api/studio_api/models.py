@@ -13,6 +13,7 @@ class CredentialStatus(str, enum.Enum): active="active"; revoked="revoked"; dele
 class GoogleConnectionStatus(str, enum.Enum): active="active"; revoked="revoked"; error="error"
 class GoogleProvider(str, enum.Enum): google="google"
 class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="google_drive"
+class SourceReferenceClass(str, enum.Enum): transcription="transcription"; audio_processing="audio_processing"
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
 class SourceStorageCleanupStatus(str, enum.Enum): not_requested="not_requested"; not_applicable="not_applicable"; pending="pending"; completed="completed"; failed="failed"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
@@ -177,6 +178,7 @@ class Source(Base):
     drive_file_url: Mapped[str|None]=mapped_column(Text)
     s3_bucket: Mapped[str|None]=mapped_column(String(255))
     s3_object_key: Mapped[str|None]=mapped_column(Text)
+    reference_class: Mapped[str]=mapped_column(String(32), default=SourceReferenceClass.transcription.value, server_default=text("'transcription'"), nullable=False, index=True)
     upload_status: Mapped[SourceUploadStatus]=mapped_column(Enum(SourceUploadStatus), default=SourceUploadStatus.pending, index=True)
     uploaded_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     source_created_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
@@ -197,7 +199,7 @@ class Source(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
-    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
+    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("reference_class IN ('transcription','audio_processing')", name="ck_sources_reference_class"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
 
 class TranscriptionJob(Base):
     __tablename__="transcription_jobs"

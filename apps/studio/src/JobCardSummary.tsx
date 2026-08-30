@@ -1,6 +1,7 @@
 import { formatTime } from "./formatters";
 import {
   isApprovedOutputUrl,
+  jobErrorPresentation,
   jobMediaClipLabel,
   jobTitle,
   jobСтатусLabel,
@@ -10,11 +11,12 @@ import { ResourceExternalLink } from "./resourceLinks";
 
 export function JobCardSummary({ job }: { job: TranscriptionJob }) {
   const mediaClipLabel = jobMediaClipLabel(job);
+  const failure = job.status === "failed" ? jobErrorPresentation(job) : null;
   return (
     <>
       <b>{jobTitle(job)}</b>
       <span>Статус: {jobСтатусLabel(job.status)}</span>
-      <span>Файлов: {job.source_count}</span>
+      {job.source_count > 1 && <span>Файлов: {job.source_count}</span>}
       {mediaClipLabel && <span>Часть созвона: {mediaClipLabel}</span>}
       <span>Создана: {formatTime(job.created_at)}</span>
       {job.output_folder && (
@@ -33,7 +35,13 @@ export function JobCardSummary({ job }: { job: TranscriptionJob }) {
       {job.status === "processing" && job.cancel_requested_at && (
         <span>Отмена запрошена: {formatTime(job.cancel_requested_at)}</span>
       )}
-      {job.error_message && <span>Ошибка: {job.error_message}</span>}
+      {failure && <span className="error">{failure.message}</span>}
+      {failure?.supportCode && (
+        <details className="technical-details job-support-details">
+          <summary>Данные для поддержки</summary>
+          <span>Код ошибки: {failure.supportCode}</span>
+        </details>
+      )}
     </>
   );
 }

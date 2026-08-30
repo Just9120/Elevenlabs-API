@@ -238,6 +238,9 @@
 }
 .google-drive-folder-picker-content {
   min-height: 10rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 0.25rem;
@@ -247,6 +250,8 @@
 }
 .google-drive-folder-list {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 0.4rem;
   margin: 0;
   padding: 0;
@@ -254,6 +259,8 @@
 }
 .google-drive-folder-row {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -264,6 +271,10 @@
   color: var(--studio-text);
   text-align: left;
 }
+.google-drive-folder-row > span:not(.google-drive-picker-row-action) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .google-drive-folder-row:hover {
   border-color: var(--studio-primary);
   background: var(--studio-soft);
@@ -273,6 +284,7 @@
   outline-offset: 2px;
 }
 .google-drive-picker-row-action {
+  flex: 0 0 auto;
   margin-left: auto;
   color: var(--studio-muted);
   font-size: 0.82rem;
@@ -374,9 +386,19 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 520px) {
+  .confirm-clear-backdrop {
+    padding: 10px;
+  }
+  .google-drive-folder-picker-dialog {
+    max-height: calc(100dvh - 20px);
+    padding: 0.85rem;
+  }
   .google-drive-folder-picker-header,
   .google-drive-folder-picker-actions {
     display: grid;
+  }
+  .google-drive-folder-picker-actions button {
+    width: 100%;
   }
   .folder-import-summary {
     grid-template-columns: minmax(0, 1fr);
@@ -1151,6 +1173,29 @@ code {
 }
 .catalog-migration-result h4 {
   margin: 0;
+}
+.maintenance-result-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.maintenance-result-list-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.maintenance-result-list-header h5 {
+  margin: 0;
+}
+.maintenance-result-filter {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 32rem;
+  font-weight: 700;
+}
+.maintenance-result-more {
+  width: fit-content;
 }
 .catalog-migration-summary {
   display: grid;
@@ -2215,6 +2260,27 @@ code {
   border-radius: 12px;
   background: var(--studio-success-bg);
   color: var(--studio-success-text);
+}
+
+.job-terminal-notice-failed {
+  border-color: color-mix(in srgb, var(--studio-error) 55%, transparent);
+  background: var(--studio-danger-soft);
+  color: var(--studio-error);
+}
+
+.job-terminal-notice-cancelled {
+  border-color: var(--studio-border);
+  background: var(--studio-soft);
+  color: var(--studio-muted);
+}
+
+.job-support-details {
+  width: 100%;
+}
+
+.job-support-details[open] {
+  display: grid;
+  gap: 0.35rem;
 }
 
 .job-terminal-notice button {

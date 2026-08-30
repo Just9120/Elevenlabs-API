@@ -220,7 +220,9 @@ describe("AudioPreparationPage", () => {
     );
 
     expect(screen.getByText(/Выбрано файлов: 1 · обработка на устройстве/i)).toBeInTheDocument();
-    expect(screen.getByText(/Исходные bytes остаются в текущей вкладке/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/исходные файлы не отправляются в Studio/i),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Формат результата")).toHaveValue("wav");
     expect(screen.getByLabelText("Формат результата")).toBeDisabled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("local-upload/initiate"))).toBe(false);
@@ -239,7 +241,9 @@ describe("AudioPreparationPage", () => {
 
     await userEvent.selectOptions(screen.getByLabelText("Формат результата"), "flac");
 
-    expect(screen.getByText(/FLAC создаётся в 16-bit.+без lossy-сжатия/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/FLAC создаётся в 16-bit PCM без lossy-сжатия/i),
+    ).toBeInTheDocument();
   });
 
   it("exposes keyboard-accessible source tabs and isolates direct Drive upload from processing controls", async () => {

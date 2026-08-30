@@ -19,9 +19,17 @@ sys.path.insert(0, str(ROOT / "apps/studio-api"))
 @dataclass(frozen=True)
 class SimpleSettings:
     source_s3_endpoint_url: str | None = "https://r2.test"
+    source_s3_region: str = "auto"
     source_s3_bucket: str | None = "studio-temp"
-    source_s3_access_key_id_file: str | None = None
-    source_s3_secret_access_key_file: str | None = None
+    source_s3_access_key_id_file: str | None = "transcription-access"
+    source_s3_secret_access_key_file: str | None = "transcription-secret"
+    source_s3_lifecycle_rule_id: str | None = "transcription-retention"
+    audio_reference_s3_endpoint_url: str | None = "https://r2.test"
+    audio_reference_s3_region: str = "auto"
+    audio_reference_s3_bucket: str | None = "studio-audio"
+    audio_reference_s3_access_key_id_file: str | None = "audio-access"
+    audio_reference_s3_secret_access_key_file: str | None = "audio-secret"
+    audio_reference_s3_lifecycle_rule_id: str | None = "audio-retention"
     source_max_upload_bytes: int = 1000
 
     def source_storage_configured(self) -> bool:

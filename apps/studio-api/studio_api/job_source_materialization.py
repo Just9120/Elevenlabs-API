@@ -16,7 +16,16 @@ from .job_source_availability import verify_processing_job_sources
 from .models import JobSourceStatus, JobStatus, Project, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 from .security import utcnow
 from .source_policy import is_source_expired, is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
-from .source_storage import SourceObjectReadError, SourceObjectReadReason, get_source_storage, safe_filename
+from .source_storage import (
+    SourceObjectReadError,
+    SourceObjectReadReason,
+    get_source_storage,
+    reference_storage_bucket,
+    reference_storage_isolation_configured,
+    reference_storage_settings,
+    safe_filename,
+    source_reference_class,
+)
 
 _CHUNK_SIZE = 1024 * 1024
 
@@ -85,6 +94,7 @@ class _SourceSnapshot:
     drive_file_id: str | None
     s3_bucket: str | None
     s3_object_key: str | None
+    reference_class: str
     mime_type: str | None
     size_bytes: int | None
     upload_status: str
@@ -210,15 +220,22 @@ def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, s
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
     if not validate_source_size(src.size_bytes, settings.source_max_upload_bytes):
         raise SourceMaterializationError(SourceMaterializationReason.source_too_large)
-    return _SourceSnapshot(job.id, rel.id, src.id, rel.position, _value(rel.status), _value(src.source_type), src.project_id, src.drive_file_id, src.s3_bucket, src.s3_object_key, mime, src.size_bytes, _value(src.upload_status), src.deleted_at, src.expires_at, src.source_created_at, src.source_created_at_provenance, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, _value(job.status), project.archived_at, project.owner_user_id, job.owner_user_id, job.project_id, src.original_filename)
+    return _SourceSnapshot(job.id, rel.id, src.id, rel.position, _value(rel.status), _value(src.source_type), src.project_id, src.drive_file_id, src.s3_bucket, src.s3_object_key, source_reference_class(src), mime, src.size_bytes, _value(src.upload_status), src.deleted_at, src.expires_at, src.source_created_at, src.source_created_at_provenance, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, _value(job.status), project.archived_at, project.owner_user_id, job.owner_user_id, job.project_id, src.original_filename)
 
 
 def _copy_source_bytes(snap, temp, settings, storage_factory, drive_token_resolver, drive_content_fetcher, db):
     if snap.source_type == SourceType.local_upload.value:
-        if snap.s3_bucket != settings.source_s3_bucket or not snap.s3_object_key:
+        if (
+            not reference_storage_isolation_configured(settings)
+            or snap.s3_bucket
+            != reference_storage_bucket(settings, snap.reference_class)
+            or not snap.s3_object_key
+        ):
             raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
         try:
-            stream = storage_factory(settings).open_read(snap.s3_object_key)
+            stream = storage_factory(
+                reference_storage_settings(settings, snap.reference_class)
+            ).open_read(snap.s3_object_key)
         except SourceObjectReadError as exc:
             raise SourceMaterializationError(SourceMaterializationReason.source_object_missing if exc.reason == SourceObjectReadReason.missing else SourceMaterializationReason.external_source_unavailable) from exc
     else:

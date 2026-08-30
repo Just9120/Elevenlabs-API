@@ -74,7 +74,7 @@ function parseSources(value: unknown): Source[] {
 }
 
 function parseJob(value: unknown): AudioJob {
-  if (!value || typeof value !== "object" || typeof (value as AudioJob).id !== "string") throw new Error("Сервер вернул некорректное состояние обработки.");
+  if (!value || typeof value !== "object" || typeof (value as AudioJob).id !== "string") throw new Error("Studio вернула некорректное состояние обработки. Обновите страницу и повторите попытку.");
   return value as AudioJob;
 }
 
@@ -115,10 +115,10 @@ function errorLabel(code: string | null) {
     copy_incompatible: "Файлы нельзя объединить без перекодирования. Выберите WAV или FLAC.",
     channel_unavailable: "Выбранный канал отсутствует в одном из файлов.",
     media_integrity_failed: "Один из файлов повреждён или содержит ошибки декодирования.",
-    probe_unavailable: "На сервере недоступен FFmpeg/FFprobe. Выгрузите диагностику и обратитесь к администратору.",
+    probe_unavailable: "Studio сейчас не может проверить параметры файла. Выгрузите диагностику и обратитесь к администратору.",
     probe_failed: "Не удалось определить параметры одного из исходных файлов.",
     source_unavailable: "Один из исходных файлов больше недоступен.",
-    processing_failed: "FFmpeg не смог завершить обработку выбранных файлов. Выгрузите диагностику для точной причины.",
+    processing_failed: "Studio не смогла обработать выбранные файлы. Выгрузите диагностику для уточнения причины.",
     processing_timeout: "Обработка превысила допустимое время.",
     output_too_large: "Готовый файл превысил допустимый размер результата. Выберите FLAC/mono или разделите обработку на несколько запусков.",
   } as Record<string, string>)[code ?? ""] ?? "Обработка не завершена. Повторите попытку или выгрузите диагностику.";
@@ -130,7 +130,7 @@ function localErrorLabel(reason: unknown) {
   if (message === "local_audio_size_limit") return `Общий размер локальных файлов не должен превышать ${formatBytes(LOCAL_AUDIO_MAX_INPUT_BYTES)}.`;
   if (message === "local_audio_memory_limit") return "Для декодирования этих файлов недостаточно безопасного объёма памяти браузера. Используйте обработку через Studio.";
   if (message === "local_audio_unsupported") return "Этот браузер не поддерживает локальную обработку аудио. Используйте обработку через Studio.";
-  if (message.startsWith("local_audio_decode_failed:")) return `Браузер не смог декодировать ${message.split(":").slice(1).join(":")}. Загрузите файл в Studio для server-side FFmpeg обработки.`;
+  if (message.startsWith("local_audio_decode_failed:")) return `Браузер не смог прочитать ${message.split(":").slice(1).join(":")}. Выберите «Загрузить в Studio» и повторите обработку.`;
   if (message === "local_audio_right_channel_unavailable") return "В одном из файлов нет правого звукового канала.";
   if (message === "local_audio_sample_rate_mismatch") return "Браузер декодировал файлы с разной частотой. Обработайте их через Studio.";
   if (reason instanceof DOMException && reason.name === "AbortError") return "Локальная обработка отменена.";
@@ -375,9 +375,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         const mime = file.type || "application/octet-stream";
         const initiated = await mutate<unknown>(
           `/projects/${project.id}/sources/local-upload/initiate`,
-          { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: mime, size_bytes: file.size }) },
+          { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: mime, size_bytes: file.size, reference_class: "audio_processing" }) },
         );
-        if (!isSafeDirectUploadCapability(initiated, mime)) throw new Error(`${file.name}: сервер вернул небезопасный ответ для загрузки.`);
+        if (!isSafeDirectUploadCapability(initiated, mime)) throw new Error(`${file.name}: Studio не смогла подготовить загрузку. Повторите попытку.`);
         let put: { ok: boolean; status: number } | null = null;
         try {
           put = await uploadFileWithProgress({
@@ -399,7 +399,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         } catch (reason) {
           if (!(reason instanceof DirectUploadAmbiguousError)) throw reason;
         }
-        if (put !== null && !put.ok) throw new Error(`${file.name}: временное хранилище отклонило загрузку (${put.status}).`);
+        if (put !== null && !put.ok) throw new Error(`${file.name}: файл не загрузился. Повторите попытку.`);
         await mutate(`/sources/${initiated.source_id}/local-upload/complete`, { method: "POST" });
         uploaded.push(initiated.source_id);
       } catch (reason) {
@@ -450,7 +450,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         created.push(parseJob(value));
         setJobs([...created]);
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось создать preview."); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось проверить файлы."); }
     finally { setBusy(false); }
   }
 
@@ -543,7 +543,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
 
   return (
     <div className="audio-preparation-page">
-      <section className="hero"><div><p className="eyebrow">AUDIO WORKSPACE</p><h1>Подготовка аудио</h1><p>Обработайте media перед транскрибацией или загрузите исходные audio/video напрямую в Google Drive без преобразования.</p></div></section>
+      <section className="hero"><div><p className="eyebrow">ПОДГОТОВКА ЗАПИСИ</p><h1>Подготовка аудио</h1><p>Склейте записи, сократите длинные паузы, настройте каналы или просто сохраните исходные файлы в Google Drive.</p></div></section>
       {error && <p className="error" role="alert">{error}</p>}
       <section className="card audio-preparation-card">
         <h2>1. Исходные файлы</h2>
@@ -553,11 +553,11 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           <button id="audio-source-tab-studio" type="button" role="tab" aria-selected={sourceMode === "studio"} aria-controls="audio-source-panel-studio" tabIndex={sourceMode === "studio" ? 0 : -1} className={sourceMode === "studio" ? "active" : ""} onClick={() => selectSourceMode("studio")} onKeyDown={(event) => sourceTabKeyDown(event, "studio")}>Загрузить в Studio</button>
           <button id="audio-source-tab-direct-drive" type="button" role="tab" aria-selected={sourceMode === "direct-drive"} aria-controls="audio-source-panel-direct-drive" tabIndex={sourceMode === "direct-drive" ? 0 : -1} className={sourceMode === "direct-drive" ? "active" : ""} onClick={() => selectSourceMode("direct-drive")} onKeyDown={(event) => sourceTabKeyDown(event, "direct-drive")}>В Google Drive без обработки</button>
         </div>
-        {sourceMode === "drive" && <div role="tabpanel" id="audio-source-panel-drive" aria-labelledby="audio-source-tab-drive" className="audio-source-mode-panel"><p className="muted">Выберите сохранённые audio/video в Google Drive и добавьте их в план обработки Studio.</p><button type="button" onClick={addFromDrive} disabled={busy || !project}>Выбрать файлы в Google Drive</button></div>}
-        {sourceMode === "local" && <div role="tabpanel" id="audio-source-panel-local" aria-labelledby="audio-source-tab-local" className="audio-source-mode-panel"><p className="muted">Исходные bytes остаются в текущей вкладке; браузер создаёт WAV без Studio/S3.</p><button type="button" onClick={() => localFileInput.current?.click()} disabled={busy}>Выбрать для обработки на устройстве</button><input aria-label="Выбрать файлы для обработки на устройстве" ref={localFileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => chooseLocalFiles(Array.from(event.target.files || []))} /></div>}
-        {sourceMode === "studio" && <div role="tabpanel" id="audio-source-panel-studio" aria-labelledby="audio-source-tab-studio" className="audio-source-mode-panel"><p className="muted">Временная копия попадёт в S3, а server-side FFmpeg обеспечит максимальную совместимость обработки.</p><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !project}>Выбрать и загрузить в Studio</button><input aria-label="Выбрать файлы для загрузки в Studio" ref={fileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => void addLocalFiles(Array.from(event.target.files || []))} />{uploadProgress && <div className="upload-progress" aria-live="polite"><p><strong>Файл {uploadProgress.fileIndex} из {uploadProgress.fileCount}:</strong> {uploadProgress.filename}</p><progress aria-label="Общий прогресс загрузки в Studio" max="100" value={uploadProgress.aggregatePercent}>{uploadProgress.aggregatePercent}%</progress><small>{uploadProgress.percent}% текущего файла · {formatBytes(uploadProgress.loadedBytes)} из {formatBytes(uploadProgress.totalBytes)} · всего {uploadProgress.aggregatePercent}%</small></div>}</div>}
+        {sourceMode === "drive" && <div role="tabpanel" id="audio-source-panel-drive" aria-labelledby="audio-source-tab-drive" className="audio-source-mode-panel"><p className="muted">Выберите записи, которые уже находятся в Google Drive.</p><button type="button" onClick={addFromDrive} disabled={busy || !project}>Выбрать файлы в Google Drive</button></div>}
+        {sourceMode === "local" && <div role="tabpanel" id="audio-source-panel-local" aria-labelledby="audio-source-tab-local" className="audio-source-mode-panel"><p className="muted">Обработка выполняется в этой вкладке, а исходные файлы не отправляются в Studio.</p><button type="button" onClick={() => localFileInput.current?.click()} disabled={busy}>Выбрать для обработки на устройстве</button><input aria-label="Выбрать файлы для обработки на устройстве" ref={localFileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => chooseLocalFiles(Array.from(event.target.files || []))} /></div>}
+        {sourceMode === "studio" && <div role="tabpanel" id="audio-source-panel-studio" aria-labelledby="audio-source-tab-studio" className="audio-source-mode-panel"><p className="muted">Загрузите записи для более совместимой обработки и сохранения результата после закрытия вкладки.</p><details className="technical-details"><summary>Как это работает</summary><p className="muted">Studio хранит временную приватную копию и обрабатывает её на сервере с помощью FFmpeg.</p></details><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !project}>Выбрать и загрузить в Studio</button><input aria-label="Выбрать файлы для загрузки в Studio" ref={fileInput} hidden type="file" multiple accept="audio/*,video/*,.ogg" onChange={(event) => void addLocalFiles(Array.from(event.target.files || []))} />{uploadProgress && <div className="upload-progress" aria-live="polite"><p><strong>Файл {uploadProgress.fileIndex} из {uploadProgress.fileCount}:</strong> {uploadProgress.filename}</p><progress aria-label="Общий прогресс загрузки в Studio" max="100" value={uploadProgress.aggregatePercent}>{uploadProgress.aggregatePercent}%</progress><small>{uploadProgress.percent}% текущего файла · {formatBytes(uploadProgress.loadedBytes)} из {formatBytes(uploadProgress.totalBytes)} · всего {uploadProgress.aggregatePercent}%</small></div>}</div>}
         {sourceMode === "direct-drive" && project && <DirectDriveUploadPanel projectId={project.id} csrf={csrf} onCsrf={onCsrf} />}
-        {sourceMode === "direct-drive" && !project && <p className="notice">Подготавливаем owner workspace…</p>}
+        {sourceMode === "direct-drive" && !project && <p className="notice">Подготавливаем рабочую область…</p>}
         {sourceMode !== "direct-drive" && <><details className="audio-saved-sources">
           <summary>Выбрать из сохранённых файлов Studio</summary>
           <div className="audio-source-grid">
@@ -591,19 +591,19 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           <ol className="audio-order-list">
             {localFiles.map((file, index) => <li key={`${file.name}:${file.size}:${file.lastModified}:${index}`}>
               <span className="audio-order-index" aria-hidden="true">{index + 1}</span>
-              <span><strong>{file.name}</strong><small>Файл остаётся на устройстве · {formatBytes(file.size)} · дата создания недоступна browser File API</small></span>
+              <span><strong>{file.name}</strong><small>Файл остаётся на устройстве · {formatBytes(file.size)} · дата создания не передаётся браузером</small></span>
               {operationMode === "concat" && localFiles.length > 1 && <span className="audio-order-controls"><button type="button" aria-label={`Переместить локальный файл ${index + 1} выше`} onClick={() => move(index, -1)} disabled={index === 0}>↑</button><button type="button" aria-label={`Переместить локальный файл ${index + 1} ниже`} onClick={() => move(index, 1)} disabled={index === localFiles.length - 1}>↓</button></span>}
             </li>)}
           </ol>
           <p className="notice">{operationMode === "concat" && localFiles.length > 1 ? `Будут локально склеены ${localFiles.length} файла в порядке 1 → ${localFiles.length}.` : `Будет создано локальных WAV-файлов: ${localFiles.length}.`}</p>
-          <p className="warning">Браузер не предоставляет надёжную дату создания локального media file. Порядок сохраняется ровно как выбран и может быть изменён вручную.</p>
+          <p className="warning">Браузер не предоставляет надёжную дату создания локального файла. Порядок сохраняется ровно как выбран и может быть изменён вручную.</p>
         </div>}</>}
       </section>
       {sourceMode !== "direct-drive" && <section className="card audio-preparation-card">
         <h2>2. Параметры</h2>
         <div className="audio-settings-grid">
           <label>Сценарий<select value={preset} onChange={(e) => applyPreset(e.target.value as keyof typeof presetDefaults)}><option value="processing_only">Свои настройки</option><option value="lecture">Лекция</option><option value="call">Созвон</option></select></label>
-          <label>Формат результата<select aria-label="Формат результата" value={format} disabled={processingPath === "local"} onChange={(e) => applyFormat(e.target.value)}><option value="copy">Сохранить исходный формат</option><option value="wav">WAV</option><option value="flac">FLAC</option></select>{processingPath === "local" && <small>Локальная обработка создаёт WAV. FLAC и сохранение исходного container доступны через Studio.</small>}{processingPath === "studio" && format === "flac" && <small>FLAC создаётся в 16-bit с исходной частотой дискретизации, без lossy-сжатия.</small>}</label>
+          <label>Формат результата<select aria-label="Формат результата" value={format} disabled={processingPath === "local"} onChange={(e) => applyFormat(e.target.value)}><option value="copy">Сохранить исходный формат</option><option value="wav">WAV</option><option value="flac">FLAC</option></select>{processingPath === "local" && <small>Обработка на устройстве создаёт WAV. Другие варианты доступны при обработке через Studio.</small>}{processingPath === "studio" && format === "flac" && <><small>FLAC сохраняет исходную частоту дискретизации без потерь качества.</small><details className="technical-details"><summary>Технические сведения о FLAC</summary><small>FLAC создаётся в 16-bit PCM без lossy-сжатия.</small></details></>}</label>
           <label>Звуковые каналы<select value={mono} onChange={(e) => applyMono(e.target.value)}><option value="preserve">Сохранить как в оригинале</option><option value="mixdown">Объединить в mono</option><option value="left">Только левый канал</option><option value="right">Только правый канал</option></select></label>
           <label>Название результата<input value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>
         </div>

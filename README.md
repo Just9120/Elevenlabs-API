@@ -7,19 +7,9 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
 
-Актуальная независимо пересчитанная готовность current product scope для verified `main@f6b0d70e751673ea4edb11c655a732d594ff8f31`:
+README не дублирует быстро устаревающие проценты и revision IDs. Актуальные numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md), а текущая и предыдущая независимые оценки, active Goal, blockers и checkpoint — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
-- Google Colab: **100% (`31/31`)**.
-- Personal VoiceOps Studio PWA: **66,4% (`172/259`)**.
-- non-commercial scope: **70,0% (`203/290`)**.
-- commercial/cross-contour backlog: **0% (`0/242`)**.
-- полный canonical scope: **38,2% (`203/532`)**.
-
-Предыдущие `148/148` не были оценкой всей product vision. После явного согласования upstream scope denominator расширен до `532`: existing `148` AC + `142` новых non-commercial + `50` cross-contour + `192` commercial. Numerator `203` состоит из прежних `148` и `55` новых подтверждённых AC; это расширение scope, а не регресс кода. `PWA-GOOGLE-PICKER-UX-01` и `PWA-TRANSCRIPTIONS-UX-01` имеют выполненные AC, но authenticated production `LIVE —`; у `PWA-MANIFEST-01` — `LIVE ◐`.
-
-Owner decision от 2026-08-27: commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. Commercial/cross-contour denominator `242` уже canonical, readiness `0/242`; существующий personal code не считается commercial Evidence.
-
-Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
+Commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. Существующий personal code не считается commercial Evidence.
 
 ## Быстрый старт и validation
 
@@ -34,7 +24,7 @@ pytest -q
 cd apps/studio
 npm ci
 npm run lint
-npm test -- --run
+npm run test -- --run
 npm run build
 
 # Проверка whitespace/diff

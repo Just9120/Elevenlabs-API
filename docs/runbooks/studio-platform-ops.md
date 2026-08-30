@@ -25,7 +25,7 @@ Required secret-file classes include:
 - Studio credential master key file;
 - primary Google OAuth client secret file when Picker/browser OAuth is enabled;
 - separate maintenance Google OAuth client secret file when recursive transcript maintenance is enabled;
-- source-storage access-key files for the private S3/R2-compatible upload bucket;
+- separate transcription-reference and audio-reference access-key files for two private S3/R2-compatible buckets;
 - backup/restic repository/password/access secret files when backup automation is used.
 
 Rules:
@@ -236,7 +236,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0028_transcript_maintenance_runs`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0029_source_reference_class`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no`.
@@ -294,18 +294,26 @@ Backup/restore rehearsal is manual and isolated:
 - destroy only the temporary target after verification;
 - never delete, overwrite, prune, or reset live production data from the rehearsal path.
 
-## Source-upload storage
+## Reference storage isolation
 
-Temporary local-computer Studio source uploads use a private dedicated S3/R2-compatible bucket scoped to input objects only. Transcript outputs remain in Google Drive/Docs, not in this bucket.
+Studio persists every local reference with an exact class: `transcription` or `audio_processing`. Existing rows and objects remain `transcription`; migration `0029_source_reference_class` adds the class with that safe default and does not move or delete objects. New transcription uploads use the transcription-reference boundary. New Audio uploads and reusable Audio outputs use the audio-reference boundary. Transcript outputs remain in Google Drive/Docs, not in either reference bucket.
 
 Configuration requirements:
 
-- endpoint URL, region, bucket, pending-upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings; maximum upload bytes must be within `1..2147483647` and is exposed to authenticated browsers only through the safe `no-store` upload-policy DTO;
-- access key ID and secret access key are provided through operator-managed secret files;
+- `STUDIO_SOURCE_S3_*` configures transcription references and `STUDIO_AUDIO_REFERENCE_S3_*` configures audio references;
+- the two bucket identities, access-key file paths, secret-key file paths and non-empty lifecycle rule identifiers must be distinct; equality or any missing boundary fails closed before upload, processing or cleanup;
+- each credential pair must be restricted by the storage provider to its own bucket and required object operations only; distinct file paths alone are not permission evidence;
+- each bucket must have an independently verified provider-side lifecycle rule matching its declared identifier; the identifier is configuration evidence, not proof that the rule exists or is enabled;
+- endpoint URL, region, bucket, lifecycle rule identifier, pending-upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings; maximum upload bytes must be within `1..2147483647` and is exposed to authenticated browsers only through the safe `no-store` upload-policy DTO;
+- both access key IDs and secret access keys are provided through separate operator-managed secret files;
 - object keys, private bucket names when sensitive, secret-file paths, and source bytes remain server-only;
 - only the authenticated owner-scoped upload-initiation response may expose a PUT-only presigned URL; it must be `no-store`, expire within 60–900 seconds, and must not appear in logs, diagnostics, evidence, later metadata responses, or browser storage;
 - `STUDIO_SOURCE_UPLOAD_TTL_SECONDS` defaults to 3600 seconds for unfinished uploads; post-completion retention is an allowlisted per-user PostgreSQL preference managed in PWA settings, not a runtime env value;
-- rollout of source-storage config is API-only unless another component is explicitly in scope.
+- API and worker must receive the same complete isolation config and secret mounts; runtime health performs a read-only `HEAD` against both exact buckets and exposes only safe per-class status values;
+- deploy order is external provider setup -> protected additive migration `0029` -> API/web -> stopped-worker config validation -> worker deploy. Do not deploy the fail-closed API/worker against the old one-bucket runtime configuration;
+- no rollout step copies, renames or deletes existing objects. Legacy reads and cleanup continue through the persisted/default `transcription` class after both boundaries are configured.
+
+Before enabling the release, an operator must confirm without recording names or secrets: two distinct private buckets exist; each independently scoped credential can access only its intended bucket; each declared lifecycle rule exists and is enabled; both safe runtime health boundaries are `ready`. Missing evidence is `PENDING_EXTERNAL_GATE`, not authority to reuse the legacy bucket or credential.
 
 ## Google OAuth runtime configuration
 
@@ -367,7 +375,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through that revision, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0029_source_reference_class`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -418,7 +426,7 @@ Before any processing rollout or canary, verify without printing sensitive value
 - tracked working tree state is clean or explicitly reviewed;
 - runtime env/secret files exist where expected, without displaying values;
 - PostgreSQL and Redis health;
-- source-upload storage config is complete;
+- both reference-storage boundaries, distinct secret-file paths and declared lifecycle identifiers are complete;
 - primary Google OAuth config is complete and authenticated for the smoke account;
 - maintenance OAuth uses a separate client/secret, exact server-only scopes, and the same Google account;
 - Picker runtime config has non-placeholder `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` values without recording them;
@@ -433,7 +441,7 @@ The host preflight validates current Compose-mounted runtime secret files only
 through the reviewed `container_entrypoint --validate-mounted-secret` mode inside
 the healthy API container. That mode accepts only keys from the entrypoint's
 secret allowlist, performs no copy or write, emits no value, and exits before
-starting an application command. Source-storage credentials additionally receive
+starting an application command. Both reference-storage credential pairs additionally receive
 their bounded structural/placeholder validation. Do not replace this with direct
 deploy-user reads, stale runtime-tmpfs inspection, relaxed host permissions, or
 ad-hoc root commands.
@@ -647,4 +655,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0028_transcript_maintenance_runs`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0029_source_reference_class`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

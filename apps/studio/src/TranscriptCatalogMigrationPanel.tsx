@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
@@ -180,7 +180,7 @@ export function maintenanceAccessStatus({
   if (!googleConnected) {
     return {
       kind: "primary_disconnected",
-      message: "Блокер: основное подключение Google Drive отсутствует.",
+      message: "Сначала подключите Google Drive.",
       tone: "error",
     };
   }
@@ -188,14 +188,14 @@ export function maintenanceAccessStatus({
     return {
       kind: "primary_reconnect_required",
       message:
-        "Блокер: основное подключение Google Drive нужно обновить для Google Picker.",
+        "Обновите подключение Google Drive, чтобы выбирать документы и папки.",
       tone: "error",
     };
   }
   if (maintenanceLoading) {
     return {
       kind: "checking_maintenance",
-      message: "Проверяем отдельный доступ Google для обслуживания…",
+      message: "Проверяем расширенный доступ к готовым документам…",
       tone: "notice",
     };
   }
@@ -203,21 +203,22 @@ export function maintenanceAccessStatus({
     return {
       kind: "status_unavailable",
       message:
-        "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
+        "Не удалось проверить расширенный доступ Google.",
       tone: "error",
     };
   }
   if (!maintenanceConnection.configured) {
     return {
       kind: "server_not_configured",
-      message: "Блокер: OAuth для обслуживания не настроен на сервере.",
+      message:
+        "Расширенный доступ Google пока не настроен в Studio. Обратитесь в поддержку.",
       tone: "error",
     };
   }
   if (maintenanceConnection.status === "revoked") {
     return {
       kind: "maintenance_revoked",
-      message: "Блокер: доступ Google для обслуживания отозван.",
+      message: "Расширенный доступ Google отозван. Подключите его заново.",
       tone: "error",
     };
   }
@@ -225,14 +226,14 @@ export function maintenanceAccessStatus({
     return {
       kind: "maintenance_incomplete",
       message:
-        "Блокер: подключение доступа для обслуживания не было завершено.",
+        "Подключение расширенного доступа не было завершено. Попробуйте заново.",
       tone: "error",
     };
   }
   if (!maintenanceConnection.connected) {
     return {
       kind: "maintenance_disconnected",
-      message: "Блокер: отдельный доступ Google для обслуживания не подключён.",
+      message: "Подключите расширенный доступ Google для готовых документов.",
       tone: "error",
     };
   }
@@ -240,7 +241,7 @@ export function maintenanceAccessStatus({
     return {
       kind: "account_mismatch",
       message:
-        "Блокер: для обслуживания подключён не тот Google-аккаунт, что в основном подключении.",
+        "Основное и расширенное подключения принадлежат разным Google-аккаунтам.",
       tone: "error",
     };
   }
@@ -248,7 +249,7 @@ export function maintenanceAccessStatus({
     return {
       kind: "scope_missing",
       message:
-        "Блокер: доступу для обслуживания не хватает разрешений Drive/Google Docs.",
+        "Расширенному доступу не хватает разрешений Google Drive или Google Docs.",
       tone: "error",
     };
   }
@@ -264,7 +265,7 @@ export function maintenanceAccessStatus({
   return {
     kind: "invalid_state",
     message:
-      "Блокер: сервер вернул несогласованное состояние доступа для обслуживания.",
+      "Не удалось подтвердить состояние расширенного доступа. Обратитесь в поддержку.",
     tone: "error",
   };
 }
@@ -276,7 +277,7 @@ const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
   unreadable: "Не удалось прочитать",
 };
 const IMPORT_LABELS: Record<TranscriptImportStatus, string> = {
-  not_imported: "Не добавлен в манифест",
+  not_imported: "Ещё не учтён Studio",
   imported_exact: "Уже учтён Studio",
   conflict: "Конфликт",
 };
@@ -298,7 +299,7 @@ const STANDARDIZATION_ACTION_LABELS: Record<
   blocked: "Заблокировано",
 };
 const CATALOG_ACTION_LABELS: Record<CatalogImportAction, string> = {
-  import_metadata: "Добавить метаданные в манифест",
+  import_metadata: "Учесть готовый документ",
   unchanged: "Оставить без изменений",
   blocked: "Заблокировано",
 };
@@ -311,8 +312,8 @@ const STANDARDIZATION_OUTCOME_LABELS: Record<
   blocked: "Заблокировано",
 };
 const CATALOG_OUTCOME_LABELS: Record<CatalogImportOutcome, string> = {
-  imported: "Добавлено в манифест",
-  already_applied: "Уже есть в манифесте",
+  imported: "Документ учтён Studio",
+  already_applied: "Документ уже был учтён",
   unchanged: "Без изменений",
   blocked: "Заблокировано",
   standardization_required: "Сначала нужна стандартизация",
@@ -376,21 +377,21 @@ const ERROR_MESSAGES: Record<string, string> = {
   catalog_google_response_invalid:
     "Google Drive вернул неожиданный ответ. Повторите попытку позже.",
   catalog_scan_incomplete:
-    "Google Drive вернул неполный список. Повторите dry-run.",
+    "Google Drive вернул неполный список. Повторите проверку.",
   catalog_scan_limit_exceeded:
     "Выбранная папка слишком большая для одной операции. Выберите более узкую папку.",
   catalog_document_unavailable:
-    "Один из документов стал недоступен. Запустите dry-run заново.",
+    "Один из документов стал недоступен. Запустите проверку заново.",
   catalog_document_write_rejected:
     "Google Drive отклонил изменение документа.",
   catalog_document_revision_changed:
-    "Документ изменился после проверки. Запустите dry-run заново.",
+    "Документ изменился после проверки. Запустите проверку заново.",
   catalog_document_multiple_tabs:
     "Документ с несколькими вкладками нельзя стандартизировать автоматически.",
   catalog_document_content_unsupported:
     "Структура одного из документов не поддерживается.",
   catalog_document_classification_changed:
-    "Состояние документа изменилось. Запустите dry-run заново.",
+    "Состояние документа изменилось. Запустите проверку заново.",
   catalog_document_empty:
     "Пустой документ нельзя стандартизировать как транскрипт.",
   catalog_document_limit_exceeded:
@@ -406,35 +407,29 @@ const ERROR_MESSAGES: Record<string, string> = {
   transcript_maintenance_idempotency_conflict:
     "Запрос операции конфликтует с ранее созданной задачей. Обновите страницу.",
   transcript_maintenance_preview_invalid:
-    "Dry-run больше не подходит для применения. Запустите dry-run заново.",
+    "Предыдущая проверка устарела. Запустите проверку заново.",
   transcript_maintenance_attempts_exhausted:
-    "Операция не завершилась после нескольких безопасных попыток. Запустите dry-run заново.",
+    "Операция не завершилась после нескольких безопасных попыток. Запустите проверку заново.",
   transcript_maintenance_internal_error:
-    "Операция остановлена из-за внутренней ошибки. Повторите dry-run; если ошибка повторится, скачайте диагностику.",
+    "Операция остановлена из-за внутренней ошибки. Повторите проверку; если ошибка повторится, скачайте диагностику.",
 };
 
 const OPERATION_COPY = {
   standardization: {
-    title: "Стандартизация Google Docs",
+    title: "Привести документы к текущему формату",
     description:
-      "Обновляет выбранный Google Doc либо рекурсивно сканирует папку и " +
-      "обновляет подходящие Google Docs " +
-      "до transcript_doc. Уже актуальные документы пропускаются. " +
-      "У legacy-документов существующий Created at сохраняется, а отсутствующий не добавляется. " +
-      "Каталог Studio и состояние заданий не изменяются.",
-    applyLabel: "Подтвердить стандартизацию",
-    resultTitle: "Стандартизация завершена",
+      "Проверяет выбранный Google Doc или папку с подпапками и обновляет только документы со старым оформлением. " +
+      "Уже актуальные документы пропускаются, а существующая корректная дата создания сохраняется.",
+    applyLabel: "Обновить документы",
+    resultTitle: "Документы обновлены",
   },
   catalog_import: {
-    title: "Манифест Studio",
+    title: "Учесть готовые документы в Studio",
     description:
-      "Проверяет выбранный Google Doc либо рекурсивно сканирует папку и " +
-      "добавляет в манифест Studio " +
-      "только метаданные подходящих актуальных документов. Уже учтённые " +
-      "документы пропускаются. Отдельный manifest-файл не создаётся, " +
-      "Google Docs не изменяются.",
-    applyLabel: "Добавить в манифест Studio",
-    resultTitle: "Манифест Studio обновлён",
+      "Проверяет выбранный Google Doc или папку с подпапками и отмечает в Studio уже готовые актуальные документы. " +
+      "Содержимое Google Docs не изменяется.",
+    applyLabel: "Учесть документы",
+    resultTitle: "Готовые документы учтены",
   },
 } as const;
 
@@ -484,8 +479,8 @@ function maintenanceRunErrorMessage(run: TranscriptMaintenanceRun): string {
   const code = run.error?.code;
   if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
   return run.error?.retryable
-    ? "Операция временно не завершилась. Повторите dry-run."
-    : "Операция остановлена безопасно. Проверьте доступ и повторите dry-run.";
+    ? "Операция временно не завершилась. Повторите проверку."
+    : "Операция остановлена безопасно. Проверьте доступ и повторите проверку.";
 }
 
 function parseLatestRun(value: unknown): TranscriptMaintenanceRun | null {
@@ -500,7 +495,7 @@ const RUN_STAGE_LABELS: Record<
   TranscriptMaintenanceRun["current_stage"],
   string
 > = {
-  queued: "Ожидает свободного worker",
+  queued: "Ждёт начала обработки",
   authorizing: "Проверяем доступ Google",
   scanning: "Сканируем папки Google Drive",
   inspecting: "Проверяем Google Docs",
@@ -552,6 +547,86 @@ function Summary({
         </div>
       ))}
     </dl>
+  );
+}
+
+const MAINTENANCE_RESULT_PAGE_SIZE = 25;
+
+function MaintenanceItemsTable<T extends { position: number; name: string }>({
+  items,
+  columns,
+  renderCells,
+}: {
+  items: T[];
+  columns: string[];
+  renderCells: (item: T) => ReactNode;
+}) {
+  const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(MAINTENANCE_RESULT_PAGE_SIZE);
+  const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
+  const filteredItems = normalizedQuery
+    ? items.filter((item) =>
+        item.name.toLocaleLowerCase("ru-RU").includes(normalizedQuery),
+      )
+    : items;
+  const visibleItems = filteredItems.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(MAINTENANCE_RESULT_PAGE_SIZE);
+  }, [items, normalizedQuery]);
+
+  return (
+    <section className="maintenance-result-list" aria-label="Проверенные документы">
+      <div className="maintenance-result-list-header">
+        <h5>Документы</h5>
+        <span className="muted">
+          Показано {visibleItems.length} из {filteredItems.length}
+        </span>
+      </div>
+      <label className="maintenance-result-filter">
+        Найти документ
+        <input
+          type="search"
+          value={query}
+          placeholder="Название документа"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      {visibleItems.length > 0 ? (
+        <div className="catalog-migration-table-wrap">
+          <table className="catalog-migration-table">
+            <thead>
+              <tr>
+                {columns.map((column) => <th key={column}>{column}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {visibleItems.map((item) => (
+                <tr key={item.position}>{renderCells(item)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="notice">Документы с таким названием не найдены.</p>
+      )}
+      {visibleItems.length < filteredItems.length && (
+        <button
+          type="button"
+          className="secondary maintenance-result-more"
+          onClick={() =>
+            setVisibleCount((current) =>
+              Math.min(current + MAINTENANCE_RESULT_PAGE_SIZE, filteredItems.length),
+            )
+          }
+        >
+          Показать ещё {Math.min(
+            MAINTENANCE_RESULT_PAGE_SIZE,
+            filteredItems.length - visibleItems.length,
+          )}
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -608,33 +683,19 @@ function StandardizationDryRunResult({
         result={result}
         selectionMode={selectionMode}
       />
-      <div className="catalog-migration-table-wrap">
-        <table className="catalog-migration-table">
-          <thead>
-            <tr>
-              <th>Документ</th>
-              <th>Стандарт</th>
-              <th>Дата источника</th>
-              <th>Действие</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.items.map((item) => (
-              <tr key={item.position}>
-                <td>{item.name}</td>
-                <td>{STANDARD_LABELS[item.standard_status]}</td>
-                <td>
-                  {SOURCE_CREATION_LABELS[item.source_creation_status]}
-                </td>
-                <td>
-                  {STANDARDIZATION_ACTION_LABELS[item.action]}
-                  <Reason reason={item.reason_code} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MaintenanceItemsTable
+        items={result.items}
+        columns={["Документ", "Формат", "Дата источника", "Что произойдёт"]}
+        renderCells={(item) => <>
+          <td>{item.name}</td>
+          <td>{STANDARD_LABELS[item.standard_status]}</td>
+          <td>{SOURCE_CREATION_LABELS[item.source_creation_status]}</td>
+          <td>
+            {STANDARDIZATION_ACTION_LABELS[item.action]}
+            <Reason reason={item.reason_code} />
+          </td>
+        </>}
+      />
     </>
   );
 }
@@ -655,7 +716,7 @@ function CatalogDryRunResult({
             value: result.selection_summary.google_document_count,
           },
           {
-            label: "Будут добавлены в манифест",
+            label: "Будут учтены Studio",
             value: result.summary.import_metadata_count,
           },
           { label: "Без изменений", value: result.summary.unchanged_count },
@@ -666,36 +727,24 @@ function CatalogDryRunResult({
         result={result}
         selectionMode={selectionMode}
       />
-      <div className="catalog-migration-table-wrap">
-        <table className="catalog-migration-table">
-          <thead>
-            <tr>
-              <th>Документ</th>
-              <th>Стандарт</th>
-              <th>Каталог</th>
-              <th>Действие</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.items.map((item) => (
-              <tr key={item.position}>
-                <td>{item.name}</td>
-                <td>{STANDARD_LABELS[item.standard_status]}</td>
-                <td>
-                  {IMPORT_LABELS[item.import_status]}
-                  <span className="muted catalog-settings-status">
-                    {SETTINGS_LABELS[item.settings_status]}
-                  </span>
-                </td>
-                <td>
-                  {CATALOG_ACTION_LABELS[item.action]}
-                  <Reason reason={item.reason_code} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MaintenanceItemsTable
+        items={result.items}
+        columns={["Документ", "Формат", "Учёт Studio", "Что произойдёт"]}
+        renderCells={(item) => <>
+          <td>{item.name}</td>
+          <td>{STANDARD_LABELS[item.standard_status]}</td>
+          <td>
+            {IMPORT_LABELS[item.import_status]}
+            <span className="muted catalog-settings-status">
+              {SETTINGS_LABELS[item.settings_status]}
+            </span>
+          </td>
+          <td>
+            {CATALOG_ACTION_LABELS[item.action]}
+            <Reason reason={item.reason_code} />
+          </td>
+        </>}
+      />
     </>
   );
 }
@@ -711,7 +760,7 @@ function DryRunResult({
   return (
     <div
       className="catalog-migration-result"
-      aria-label={`Результат dry-run: ${title}`}
+      aria-label={`Результат проверки: ${title}`}
     >
       <h4>План операции</h4>
       {result.workflow === "standardization" ? (
@@ -746,33 +795,19 @@ function StandardizationApplyResult({
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
       />
-      <div className="catalog-migration-table-wrap">
-        <table className="catalog-migration-table">
-          <thead>
-            <tr>
-              <th>Документ</th>
-              <th>Дата источника</th>
-              <th>Действие</th>
-              <th>Результат</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.items.map((item) => (
-              <tr key={item.position}>
-                <td>{item.name}</td>
-                <td>
-                  {SOURCE_CREATION_LABELS[item.source_creation_status]}
-                </td>
-                <td>{STANDARDIZATION_ACTION_LABELS[item.action]}</td>
-                <td>
-                  {STANDARDIZATION_OUTCOME_LABELS[item.outcome]}
-                  <Reason reason={item.reason_code} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MaintenanceItemsTable
+        items={result.items}
+        columns={["Документ", "Дата источника", "Действие", "Результат"]}
+        renderCells={(item) => <>
+          <td>{item.name}</td>
+          <td>{SOURCE_CREATION_LABELS[item.source_creation_status]}</td>
+          <td>{STANDARDIZATION_ACTION_LABELS[item.action]}</td>
+          <td>
+            {STANDARDIZATION_OUTCOME_LABELS[item.outcome]}
+            <Reason reason={item.reason_code} />
+          </td>
+        </>}
+      />
     </>
   );
 }
@@ -790,11 +825,11 @@ function CatalogApplyResult({
       <Summary
         entries={[
           {
-            label: "Добавлены в манифест",
+            label: "Учтены Studio",
             value: result.summary.imported_count,
           },
           {
-            label: "Уже были в манифесте",
+            label: "Уже были учтены",
             value: result.summary.already_applied_count,
           },
           { label: "Без изменений", value: result.summary.unchanged_count },
@@ -806,34 +841,22 @@ function CatalogApplyResult({
       />
       {persistedCount > 0 && (
         <p className="muted" role="status">
-          Результат сохранён в каталоге Studio. Повторно применять эту
-          операцию не нужно. Новый dry-run должен показать сохранённые
-          документы как уже учтённые.
+          Результат сохранён в Studio. Повторно применять эту операцию не
+          нужно. Новая проверка покажет документы как уже учтённые.
         </p>
       )}
-      <div className="catalog-migration-table-wrap">
-        <table className="catalog-migration-table">
-          <thead>
-            <tr>
-              <th>Документ</th>
-              <th>Действие</th>
-              <th>Результат</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.items.map((item) => (
-              <tr key={item.position}>
-                <td>{item.name}</td>
-                <td>{CATALOG_ACTION_LABELS[item.action]}</td>
-                <td>
-                  {CATALOG_OUTCOME_LABELS[item.outcome]}
-                  <Reason reason={item.reason_code} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MaintenanceItemsTable
+        items={result.items}
+        columns={["Документ", "Действие", "Результат"]}
+        renderCells={(item) => <>
+          <td>{item.name}</td>
+          <td>{CATALOG_ACTION_LABELS[item.action]}</td>
+          <td>
+            {CATALOG_OUTCOME_LABELS[item.outcome]}
+            <Reason reason={item.reason_code} />
+          </td>
+        </>}
+      />
     </>
   );
 }
@@ -1090,7 +1113,7 @@ function MaintenanceOperationCard({
       !explicitConfirmation(
         workflow === "standardization"
           ? `Стандартизировать ${actionableCount(dryRun)} выбранных документов? Каталог Studio не изменится.`
-          : `Добавить метаданные ${actionableCount(dryRun)} выбранных документов в манифест Studio? Google Docs не изменятся.`,
+          : `Учесть ${actionableCount(dryRun)} готовых документов в Studio? Google Docs не изменятся.`,
       )
     ) {
       return;
@@ -1130,8 +1153,8 @@ function MaintenanceOperationCard({
       <h3 id={`transcript-maintenance-${workflow}-title`}>{copy.title}</h3>
       <p>{copy.description}</p>
       <p className="muted">
-        Выберите режим и объект. Dry-run ничего не изменит. Тексты документов
-        не возвращаются в браузер.
+        Сначала выполните проверку — она ничего не изменит. Содержимое
+        документов не показывается в браузере.
       </p>
       <label
         htmlFor={`transcript-maintenance-${workflow}-selection-mode`}
@@ -1179,7 +1202,7 @@ function MaintenanceOperationCard({
           }
           onClick={runDryRun}
         >
-          {busy === "dry-run" ? "Проверяем…" : "Запустить dry-run"}
+          {busy === "dry-run" ? "Проверяем…" : "Проверить документы"}
         </button>
       </div>
       {selectedTarget && (
@@ -1234,9 +1257,9 @@ function MaintenanceOperationCard({
         <div className="catalog-migration-apply">
           <p>
             {selectionMode === "folder_tree"
-              ? "Перед применением сервер заново просканирует эту корневую папку и все подпапки."
-              : "Перед применением сервер заново проверит именно этот Google Doc."}{" "}
-            Preview не считается полномочием на другую операцию.
+              ? "Перед применением Studio заново проверит эту корневую папку и все подпапки."
+              : "Перед применением Studio заново проверит именно этот Google Doc."}{" "}
+            Эта проверка разрешает применить только выбранную операцию.
           </p>
           <button
             type="button"
@@ -1436,15 +1459,23 @@ export function TranscriptCatalogMigrationPanel({
         className="transcript-maintenance-panel"
         aria-labelledby="transcript-maintenance-access-title"
       >
-        <span className="tag">Подключение для обслуживания</span>
+        <span className="tag">РАСШИРЕННЫЙ ДОСТУП</span>
         <h2 id="transcript-maintenance-access-title">
-          Доступ Google для обслуживания
+          Работа с готовыми Google Docs
         </h2>
         <p>
-          Этот отдельный server-side доступ нужен для проверки и изменения
-          существующих Google Docs. Сами операции находятся в разделе
-          «Транскрибации → Обслуживание».
+          Подключите отдельный доступ, чтобы проверять и приводить готовые
+          документы к текущему формату. Сами действия находятся в разделе
+          «Транскрибации → Готовые документы».
         </p>
+        <details className="technical-details">
+          <summary>Почему нужен отдельный доступ</summary>
+          <p>
+            Токены хранятся только в защищённой части Studio. Это разрешение используется для
+            чтения структуры выбранных Google Docs и явного применения
+            подтверждённых изменений.
+          </p>
+        </details>
         <section className="card transcript-maintenance-access">
           <p
             className={accessStatus.tone}
@@ -1521,16 +1552,23 @@ export function TranscriptCatalogMigrationPanel({
       className="transcript-maintenance-panel"
       aria-labelledby="transcript-maintenance-title"
     >
-      <span className="tag">Обслуживание существующих транскриптов</span>
+      <span className="tag">ГОТОВЫЕ ДОКУМЕНТЫ</span>
       <h2 id="transcript-maintenance-title">
-        Две независимые операции
+        Проверка и обновление Google Docs
       </h2>
       <p>
-        Для каждой операции отдельно выберите папку со всеми подпапками либо
-        один Google Doc. Стандартизация изменяет только подходящие документы,
-        а добавление в манифест — только метаданные Studio. Режим, объект,
-        dry-run и подтверждение у операций раздельные.
+        Выберите один документ или папку с подпапками. Сначала Studio покажет,
+        что изменится, и только затем предложит отдельное подтверждение.
       </p>
+      <details className="technical-details">
+        <summary>Чем отличаются операции</summary>
+        <p>
+          Обновление формата изменяет только подходящие Google Docs. Учёт
+          готовых документов сохраняет только служебные metadata Studio и не
+          изменяет содержимое Google Docs. Проверка и подтверждение у операций
+          независимы.
+        </p>
+      </details>
       <div className={accessStatus.tone} role={accessStatus.tone === "error" ? "alert" : "status"}>
         <p>{accessStatus.message}</p>
         {!operationReady && onOpenConnections && (
@@ -1539,11 +1577,12 @@ export function TranscriptCatalogMigrationPanel({
           </button>
         )}
       </div>
-      <section className="card transcript-maintenance-access">
-        <h3>Очистка манифеста Studio</h3>
+      <details className="card transcript-maintenance-access technical-details">
+        <summary className="summary-row">Расширенные действия</summary>
+        <h3>Сбросить учёт готовых документов</h3>
         <p>
-          Очистка сбрасывает owner-scoped duplicate history. Она не удаляет
-          Google Docs, результаты, исходные файлы, задачи или журнал аудита.
+          Сброс удаляет только историю защиты от повторной обработки. Google
+          Docs, результаты, исходные файлы, задачи и журнал действий сохранятся.
         </p>
         <button
           type="button"
@@ -1551,12 +1590,12 @@ export function TranscriptCatalogMigrationPanel({
           disabled={clearPending}
           onClick={() => setClearOpen(true)}
         >
-          Очистить манифест
+          Сбросить учёт
         </button>
         {clearMessage && (
           <p role="status" className="notice">{clearMessage}</p>
         )}
-      </section>
+      </details>
       <div className="transcript-maintenance-grid">
         <MaintenanceOperationCard
           workflow="standardization"
@@ -1571,8 +1610,8 @@ export function TranscriptCatalogMigrationPanel({
       </div>
       {clearOpen && (
         <ConfirmClearDialog
-          title="Очистить манифест Studio?"
-          description="Предыдущие accepted-result записи перестанут блокировать повторную транскрибацию. Google Docs, результаты, исходные файлы, задачи и аудит не удаляются."
+          title="Сбросить учёт готовых документов?"
+          description="Ранее учтённые результаты перестанут защищать от повторной транскрибации. Google Docs, результаты, исходные файлы, задачи и журнал действий не удаляются."
           pending={clearPending}
           onConfirm={() => void clearManifest()}
           onCancel={() => setClearOpen(false)}

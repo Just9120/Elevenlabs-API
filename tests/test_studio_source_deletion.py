@@ -62,7 +62,18 @@ def _local_source(db, m, project, now, *, key="k", bucket="b", status=None, expi
 
 
 class FakeStorageSettings:
+    source_s3_endpoint_url = "https://r2.test"
+    source_s3_region = "auto"
     source_s3_bucket = "persisted-bucket"
+    source_s3_access_key_id_file = "transcription-access"
+    source_s3_secret_access_key_file = "transcription-secret"
+    source_s3_lifecycle_rule_id = "transcription-retention"
+    audio_reference_s3_endpoint_url = "https://r2.test"
+    audio_reference_s3_region = "auto"
+    audio_reference_s3_bucket = "audio-bucket"
+    audio_reference_s3_access_key_id_file = "audio-access"
+    audio_reference_s3_secret_access_key_file = "audio-secret"
+    audio_reference_s3_lifecycle_rule_id = "audio-retention"
 
     def source_storage_configured(self):
         return True
@@ -220,7 +231,7 @@ def test_cleanup_lease_fencing_reclaim_failure_and_missing_identity(sqlite_db):
     first = claim_next_source_cleanup(sqlite_db, owner_id="worker-a", now=now)
     assert first and first.s3_bucket == "old-bucket"
     assert claim_next_source_cleanup(sqlite_db, owner_id="worker-b", now=now) is None
-    assert not finalize_source_cleanup(sqlite_db, claim=SourceCleanupClaim(first.source_id, "stale", first.generation, first.s3_bucket, first.s3_object_key, first.attempt_count), now=now, success=True)
+    assert not finalize_source_cleanup(sqlite_db, claim=SourceCleanupClaim(first.source_id, "stale", first.generation, first.s3_bucket, first.s3_object_key, first.reference_class, first.attempt_count), now=now, success=True)
     src.storage_cleanup_lease_expires_at = now - timedelta(seconds=1)
     sqlite_db.commit()
     second = claim_next_source_cleanup(sqlite_db, owner_id="worker-b", now=now)
@@ -240,7 +251,14 @@ def test_cleanup_lease_fencing_reclaim_failure_and_missing_identity(sqlite_db):
     assert src.s3_bucket is None and src.s3_object_key is None
 
 
-def test_run_one_cleanup_uses_persisted_bucket_and_missing_identity_success(sqlite_db):
+@pytest.mark.parametrize(
+    "reference_class,bucket",
+    [
+        ("transcription", "persisted-bucket"),
+        ("audio_processing", "audio-bucket"),
+    ],
+)
+def test_run_one_cleanup_uses_persisted_reference_boundary(sqlite_db, reference_class, bucket):
     from studio_api.source_deletion import run_one_source_cleanup
 
     class Storage:
@@ -252,13 +270,21 @@ def test_run_one_cleanup_uses_persisted_bucket_and_missing_identity_success(sqli
 
     m, user, project = _owner_project(sqlite_db)
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    src = _local_source(sqlite_db, m, project, now, key="persisted-key", bucket="persisted-bucket", cleanup_status=m.SourceStorageCleanupStatus.pending)
+    src = _local_source(sqlite_db, m, project, now, key="persisted-key", bucket=bucket, cleanup_status=m.SourceStorageCleanupStatus.pending)
+    src.reference_class = reference_class
     src.deleted_at = now
     src.storage_cleanup_not_before_at = now
     sqlite_db.commit()
     storage = Storage()
-    assert run_one_source_cleanup(sqlite_db, settings=FakeStorageSettings(), owner_id="worker", now=now, storage_factory=lambda _: storage)
-    assert storage.calls == [("persisted-bucket", "persisted-key")]
+    selected_buckets = []
+
+    def select_storage(selected_settings):
+        selected_buckets.append(selected_settings.source_s3_bucket)
+        return storage
+
+    assert run_one_source_cleanup(sqlite_db, settings=FakeStorageSettings(), owner_id="worker", now=now, storage_factory=select_storage)
+    assert selected_buckets == [bucket]
+    assert storage.calls == [(bucket, "persisted-key")]
     assert src.s3_bucket is None and src.s3_object_key is None
 
 
@@ -412,9 +438,9 @@ def test_cleanup_finalization_requires_full_claim_identity(sqlite_db, mutation):
     assert claim is not None
     bad_claim = claim
     if mutation == "owner":
-        bad_claim = SourceCleanupClaim(claim.source_id, "other-worker", claim.generation, claim.s3_bucket, claim.s3_object_key, claim.attempt_count)
+        bad_claim = SourceCleanupClaim(claim.source_id, "other-worker", claim.generation, claim.s3_bucket, claim.s3_object_key, claim.reference_class, claim.attempt_count)
     elif mutation == "generation":
-        bad_claim = SourceCleanupClaim(claim.source_id, claim.owner_id, claim.generation + 1, claim.s3_bucket, claim.s3_object_key, claim.attempt_count)
+        bad_claim = SourceCleanupClaim(claim.source_id, claim.owner_id, claim.generation + 1, claim.s3_bucket, claim.s3_object_key, claim.reference_class, claim.attempt_count)
     elif mutation == "status":
         src.storage_cleanup_status = m.SourceStorageCleanupStatus.failed
     elif mutation == "bucket":

@@ -227,10 +227,21 @@ def test_api_created_job_completes_through_worker_and_public_output_api(monkeypa
 
     monkeypatch.setattr(studio_main.settings, "source_s3_endpoint_url", "https://storage.test")
     monkeypatch.setattr(studio_main.settings, "source_s3_bucket", "studio-e2e")
-    monkeypatch.setattr(studio_main.settings, "source_s3_access_key_id_file", "injected-for-test")
-    monkeypatch.setattr(studio_main.settings, "source_s3_secret_access_key_file", "injected-for-test")
+    monkeypatch.setattr(studio_main.settings, "source_s3_access_key_id_file", "transcription-id-for-test")
+    monkeypatch.setattr(studio_main.settings, "source_s3_secret_access_key_file", "transcription-secret-for-test")
+    monkeypatch.setattr(studio_main.settings, "source_s3_lifecycle_rule_id", "transcription-reference-retention")
+    monkeypatch.setattr(studio_main.settings, "audio_reference_s3_endpoint_url", "https://storage.test")
+    monkeypatch.setattr(studio_main.settings, "audio_reference_s3_region", "auto")
+    monkeypatch.setattr(studio_main.settings, "audio_reference_s3_bucket", "studio-e2e-audio")
+    monkeypatch.setattr(studio_main.settings, "audio_reference_s3_access_key_id_file", "audio-id-for-test")
+    monkeypatch.setattr(studio_main.settings, "audio_reference_s3_secret_access_key_file", "audio-secret-for-test")
+    monkeypatch.setattr(studio_main.settings, "audio_reference_s3_lifecycle_rule_id", "audio-reference-retention")
     monkeypatch.setattr(studio_main.settings, "source_max_upload_bytes", 1024 * 1024)
-    monkeypatch.setattr(studio_main, "get_source_storage", lambda settings: storage)
+    monkeypatch.setattr(
+        studio_main,
+        "get_reference_storage",
+        lambda settings, reference_class: storage,
+    )
     monkeypatch.setattr(studio_main, "refreshed_google_drive_access_token", lambda db, user: google_access_token)
 
     def verify_selected_folder(token: str, selected_folder_id: str):
@@ -328,7 +339,7 @@ def test_api_created_job_completes_through_worker_and_public_output_api(monkeypa
 
         upload_response = client.post(
             f"/api/projects/{project_id}/sources/local-upload/initiate",
-            json={"original_filename": "processing-e2e.mp3", "mime_type": "audio/mpeg", "size_bytes": len(source_bytes)},
+            json={"original_filename": "processing-e2e.mp3", "mime_type": "audio/mpeg", "size_bytes": len(source_bytes), "reference_class": "transcription"},
             headers=write_headers,
         )
         assert upload_response.status_code == 200

@@ -10,11 +10,11 @@ export function OutputReconciliationNotice({
   onCheck: (jobId: string) => void | Promise<void>;
 }) {
   return (
-    <section className="notice" aria-label={`Output reconciliation ${jobId}`}>
+    <section className="notice" aria-label="Проверка результата в Google Drive">
       <b>Требуется проверка результата Google Docs</b>
       <p>
-        Reconciliation не создаёт документ заново и запускается только по
-        нажатию.
+        Studio проверит, появился ли документ в Google Drive, и не будет
+        создавать его повторно.
       </p>
       <button
         type="button"

@@ -100,10 +100,10 @@ describe("JobCard", () => {
     expect(screen.getByText("Interview").closest("article")).toHaveClass(
       "terminal-job",
     );
-    expect(screen.getByLabelText("Результаты job-1")).toBeInTheDocument();
-    expect(screen.getByLabelText("Job detail job-1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Результаты транскрибации")).toBeInTheDocument();
+    expect(screen.getByLabelText("Подробности транскрибации")).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Output reconciliation job-1"),
+      screen.getByLabelText("Проверка результата в Google Drive"),
     ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Открыть" }));

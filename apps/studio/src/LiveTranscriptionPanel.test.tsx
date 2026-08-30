@@ -631,7 +631,7 @@ describe("LiveTranscriptionPanel", () => {
       );
 
       expect(
-        await screen.findByText(/Server recovery сейчас недоступен/),
+        await screen.findByText(/Восстановление из Studio сейчас недоступно/),
       ).toBeInTheDocument();
       expect(recoverySignal?.aborted).toBe(true);
       expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();

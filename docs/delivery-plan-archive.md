@@ -981,6 +981,17 @@ Goal `TRANSCRIPT-MAINTENANCE-WORKSPACE-01` доставила durable maintenanc
 - Authenticated production dry-run подтвердил app-owned workspace, durable queued/running execution и folder traversal `142/142`, но progress обновлялся только после remount/tab switch, а `141` legacy Google Docs были ошибочно blocked из-за отсутствия исходного media file. Apply не выполнялся.
 - Product `PTM-01..08` остался выполненным; Goal Evidence на archive: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`. Corrective behavior и новое owner-решение о legacy `Created at` вынесены в explicitly authorized Goal `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01`.
 
+## Archived PR #258 legacy-date/live-progress closure
+
+Goal `TRANSCRIPT-MAINTENANCE-LEGACY-DATE-LIVE-01` завершена 2026-08-29 полным protected delivery flow и explicit owner apply.
+
+- Base: `main@52c2adb4621f23fda34dece8a9096b36ae92504a`; final PR head `6ad41ee81c603f834b2c7e4c3275d8467e9e794b`; PR `#258` merged как `main@a31770eabcd7a97acfa084252de06f26d041bc1b`.
+- Exact PR-head checks: repository `33242402182` и Studio/browser `33242402183` — success. Exact-main repository CI `33242536922` и Studio/browser CI `33242536918` — success.
+- Platform CD `33242536907` и reviewed follow-up `33242827363`, worker status/drain/status `33242755832`/`33242786300`/`33242964630` завершились success на exact merge revision.
+- Authenticated recursive preview проверил `142` Google Docs: `141` eligible, `1` current, `0` blocked. После explicit owner confirmation apply стандартизировал `141/141`, сохранил существующие валидные `Created at`, пропустил отсутствующие/невалидные даты, не сообщил ошибок и не запускал provider call.
+- Открытый workspace автоматически обновлял queued/running progress до terminal state без remount/tab switch. `PWA-STANDARDIZATION-01 14/14` и `PWA-TRANSCRIPT-MAINTENANCE-01 9/9` получили required `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому factual closure reconciled в начале следующей authorized code-bearing Goal.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

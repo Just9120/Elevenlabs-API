@@ -27,6 +27,10 @@ from .security import utcnow
 from .source_storage import (
     SourceObjectReadError,
     get_source_storage,
+    reference_storage_bucket,
+    reference_storage_isolation_configured,
+    reference_storage_settings,
+    source_reference_class,
 )
 
 
@@ -188,10 +192,18 @@ def _open_source_stream(
     drive_content_fetcher: Callable,
 ):
     if source.source_type == SourceType.local_upload:
-        if source.s3_bucket != settings.source_s3_bucket or not source.s3_object_key:
+        reference_class = source_reference_class(source)
+        if (
+            not reference_storage_isolation_configured(settings)
+            or source.s3_bucket
+            != reference_storage_bucket(settings, reference_class)
+            or not source.s3_object_key
+        ):
             raise SpeakerSampleError(SpeakerSampleReason.source_unavailable)
         try:
-            return storage_factory(settings).open_read(source.s3_object_key)
+            return storage_factory(
+                reference_storage_settings(settings, reference_class)
+            ).open_read(source.s3_object_key)
         except SourceObjectReadError as exc:
             raise SpeakerSampleError(SpeakerSampleReason.source_unavailable) from exc
     if source.source_type == SourceType.google_drive and source.drive_file_id:

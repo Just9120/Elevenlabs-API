@@ -33,7 +33,7 @@ def identity(component: str = "worker", commit: str = "a" * 40):
 
 def test_runtime_status_migration_is_single_additive_head():
     script = ScriptDirectory.from_config(Config(str(ROOT / "apps/studio-api/alembic.ini")))
-    assert script.get_heads() == ["0028_transcript_maintenance_runs"]
+    assert script.get_heads() == ["0029_source_reference_class"]
     revision = script.get_revision("0026_runtime_component_status")
     assert revision is not None
     assert revision.down_revision == "0025_audio_preparation"
@@ -213,12 +213,28 @@ def test_bounded_queue_storage_and_provider_health_are_safe_and_read_only(tmp_pa
             source_s3_bucket="private-bucket",
             source_s3_access_key_id_file=str(access),
             source_s3_secret_access_key_file=str(secret),
-            source_storage_configured=lambda: True,
+            source_s3_lifecycle_rule_id="transcription-retention",
+            audio_reference_s3_endpoint_url="https://storage.invalid",
+            audio_reference_s3_region="auto",
+            audio_reference_s3_bucket="private-audio-bucket",
+            audio_reference_s3_access_key_id_file=str(tmp_path / "audio-access"),
+            audio_reference_s3_secret_access_key_file=str(tmp_path / "audio-secret"),
+            audio_reference_s3_lifecycle_rule_id="audio-retention",
         )
         calls = []
         client = SimpleNamespace(head_bucket=lambda **kwargs: calls.append(kwargs))
-        assert source_storage_runtime_status(settings, client_factory=lambda: client) == {"status": "ready", "probe": "read_only_head"}
-        assert calls == [{"Bucket": "private-bucket"}]
+        assert source_storage_runtime_status(settings, client_factory=lambda: client) == {
+            "status": "ready",
+            "probe": "read_only_head",
+            "boundaries": {
+                "transcription": "ready",
+                "audio_processing": "ready",
+            },
+        }
+        assert calls == [
+            {"Bucket": "private-bucket"},
+            {"Bucket": "private-audio-bucket"},
+        ]
     finally:
         db.close()
         engine.dispose()

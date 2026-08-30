@@ -64,7 +64,11 @@ export function JobCard({
     >
       <JobCardSummary job={job} />
       {pinnedTerminal && (
-        <div className="job-terminal-notice" role="status" aria-live="polite">
+        <div
+          className={`job-terminal-notice job-terminal-notice-${job.status}`}
+          role={job.status === "failed" ? "alert" : "status"}
+          aria-live={job.status === "failed" ? "assertive" : "polite"}
+        >
           <strong>
             {job.status === "completed"
               ? "Задача завершена на 100% — результат доступен ниже."

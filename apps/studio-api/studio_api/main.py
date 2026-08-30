@@ -17,7 +17,13 @@ from .deps import current_session, get_client_ip, require_csrf, require_same_ori
 from .models import *
 from .rate_limit import RateLimiter
 from .security import *
-from .source_storage import get_source_storage, normalize_source_display_filename
+from .source_storage import (
+    get_reference_storage,
+    normalize_source_display_filename,
+    reference_storage_bucket,
+    reference_storage_isolation_configured,
+    source_reference_class,
+)
 from .source_creation import parse_authoritative_source_created_at
 from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
@@ -221,9 +227,11 @@ class GoogleDriveSourceIn(BaseModel):
     size_bytes: int|None=Field(default=None,ge=0)
 
 class LocalUploadInitiateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+    reference_class: SourceReferenceClass
 
 class DirectDriveUploadFileIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -876,7 +884,7 @@ def get_source_upload_policy(response: Response, pair=Depends(current_session)):
     _browser_capability_cache_headers(response)
     return browser_source_upload_policy(
         settings.source_max_upload_bytes,
-        local_upload_enabled=settings.source_storage_configured(),
+        local_upload_enabled=reference_storage_isolation_configured(settings),
     )
 
 def _raise_google_picker_session_failure(
@@ -1895,10 +1903,13 @@ def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, respo
 def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
     mime=validate_upload(data.mime_type, data.size_bytes)
-    if not settings.source_storage_configured(): raise HTTPException(503, "Временное хранилище источников не настроено")
-    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
-    db.add(src); db.flush(); src.s3_bucket=settings.source_s3_bucket; src.s3_object_key=f"users/{user.id}/projects/{p.id}/sources/{src.id}/source"
-    storage=get_source_storage(settings); url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
+    if not reference_storage_isolation_configured(settings): raise HTTPException(503, "Хранилища Studio не настроены")
+    reference_class=data.reference_class.value
+    bucket=reference_storage_bucket(settings, reference_class)
+    if not bucket: raise HTTPException(503, "Хранилище Studio не настроено")
+    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, reference_class=reference_class, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
+    db.add(src); db.flush(); src.s3_bucket=bucket; src.s3_object_key=f"{reference_class}/users/{user.id}/projects/{p.id}/sources/{src.id}/source"
+    storage=get_reference_storage(settings, reference_class); url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
     audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id); db.commit()
     return {"source_id": src.id, "upload": {"method":"PUT", "url": url, "headers": {"Content-Type": mime}, "expires_in": settings.source_presign_ttl_seconds}, "expires_at": src.expires_at.isoformat()}
 
@@ -1915,12 +1926,18 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
     initial_status=src.upload_status
     initial_bucket=src.s3_bucket
     initial_key=src.s3_object_key
+    initial_reference_class=source_reference_class(src)
     initial_size_bytes=src.size_bytes
     initial_mime_type=src.mime_type
     if not initial_bucket or not initial_key:
         raise HTTPException(404,"Не найдено")
+    if (
+        not reference_storage_isolation_configured(settings)
+        or initial_bucket != reference_storage_bucket(settings, initial_reference_class)
+    ):
+        raise HTTPException(409, "Хранилище источника не совпадает с его классом")
     try:
-        head=get_source_storage(settings).head_object(initial_key)
+        head=get_reference_storage(settings, initial_reference_class).head_object(initial_key)
     except FileNotFoundError:
         raise HTTPException(409, "Загруженный объект источника не найден")
     metadata_issue=uploaded_object_metadata_issue(
@@ -1951,6 +1968,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         or is_source_expired(src, now)
         or src.s3_bucket != initial_bucket
         or src.s3_object_key != initial_key
+        or source_reference_class(src) != initial_reference_class
         or src.size_bytes != initial_size_bytes
         or src.mime_type != initial_mime_type
     ):
@@ -2104,7 +2122,13 @@ def download_audio_preparation(job_id: str, pair=Depends(current_session), db: S
     source = owned_source_or_404(db, user, job.output_source_id)
     if source.source_type is not SourceType.local_upload or not source.s3_object_key or is_source_expired(source, utcnow()):
         raise HTTPException(404, "Не найдено")
-    url = get_source_storage(settings).presigned_get_url(
+    reference_class=source_reference_class(source)
+    if (
+        not reference_storage_isolation_configured(settings)
+        or source.s3_bucket != reference_storage_bucket(settings, reference_class)
+    ):
+        raise HTTPException(409, detail={"reason": "output_storage_unavailable"})
+    url = get_reference_storage(settings, reference_class).presigned_get_url(
         source.s3_object_key,
         min(settings.source_presign_ttl_seconds, 300),
         download_name=source.original_filename,

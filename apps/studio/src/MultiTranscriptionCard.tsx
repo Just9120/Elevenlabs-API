@@ -1,5 +1,4 @@
 import { useId, type ReactNode } from "react";
-import { formatTime } from "./formatters";
 import { jobTitle, type TranscriptionJob } from "./jobModel";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -25,13 +24,15 @@ export function MultiTranscriptionCard({
     (job) => job.status === "failed" || job.status === "cancelled",
   ).length;
   const terminalPercent = Math.floor((terminalCount / jobs.length) * 100);
+  const grouped = jobs.length > 1;
 
   return (
     <article className="multi-transcription" aria-labelledby={titleId}>
       <header className="multi-transcription-header">
         <div>
-          <h3 id={titleId}>Мульти-транскрибация · {jobs.length}</h3>
-          <span className="muted">Создана: {formatTime(jobs[0].created_at)}</span>
+          <h3 id={titleId}>
+            {grouped ? `Группа транскрибаций · ${jobs.length}` : "Транскрибация"}
+          </h3>
         </div>
         <div className="multi-transcription-counts" aria-live="polite">
           <span>Готово: {completedCount}</span>
@@ -40,30 +41,38 @@ export function MultiTranscriptionCard({
         </div>
       </header>
       <div className="multi-transcription-progress">
-        <span>Завершено элементов: {terminalCount} из {jobs.length}</span>
+        <span>Завершено: {terminalCount} из {jobs.length}</span>
         <progress
           max={100}
           value={terminalPercent}
-          aria-label={`Завершено элементов: ${terminalCount} из ${jobs.length}`}
+          aria-label={`Завершено: ${terminalCount} из ${jobs.length}`}
         >
           {terminalPercent}%
         </progress>
       </div>
-      <ol className="multi-transcription-items">
-        {jobs.map((job, index) => (
-          <li key={job.id}>
-            <div className="multi-transcription-item-heading">
-              <strong>Элемент {index + 1} из {jobs.length}</strong>
-              <span>{jobTitle(job)}</span>
-            </div>
-            {renderJob(
-              job,
-              TERMINAL_STATUSES.has(job.status) &&
-                job.terminal_dismissed_at === null,
-            )}
-          </li>
-        ))}
-      </ol>
+      {grouped ? (
+        <ol className="multi-transcription-items">
+          {jobs.map((job, index) => (
+            <li key={job.id}>
+              <div className="multi-transcription-item-heading">
+                <strong>Транскрибация {index + 1} из {jobs.length}</strong>
+                <span>{jobTitle(job)}</span>
+              </div>
+              {renderJob(
+                job,
+                TERMINAL_STATUSES.has(job.status) &&
+                  job.terminal_dismissed_at === null,
+              )}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        renderJob(
+          jobs[0],
+          TERMINAL_STATUSES.has(jobs[0].status) &&
+            jobs[0].terminal_dismissed_at === null,
+        )
+      )}
     </article>
   );
 }
