@@ -53,7 +53,11 @@ export function JobDetailSection({
       )}
 
       {job.status === "failed" && (
-        <div className="resource-actions" aria-label="Действия после ошибки">
+        <div
+          className="resource-actions"
+          role="region"
+          aria-label="Действия после ошибки"
+        >
           {retry?.data?.available ? (
             <>
               {partialResume && (

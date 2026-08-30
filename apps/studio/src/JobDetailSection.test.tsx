@@ -169,7 +169,9 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const action = screen.getByLabelText("Действия после ошибки");
+    const action = screen.getByRole("region", {
+      name: "Действия после ошибки",
+    });
     expect(action).toHaveTextContent("Сохранено частей: 1 из 2");
     expect(action).toHaveTextContent("ElevenLabs ограничил частоту запросов");
     expect(action).toHaveTextContent("не будут повторно отправлены");
@@ -198,7 +200,9 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const action = screen.getByLabelText("Действия после ошибки");
+    const action = screen.getByRole("region", {
+      name: "Действия после ошибки",
+    });
     expect(action).toHaveTextContent("весь файл");
     expect(action).toHaveTextContent("повторно списать средства");
     expect(action).toHaveTextContent("ElevenLabs отклонил эту часть файла");
@@ -229,7 +233,9 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const action = screen.getByLabelText("Действия после ошибки");
+    const action = screen.getByRole("region", {
+      name: "Действия после ошибки",
+    });
     expect(action).toHaveTextContent("Достигнут предел попыток");
     expect(action).toHaveTextContent("Повтор запущен");
     expect(action).toHaveTextContent("Повтор не выполнен");
@@ -247,7 +253,9 @@ describe("JobDetailSection", () => {
     );
 
     expect(screen.getByText("Папка результата не задана.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Действия после ошибки")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Действия после ошибки" }),
+    ).not.toBeInTheDocument();
   });
 
   it("derives file processing status from persisted outputs instead of the relation queue flag", () => {
