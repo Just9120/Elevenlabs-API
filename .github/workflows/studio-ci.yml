@@ -106,6 +106,28 @@ jobs:
           cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=studio-api' || '' }}
           provenance: false
           sbom: false
+      - name: Verify application metadata as non-root runtime
+        run: |
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 32 \
+            --entrypoint python \
+            elevenlabs-studio-api:test \
+            -c '
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          script = ScriptDirectory.from_config(Config("/app/alembic.ini"))
+          heads = script.get_heads()
+          assert len(heads) == 1
+          revision = script.get_revision(heads[0])
+          assert revision is not None
+          assert getattr(revision.module, "release_safety", None) == "additive"
+          print("STUDIO_MIGRATION_METADATA_OK")
+          '
       - name: Verify protected secret bootstrap and non-root runtime
         run: |
           tmp=$(mktemp -d "$RUNNER_TEMP/studio-secret-bootstrap.XXXXXX")

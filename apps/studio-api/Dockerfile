@@ -17,6 +17,7 @@ RUN apt-get update \
 COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 COPY . .
+RUN chmod -R u=rwX,go=rX /app
 EXPOSE 8000
 USER 10001:10001
 ENTRYPOINT ["python", "-m", "studio_api.container_entrypoint"]
