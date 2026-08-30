@@ -30,9 +30,9 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`). Exact-main CI, protected API/web/worker delivery и owner LIVE подтвердили storage isolation UX, distinct R2 buckets/credentials/lifecycle rules и cross-access denial. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified repository baseline: `main@8ab3410312e0be5c7e5303ca514a199969d9f602` (PR `#261`) имеет exact-main CI для worker isolation и usage/account implementation. Последний полностью ready production baseline до этой Goal — `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`); protected delivery текущей Goal ещё не завершён. Exact delivery identifiers находятся в `docs/delivery-plan.md` и archive завершённых Goals.
 
-Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01` на branch `codex/pwa-worker-usage-accounting` от verified base `main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
+Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; implementation merged в `main@8ab3410312e0be5c7e5303ca514a199969d9f602`, diagnosed release recovery выполняется на branch `codex/pwa-worker-usage-accounting-hotfix` от этого base. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -616,7 +616,7 @@ Status: **⬜ BACKLOG — 33,3% (`1/3`)**.
 | `PWAWOR-02` | Media/FFmpeg worker имеет явные CPU/memory/process resource bounds. | — |
 | `PWAWOR-03` | Media/FFmpeg worker имеет минимально необходимые filesystem/network/database privileges. | — |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 
@@ -697,7 +697,7 @@ Status: **🟦 IN PROGRESS — 0% (`0/6`)**.
 | `USAGEC-05` | Owner UI раздельно показывает job-level nominal cost и provider account actuals, включая provider-reported remaining period units, overage и invoice amounts; unavailable или semantically incomparable данные не подменяются расчётной цифрой. | — |
 | `USAGEC-06` | Account snapshot имеет видимые `fetched_at`, period/window provenance и current/stale/unavailable state; при открытом экране выполняется bounded refresh, ручное обновление доступно, а provider error сохраняет последний успешный snapshot только как stale. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE —`.
 
 ### Эпик `OBSERVABILITY-AUDIT-02` — health, tracing, alerts и protected audit
 

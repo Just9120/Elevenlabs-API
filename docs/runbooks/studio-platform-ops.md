@@ -119,7 +119,9 @@ Migration rollout order is strict:
    approval.
 6. Verify production database revision equals the explicitly reviewed target.
 7. For an intermediate target, preserve the running API and recheck localhost
-   and public health. For the repository head, recreate only `studio-api` from
+   and public `/api/livez`. The old API can be intentionally unready while its
+   Alembic head is one revision behind the migrated database. For the repository
+   head, recreate only `studio-api` from
    the already captured candidate image, verify running image identity, then
    verify localhost and public API health.
 
@@ -145,7 +147,11 @@ fast-forwards the clean `studio-deploy` checkout to the exact current remote
 `main`, materializes the versioned runner from that SHA, clears the SSH
 environment, and executes the runner. The runner requires root-owned protected
 backup/OAuth secret files, healthy PostgreSQL/Redis/API, and a stopped worker.
-It builds the API candidate, verifies the selected one direct additive
+It requires healthy PostgreSQL/Redis, a running API process and local API
+liveness. A non-healthy API is accepted only for diagnosed schema-ahead recovery
+when the running image head is exactly the current database revision's direct
+predecessor and the selected migration is exactly the current database
+revision's direct successor. It builds the API candidate, verifies the selected one direct additive
 migration is an ancestor of the single repository head,
 creates and restores a new tagged snapshot for dump validation, migrates once,
 recreates API from the captured image ID only for the repository-head target,
@@ -239,7 +245,8 @@ sudo install \
 The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0031_provider_account_snapshots`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
-   `api_deployed=no`.
+   `api_deployed=no` plus local/public liveness. Readiness may be intentionally
+   unavailable until the repository-head successor recreates the API.
 2. `migration_target=0019_job_media_clip`; approve and require
    `api_deployed=no` while repository head remains `0020`.
 3. `migration_target=0020_provider_part_checkpoints`; approve and require
@@ -249,9 +256,11 @@ The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical
 The lane never starts or deploys the worker, calls providers or Google, reloads
 nginx, restores into PostgreSQL, downgrades, retries, or rolls back. A manual
 dispatch is not retry authority. If a failure marker reports
-`migration_applied=yes`, do not rerun the workflow: inspect the exact database
-revision and candidate/running API image, then choose a separate manual recovery
-action. If it reports `migration_applied=no`, correct the diagnosed blocker and
+`migration_applied=yes`, do not rerun that workflow: inspect the exact database
+revision and candidate/running API image, then choose a separately approved
+forward recovery. The protected lane may perform the next direct successor only
+when its schema-ahead proof succeeds; otherwise stop for a manual recovery
+decision. If it reports `migration_applied=no`, correct the diagnosed blocker and
 obtain a new environment approval before another attempt.
 
 ### Manual fallback

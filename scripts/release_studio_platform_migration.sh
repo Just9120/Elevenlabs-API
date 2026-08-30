@@ -76,6 +76,19 @@ require_healthy_service() {
   [[ "$health" == "healthy" ]] || blocked "${service}_not_healthy"
 }
 
+require_running_service() {
+  local service="$1"
+  local container_id state
+  container_id="$(compose ps -q "$service" 2>/dev/null)" \
+    || blocked "${service}_container_probe_failed"
+  [[ -n "$container_id" && "$container_id" != *$'\n'* ]] \
+    || blocked "${service}_container_count"
+  state="$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null)" \
+    || blocked "${service}_state_probe_failed"
+  [[ "$state" == "running" ]] || blocked "${service}_not_running"
+  printf '%s\n' "$container_id"
+}
+
 require_worker_stopped() {
   local raw
   raw="$(compose ps -a -q studio-worker 2>/dev/null)" \
@@ -110,6 +123,30 @@ probe_current_revision() {
   mapfile -t revisions < <(printf '%s\n' "$raw" | capture_revision_ids)
   [[ "${#revisions[@]}" -eq 1 && -n "${revisions[0]}" ]] \
     || blocked "current_revision_count"
+  printf '%s\n' "${revisions[0]}"
+}
+
+probe_image_head() {
+  local image_id="$1"
+  local raw
+  if ! raw="$(
+    docker run --rm \
+      --pull never \
+      --network none \
+      --read-only \
+      --cap-drop ALL \
+      --security-opt no-new-privileges \
+      --pids-limit 32 \
+      --entrypoint alembic \
+      "$image_id" \
+      -c /app/alembic.ini heads </dev/null 2>/dev/null
+  )"; then
+    blocked "running_api_head_probe_failed"
+  fi
+  local -a revisions=()
+  mapfile -t revisions < <(printf '%s\n' "$raw" | capture_revision_ids)
+  [[ "${#revisions[@]}" -eq 1 && -n "${revisions[0]}" ]] \
+    || blocked "running_api_head_count"
   printf '%s\n' "${revisions[0]}"
 }
 
@@ -298,8 +335,21 @@ AWS_SECRET_ACCESS_KEY="$(<"$AWS_SECRET_ACCESS_KEY_FILE")"
 compose config --quiet >/dev/null 2>&1 || blocked "compose_config_invalid"
 require_healthy_service postgres
 require_healthy_service redis
-require_healthy_service studio-api
+api_container_id="$(require_running_service studio-api)"
 require_worker_stopped
+
+api_health_status="$(
+  docker inspect --format \
+    '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+    "$api_container_id" 2>/dev/null
+)" || blocked "studio-api_health_probe_failed"
+[[ "$api_health_status" =~ ^[[:alnum:]_-]+$ ]] \
+  || blocked "studio-api_health_invalid"
+running_api_image_id="$(
+  docker inspect --format '{{.Image}}' "$api_container_id" 2>/dev/null
+)" || blocked "studio-api_image_probe_failed"
+[[ "$running_api_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+  || blocked "studio-api_image_invalid"
 
 postgres_container_id="$(compose ps -q postgres 2>/dev/null)" \
   || blocked "postgres_container_probe_failed"
@@ -312,8 +362,8 @@ postgres_image_id="$(
   || blocked "postgres_image_invalid"
 
 curl -fsS -o /dev/null --max-time 5 \
-  http://127.0.0.1:8182/api/healthz </dev/null \
-  || blocked "pre_migration_api_health_failed"
+  http://127.0.0.1:8182/api/livez </dev/null \
+  || blocked "pre_migration_api_liveness_failed"
 
 phase="candidate"
 compose build studio-api </dev/null || blocked "candidate_build_failed"
@@ -357,7 +407,22 @@ down_revision = revision.down_revision
 release_safety = getattr(revision.module, "release_safety", None)
 if not isinstance(down_revision, str):
     raise SystemExit(1)
-print(target, down_revision, release_safety or "", repository_head, sep="\t")
+source = script.get_revision(down_revision)
+if source is None:
+    raise SystemExit(1)
+source_parent = source.down_revision
+if source_parent is None:
+    source_parent = "base"
+elif not isinstance(source_parent, str):
+    raise SystemExit(1)
+print(
+    target,
+    down_revision,
+    release_safety or "",
+    repository_head,
+    source_parent,
+    sep="\t",
+)
 ' "$STUDIO_REQUESTED_MIGRATION_TARGET" </dev/null
 )"; then
   blocked "candidate_migration_metadata_failed"
@@ -365,6 +430,7 @@ fi
 [[ "$migration_metadata" != *$'\n'* ]] \
   || blocked "candidate_migration_metadata_count"
 IFS=$'\t' read -r target_revision source_revision release_safety repository_head \
+  source_parent_revision \
   <<<"$migration_metadata"
 [[ "$target_revision" =~ ^[[:alnum:]_]+$ ]] \
   || blocked "candidate_head_invalid"
@@ -372,6 +438,9 @@ IFS=$'\t' read -r target_revision source_revision release_safety repository_head
   || blocked "candidate_down_revision_invalid"
 [[ "$repository_head" =~ ^[[:alnum:]_]+$ ]] \
   || blocked "candidate_repository_head_invalid"
+[[ "$source_parent_revision" == "base" \
+  || "$source_parent_revision" =~ ^[[:alnum:]_]+$ ]] \
+  || blocked "candidate_source_parent_invalid"
 [[ "$target_revision" != "$source_revision" ]] \
   || blocked "candidate_migration_not_required"
 [[ "$release_safety" == "additive" ]] \
@@ -380,6 +449,13 @@ IFS=$'\t' read -r target_revision source_revision release_safety repository_head
 current_revision="$(probe_current_revision)"
 [[ "$current_revision" == "$source_revision" ]] \
   || blocked "migration_is_not_exactly_one_linear_revision"
+
+if [[ "$api_health_status" != "healthy" ]]; then
+  running_api_head="$(probe_image_head "$running_api_image_id")"
+  [[ "$source_parent_revision" != "base" \
+    && "$running_api_head" == "$source_parent_revision" ]] \
+    || blocked "unhealthy_api_not_exactly_one_revision_behind"
+fi
 
 phase="backup"
 capture_snapshot_ids "$before_ids" "$before_json"
@@ -462,21 +538,28 @@ if [[ "$target_revision" == "$repository_head" ]]; then
   [[ "$running_image_id" == "$candidate_image_id" ]] \
     || blocked "api_image_mismatch"
   api_deployed="yes"
-fi
 
-local_health="failed"
-for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null --max-time 5 \
-    http://127.0.0.1:8182/api/readyz </dev/null; then
-    local_health="ok"
-    break
-  fi
-  sleep 2
-done
-[[ "$local_health" == "ok" ]] || blocked "localhost_api_health_failed"
-curl -fsS -o /dev/null --max-time 8 \
-  "${public_url}/api/readyz" </dev/null \
-  || blocked "public_api_health_failed"
+  local_health="failed"
+  for _ in $(seq 1 30); do
+    if curl -fsS -o /dev/null --max-time 5 \
+      http://127.0.0.1:8182/api/readyz </dev/null; then
+      local_health="ok"
+      break
+    fi
+    sleep 2
+  done
+  [[ "$local_health" == "ok" ]] || blocked "localhost_api_health_failed"
+  curl -fsS -o /dev/null --max-time 8 \
+    "${public_url}/api/readyz" </dev/null \
+    || blocked "public_api_health_failed"
+else
+  curl -fsS -o /dev/null --max-time 5 \
+    http://127.0.0.1:8182/api/livez </dev/null \
+    || blocked "intermediate_api_liveness_failed"
+  curl -fsS -o /dev/null --max-time 8 \
+    "${public_url}/api/livez" </dev/null \
+    || blocked "public_api_liveness_failed"
+fi
 
 phase="complete"
 printf '%s OK commit=%s from=%s to=%s head=%s snapshot=%s image=%s api_deployed=%s\n' \
