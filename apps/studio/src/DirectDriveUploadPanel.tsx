@@ -42,7 +42,7 @@ function statusLabel(item: ItemView) {
   if (item.status === "pending") return "Готов к загрузке";
   if (item.status === "preparing") return "Проверяем папку и доступ";
   if (item.status === "uploading") return "Загружаем напрямую в Google Drive";
-  if (item.status === "verifying") return "Проверяем результат на сервере";
+  if (item.status === "verifying") return "Проверяем, что файл появился в Google Drive";
   if (item.status === "completed")
     return item.reused ? "Уже загружен — подтверждён без дубля" : "Загружен и подтверждён";
   if (item.status === "cancelled") return "Отменён — перед повтором будет проверен Drive";
@@ -63,9 +63,9 @@ function uploadErrorLabel(reason: unknown) {
     if (reason.message === "direct_drive_lookup_ambiguous")
       return "В Google Drive найдено несколько результатов одной операции. Повтор заблокирован; проверьте папку вручную.";
     if (reason.message === "direct_drive_session_invalid")
-      return "Google Drive не вернул безопасную resumable session. Повторите позже.";
+      return "Google Drive не подготовил загрузку. Повторите позже.";
   }
-  return "Загрузка не подтверждена. Повтор безопасно проверит существующий результат перед отправкой bytes.";
+  return "Загрузка не подтверждена. При повторе Studio сначала проверит, появился ли файл в Google Drive.";
 }
 
 function parseVerifiedResult(value: unknown, item: DirectDriveUploadItem) {
@@ -355,8 +355,14 @@ export function DirectDriveUploadPanel({
       <div>
         <h3>Загрузить исходные файлы без обработки</h3>
         <p className="muted">
-          Файлы идут напрямую из браузера в выбранную папку Google Drive. Studio не получает bytes, не создаёт Source, не использует S3/FFmpeg и не запускает транскрибацию.
+          Файлы сохраняются в выбранной папке Google Drive без изменения качества и не запускают транскрибацию.
         </p>
+        <details className="technical-details">
+          <summary>Как это работает</summary>
+          <p className="muted">
+            Браузер передаёт исходные bytes напрямую в Google Drive. Studio не создаёт внутреннюю копию и не запускает FFmpeg.
+          </p>
+        </details>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">
@@ -365,7 +371,7 @@ export function DirectDriveUploadPanel({
           onClick={() => fileInput.current?.click()}
           disabled={busy}
         >
-          Выбрать audio/video с устройства
+          Выбрать аудио или видео с устройства
         </button>
         <button type="button" onClick={() => void chooseFolder()} disabled={busy || folderLocked}>
           {folder ? "Изменить целевую папку" : "Выбрать целевую папку"}
@@ -382,7 +388,7 @@ export function DirectDriveUploadPanel({
         />
       </div>
       <p className="muted">
-        До {DIRECT_DRIVE_UPLOAD_MAX_FILES} файлов за запуск, суммарно до 2 ГБ. Размер одного файла дополнительно проверяется server policy. Исходные filename, MIME и bytes сохраняются без преобразования.
+        До {DIRECT_DRIVE_UPLOAD_MAX_FILES} файлов за один запуск, суммарно до 2 ГБ. Названия и содержимое файлов сохраняются без преобразования.
       </p>
       {folderLocked && <p className="muted">Целевая папка зафиксирована для этой операции. Чтобы выбрать другую, начните новый набор файлов.</p>}
       {items.length > 0 && <ol className="direct-drive-upload-list">
@@ -397,7 +403,7 @@ export function DirectDriveUploadPanel({
           <span className="audio-order-index" aria-hidden="true">{index + 1}</span>
           <span className="direct-drive-upload-item-copy">
             <strong>{item.file.name}</strong>
-            <small>{item.file.type} · {formatBytes(item.file.size)} · {statusLabel(item)}</small>
+            <small>{formatBytes(item.file.size)} · {statusLabel(item)}</small>
             <progress
               aria-label={`Прогресс загрузки ${item.file.name}`}
               max="100"
@@ -417,7 +423,7 @@ export function DirectDriveUploadPanel({
               type="button"
               disabled={busy || !folder}
               onClick={() => void runUploads([item.operationId])}
-            >Повторить безопасно</button>}
+            >Повторить</button>}
             {item.status !== "completed" && <button
               type="button"
               disabled={busy}
@@ -450,7 +456,7 @@ export function DirectDriveUploadPanel({
             onClick={() => void runUploads()}
           >
             {items.some((item) => ["cancelled", "failed"].includes(item.status))
-              ? "Повторить незавершённые безопасно"
+              ? "Повторить незавершённые"
               : "Загрузить в Google Drive"}
           </button>}
         </div>

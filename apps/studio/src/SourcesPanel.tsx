@@ -173,7 +173,7 @@ export function SourcesPanel({
           sourceId: id,
           message: confirmed
             ? "Файл убран из Studio."
-            : "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+            : "Studio не подтвердила удаление файла. Список обновлён; подождите и повторите при необходимости.",
           tone: confirmed ? "notice" : "error",
         };
         return;
@@ -185,7 +185,7 @@ export function SourcesPanel({
           projectId: project.id,
           sourceId: id,
           message:
-            "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
+            "Studio вернула несогласованное подтверждение удаления. Список файлов обновлён.",
           tone: "error",
         };
         return;
@@ -205,7 +205,7 @@ export function SourcesPanel({
           sourceId: id,
           message: confirmed
             ? "Файл убран из Studio."
-            : "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+            : "Studio не подтвердила удаление файла. Список обновлён; подождите и повторите при необходимости.",
           tone: confirmed ? "notice" : "error",
         };
         return;

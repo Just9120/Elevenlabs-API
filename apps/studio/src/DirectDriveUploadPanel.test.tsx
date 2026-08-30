@@ -125,7 +125,7 @@ describe("DirectDriveUploadPanel", () => {
     expect(screen.getByRole("progressbar", { name: "Прогресс загрузки broken.mp4" })).toHaveValue(100);
     expect(screen.getByRole("button", { name: "Изменить целевую папку" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Повторить безопасно" }));
+    await user.click(screen.getByRole("button", { name: "Повторить" }));
 
     await waitFor(() => expect(screen.getByText(/подтверждено 2 из 2/)).toBeInTheDocument());
     expect(screen.getAllByRole("link", { name: "Открыть в Google Drive" })).toHaveLength(2);
@@ -166,8 +166,8 @@ describe("DirectDriveUploadPanel", () => {
     await user.click(await screen.findByRole("button", { name: "Отменить загрузку" }));
 
     await waitFor(() => expect(screen.getAllByText(/Отменён — перед повтором/)).toHaveLength(2));
-    expect(screen.getAllByRole("button", { name: "Повторить безопасно" })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Повторить незавершённые безопасно" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "Повторить" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Повторить незавершённые" })).toBeEnabled();
     expect(upload).toHaveBeenCalledTimes(1);
     expect(requestBodies.some((request) =>
       request.path.endsWith("/direct-drive-uploads/complete"),

@@ -92,7 +92,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const detail = screen.getByLabelText("Job detail job-1");
+    const detail = screen.getByLabelText("Подробности транскрибации");
     expect(detail).toHaveTextContent("Язык: Русский");
     expect(detail).toHaveTextContent("Разделение спикеров: Включено");
     const text = detail.textContent ?? "";
@@ -169,7 +169,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const action = screen.getByLabelText("Safe retry action");
+    const action = screen.getByLabelText("Действия после ошибки");
     expect(action).toHaveTextContent("Сохранено частей: 1 из 2");
     expect(action).toHaveTextContent("ElevenLabs ограничил частоту запросов");
     expect(action).toHaveTextContent("не будут повторно отправлены");
@@ -198,7 +198,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const action = screen.getByLabelText("Safe retry action");
+    const action = screen.getByLabelText("Действия после ошибки");
     expect(action).toHaveTextContent("весь файл");
     expect(action).toHaveTextContent("повторно списать средства");
     expect(action).toHaveTextContent("ElevenLabs отклонил эту часть файла");
@@ -229,7 +229,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const action = screen.getByLabelText("Safe retry action");
+    const action = screen.getByLabelText("Действия после ошибки");
     expect(action).toHaveTextContent("Достигнут предел попыток");
     expect(action).toHaveTextContent("Повтор запущен");
     expect(action).toHaveTextContent("Повтор не выполнен");
@@ -247,7 +247,7 @@ describe("JobDetailSection", () => {
     );
 
     expect(screen.getByText("Папка результата не задана.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Safe retry action")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Действия после ошибки")).not.toBeInTheDocument();
   });
 
   it("derives file processing status from persisted outputs instead of the relation queue flag", () => {
@@ -281,7 +281,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const detail = screen.getByLabelText("Job detail job-1");
+    const detail = screen.getByLabelText("Подробности транскрибации");
     expect(
       within(detail).getByText("Статус обработки: Завершена"),
     ).toBeInTheDocument();

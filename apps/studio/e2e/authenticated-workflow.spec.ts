@@ -134,18 +134,19 @@ test('authenticated user opens transcriptions and reads a completed job result',
   expect(resultJobId).toMatch(/^[0-9a-f-]{36}$/);
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
-  await expect(jobCard.getByText('Результатов: 1')).toBeVisible();
   await expect(jobCard.getByRole('link', { name: 'Открыть документ' })).toHaveAttribute(
     'href',
     RESULT_URL,
   );
-  const jobDetail = jobCard.locator('section[aria-label^="Job detail "]');
+  const jobDetail = jobCard.getByRole('region', {
+    name: 'Подробности транскрибации',
+  });
   await expect(jobDetail.getByRole('heading', { name: 'Файлы задачи' })).toBeVisible();
   await expect(jobDetail.getByText('Статус обработки: Завершена')).toBeVisible();
   await expect(jobDetail).not.toContainText('Статус файла: queued');
   await expect(jobDetail).not.toContainText('Статус обработки: В очереди');
   await expect(
-    jobCard.locator('section[aria-label^="Output reconciliation "]'),
+    jobCard.getByRole('region', { name: 'Проверка результата в Google Drive' }),
   ).toHaveCount(0);
   await expect(
     jobCard.getByRole('button', {
@@ -156,7 +157,7 @@ test('authenticated user opens transcriptions and reads a completed job result',
   await navigation
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();
-  await page.getByRole('tab', { name: 'Диагностика' }).click();
+  await page.getByRole('tab', { name: 'Для поддержки' }).click();
   await page.getByText('Расширенные технические фильтры', { exact: true }).click();
   await page
     .getByRole('textbox', { name: 'Internal task ID', exact: true })
@@ -198,6 +199,98 @@ test('authenticated user opens transcriptions and reads a completed job result',
   await page.getByRole('button', { name: 'Выйти' }).click();
   sharedSessionCookies = null;
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
+});
+
+test('mobile Drive dialog stays inside the viewport and locks page scrolling', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/google/connection', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        connected: true,
+        status: 'active',
+        google_email: 'browser-e2e@example.com',
+        scopes:
+          'openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly',
+        connected_at: '2026-08-30T00:00:00Z',
+        revoked_at: null,
+        picker_ready: true,
+        picker_configured: true,
+        picker_scope_ready: true,
+        reconnect_required: false,
+      }),
+    });
+  });
+  await page.route('**/api/google/picker/session', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        access_token: 'browser-e2e-picker-token',
+        api_key: 'browser-e2e-public-key',
+        app_id: '123456789',
+        scope_ready: true,
+      }),
+    });
+  });
+  await page.route('https://www.googleapis.com/drive/v3/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/files/root')) {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'root-id',
+          name: 'Мой диск',
+          mimeType: 'application/vnd.google-apps.folder',
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(
+        url.pathname.endsWith('/drives') ? { drives: [] } : { files: [] },
+      ),
+    });
+  });
+
+  const navigation = await login(page);
+  await openResultTranscriptions(page, navigation);
+  await page
+    .getByRole('button', { name: 'Выбрать папку результата для задачи 1' })
+    .click();
+
+  const dialog = page.getByRole('dialog', {
+    name: 'Выберите папку для результатов',
+  });
+  await expect(dialog).toBeVisible();
+  const geometry = await dialog.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return {
+      left: box.left,
+      right: box.right,
+      width: box.width,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      bodyOverflow: document.body.style.overflow,
+      rootOverflow: document.documentElement.style.overflow,
+    };
+  });
+  expect(geometry.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.right).toBeLessThanOrEqual(390);
+  expect(geometry.width).toBeLessThanOrEqual(390);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+  expect(geometry.bodyOverflow).toBe('hidden');
+  expect(geometry.rootOverflow).toBe('hidden');
+
+  const pageScrollBefore = await page.evaluate(() => window.scrollY);
+  await page.mouse.move(380, 820);
+  await page.mouse.wheel(0, 800);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(pageScrollBefore);
+  await dialog.getByRole('button', { name: 'Закрыть выбор папки' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
 });
 
 test('account settings revoke selected and all other active sessions', async ({
@@ -626,26 +719,25 @@ test('transcript maintenance stays fail-closed without Google authority', async 
     .getByRole('button', { name: 'Транскрибации', exact: true })
     .click();
   await expect(page).toHaveURL(/\/transcriptions$/);
-  await page.getByRole('tab', { name: 'Обслуживание' }).click();
+  await page.getByRole('tab', { name: 'Готовые документы' }).click();
 
   const maintenance = page.getByRole('region', {
-    name: 'Две независимые операции',
+    name: 'Проверка и обновление Google Docs',
   });
   await expect(maintenance).toBeVisible();
   await expect(maintenance).toContainText(
-    'Для каждой операции отдельно выберите папку со всеми подпапками либо один Google Doc.',
+    'Выберите один документ или папку с подпапками.',
   );
   await expect(
     maintenance.getByText(
-      'Блокер: основное подключение Google Drive отсутствует.',
+      'Сначала подключите Google Drive.',
     ),
   ).toBeVisible();
   for (const operationName of [
-    'Стандартизация Google Docs',
-    'Манифест Studio',
+    'Привести документы к текущему формату',
+    'Учесть готовые документы в Studio',
   ]) {
     const operation = page.getByRole('region', { name: operationName });
-    await expect(operation).toContainText('Отдельная операция');
     const targetMode = operation.getByRole('combobox', {
       name: 'Что обработать',
     });
@@ -663,7 +755,7 @@ test('transcript maintenance stays fail-closed without Google authority', async 
       operation.getByRole('button', { name: 'Выбрать папку' }),
     ).toBeDisabled();
     await expect(
-      operation.getByRole('button', { name: 'Запустить dry-run' }),
+      operation.getByRole('button', { name: 'Проверить документы' }),
     ).toBeDisabled();
   }
   await expect(
@@ -724,11 +816,12 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   });
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
-  await expect(jobCard.getByText('Результатов: 0')).toBeVisible();
   await expect(jobCard.getByText('Результаты пока не созданы.')).toBeVisible();
   await expect(jobCard.getByText('Статус обработки: Ошибка')).toBeVisible();
 
-  const retryAction = jobCard.locator('[aria-label="Safe retry action"]');
+  const retryAction = jobCard.getByRole('region', {
+    name: 'Действия после ошибки',
+  });
   await expect(retryAction).toContainText(
     'Повтор недоступен: результат внешнего вызова не определён',
   );
@@ -738,7 +831,7 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
     }),
   ).toHaveCount(0);
   await expect(
-    jobCard.locator('section[aria-label^="Output reconciliation "]'),
+    jobCard.getByRole('region', { name: 'Проверка результата в Google Drive' }),
   ).toHaveCount(0);
   await expect(
     jobCard.getByRole('button', {
@@ -811,9 +904,8 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   expect(reconciliationJson).not.toContain('browser-e2e-folder');
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
-  await expect(jobCard.getByText('Результатов: 0')).toBeVisible();
   const reconciliationNotice = jobCard.locator(
-    'section[aria-label^="Output reconciliation "]',
+    'section[aria-label="Проверка результата в Google Drive"]',
   );
   await expect(reconciliationNotice).toContainText(
     'Требуется проверка результата Google Docs',
@@ -824,7 +916,9 @@ test('unresolved output reconciliation waits for an explicit safe action', async
     }),
   ).toBeVisible();
 
-  const retryAction = jobCard.locator('[aria-label="Safe retry action"]');
+  const retryAction = jobCard.getByRole('region', {
+    name: 'Действия после ошибки',
+  });
   await expect(retryAction).toContainText(
     'Требуется проверка созданного документа',
   );
@@ -1260,7 +1354,9 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
     retry_safe_source_count: 1,
   });
 
-  const retryAction = retryCard.locator('[aria-label="Safe retry action"]');
+  const retryAction = retryCard.getByRole('region', {
+    name: 'Действия после ошибки',
+  });
   const retryButton = retryAction.getByRole('button', {
     name: 'Повторить безопасную обработку',
   });

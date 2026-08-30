@@ -2117,7 +2117,7 @@ function PreparationPanel({
       if (!isExpectedCompletedLocalSource(candidate, expected)) {
         onReloadSources(project.id);
         throw new Error(
-          "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+          "Studio вернула несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
         );
       }
       return candidate;
@@ -2141,7 +2141,7 @@ function PreparationPanel({
     if (firstState.status !== "pending") {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер не подтвердил завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
+        "Studio не подтвердила завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
       );
     }
 
@@ -2166,7 +2166,7 @@ function PreparationPanel({
     }
     onReloadSources(project.id);
     throw new Error(
-      "Сервер не подтвердил завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
+      "Studio не подтвердила завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
     );
   }
 
@@ -2195,7 +2195,7 @@ function PreparationPanel({
     }
     if (!isExpectedGooglePickerSession(bounded.value)) {
       throw new Error(
-        "Сервер вернул некорректную сессию Google Picker. Повторите попытку позже.",
+        "Studio не смогла открыть Google Drive. Повторите попытку позже.",
       );
     }
     return bounded.value;
@@ -2224,14 +2224,14 @@ function PreparationPanel({
       if (definitiveClientFailure) throw err;
       onReloadSources(project.id);
       throw new Error(
-        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        "Studio не подтвердила добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
         { cause: err },
       );
     }
     if (bounded.status === "timed_out") {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        "Studio не подтвердила добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
       );
     }
     const payload = bounded.value;
@@ -2248,7 +2248,7 @@ function PreparationPanel({
     ) {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
+        "Studio добавила не все выбранные файлы. Список обновлён; проверьте его перед повторным выбором.",
       );
     }
     return orderedSources;
@@ -2414,7 +2414,7 @@ function PreparationPanel({
       const preview = parseDriveFolderPreview(bounded.value);
       if (!preview) {
         throw new Error(
-          "Сервер вернул некорректный preview папки. Повторите выбор позже.",
+          "Studio не смогла проверить содержимое папки. Повторите выбор позже.",
         );
       }
       if (preview.blocker === "over_limit") {
@@ -2512,14 +2512,14 @@ function PreparationPanel({
         if (definitive) throw err;
         onReloadSources(project.id);
         throw new Error(
-          "Сервер не подтвердил импорт папки. Список файлов обновлён; проверьте его и только затем явно выберите папку снова.",
+          "Studio не подтвердила добавление файлов. Список обновлён; проверьте его и только затем выберите папку снова.",
           { cause: err },
         );
       }
       if (bounded.status === "timed_out") {
         onReloadSources(project.id);
         throw new Error(
-          "Сервер не подтвердил импорт папки. Список файлов обновлён; проверьте его и только затем явно выберите папку снова.",
+          "Studio не подтвердила добавление файлов. Список обновлён; проверьте его и только затем выберите папку снова.",
         );
       }
       const payload = bounded.value;
@@ -2536,7 +2536,7 @@ function PreparationPanel({
       ) {
         onReloadSources(project.id);
         throw new Error(
-          "Сервер вернул неполный результат импорта. Список файлов обновлён; проверьте его перед новым выбором.",
+          "Добавлены не все ожидаемые файлы. Список обновлён; проверьте его перед новым выбором.",
         );
       }
       placeSourcesInRows(rowId, orderedSources);
@@ -2556,7 +2556,7 @@ function PreparationPanel({
           : null;
       const message =
         detail === "google_drive_folder_changed"
-          ? "Содержимое папки изменилось после preview. Выберите папку снова и проверьте новый список."
+          ? "Содержимое папки изменилось после проверки. Выберите папку снова и проверьте новый список."
           : err instanceof Error
             ? err.message
             : "Не удалось импортировать папку Google Drive.";
@@ -2588,6 +2588,7 @@ function PreparationPanel({
               original_filename: originalFilename,
               mime_type: mimeType,
               size_bytes: sizeBytes,
+              reference_class: "transcription",
             }),
             signal,
           },
@@ -2597,20 +2598,20 @@ function PreparationPanel({
       if (!isAmbiguousLocalUploadInitiationFailure(err)) throw err;
       onReloadSources(project.id);
       throw new Error(
-        "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
+        "Studio не подтвердила подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
         { cause: err },
       );
     }
     if (bounded.status === "timed_out") {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
+        "Studio не подтвердила подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
       );
     }
     if (!isSafeDirectUploadCapability(bounded.value, mimeType)) {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
+        "Studio не смогла безопасно подтвердить загрузку. Список файлов обновлён; повторите попытку позже.",
       );
     }
     return bounded.value;
@@ -2949,7 +2950,7 @@ function PreparationPanel({
       }
       if (!isExpectedVerifiedGooglePickerFolder(boundedVerification.value)) {
         const message =
-          "Сервер вернул некорректные данные папки результата. Повторите выбор позже.";
+          "Studio не смогла подтвердить папку результата. Повторите выбор позже.";
         setMessage(message);
         outcome = { message, tone: "error" };
         return;
@@ -3124,8 +3125,12 @@ function PreparationPanel({
       setPreflight(null);
       setMessage(
         response.replayed
-          ? `Повтор подтверждён: мульти-транскрибация содержит элементов: ${response.created_count}.`
-          : `Создана мульти-транскрибация. Элементов: ${response.created_count}.`,
+          ? response.created_count === 1
+            ? "Повторный запрос подтверждён: транскрибация уже создана."
+            : `Повторный запрос подтверждён: группа из ${response.created_count} транскрибаций уже создана.`
+          : response.created_count === 1
+            ? "Транскрибация создана."
+            : `Создана группа из ${response.created_count} транскрибаций.`,
       );
       onReloadJobs(project.id);
     } catch (err) {
@@ -3157,7 +3162,7 @@ function PreparationPanel({
         );
       } else if (definitiveClientFailure) {
         setMessage(
-          "Сервер отклонил создание пакета. Задачи не созданы; проверьте план и повторите отправку.",
+          "Studio отклонила создание группы. Задачи не созданы; проверьте план и повторите отправку.",
         );
       } else {
         setMessage("");
@@ -3265,7 +3270,7 @@ function PreparationPanel({
     } catch (err) {
       setMessage(
         err instanceof ApiError && err.status === 422
-          ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
+          ? "План не прошёл проверку Studio. Исправьте файлы, папки или профиль ElevenLabs."
           : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
       );
     } finally {
@@ -3435,8 +3440,8 @@ function PreparationPanel({
           observed !== null &&
           reconciliationCheckIsConfirmed(beforeReconciliation, observed);
         const message = confirmed
-          ? "Сервер не ответил вовремя, но завершение проверки подтверждено по актуальному состоянию."
-          : "Сервер не ответил вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.";
+          ? "Studio не ответила вовремя, но завершение проверки подтверждено по актуальному состоянию."
+          : "Studio не ответила вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.";
         setReconciliations((current) => ({
           ...current,
           [jobId]: {
@@ -3561,8 +3566,8 @@ function PreparationPanel({
         const confirmed =
           observed !== null && retryIsConfirmed(beforeRetry, observed);
         const message = confirmed
-          ? "Сервер не ответил вовремя, но повтор подтверждён по актуальному состоянию задачи."
-          : "Сервер не ответил вовремя. Статус повтора не подтверждён; проверьте задачу перед новым запуском.";
+          ? "Studio не ответила вовремя, но повтор подтверждён по актуальному состоянию задачи."
+          : "Studio не ответила вовремя. Статус повтора не подтверждён; проверьте задачу перед новым запуском.";
         setRetries((current) => ({
           ...current,
           [jobId]: {
@@ -3670,8 +3675,8 @@ function PreparationPanel({
           kind: "cancel",
           jobId,
           message: confirmed
-            ? "Сервер не ответил вовремя, но отмена подтверждена по актуальному состоянию задачи."
-            : "Сервер не ответил вовремя. Актуальное состояние не подтверждает отмену; проверьте задачу перед повтором.",
+            ? "Studio не ответила вовремя, но отмена подтверждена по актуальному состоянию задачи."
+            : "Studio не ответила вовремя. Актуальное состояние не подтверждает отмену; проверьте задачу перед повтором.",
           tone: confirmed ? "notice" : "error",
         };
         onReloadJobs(project.id);
@@ -3844,8 +3849,8 @@ function PreparationPanel({
           kind: "dismiss",
           jobId,
           message: confirmed
-            ? "Сервер не ответил вовремя, но перенос в историю подтверждён по актуальному состоянию."
-            : "Сервер не ответил вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
+            ? "Studio не ответила вовремя, но перенос в историю подтверждён по актуальному состоянию."
+            : "Studio не ответила вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
           tone: confirmed ? "notice" : "error",
         };
         onReloadJobs(project.id);
@@ -4184,9 +4189,8 @@ function PreparationPanel({
         </div>
         {sourceUploadPolicy?.local_upload_enabled ? (
           <p className="muted">
-            Локальная загрузка: до{" "}
-            {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}. Допустимые
-            типы получены с сервера.
+            Можно загрузить аудио или видео размером до{" "}
+            {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.
           </p>
         ) : sourceUploadPolicy ? (
           <p className="notice">Локальная загрузка временно недоступна.</p>
@@ -4194,11 +4198,11 @@ function PreparationPanel({
           <div className="notice" role="alert">
             <p>{sourceUploadPolicyError}</p>
             <button type="button" onClick={loadSourceUploadPolicy}>
-              Повторить загрузку правил
+              Проверить ещё раз
             </button>
           </div>
         ) : (
-          <p className="muted">Загружаем правила локальной загрузки…</p>
+          <p className="muted">Проверяем возможность загрузки файлов…</p>
         )}
         {googleConnectionState === "loading" && (
           <p className="muted" role="status">
@@ -4945,7 +4949,7 @@ function PreparationPanel({
           aria-label="Неопределённый исход создания пакета"
         >
           <p>
-            Сервер не подтвердил исход отправки. Новая отправка заблокирована,
+            Studio не подтвердила исход отправки. Новая отправка заблокирована,
             чтобы не создать дубликаты.
           </p>
           <button type="button" onClick={replayAmbiguousBatch}>
@@ -5209,39 +5213,47 @@ function OverviewPage({
       ? "Подключите или обновите Google Drive для выбора файлов и папок."
       : "",
     !credentialsLoading && !credentialsError && activeCredentials.length === 0
-      ? "Добавьте активный ключ провайдера в настройках."
+      ? "Добавьте активный ключ ElevenLabs в настройках."
       : "",
   ].filter(Boolean);
+  const readyToTranscribe =
+    !googleLoading &&
+    !googleError &&
+    googleConnection?.connected &&
+    !googleConnection.reconnect_required &&
+    !credentialsLoading &&
+    !credentialsError &&
+    activeCredentials.length > 0;
   return (
     <section className="page dashboard-page">
       <header className="page-header split">
         <div>
           <h1 className="page-title">VoiceOps Studio</h1>
           <p>
-            Рабочая панель аккаунта: обработка аудио, транскрибации,
-            подключение Drive и готовность ключей.
+            Подготовьте запись, создайте транскрибацию или вернитесь к готовым
+            результатам.
           </p>
         </div>
         <div className="actions">
           <button onClick={() => onNavigate("audio")}>
-            Открыть обработку аудио
+            Подготовить аудио
           </button>
           <button className="primary" onClick={onOpenTranscriptions}>
-            Открыть транскрибации
+            Создать транскрибацию
           </button>
         </div>
       </header>
       <div className="summary-grid dashboard-summary">
-        <article className="card summary-card" aria-label="Транскрибации">
-          <span className="summary-label">Транскрибации</span>
+        <article className="card summary-card" aria-label="Последние результаты">
+          <span className="summary-label">Транскрибации и результаты</span>
           <strong className="summary-value">
             {projectsLoading
               ? "Загрузка…"
               : projectsError
                 ? "Недоступно"
                 : projects.length > 0
-                  ? "Доступны"
-                  : "Подготовятся при открытии"}
+                  ? "Открыть рабочую область"
+                  : "Начните с первой записи"}
           </strong>
           {projectsError && (
             <button type="button" onClick={loadProjects}>
@@ -5258,14 +5270,16 @@ function OverviewPage({
             </button>
           )}
         </article>
-        <article className="card summary-card" aria-label="Активные ключи">
-          <span className="summary-label">Активные ключи</span>
+        <article className="card summary-card" aria-label="Готовность к работе">
+          <span className="summary-label">Готовность к транскрибации</span>
           <strong className="summary-value">
-            {credentialsLoading
+            {credentialsLoading || googleLoading
               ? "Загрузка…"
-              : credentialsError
+              : credentialsError || googleError
                 ? "Недоступно"
-                : activeCredentials.length}
+                : readyToTranscribe
+                  ? "Можно начинать"
+                  : "Нужна настройка"}
           </strong>
           {credentialsError && (
             <button type="button" onClick={loadCredentials}>
@@ -5299,10 +5313,10 @@ function OverviewPage({
           </p>
           <div className="actions">
             <button onClick={() => onNavigate("audio")}>
-              Открыть обработку аудио
+              Подготовить аудио
             </button>
             <button className="primary" onClick={onOpenTranscriptions}>
-              Открыть транскрибации
+              Создать транскрибацию
             </button>
             <button onClick={() => onNavigate("settings")}>Настройки</button>
           </div>
@@ -5957,7 +5971,7 @@ function ProjectsPage({
                     )
                   }
                 >
-                  Обслуживание
+                  Готовые документы
                 </button>
               </div>
               <div
@@ -6463,7 +6477,7 @@ const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   connections: "Подключения",
   files: "Файлы и хранилище",
   appearance: "Оформление",
-  diagnostics: "Диагностика",
+  diagnostics: "Для поддержки",
 };
 
 function SettingsPage({
@@ -6814,8 +6828,8 @@ function SettingsPage({
         kind: operation.kind,
         credentialId: operation.credentialId,
         message: observed
-          ? "Сервер не подтвердил создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново."
-          : "Сервер не подтвердил создание ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
+          ? "Studio не подтвердила создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново."
+          : "Studio не подтвердила создание ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
         tone: "error",
       };
     };
@@ -6911,8 +6925,8 @@ function SettingsPage({
         message: confirmed
           ? "Замена ключа подтверждена по актуальному списку."
           : observed
-            ? "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново."
-            : "Сервер не подтвердил замену ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
+            ? "Studio не подтвердила замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново."
+            : "Studio не подтвердила замену ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
         tone: confirmed ? "notice" : "error",
       };
     };
@@ -7013,8 +7027,8 @@ function SettingsPage({
         message: confirmed
           ? "Сохранение срока подтверждено по актуальной настройке аккаунта."
           : observed
-            ? "Сервер не подтвердил сохранение. Показано актуальное значение; проверьте его перед повторной попыткой."
-            : "Сервер не подтвердил сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
+            ? "Studio не подтвердила сохранение. Показано актуальное значение; проверьте его перед повторной попыткой."
+            : "Studio не подтвердила сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
         tone: confirmed ? "notice" : "error",
         refreshOnMount: !settingsMountedRef.current,
       };
@@ -7104,7 +7118,7 @@ function SettingsPage({
         setAccentSelection(previousConfirmed);
         applyStudioAccentColor(previousConfirmed);
         setAccentMessage(
-          "Сервер не подтвердил цвет. Сохранено последнее подтверждённое значение.",
+          "Studio не подтвердила цвет. Сохранено последнее подтверждённое значение.",
         );
       } else {
         setAccountPreferences(preferences);
@@ -7113,7 +7127,7 @@ function SettingsPage({
         setAccentMessage(
           preferences.accent_color === selected
             ? "Цвет интерфейса сохранён."
-            : "Сервер не подтвердил выбранный цвет. Показано актуальное значение.",
+            : "Studio не подтвердила выбранный цвет. Показано актуальное значение.",
         );
       }
     } catch {
@@ -7156,8 +7170,8 @@ function SettingsPage({
             ? "Удаление ключа подтверждено по актуальному списку."
             : "Отключение ключа подтверждено по актуальному списку."
           : observed
-            ? `Сервер не подтвердил ${kind === "delete" ? "удаление" : "отключение"} ключа. Список обновлён; проверьте статус перед повторной попыткой.`
-            : `Сервер не подтвердил ${kind === "delete" ? "удаление" : "отключение"} ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой.`,
+            ? `Studio не подтвердила ${kind === "delete" ? "удаление" : "отключение"} ключа. Список обновлён; проверьте статус перед повторной попыткой.`
+            : `Studio не подтвердила ${kind === "delete" ? "удаление" : "отключение"} ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой.`,
         tone: confirmed ? "notice" : "error",
       };
     };
@@ -7241,8 +7255,8 @@ function SettingsPage({
       notice = {
         kind: operation.kind,
         message: observed
-          ? "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения."
-          : "Сервер не подтвердил начало подключения, а обновить статус Google Drive не удалось. Обновите страницу перед новой попыткой.",
+          ? "Studio не подтвердила начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения."
+          : "Studio не подтвердила начало подключения, а обновить статус Google Drive не удалось. Обновите страницу перед новой попыткой.",
         tone: "error",
         refreshOnMount: !settingsMountedRef.current,
       };
@@ -7303,8 +7317,8 @@ function SettingsPage({
         message: confirmed
           ? "Отключение Google Drive подтверждено по актуальному состоянию."
           : observed
-            ? "Сервер не подтвердил отключение. Показан актуальный статус; проверьте его перед повторной попыткой."
-            : "Сервер не подтвердил отключение, а обновить статус Google Drive не удалось. Обновите страницу перед повторной попыткой.",
+            ? "Studio не подтвердила отключение. Показан актуальный статус; проверьте его перед повторной попыткой."
+            : "Studio не подтвердила отключение, а обновить статус Google Drive не удалось. Обновите страницу перед повторной попыткой.",
         tone: confirmed ? "notice" : "error",
         refreshOnMount: !settingsMountedRef.current,
       };
@@ -7507,8 +7521,8 @@ function SettingsPage({
               <h3>Срок хранения локальных файлов</h3>
               <section className="card retention-preferences">
             <p>
-              Это срок хранения временной копии в приватном объектном
-              хранилище (S3/R2) для новых файлов, загруженных с устройства.
+              Это срок хранения временной приватной копии в Studio для новых
+              файлов, загруженных с устройства.
               После срока копия удаляется. Ссылки на Google Drive и результаты
               Google Docs не затрагиваются. Уже загруженные файлы сохраняют
               текущую дату удаления.
@@ -7910,16 +7924,21 @@ function SettingsPage({
               </p>
             )}
           </article>
-          <TranscriptCatalogMigrationPanel
-            csrf={csrf}
-            onCsrf={onCsrf}
-            googleConnected={googleConnection?.connected === true}
-            googleLoading={googleLoading}
-            pickerReady={googleConnection?.picker_ready === true}
-            maintenanceOauthResult={maintenanceOauthResult}
-            view="connections"
-            onOpenWorkspace={onOpenMaintenance}
-          />
+          <details className="card technical-details">
+            <summary className="summary-row">
+              Расширенный доступ к готовым Google Docs
+            </summary>
+            <TranscriptCatalogMigrationPanel
+              csrf={csrf}
+              onCsrf={onCsrf}
+              googleConnected={googleConnection?.connected === true}
+              googleLoading={googleLoading}
+              pickerReady={googleConnection?.picker_ready === true}
+              maintenanceOauthResult={maintenanceOauthResult}
+              view="connections"
+              onOpenWorkspace={onOpenMaintenance}
+            />
+          </details>
             </section>
           )}
           {section === "account" && (
@@ -8366,9 +8385,10 @@ function DiagnosticsSettings({
   );
   return (
     <div className="diagnostics-page">
-      <h2>Диагностика</h2>
+      <h2>Для поддержки</h2>
       <p className="notice">
-        Раздел показывает только безопасные сведения для вашего аккаунта.
+        Откройте этот раздел, когда нужно проверить состояние Studio или
+        подготовить безопасный отчёт для разбора проблемы.
       </p>
       <section className="card" aria-labelledby="system-diagnostics-title">
         <h3 id="system-diagnostics-title">Состояние системы</h3>

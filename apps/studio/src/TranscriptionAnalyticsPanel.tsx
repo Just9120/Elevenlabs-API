@@ -97,7 +97,7 @@ function DurationCard({
           {formatDuration(summary.p95_seconds)} · замеров {summary.sample_count}
         </small>
       ) : (
-        <small>Появится после завершённых серверных этапов.</small>
+        <small>Появится после завершённых этапов обработки.</small>
       )}
     </article>
   );

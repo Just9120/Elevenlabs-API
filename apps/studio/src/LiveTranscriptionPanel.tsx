@@ -733,7 +733,7 @@ export function LiveTranscriptionPanel({
     } catch {
       setDraftStatus("degraded");
       setError(
-        "Локальная копия черновика удалена, но Studio API не подтвердил удаление серверной копии. Повторите действие.",
+        "Локальная копия черновика удалена, но Studio не подтвердила удаление второй копии. Повторите действие.",
       );
       return false;
     } finally {
@@ -851,8 +851,8 @@ export function LiveTranscriptionPanel({
           <h2>Live-транскрибация</h2>
           <p>
             Распознаёт микрофон, звук выбранной вкладки или экрана либо оба
-            источника одновременно. Текст временно checkpoint-ится в браузере
-            и в зашифрованном Studio storage на 72 часа; audio не сохраняется.
+            источника одновременно. Незавершённый текст можно восстановить в
+            течение 72 часов; звук не сохраняется.
           </p>
         </div>
         <span className={`live-status live-status-${status}`} role="status">
@@ -867,8 +867,8 @@ export function LiveTranscriptionPanel({
       )}
       {recoveryState === "error" && (
         <p className="error" role="alert">
-          Server recovery сейчас недоступен. Локальный черновик, если он есть,
-          всё равно можно восстановить ниже.
+          Восстановление из Studio сейчас недоступно. Локальный черновик, если
+          он есть, всё равно можно восстановить ниже.
         </p>
       )}
       {recoveryCandidate && (
@@ -1066,9 +1066,12 @@ export function LiveTranscriptionPanel({
               <option value="detect">Определить автоматически</option>
             </select>
           </label>
-          <p className="muted">
-            Модель: scribe_v2_realtime · фиксация фрагментов: VAD.
-          </p>
+          <details className="technical-details">
+            <summary>Технические параметры</summary>
+            <p className="muted">
+              Model: scribe_v2_realtime · segment detection: VAD.
+            </p>
+          </details>
           <div className="actions">
             <button
               className="primary"
@@ -1130,7 +1133,7 @@ export function LiveTranscriptionPanel({
             <h3>Текст Live-транскрибации</h3>
             <p className="muted">
               Временно хранится только для восстановления. Не попадает в
-              Google Docs, каталог, History, Analytics или diagnostics.
+              Google Docs, каталог, историю, аналитику или диагностику.
             </p>
             <p className="muted" aria-label="Статистика live-сессии">
               Сессия: {formatElapsed(elapsedSeconds)} · Фрагментов:{" "}
@@ -1200,25 +1203,25 @@ export function LiveTranscriptionPanel({
         </div>
       </section>
 
-      <details className="live-boundaries">
-        <summary>Ограничения первой версии</summary>
+      <details className="live-boundaries technical-details">
+        <summary>Технические ограничения и восстановление</summary>
         <ul>
           <li>
-            При разрыве связи автоматического reconnect нет: новая попытка
-            получает новый одноразовый доступ.
+            При разрыве связи автоматического переподключения нет: новую
+            сессию нужно запустить вручную.
           </li>
           <li>
             Обновление или закрытие текущей вкладки останавливает захват.
-            После повторного входа можно восстановить последний checkpoint,
-            но audio и сама realtime-сессия не возобновляются.
+            После повторного входа можно восстановить последний черновик, но
+            звук и сама Live-сессия не возобновляются.
           </li>
           <li>
             Пока идёт сессия или есть текст, браузер предупреждает
             перед обновлением или закрытием вкладки.
           </li>
           <li>
-            Другие вкладки не продолжают audio capture; authenticated owner
-            может получить последний временный draft через recovery.
+            Другие вкладки не продолжают захват звука; владелец аккаунта может
+            восстановить последний временный черновик.
           </li>
         </ul>
       </details>

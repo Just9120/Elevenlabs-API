@@ -1,7 +1,6 @@
 import { formatTime } from "./formatters";
 import {
   isApprovedOutputUrl,
-  jobСтатусLabel,
   outputSourceLabel,
   type JobOutputsResponse,
 } from "./jobModel";
@@ -15,10 +14,9 @@ export function JobOutputsSection({
   data: JobOutputsResponse;
 }) {
   return (
-    <section aria-label={`Результаты ${data.job_id}`}>
+    <section aria-label="Результаты транскрибации">
       <h5>Результаты</h5>
-      <p>Состояние задачи: {jobСтатусLabel(data.job_status)}</p>
-      <p>Результатов: {data.output_count}</p>
+      {data.output_count > 1 && <p>Документов: {data.output_count}</p>}
       {data.output_count === 0 && (
         <p className="notice">Результаты пока не созданы.</p>
       )}
@@ -29,14 +27,8 @@ export function JobOutputsSection({
         return (
           <article className="source-card" key={`${jobId}-output-${index}`}>
             <b>{outputSourceLabel(output)}</b>
-            <span>Тип файла: {output.source_type || "не указан"}</span>
-            <span>Тип результата: {output.output_kind || "не указан"}</span>
-            <span>
-              Формат: {output.transcript_standard || "не указан"}
-            </span>
             <span>Символов: {output.document_character_count ?? "—"}</span>
             <span>Создан: {formatTime(output.document_created_at)}</span>
-            <span>Сохранён: {formatTime(output.persisted_at)}</span>
             {approvedLink ? (
               <ResourceExternalLink
                 href={output.web_view_url ?? ""}
@@ -46,6 +38,15 @@ export function JobOutputsSection({
             ) : (
               <span>Ссылка недоступна</span>
             )}
+            <details className="technical-details job-support-details">
+              <summary>Технические сведения</summary>
+              <span>Тип источника: {output.source_type || "не указан"}</span>
+              <span>Тип результата: {output.output_kind || "не указан"}</span>
+              <span>
+                Стандарт документа: {output.transcript_standard || "не указан"}
+              </span>
+              <span>Запись подтверждена: {formatTime(output.persisted_at)}</span>
+            </details>
           </article>
         );
       })}

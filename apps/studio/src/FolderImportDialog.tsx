@@ -90,7 +90,7 @@ export function FolderImportDialog({
         <p id={descriptionId}>
           {canConfirm
             ? "Файлы будут загружены только после явного подтверждения."
-            : "Импорт не начат. Проверьте результаты безопасного preview."}
+            : "Импорт не начат. Проверьте результаты предварительной проверки."}
         </p>
         {blockedMessage && <p role="alert">{blockedMessage}</p>}
         <dl className="folder-import-summary">

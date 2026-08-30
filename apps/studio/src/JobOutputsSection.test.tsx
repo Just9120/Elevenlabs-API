@@ -38,9 +38,7 @@ describe("JobOutputsSection", () => {
       />,
     );
 
-    const section = screen.getByLabelText("Результаты job-1");
-    expect(section).toHaveTextContent(/Состояние задачи:\s*Обрабатывается/);
-    expect(section).toHaveTextContent("Результатов: 0");
+    const section = screen.getByLabelText("Результаты транскрибации");
     expect(section).toHaveTextContent("Результаты пока не созданы.");
     expect(within(section).queryByRole("link")).not.toBeInTheDocument();
   });
@@ -48,11 +46,11 @@ describe("JobOutputsSection", () => {
   it("renders output metadata and an approved Google document link", () => {
     render(<JobOutputsSection jobId="job-1" data={response()} />);
 
-    const section = screen.getByLabelText("Результаты job-1");
+    const section = screen.getByLabelText("Результаты транскрибации");
     expect(section).toHaveTextContent("1. recording.ogg");
-    expect(section).toHaveTextContent("Тип файла: local_upload");
+    expect(section).toHaveTextContent("Тип источника: local_upload");
     expect(section).toHaveTextContent("Тип результата: google_doc");
-    expect(section).toHaveTextContent("Формат: standard");
+    expect(section).toHaveTextContent("Стандарт документа: standard");
     expect(section).toHaveTextContent("Символов: 42");
     expect(
       within(section).getByRole("link", { name: "Открыть документ" }),
@@ -71,7 +69,7 @@ describe("JobOutputsSection", () => {
       />,
     );
 
-    const section = screen.getByLabelText("Результаты job-1");
+    const section = screen.getByLabelText("Результаты транскрибации");
     expect(section).toHaveTextContent("Ссылка недоступна");
     expect(within(section).queryByRole("link")).not.toBeInTheDocument();
     expect(section).not.toHaveTextContent(unsafeUrl);

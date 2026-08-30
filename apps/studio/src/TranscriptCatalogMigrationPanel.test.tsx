@@ -376,17 +376,17 @@ describe("TranscriptCatalogMigrationPanel", () => {
     renderPanel(false);
 
     expect(
-      screen.getByRole("heading", { name: "Две независимые операции" }),
+      screen.getByRole("heading", { name: "Проверка и обновление Google Docs" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "Стандартизация Google Docs" }),
-    ).toHaveTextContent("Каталог Studio и состояние заданий не изменяются");
+      screen.getByRole("region", { name: "Привести документы к текущему формату" }),
+    ).toHaveTextContent("Сначала выполните проверку — она ничего не изменит");
     expect(
-      screen.getByRole("region", { name: "Манифест Studio" }),
-    ).toHaveTextContent("Google Docs не изменяются");
+      screen.getByRole("region", { name: "Учесть готовые документы в Studio" }),
+    ).toHaveTextContent("Содержимое Google Docs не изменяется");
     expect(
       screen.getByText(
-        "Блокер: основное подключение Google Drive отсутствует.",
+        "Сначала подключите Google Drive.",
       ),
     ).toBeInTheDocument();
     for (const button of screen.getAllByRole("button", {
@@ -419,7 +419,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     await screen.findByText(/Расширенный доступ подключён/);
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Очистить манифест" }),
+      screen.getByRole("button", { name: "Сбросить учёт" }),
     );
     await userEvent.click(screen.getByRole("button", { name: "Нет" }));
     expect(
@@ -429,7 +429,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     ).toHaveLength(0);
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Очистить манифест" }),
+      screen.getByRole("button", { name: "Сбросить учёт" }),
     );
     await userEvent.click(screen.getByRole("button", { name: "Да" }));
     expect(
@@ -524,10 +524,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
       await screen.findByText(/Расширенный доступ подключён/),
     ).toBeInTheDocument();
     const standardization = screen.getByRole("region", {
-      name: "Стандартизация Google Docs",
+      name: "Привести документы к текущему формату",
     });
     const catalog = screen.getByRole("region", {
-      name: "Манифест Studio",
+      name: "Учесть готовые документы в Studio",
     });
 
     await userEvent.click(
@@ -546,11 +546,11 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     await userEvent.click(
       within(standardization).getByRole("button", {
-        name: "Запустить dry-run",
+        name: "Проверить документы",
       }),
     );
     const standardPreview = await within(standardization).findByLabelText(
-      "Результат dry-run: Стандартизация Google Docs",
+      "Результат проверки: Привести документы к текущему формату",
     );
     expect(standardPreview).toHaveTextContent("Лекция для обновления");
     expect(standardPreview).toHaveTextContent("Google Docs найдено");
@@ -564,12 +564,12 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     await userEvent.click(
       within(standardization).getByRole("button", {
-        name: "Подтвердить стандартизацию (1)",
+        name: "Обновить документы (1)",
       }),
     );
     expect(
       await within(standardization).findByRole("heading", {
-        name: "Стандартизация завершена",
+        name: "Документы обновлены",
       }),
     ).toBeInTheDocument();
 
@@ -582,10 +582,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
       expect.objectContaining({ access_token: "private-access-token" }),
     );
     await userEvent.click(
-      within(catalog).getByRole("button", { name: "Запустить dry-run" }),
+      within(catalog).getByRole("button", { name: "Проверить документы" }),
     );
     const catalogPreview = await within(catalog).findByLabelText(
-      "Результат dry-run: Манифест Studio",
+      "Результат проверки: Учесть готовые документы в Studio",
     );
     expect(catalogPreview).toHaveTextContent("Лекция для каталога");
     expect(catalogPreview).toHaveTextContent(
@@ -597,20 +597,20 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     await userEvent.click(
       within(catalog).getByRole("button", {
-        name: "Добавить в манифест Studio (1)",
+        name: "Учесть документы (1)",
       }),
     );
     expect(
       await within(catalog).findByRole("heading", {
-        name: "Манифест Studio обновлён",
+        name: "Готовые документы учтены",
       }),
     ).toBeInTheDocument();
     expect(catalog).toHaveTextContent(
-      "Результат сохранён в каталоге Studio",
+      "Результат сохранён в Studio",
     );
     expect(
       within(catalog).queryByRole("button", {
-        name: /Добавить в манифест Studio/,
+        name: /Учесть документы/,
       }),
     ).not.toBeInTheDocument();
     expect(window.confirm).toHaveBeenCalledTimes(2);
@@ -662,6 +662,85 @@ describe("TranscriptCatalogMigrationPanel", () => {
     }
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it("bounds long document lists and filters them by name", async () => {
+    const manyDocuments = {
+      ...standardizationDryRun,
+      items: Array.from({ length: 30 }, (_, position) => ({
+        position,
+        name: `Документ ${position + 1}`,
+        standard_status: "outdated",
+        source_creation_status: "authoritative",
+        action: "standardize_document",
+        reason_code: null,
+      })),
+      summary: {
+        standardize_document_count: 30,
+        unchanged_count: 0,
+        blocked_count: 0,
+      },
+      selection_summary: {
+        ...selectionSummary,
+        google_document_count: 30,
+      },
+    } as typeof standardizationDryRun;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (isLatestRunRequest(url)) return json({ run: null });
+        if (url.endsWith("/api/google/maintenance/connection")) {
+          return json(readyMaintenanceConnection);
+        }
+        if (url.endsWith("/api/google/picker/session")) {
+          return sessionResponse();
+        }
+        if (url.endsWith("/api/transcript-maintenance/standardization/dry-run")) {
+          return json(
+            completedRun(runIds.standardizationDryRun, manyDocuments),
+            true,
+            202,
+          );
+        }
+        return json({}, false, 404);
+      }),
+    );
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({
+      action: "picked",
+      docs: [{ id: "private-folder", name: "Большой архив" }],
+    });
+
+    renderPanel();
+    await screen.findByText(/Расширенный доступ подключён/);
+    const operation = screen.getByRole("region", {
+      name: "Привести документы к текущему формату",
+    });
+    await userEvent.click(
+      within(operation).getByRole("button", { name: "Выбрать папку" }),
+    );
+    await userEvent.click(
+      within(operation).getByRole("button", { name: "Проверить документы" }),
+    );
+    const result = await within(operation).findByLabelText(
+      "Результат проверки: Привести документы к текущему формату",
+    );
+
+    expect(within(result).getByText("Показано 25 из 30")).toBeInTheDocument();
+    expect(within(result).getByText("Документ 25")).toBeInTheDocument();
+    expect(within(result).queryByText("Документ 26")).not.toBeInTheDocument();
+    await userEvent.click(
+      within(result).getByRole("button", { name: /Показать ещё/ }),
+    );
+    expect(within(result).getByText("Показано 30 из 30")).toBeInTheDocument();
+    expect(within(result).getByText("Документ 30")).toBeInTheDocument();
+
+    await userEvent.type(
+      within(result).getByRole("searchbox", { name: "Найти документ" }),
+      "Документ 30",
+    );
+    expect(within(result).getByText("Показано 1 из 1")).toBeInTheDocument();
+    expect(within(result).getByText("Документ 30")).toBeInTheDocument();
+    expect(within(result).queryByText("Документ 1")).not.toBeInTheDocument();
   });
 
   it("supports an independent single-document mode for each operation", async () => {
@@ -747,10 +826,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
       await screen.findByText(/Расширенный доступ подключён/),
     ).toBeInTheDocument();
     const standardization = screen.getByRole("region", {
-      name: "Стандартизация Google Docs",
+      name: "Привести документы к текущему формату",
     });
     const catalog = screen.getByRole("region", {
-      name: "Манифест Studio",
+      name: "Учесть готовые документы в Studio",
     });
     const standardMode = within(standardization).getByRole("combobox", {
       name: "Что обработать",
@@ -774,11 +853,11 @@ describe("TranscriptCatalogMigrationPanel", () => {
     );
     await userEvent.click(
       within(standardization).getByRole("button", {
-        name: "Запустить dry-run",
+        name: "Проверить документы",
       }),
     );
     const standardPreview = await within(standardization).findByLabelText(
-      "Результат dry-run: Стандартизация Google Docs",
+      "Результат проверки: Привести документы к текущему формату",
     );
     expect(standardPreview).toHaveTextContent(
       "Проверен один выбранный Google Doc",
@@ -799,28 +878,28 @@ describe("TranscriptCatalogMigrationPanel", () => {
     );
     await userEvent.click(
       within(catalog).getByRole("button", {
-        name: "Запустить dry-run",
+        name: "Проверить документы",
       }),
     );
     await within(catalog).findByLabelText(
-      "Результат dry-run: Манифест Studio",
+      "Результат проверки: Учесть готовые документы в Studio",
     );
     await userEvent.click(
       within(catalog).getByRole("button", {
-        name: "Добавить в манифест Studio (1)",
+        name: "Учесть документы (1)",
       }),
     );
     expect(
       await within(catalog).findByRole("heading", {
-        name: "Манифест Studio обновлён",
+        name: "Готовые документы учтены",
       }),
     ).toBeInTheDocument();
     expect(catalog).toHaveTextContent(
-      "Новый dry-run должен показать сохранённые документы как уже учтённые",
+      "Новая проверка покажет документы как уже учтённые",
     );
     expect(
       within(catalog).queryByRole("button", {
-        name: /Добавить в манифест Studio/,
+        name: /Учесть документы/,
       }),
     ).not.toBeInTheDocument();
 
@@ -861,7 +940,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     await userEvent.selectOptions(standardMode, "folder_tree");
     expect(
       within(standardization).queryByLabelText(
-        "Результат dry-run: Стандартизация Google Docs",
+        "Результат проверки: Привести документы к текущему формату",
       ),
     ).not.toBeInTheDocument();
     expect(
@@ -919,17 +998,17 @@ describe("TranscriptCatalogMigrationPanel", () => {
       await screen.findByText(/Расширенный доступ подключён/),
     ).toBeInTheDocument();
     const region = screen.getByRole("region", {
-      name: "Стандартизация Google Docs",
+      name: "Привести документы к текущему формату",
     });
 
     await userEvent.click(
       within(region).getByRole("button", { name: "Выбрать папку" }),
     );
     await userEvent.click(
-      within(region).getByRole("button", { name: "Запустить dry-run" }),
+      within(region).getByRole("button", { name: "Проверить документы" }),
     );
     await within(region).findByLabelText(
-      "Результат dry-run: Стандартизация Google Docs",
+      "Результат проверки: Привести документы к текущему формату",
     );
 
     await userEvent.click(
@@ -938,12 +1017,12 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     expect(
       within(region).queryByLabelText(
-        "Результат dry-run: Стандартизация Google Docs",
+        "Результат проверки: Привести документы к текущему формату",
       ),
     ).not.toBeInTheDocument();
     expect(
       within(region).queryByRole("button", {
-        name: "Подтвердить стандартизацию (1)",
+        name: "Обновить документы (1)",
       }),
     ).not.toBeInTheDocument();
     expect(region).toHaveTextContent("Корневая папка: Другой архив");
@@ -991,14 +1070,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
     try {
       renderPanel();
       const region = await screen.findByRole("region", {
-        name: "Стандартизация Google Docs",
+        name: "Привести документы к текущему формату",
       });
       expect(
-        await within(region).findByText("Ожидает свободного worker"),
+        await within(region).findByText("Ждёт начала обработки"),
       ).toBeInTheDocument();
       expect(
         await within(region).findByLabelText(
-          "Результат dry-run: Стандартизация Google Docs",
+          "Результат проверки: Привести документы к текущему формату",
         ),
       ).toHaveTextContent("Лекция для обновления");
       expect(region).toHaveTextContent("Архив после перезагрузки");
@@ -1006,7 +1085,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
         within(region).getByRole("button", { name: "Сменить папку" }),
       ).toBeEnabled();
       expect(
-        within(region).getByRole("button", { name: "Запустить dry-run" }),
+        within(region).getByRole("button", { name: "Проверить документы" }),
       ).toBeDisabled();
     } finally {
       timeoutSpy.mockRestore();
@@ -1080,7 +1159,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     try {
       renderPanel();
       const region = await screen.findByRole("region", {
-        name: "Стандартизация Google Docs",
+        name: "Привести документы к текущему формату",
       });
       expect(await within(region).findByText("117 из 142")).toBeInTheDocument();
       await vi.waitFor(() => expect(statusRequestCount).toBe(3));
@@ -1096,7 +1175,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       resolveFourthStatus?.(await json(completed));
       expect(
         await within(region).findByLabelText(
-          "Результат dry-run: Стандартизация Google Docs",
+          "Результат проверки: Привести документы к текущему формату",
         ),
       ).toHaveTextContent("Лекция для обновления");
     } finally {
@@ -1149,37 +1228,37 @@ describe("TranscriptCatalogMigrationPanel", () => {
       await screen.findByText(/Расширенный доступ подключён/),
     ).toBeInTheDocument();
     const region = screen.getByRole("region", {
-      name: "Стандартизация Google Docs",
+      name: "Привести документы к текущему формату",
     });
 
     await userEvent.click(
       within(region).getByRole("button", { name: "Выбрать папку" }),
     );
     await userEvent.click(
-      within(region).getByRole("button", { name: "Запустить dry-run" }),
+      within(region).getByRole("button", { name: "Проверить документы" }),
     );
     await within(region).findByLabelText(
-      "Результат dry-run: Стандартизация Google Docs",
+      "Результат проверки: Привести документы к текущему формату",
     );
     await userEvent.click(
       within(region).getByRole("button", {
-        name: "Подтвердить стандартизацию (1)",
+        name: "Обновить документы (1)",
       }),
     );
 
     expect(
       await within(region).findByText(
-        "Документ изменился после проверки. Запустите dry-run заново.",
+        "Документ изменился после проверки. Запустите проверку заново.",
       ),
     ).toBeInTheDocument();
     expect(region).not.toHaveTextContent("private raw response");
     expect(
       within(region).queryByRole("button", {
-        name: "Подтвердить стандартизацию (1)",
+        name: "Обновить документы (1)",
       }),
     ).not.toBeInTheDocument();
     expect(
-      within(region).getByRole("button", { name: "Запустить dry-run" }),
+      within(region).getByRole("button", { name: "Проверить документы" }),
     ).toBeEnabled();
   });
 
@@ -1213,7 +1292,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     expect(
       await screen.findByText(
-        "Блокер: отдельный доступ Google для обслуживания не подключён.",
+        "Подключите расширенный доступ Google для готовых документов.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -1261,7 +1340,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     expect(
       await screen.findByText(
-        "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
+        "Не удалось проверить расширенный доступ Google.",
       ),
     ).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("raw-maintenance-token");
@@ -1308,7 +1387,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       renderPanel(true, "connections");
       expect(
         await screen.findByText(
-          "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
+          "Не удалось проверить расширенный доступ Google.",
         ),
       ).toBeInTheDocument();
       expect(stalledSignal?.aborted).toBe(true);

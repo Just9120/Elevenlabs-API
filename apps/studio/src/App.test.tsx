@@ -662,6 +662,11 @@ async function waitForPlatformOverview() {
   expect(
     screen.getByRole("button", { name: "Обзор", current: "page" }),
   ).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.getByLabelText("Последние результаты")).not.toHaveTextContent(
+      "Загрузка…",
+    ),
+  );
 }
 
 async function openPlatformNavPage(
@@ -799,7 +804,7 @@ async function openSettingsSection(
     | "Подключения"
     | "Файлы и хранилище"
     | "Оформление"
-    | "Диагностика",
+    | "Для поддержки",
 ) {
   await openSettingsPage();
   if (name !== "Аккаунт") {
@@ -1428,11 +1433,11 @@ describe("Studio PWA", () => {
     const accountTab = screen.getByRole("tab", { name: "Аккаунт" });
     accountTab.focus();
     await userEvent.keyboard("{End}");
-    const diagnosticsTab = screen.getByRole("tab", { name: "Диагностика" });
+    const diagnosticsTab = screen.getByRole("tab", { name: "Для поддержки" });
     expect(diagnosticsTab).toHaveFocus();
     expect(diagnosticsTab).toHaveAttribute("aria-selected", "true");
     expect(
-      await screen.findByRole("heading", { name: "Диагностика" }),
+      await screen.findByRole("heading", { name: "Для поддержки" }),
     ).toBeInTheDocument();
 
     await userEvent.keyboard("{Home}");
@@ -1831,7 +1836,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+        "Studio не подтвердила удаление файла. Список обновлён; подождите и повторите при необходимости.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -1906,7 +1911,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
+        "Studio вернула несогласованное подтверждение удаления. Список файлов обновлён.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -2033,7 +2038,7 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(
-        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+        "Studio не подтвердила удаление файла. Список обновлён; подождите и повторите при необходимости.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("safe-drive.mp4")).toBeInTheDocument();
@@ -2101,13 +2106,15 @@ describe("Studio PWA", () => {
     });
     renderApp();
     await waitForPlatformOverview();
-    expect(screen.getByLabelText("Транскрибации")).toHaveTextContent(
-      "Доступны",
+    expect(screen.getByLabelText("Последние результаты")).toHaveTextContent(
+      "Открыть рабочую область",
     );
     expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
       "Подключён",
     );
-    expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Готовность к работе")).toHaveTextContent(
+      "Можно начинать",
+    );
     expect(screen.queryByText("Newer")).not.toBeInTheDocument();
     expect(screen.queryByText("Older")).not.toBeInTheDocument();
     expect(
@@ -2128,10 +2135,10 @@ describe("Studio PWA", () => {
     await waitForPlatformOverview();
     expect(await screen.findByText("Начать работу")).toBeInTheDocument();
     expect(
-      screen.getAllByRole("button", { name: "Открыть транскрибации" }).length,
+      screen.getAllByRole("button", { name: "Создать транскрибацию" }).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Транскрибации")).toHaveTextContent(
-      "Подготовятся при открытии",
+    expect(screen.getByLabelText("Последние результаты")).toHaveTextContent(
+      "Начните с первой записи",
     );
   });
 
@@ -2158,13 +2165,15 @@ describe("Studio PWA", () => {
     });
     renderApp();
     await waitForPlatformOverview();
-    expect(screen.getByLabelText("Транскрибации")).toHaveTextContent(
-      "Доступны",
+    expect(screen.getByLabelText("Последние результаты")).toHaveTextContent(
+      "Открыть рабочую область",
     );
     expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
       "Недоступно",
     );
-    expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Готовность к работе")).toHaveTextContent(
+      "Недоступно",
+    );
     expect(screen.getByText(/Часть данных панели/)).toBeInTheDocument();
     expect(
       screen.queryByText(
@@ -2368,8 +2377,8 @@ describe("Studio PWA", () => {
     try {
       renderApp();
       await waitForPlatformOverview();
-      const projectsCard = screen.getByLabelText("Транскрибации");
-      const credentialsCard = screen.getByLabelText("Активные ключи");
+      const projectsCard = screen.getByLabelText("Последние результаты");
+      const credentialsCard = screen.getByLabelText("Готовность к работе");
       await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
       await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
       expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Подключён");
@@ -2382,8 +2391,8 @@ describe("Studio PWA", () => {
       await userEvent.click(
         within(credentialsCard).getByRole("button", { name: "Повторить" }),
       );
-      await waitFor(() => expect(projectsCard).toHaveTextContent("Доступны"));
-      await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
+      await waitFor(() => expect(projectsCard).toHaveTextContent("Открыть рабочую область"));
+      await waitFor(() => expect(credentialsCard).toHaveTextContent("Можно начинать"));
       expect(projectReads).toBe(2);
       expect(credentialReads).toBe(2);
     } finally {
@@ -2427,8 +2436,8 @@ describe("Studio PWA", () => {
 
     renderApp();
     await waitForPlatformOverview();
-    const projectsCard = screen.getByLabelText("Транскрибации");
-    const credentialsCard = screen.getByLabelText("Активные ключи");
+    const projectsCard = screen.getByLabelText("Последние результаты");
+    const credentialsCard = screen.getByLabelText("Готовность к работе");
     await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
     await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
     expect(document.body.textContent).not.toContain("raw-project-value");
@@ -2440,8 +2449,8 @@ describe("Studio PWA", () => {
     await userEvent.click(
       within(credentialsCard).getByRole("button", { name: "Повторить" }),
     );
-    await waitFor(() => expect(projectsCard).toHaveTextContent("Доступны"));
-    await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
+    await waitFor(() => expect(projectsCard).toHaveTextContent("Открыть рабочую область"));
+    await waitFor(() => expect(credentialsCard).toHaveTextContent("Можно начинать"));
   });
 
   it("ignores a late dashboard project retry after Overview remount", async () => {
@@ -2475,7 +2484,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await waitForPlatformOverview();
-    const initialProjectsCard = screen.getByLabelText("Транскрибации");
+    const initialProjectsCard = screen.getByLabelText("Последние результаты");
     await waitFor(() =>
       expect(initialProjectsCard).toHaveTextContent("Недоступно"),
     );
@@ -2488,9 +2497,9 @@ describe("Studio PWA", () => {
     expect(olderRetrySignal?.aborted).toBe(true);
     await openPlatformNavPage("Обзор");
     await waitForPlatformOverview();
-    const currentProjectsCard = screen.getByLabelText("Транскрибации");
+    const currentProjectsCard = screen.getByLabelText("Последние результаты");
     await waitFor(() =>
-      expect(currentProjectsCard).toHaveTextContent("Доступны"),
+      expect(currentProjectsCard).toHaveTextContent("Открыть рабочую область"),
     );
     expect(screen.queryByText("Newest one")).not.toBeInTheDocument();
     expect(projectReads).toBe(4);
@@ -2502,7 +2511,7 @@ describe("Studio PWA", () => {
         }),
       ),
     );
-    expect(currentProjectsCard).toHaveTextContent("Доступны");
+    expect(currentProjectsCard).toHaveTextContent("Открыть рабочую область");
     expect(screen.queryByText("Late older result")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-project-failure");
   });
@@ -2513,7 +2522,7 @@ describe("Studio PWA", () => {
 
     await userEvent.click(
       within(await screen.findByRole("banner")).getByRole("button", {
-        name: "Открыть транскрибации",
+        name: "Создать транскрибацию",
       }),
     );
 
@@ -2541,7 +2550,7 @@ describe("Studio PWA", () => {
 
     await userEvent.click(
       within(await screen.findByRole("banner")).getByRole("button", {
-        name: "Открыть обработку аудио",
+        name: "Подготовить аудио",
       }),
     );
 
@@ -2593,14 +2602,14 @@ describe("Studio PWA", () => {
     renderApp();
     await openProjectsPage();
     const multi = await screen.findByRole("article", {
-      name: "Мульти-транскрибация · 2",
+      name: "Группа транскрибаций · 2",
     });
     expect(
       Array.from(
         multi.querySelectorAll(".multi-transcription-item-heading span"),
       ).map((element) => element.textContent),
     ).toEqual(["Первая запись", "Вторая запись"]);
-    expect(within(multi).getByText("Завершено элементов: 0 из 2"))
+    expect(within(multi).getByText("Завершено: 0 из 2"))
       .toBeInTheDocument();
     expect(within(multi).getAllByRole("button", { name: "Открыть" }))
       .toHaveLength(2);
@@ -3030,15 +3039,15 @@ describe("Studio PWA", () => {
     await screen.findByText(/Ключи провайдеров/);
     expect(
       screen.getByRole("heading", {
-        name: "Доступ Google для обслуживания",
+        name: "Работа с готовыми Google Docs",
       }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", {
-        name: "Стандартизация Google Docs",
+        name: "Привести документы к текущему формату",
       }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/Транскрибации → Обслуживание/)).toBeInTheDocument();
+    expect(screen.getByText(/Транскрибации → Готовые документы/)).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -3057,22 +3066,22 @@ describe("Studio PWA", () => {
     await openProjectsPage();
 
     await userEvent.click(
-      screen.getByRole("tab", { name: "Обслуживание" }),
+      screen.getByRole("tab", { name: "Готовые документы" }),
     );
 
     expect(
       await screen.findByRole("heading", {
-        name: "Две независимые операции",
+        name: "Проверка и обновление Google Docs",
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Стандартизация Google Docs" }),
+      screen.getByRole("heading", { name: "Привести документы к текущему формату" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Манифест Studio" }),
+      screen.getByRole("heading", { name: "Учесть готовые документы в Studio" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Обслуживание" }),
+      screen.getByRole("tab", { name: "Готовые документы" }),
     ).toHaveAttribute("aria-selected", "true");
   });
 
@@ -3084,7 +3093,7 @@ describe("Studio PWA", () => {
       name: "Срок хранения локальных файлов",
     });
     expect(
-      screen.getByText(/приватном объектном хранилище \(S3\/R2\)/),
+      screen.getByText(/временной приватной копии в Studio/),
     ).toHaveTextContent(
       "Ссылки на Google Drive и результаты Google Docs не затрагиваются.",
     );
@@ -3372,7 +3381,7 @@ describe("Studio PWA", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить срок" }));
     expect(
       await screen.findByText(
-        "Сервер не подтвердил сохранение. Показано актуальное значение; проверьте его перед повторной попыткой.",
+        "Studio не подтвердила сохранение. Показано актуальное значение; проверьте его перед повторной попыткой.",
       ),
     ).toBeInTheDocument();
     expect(retention).toHaveValue("259200");
@@ -3410,7 +3419,7 @@ describe("Studio PWA", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить срок" }));
     expect(
       await screen.findByText(
-        "Сервер не подтвердил сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
+        "Studio не подтвердила сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
       ),
     ).toBeInTheDocument();
     expect(retention).toHaveValue("86400");
@@ -3768,7 +3777,7 @@ describe("Studio PWA", () => {
       vi.useRealTimers();
       expect(
         await screen.findByText(
-          "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
+          "Studio не подтвердила начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
         ),
       ).toBeInTheDocument();
       expect(mutationSignals[0]?.aborted).toBe(true);
@@ -3817,7 +3826,7 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(
-        "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
+        "Studio не подтвердила начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
       ),
     ).toBeInTheDocument();
     expect(connectionReads).toBe(readsBeforeMutation + 1);
@@ -3938,7 +3947,7 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(
-        "Сервер не подтвердил отключение. Показан актуальный статус; проверьте его перед повторной попыткой.",
+        "Studio не подтвердила отключение. Показан актуальный статус; проверьте его перед повторной попыткой.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("Google Drive подключён")).toBeInTheDocument();
@@ -4219,7 +4228,7 @@ describe("Studio PWA", () => {
       vi.useRealTimers();
       expect(
         await screen.findByText(
-          "Сервер не подтвердил создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново.",
+          "Studio не подтвердила создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново.",
         ),
       ).toBeInTheDocument();
       expect(createSignals[0]?.aborted).toBe(true);
@@ -4288,7 +4297,7 @@ describe("Studio PWA", () => {
     await openSettingsSection("Подключения");
     expect(
       await screen.findByText(
-        "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново.",
+        "Studio не подтвердила замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Заменить" })).toBeEnabled();
@@ -5897,7 +5906,8 @@ describe("Studio PWA", () => {
       ),
     ).toHaveLength(1);
     expect(screen.queryByText("Error code: SAFE_CODE")).not.toBeInTheDocument();
-    expect(screen.getByText("Ошибка: Safe visible error")).toBeInTheDocument();
+    expect(screen.getByText(/Не удалось завершить обработку/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Safe visible error");
 
     expect((await screen.findAllByText(/ready-drive/))[0]).toBeInTheDocument();
     expect(
@@ -5985,7 +5995,7 @@ describe("Studio PWA", () => {
         expect.objectContaining({ credentials: "same-origin" }),
       ),
     );
-    const detail = await screen.findByLabelText("Job detail job-1");
+    const detail = await screen.findByLabelText("Подробности транскрибации");
     expect(within(detail).getByText("1. ready-drive.mp4")).toBeInTheDocument();
     expect(within(detail).getByText("2. ready-local.ogg")).toBeInTheDocument();
     expect(
@@ -6006,9 +6016,7 @@ describe("Studio PWA", () => {
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.find(([url]) => url === "/api/jobs/job-1/outputs");
     expect(outputCall?.[1]?.headers).not.toHaveProperty("x-csrf-token");
-    const outputs = await screen.findByLabelText("Результаты job-1");
-    expect(outputs).toHaveTextContent(/Состояние задачи:\s*Обрабатывается/);
-    expect(outputs).toHaveTextContent("Результатов: 3");
+    const outputs = await screen.findByLabelText("Результаты транскрибации");
     expect(outputs).toHaveTextContent("2. second-output");
     expect(outputs).toHaveTextContent("1. first-output");
     expect(outputs.textContent?.indexOf("2. second-output")).toBeLessThan(
@@ -6249,7 +6257,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
+        "Studio добавила не все выбранные файлы. Список обновлён; проверьте его перед повторным выбором.",
       ),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("listitem").filter((item) =>
@@ -7050,9 +7058,9 @@ describe("Studio PWA", () => {
       ).getByRole("button", { name: "Открыть" }),
     );
     expect(
-      await screen.findByLabelText("Job detail job-a"),
+      await screen.findByLabelText("Подробности транскрибации"),
     ).toBeInTheDocument();
-    expect(await screen.findByLabelText("Результаты job-a")).toHaveTextContent(
+    expect(await screen.findByLabelText("Результаты транскрибации")).toHaveTextContent(
       "project-a-output",
     );
     await reviewAndConfirmBatch();
@@ -7073,8 +7081,8 @@ describe("Studio PWA", () => {
       screen.queryByLabelText("Неопределённый исход создания пакета"),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("A completed job")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Результаты job-a")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Подробности транскрибации")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Результаты транскрибации")).not.toBeInTheDocument();
     expect(screen.queryByText("project-a-output")).not.toBeInTheDocument();
     expect(screen.getAllByText("Папка не выбрана").length).toBeGreaterThan(0);
     await chooseExistingSource(1, "project-b-source.ogg");
@@ -7132,7 +7140,7 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(
-        "Повтор подтверждён: мульти-транскрибация содержит элементов: 1.",
+        "Повторный запрос подтверждён: транскрибация уже создана.",
       ),
     ).toBeInTheDocument();
     const aCreateCalls = (
@@ -7295,7 +7303,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер вернул некорректную сессию Google Picker. Повторите попытку позже.",
+        "Studio не смогла открыть Google Drive. Повторите попытку позже.",
       ),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(
@@ -7410,7 +7418,7 @@ describe("Studio PWA", () => {
 
       expect(
         await screen.findByText(
-          "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+          "Studio не подтвердила добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
         ),
       ).toBeInTheDocument();
       expect(mutationCalls).toBe(1);
@@ -7466,7 +7474,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        "Studio не подтвердила добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
       ),
     ).toBeInTheDocument();
     expect(mutationCalls).toBe(1);
@@ -7566,7 +7574,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер вернул некорректные данные папки результата. Повторите выбор позже.",
+        "Studio не смогла подтвердить папку результата. Повторите выбор позже.",
       ),
     ).toBeInTheDocument();
     expect(folderButton).toBeEnabled();
@@ -8510,7 +8518,7 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Язык: Английский")).toBeInTheDocument();
     expect(
-      await screen.findByText("Состояние задачи: Завершена"),
+      await screen.findByText("Статус: Завершена"),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Открыть документ" }),
@@ -8686,7 +8694,7 @@ describe("Studio PWA", () => {
     await openFocusedJobsList();
     await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
     expect(
-      await screen.findByLabelText("Job detail job-focused"),
+      await screen.findByLabelText("Подробности транскрибации"),
     ).toBeInTheDocument();
 
     expect(
@@ -8808,10 +8816,10 @@ describe("Studio PWA", () => {
     });
 
     expect(
-      await screen.findByLabelText("Job detail job-focused"),
+      await screen.findByLabelText("Подробности транскрибации"),
     ).toHaveTextContent("fresh-detail.mp3");
     expect(
-      await screen.findByLabelText("Результаты job-focused"),
+      await screen.findByLabelText("Результаты транскрибации"),
     ).toHaveTextContent("fresh-output");
 
     await act(async () => {
@@ -8819,10 +8827,10 @@ describe("Studio PWA", () => {
       resolveStaleOutputs?.(await json(outputsBody("stale-output")));
     });
 
-    expect(screen.getByLabelText("Job detail job-focused")).toHaveTextContent(
+    expect(screen.getByLabelText("Подробности транскрибации")).toHaveTextContent(
       "fresh-detail.mp3",
     );
-    expect(screen.getByLabelText("Результаты job-focused")).toHaveTextContent(
+    expect(screen.getByLabelText("Результаты транскрибации")).toHaveTextContent(
       "fresh-output",
     );
     expect(document.body.textContent).not.toContain("stale-detail.mp3");
@@ -9247,6 +9255,14 @@ describe("Studio PWA", () => {
       new File(["failed"], "first-off-panel.ogg", { type: "audio/ogg" }),
     );
     await waitFor(() => expect(putResolvers).toHaveLength(1));
+    const firstInitiation = baseFetch.mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/p1/sources/local-upload/initiate" &&
+        init?.method === "POST",
+    );
+    expect(JSON.parse(String(firstInitiation?.[1]?.body))).toMatchObject({
+      reference_class: "transcription",
+    });
     expect(firstInput).toBeDisabled();
     expect(firstInput).toHaveAttribute("aria-busy", "true");
 
@@ -9734,7 +9750,7 @@ describe("Studio PWA", () => {
 
       expect(
         await screen.findByText(
-          "Сервер не ответил вовремя, но отмена подтверждена по актуальному состоянию задачи.",
+          "Studio не ответила вовремя, но отмена подтверждена по актуальному состоянию задачи.",
         ),
       ).toBeInTheDocument();
       expect(cancelPosts).toBe(1);
@@ -9787,7 +9803,7 @@ describe("Studio PWA", () => {
 
       expect(
         await screen.findByText(
-          "Сервер не ответил вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
+          "Studio не ответила вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
         ),
       ).toBeInTheDocument();
       expect(dismissPosts).toBe(1);
@@ -9879,7 +9895,7 @@ describe("Studio PWA", () => {
 
       expect(
         await screen.findByText(
-          "Сервер не ответил вовремя, но повтор подтверждён по актуальному состоянию задачи.",
+          "Studio не ответила вовремя, но повтор подтверждён по актуальному состоянию задачи.",
         ),
       ).toBeInTheDocument();
       expect(retryPosts).toBe(1);
@@ -9965,7 +9981,7 @@ describe("Studio PWA", () => {
 
       expect(
         await screen.findByText(
-          "Сервер не ответил вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.",
+          "Studio не ответила вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.",
         ),
       ).toBeInTheDocument();
       expect(reconciliationPosts).toBe(1);
@@ -9982,29 +9998,20 @@ describe("Studio PWA", () => {
     });
     await openFocusedJobsList();
     await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
-    const outputs = await screen.findByLabelText("Результаты job-focused");
-    expect(outputs).toHaveTextContent(/Состояние задачи:\s*В очереди/);
-    expect(outputs).toHaveTextContent("Результатов: 0");
+    const outputs = await screen.findByLabelText("Результаты транскрибации");
     expect(outputs).toHaveTextContent("Результаты пока не созданы.");
     expect(
       within(outputs).queryByRole("link", { name: "Открыть документ" }),
     ).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["failed", "Ошибка"],
-    ["cancelled", "Отменена"],
-  ] as const)(
+  it.each(["failed", "cancelled"] as const)(
     "renders partial outputs for %s jobs without completed-status gating",
-    async (jobStatus, label) => {
+    async (jobStatus) => {
       installFocusedOutputFixture({ jobStatus });
       await openFocusedJobsList();
       await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
-      const outputs = await screen.findByLabelText("Результаты job-focused");
-      expect(outputs).toHaveTextContent(
-        new RegExp(`Состояние задачи:\\s*${label}`),
-      );
-      expect(outputs).toHaveTextContent("Результатов: 1");
+      const outputs = await screen.findByLabelText("Результаты транскрибации");
       expect(outputs).toHaveTextContent(`${jobStatus}-source`);
       expect(
         within(outputs).getByRole("link", { name: "Открыть документ" }),
@@ -10022,7 +10029,7 @@ describe("Studio PWA", () => {
     });
     await openFocusedJobsList();
     await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
-    const detail = await screen.findByLabelText("Job detail job-focused");
+    const detail = await screen.findByLabelText("Подробности транскрибации");
     expect(
       within(detail).getByText("1. focused-source.mp3"),
     ).toBeInTheDocument();
@@ -10044,8 +10051,7 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByText("Не удалось загрузить детали задачи."),
     ).toBeInTheDocument();
-    const outputs = await screen.findByLabelText("Результаты job-focused");
-    expect(outputs).toHaveTextContent("Результатов: 1");
+    const outputs = await screen.findByLabelText("Результаты транскрибации");
     expect(outputs).toHaveTextContent("processing-source");
     expect(
       within(outputs).getByRole("link", { name: "Открыть документ" }),
@@ -10758,12 +10764,14 @@ describe("Studio PWA", () => {
   });
   it("renders polished overview summary cards with separated labels and values", async () => {
     renderApp();
-    const projectsCard = await screen.findByLabelText("Транскрибации");
-    expect(within(projectsCard).getByText("Транскрибации")).toHaveClass(
+    const projectsCard = await screen.findByLabelText("Последние результаты");
+    expect(within(projectsCard).getByText("Транскрибации и результаты")).toHaveClass(
       "summary-label",
     );
-    expect(within(projectsCard).getByText("Доступны")).toHaveClass(
-      "summary-value",
+    await waitFor(() =>
+      expect(within(projectsCard).getByText("Открыть рабочую область")).toHaveClass(
+        "summary-value",
+      ),
     );
     const driveCard = screen.getByLabelText("Google Drive");
     expect(within(driveCard).getByText("Google Drive")).toHaveClass(
@@ -11309,7 +11317,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Сервер не подтвердил импорт папки. Список файлов обновлён; проверьте его и только затем явно выберите папку снова.",
+        "Studio не подтвердила добавление файлов. Список обновлён; проверьте его и только затем выберите папку снова.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -11515,7 +11523,7 @@ describe("Studio PWA", () => {
 
       expect(
         await within(row).findByText(
-          /Сервер не подтвердил подготовку загрузки\. Список файлов обновлён/,
+          /Studio не подтвердила подготовку загрузки\. Список файлов обновлён/,
         ),
       ).toBeInTheDocument();
       expect(initiationSignals).toHaveLength(1);
@@ -11571,7 +11579,7 @@ describe("Studio PWA", () => {
 
     expect(
       await within(row).findByText(
-        /Сервер не подтвердил подготовку загрузки\. Список файлов обновлён/,
+        /Studio не подтвердила подготовку загрузки\. Список файлов обновлён/,
       ),
     ).toBeInTheDocument();
     expect(initiationCalls).toBe(1);
@@ -12094,7 +12102,7 @@ describe("Studio PWA", () => {
 
     expect(
       await within(row).findByText(
-        /Сервер вернул небезопасный ответ для загрузки/,
+        /Studio не смогла безопасно подтвердить загрузку/,
       ),
     ).toBeInTheDocument();
     expect(
@@ -12153,7 +12161,7 @@ describe("Studio PWA", () => {
 
     expect(
       await within(row).findByText(
-        /Сервер вернул несогласованное подтверждение загрузки/,
+        /Studio вернула несогласованное подтверждение загрузки/,
       ),
     ).toBeInTheDocument();
     expect(row).not.toHaveTextContent("different.ogg");
@@ -12233,7 +12241,7 @@ describe("Studio PWA", () => {
         }),
       );
       await userEvent.click(
-        screen.getByRole("button", { name: "Повторить загрузку правил" }),
+        screen.getByRole("button", { name: "Проверить ещё раз" }),
       );
 
       expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
@@ -12660,8 +12668,8 @@ describe("settings diagnostics", () => {
 
   async function openDiagnosticsSettings() {
     await openSettingsSection("Подключения");
-    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
-    await screen.findByRole("heading", { name: "Диагностика" });
+    await userEvent.click(screen.getByRole("tab", { name: "Для поддержки" }));
+    await screen.findByRole("heading", { name: "Для поддержки" });
   }
 
   function installBasicPlatformSettingsFixture() {
@@ -12911,7 +12919,7 @@ describe("settings diagnostics", () => {
       ),
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Для поддержки" }));
     expect(await screen.findByText(/Ключ отозван/)).toBeInTheDocument();
     expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
     confirmSpy.mockRestore();
@@ -12973,7 +12981,7 @@ describe("settings diagnostics", () => {
     );
 
     await openSettingsPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Для поддержки" }));
     expect(await screen.findByText(/Другие сеансы завершены/)).toBeInTheDocument();
     expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
   });
@@ -13372,9 +13380,9 @@ describe("settings diagnostics", () => {
       await screen.findByRole("heading", { name: "Аккаунт" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
-    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Для поддержки" }));
     expect(
-      await screen.findByRole("heading", { name: "Диагностика" }),
+      await screen.findByRole("heading", { name: "Для поддержки" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/diagnostics");
     await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
@@ -13390,7 +13398,7 @@ describe("settings diagnostics", () => {
     window.history.replaceState({}, "", "/settings/diagnostics");
     renderApp();
     expect(
-      await screen.findByRole("heading", { name: "Диагностика" }),
+      await screen.findByRole("heading", { name: "Для поддержки" }),
     ).toBeInTheDocument();
     window.history.pushState({}, "", "/settings");
     fireEvent.popState(window);
@@ -13437,7 +13445,7 @@ describe("settings diagnostics", () => {
     );
     renderApp();
     expect(
-      await screen.findByRole("heading", { name: "Диагностика" }),
+      await screen.findByRole("heading", { name: "Для поддержки" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/diagnostics");
     expect(window.location.search).toBe("?keep=1");
@@ -13567,7 +13575,7 @@ describe("settings diagnostics", () => {
     renderApp();
     await openDiagnosticsSettings();
 
-    expect(screen.getByRole("tab", { name: "Диагностика" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Для поддержки" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -14736,7 +14744,7 @@ describe("Settings DEBUG session controls", () => {
     await userEvent.click(
       screen.getAllByRole("button", { name: "Настройки" })[0],
     );
-    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Для поддержки" }));
   }
 
   it("renders loading, inactive defaults, active status, start and stop flows without browser storage", async () => {

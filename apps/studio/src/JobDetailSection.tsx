@@ -31,8 +31,7 @@ export function JobDetailSection({
   const partialRestart = isPartialProviderRestart(retry?.data);
 
   return (
-    <section aria-label={`Job detail ${job.id}`}>
-      <p>UUID: {job.id}</p>
+    <section aria-label="Подробности транскрибации">
       <p>Язык: {transcriptionLanguageModeLabel(job.language_mode)}</p>
       <p>
         Разделение спикеров: {job.diarization_enabled ? "Включено" : "Выключено"}
@@ -54,7 +53,7 @@ export function JobDetailSection({
       )}
 
       {job.status === "failed" && (
-        <div className="resource-actions" aria-label="Safe retry action">
+        <div className="resource-actions" aria-label="Действия после ошибки">
           {retry?.data?.available ? (
             <>
               {partialResume && (
@@ -115,6 +114,10 @@ export function JobDetailSection({
           )}
         </article>
       ))}
+      <details className="technical-details job-support-details">
+        <summary>Данные для поддержки</summary>
+        <p>Идентификатор задачи: {job.id}</p>
+      </details>
     </section>
   );
 }

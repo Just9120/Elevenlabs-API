@@ -65,7 +65,7 @@ export function JobProgressPipeline({
         {progress.total_source_count}
       </span>
       <p className="muted">
-        Процент обновляется только после подтверждённых серверных этапов.
+        Процент обновляется только после подтверждённых этапов обработки.
       </p>
       {progress.sources.map((source) => (
         <div className="job-progress-source" key={source.position}>

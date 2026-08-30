@@ -55,7 +55,7 @@ describe("JobCardSummary", () => {
     expect(document.body).not.toHaveTextContent(unsafeUrl);
   });
 
-  it("renders a processing cancellation timestamp and a safe error summary", () => {
+  it("renders a processing cancellation timestamp", () => {
     render(
       <JobCardSummary
         job={{
@@ -68,7 +68,45 @@ describe("JobCardSummary", () => {
     );
 
     expect(screen.getByText(/Отмена запрошена:/)).toBeInTheDocument();
-    expect(screen.getByText("Ошибка: Provider failed")).toBeInTheDocument();
+    expect(screen.queryByText(/Provider failed/)).not.toBeInTheDocument();
+  });
+
+  it("localizes a known failure and keeps the code in support details", async () => {
+    render(
+      <JobCardSummary
+        job={{
+          ...job,
+          status: "failed",
+          error_code: "provider_unavailable",
+          error_message: "raw provider response",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Сервис распознавания временно недоступен. Попробуйте позже."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/raw provider response/)).not.toBeInTheDocument();
+    expect(screen.getByText("Данные для поддержки")).toBeInTheDocument();
+    expect(screen.getByText("Код ошибки: provider_unavailable")).toBeInTheDocument();
+  });
+
+  it("does not expose an unknown provider message", () => {
+    render(
+      <JobCardSummary
+        job={{
+          ...job,
+          status: "failed",
+          error_code: "provider_error",
+          error_message: "private upstream diagnostic",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Не удалось завершить обработку/),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("private upstream diagnostic");
   });
 
   it("keeps a split job identifiable in active state and history", () => {

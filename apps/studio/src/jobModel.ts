@@ -208,3 +208,37 @@ export function jobСтатусLabel(status: JobСтатус) {
   };
   return labels[status];
 }
+
+const JOB_ERROR_LABELS: Record<string, string> = {
+  malformed_provider_response:
+    "Сервис распознавания вернул неполный ответ. Откройте детали задачи и проверьте доступное безопасное продолжение.",
+  provider_authentication_failed:
+    "Сервис распознавания отклонил ключ. Проверьте подключение ElevenLabs в настройках.",
+  provider_rate_limited:
+    "Сервис распознавания временно ограничил запросы. Подождите и повторите доступное безопасное действие.",
+  provider_unavailable:
+    "Сервис распознавания временно недоступен. Попробуйте позже.",
+  source_unavailable:
+    "Исходный файл больше недоступен. Выберите файл заново.",
+  output_reconciliation_required:
+    "Создание результата не подтверждено. Запустите проверку результата в карточке задачи.",
+};
+
+function normalizedErrorCode(value: string | null | undefined) {
+  const code = value?.trim().toLowerCase() ?? "";
+  return /^[a-z0-9][a-z0-9_.-]{0,79}$/.test(code) ? code : null;
+}
+
+export function jobErrorPresentation(job: TranscriptionJob) {
+  const message = job.error_message?.trim() ?? "";
+  const messageCode = normalizedErrorCode(message);
+  const supportCode = normalizedErrorCode(job.error_code) ?? messageCode;
+  if (supportCode && JOB_ERROR_LABELS[supportCode]) {
+    return { message: JOB_ERROR_LABELS[supportCode], supportCode };
+  }
+  return {
+    message:
+      "Не удалось завершить обработку. Откройте детали задачи и проверьте доступное безопасное продолжение.",
+    supportCode,
+  };
+}
