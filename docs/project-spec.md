@@ -37,12 +37,12 @@ Current operational Goal: `PWA-USER-UX-STORAGE-ISOLATION-01` на branch `codex/
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **71,3% (`214/300`)** | новый owner-approved UX denominator `+12`; до implementation ни один новый `PUX-*` AC не засчитан |
-| Non-commercial scope | **74,1% (`246/332`)** | Colab `32/32` + personal PWA `214/300` |
+| Personal Studio PWA | **75,7% (`227/300`)** | previous `214` + выполненные local CODE/TEST-backed `PUX-01..12` и `STORAG-16`; Evidence ещё не закрывает READY |
+| Non-commercial scope | **78,0% (`259/332`)** | Colab `32/32` + personal PWA `227/300` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **42,9% (`246/574`)** | `246 / (332 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **45,1% (`259/574`)** | `259 / (332 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`; они ещё не выполнены, поэтому current denominator равен `574`, numerator остаётся `246`. `STORAG-16..21` уже входили в denominator и будут менять только numerator после фактического выполнения. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, поэтому current denominator равен `574`. Текущая Goal локально выполнила `PUX-01..12` и `STORAG-16`, подняв numerator до `259`; required CI/DEPLOY/LIVE Evidence остаётся отдельным gate и не делает эпики READY. `STORAG-17..21` уже входят в denominator, но не засчитаны без фактических distinct provider buckets/lifecycle/access boundaries. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -154,24 +154,24 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-USER-EXPERIENCE-02` — пользовательский язык и progressive disclosure
 
-Status: **🟦 IN PROGRESS — 0% (`0/12`)**. Owner-approved implementation начата Goal `PWA-USER-UX-STORAGE-ISOLATION-01`; текущий production audit является SPEC input, но не CODE/TEST/LIVE Evidence нового поведения.
+Status: **🟦 IN PROGRESS — 100% (`12/12`)**. Все atomic AC реализованы и покрыты local unit/component tests; narrow browser test добавлен, но exact-head CI, deployment и authenticated production LIVE ещё не выполнены, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PUX-01` | Обзор приоритетно показывает пользовательские действия, текущую работу и доступные результаты; configuration counters не выступают главным содержанием страницы. | — |
-| `PUX-02` | Основной flow `Подготовка аудио` описывает варианты выбора по пользовательскому результату; S3, server-side FFmpeg, MIME, bytes и иные implementation details не показываются без явного раскрытия технических деталей. | — |
-| `PUX-03` | Composer и preflight транскрибации используют понятные русские действия и явную non-color-only индикацию важных опций; internal source/output type names и identifiers не входят в default presentation. | — |
-| `PUX-04` | Одиночная job отображается как `Транскрибация`, а batch с несколькими jobs — как `Группа транскрибаций`; служебные labels `Мульти-транскрибация` и `Элемент N` отсутствуют в default presentation. | — |
-| `PUX-05` | Terminal notice имеет семантически корректный visual/ARIA tone для success, failure и cancellation; failed/cancelled state не использует success styling. | — |
-| `PUX-06` | Пользователь видит локализованную actionable ошибку; raw backend/provider error code не показывается по умолчанию и доступен только в явно раскрытых данных для поддержки. | — |
-| `PUX-07` | Job/History cards не дублируют одинаковые timestamps и metadata; UUID, storage/source/output technical types и расширенные processing details находятся под явным disclosure. | — |
-| `PUX-08` | Основной Live flow объясняет захват, временное восстановление и результат пользовательским русским языком; model/VAD/checkpoint/storage/reconnect implementation details находятся под disclosure `Технические детали`. | — |
-| `PUX-09` | Transcript maintenance использует user-task terms (`проверка`, `применение`, `актуальный формат`) в основных controls/messages; `dry-run`, metadata, catalog и standard identifiers показываются только как secondary technical help. | — |
-| `PUX-10` | Maintenance result сначала показывает summary и доступные действия, а длинные document lists имеют filter и bounded pagination/progressive disclosure без unbounded render всех строк. | — |
-| `PUX-11` | В Settings обычные подключения и пользовательские storage preferences отделены от diagnostics, runtime identity, debug/export и maintenance access, которые явно обозначены как раздел для поддержки/расширенные настройки. | — |
-| `PUX-12` | App-owned Google Drive dialog на viewport `390x844` не имеет horizontal overflow, сохраняет читаемые названия и доступные primary/close controls; modal scroll остаётся изолирован от страницы. | — |
+| `PUX-01` | Обзор приоритетно показывает пользовательские действия, текущую работу и доступные результаты; configuration counters не выступают главным содержанием страницы. | ✅ |
+| `PUX-02` | Основной flow `Подготовка аудио` описывает варианты выбора по пользовательскому результату; S3, server-side FFmpeg, MIME, bytes и иные implementation details не показываются без явного раскрытия технических деталей. | ✅ |
+| `PUX-03` | Composer и preflight транскрибации используют понятные русские действия и явную non-color-only индикацию важных опций; internal source/output type names и identifiers не входят в default presentation. | ✅ |
+| `PUX-04` | Одиночная job отображается как `Транскрибация`, а batch с несколькими jobs — как `Группа транскрибаций`; служебные labels `Мульти-транскрибация` и `Элемент N` отсутствуют в default presentation. | ✅ |
+| `PUX-05` | Terminal notice имеет семантически корректный visual/ARIA tone для success, failure и cancellation; failed/cancelled state не использует success styling. | ✅ |
+| `PUX-06` | Пользователь видит локализованную actionable ошибку; raw backend/provider error code не показывается по умолчанию и доступен только в явно раскрытых данных для поддержки. | ✅ |
+| `PUX-07` | Job/History cards не дублируют одинаковые timestamps и metadata; UUID, storage/source/output technical types и расширенные processing details находятся под явным disclosure. | ✅ |
+| `PUX-08` | Основной Live flow объясняет захват, временное восстановление и результат пользовательским русским языком; model/VAD/checkpoint/storage/reconnect implementation details находятся под disclosure `Технические детали`. | ✅ |
+| `PUX-09` | Transcript maintenance использует user-task terms (`проверка`, `применение`, `актуальный формат`) в основных controls/messages; `dry-run`, metadata, catalog и standard identifiers показываются только как secondary technical help. | ✅ |
+| `PUX-10` | Maintenance result сначала показывает summary и доступные действия, а длинные document lists имеют filter и bounded pagination/progressive disclosure без unbounded render всех строк. | ✅ |
+| `PUX-11` | В Settings обычные подключения и пользовательские storage preferences отделены от diagnostics, runtime identity, debug/export и maintenance access, которые явно обозначены как раздел для поддержки/расширенные настройки. | ✅ |
+| `PUX-12` | App-owned Google Drive dialog на viewport `390x844` не имеет horizontal overflow, сохраняет читаемые названия и доступные primary/close controls; modal scroll остаётся изолирован от страницы. | ✅ |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
@@ -531,7 +531,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `STORAGE-LIFECYCLE-02` — полный storage lifecycle
 
-Status: **🟦 IN PROGRESS — 28,6% (`6/21`)**. Goal `PWA-USER-UX-STORAGE-ISOLATION-01` авторизует только `STORAG-16..21`; остальные незавершённые AC эпика остаются вне implementation scope.
+Status: **🟦 IN PROGRESS — 33,3% (`7/21`)**. Persisted data-class boundary `STORAG-16` реализована и локально подтверждена. `STORAG-17..21` не засчитаны без фактических distinct provider buckets, lifecycle rules и access permissions; остальные незавершённые AC эпика остаются вне implementation scope текущей Goal.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -550,7 +550,7 @@ Status: **🟦 IN PROGRESS — 28,6% (`6/21`)**. Goal `PWA-USER-UX-STORAGE-ISOLA
 | `STORAG-13` | Analytics data имеет явную retention policy. | — |
 | `STORAG-14` | Diagnostic/log data имеет явную retention policy. | ✅ |
 | `STORAG-15` | Deletion считается завершённым только после подтверждения cleanup всеми internal stores. | — |
-| `STORAG-16` | Audio-processing references и transcription references являются разными data classes. | — |
+| `STORAG-16` | Audio-processing references и transcription references являются разными data classes. | ✅ |
 | `STORAG-17` | Audio-reference использует отдельный S3 bucket. | — |
 | `STORAG-18` | Transcription-reference использует отдельный S3 bucket. | — |
 | `STORAG-19` | Audio-reference bucket имеет независимые lifecycle rules. | — |
@@ -1152,9 +1152,9 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 9. Current critical path
 
-1. Реализовать и локально подтвердить `PUX-01..12`: user-facing IA/copy, semantic status/errors, compact History/maintenance, progressive disclosure и mobile Drive dialog.
-2. Реализовать `STORAG-16..21` с раздельными fail-closed runtime configuration, persisted bucket routing, credentials и lifecycle contract; существующие objects не перемещать и не удалять.
-3. Выполнить exact-head CI и applicable protected delivery. Storage migration/configuration считается stateful/external gate и не выполняется скрыто standard CD.
+1. Локальная implementation `PUX-01..12` и persisted storage routing `STORAG-16` завершена; не считать её production behavior до exact-head delivery Evidence.
+2. Получить external operator Evidence для distinct transcription/audio buckets, lifecycle policies и independently scoped credentials; существующие objects не перемещать и не удалять.
+3. Выполнить exact-head CI и только после external storage gate — applicable protected migration/delivery. Storage migration/configuration считается stateful/external gate и не выполняется скрыто standard CD.
 4. Authenticated LIVE не запускает provider job и проверяет bounded UX matrix; storage LIVE требует фактические distinct bucket identities и read/write/cleanup probes без раскрытия names/secrets.
 5. Commercial contour, новый STT/provider behavior/spend, `STORAG-01..15`, DB least privilege и CI/CD policy остаются вне current Goal.
 

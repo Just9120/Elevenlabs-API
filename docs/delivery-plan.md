@@ -20,43 +20,43 @@
   10. `UXSI-10`: focused и full local tests подтверждают UX regressions, narrow viewport, storage configuration/routing/legacy compatibility, secret boundary и existing product behavior.
   11. `UXSI-11`: один initial push после полной local validation, reviewable PR и exact-head required CI завершаются success; failure исправляется одним grouped follow-up batch.
   12. `UXSI-12`: applicable migration/API/web/worker delivery соответствует exact merge revision; bounded authenticated UX LIVE и distinct storage runtime Evidence подтверждены либо Goal честно достигает `PENDING_EXTERNAL_GATE` до external bucket/IAM/lifecycle setup.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** production сейчас подтверждён только с одним legacy source bucket/credential boundary. `STORAG-17..21` требуют два реально distinct buckets, credential pairs и lifecycle policies в operator-managed R2/VPS configuration; standard CD не provision-ит и не переписывает их. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; существующие objects не мигрируются автоматически; после closure к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-29T22:28:34Z.
+- Updated (UTC): 2026-08-30T00:09:56Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@a31770eabcd7a97acfa084252de06f26d041bc1b`.
 - Working branch: `codex/pwa-user-ux-storage-isolation`.
 - Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-pwa-user-ux-storage-isolation`.
-- Last verified revision: base `a31770eabcd7a97acfa084252de06f26d041bc1b`; текущие documentation edits ещё не committed.
+- Last verified revision: `7dd039012638aab2349143a585df306f69d63b01`; UX commit `e1e185c9676851ede8c1c8789d8edfe26b421127` и storage/migration commit `7dd039012638aab2349143a585df306f69d63b01` покрыты финальной local validation.
 - Working tree at Goal start: isolated worktree clean. Основной checkout содержал unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми, основной checkout возвращён на `main`.
-- Completed: восстановлен exact Git/GitHub state; PR `#258`, exact-main CI/CD и owner LIVE reconciled; прочитаны repository, architecture и CI/CD contracts; создана active Goal; зафиксирован новый 12-AC UX denominator и scope `STORAG-16..21`; начат storage/config/code inventory.
-- Current step: завершить implementation design и первый documentation/checkpoint commit.
-- Next exact action: проверить canonical docs consistency, выполнить documentation validation и закоммитить Goal/spec/archive checkpoint; затем реализовать semantic status/error и compact transcription presentation.
-- Validation and Evidence: base exact-main repository CI `33242536922`, Studio PWA CI `33242536918`, Platform CD `33242536907`/`33242827363`, worker operations `33242755832`/`33242786300`/`33242964630` — success. Current branch validation ещё не запускалась.
+- Completed: восстановлен exact Git/GitHub state; PR `#258`, exact-main CI/CD и owner LIVE reconciled; зафиксированы `PUX-01..12` и `STORAG-16..21`; реализованы user-task IA/copy, semantic terminal states, локализованные ошибки с support disclosure, compact single/group/history cards, bounded filterable maintenance results, support-only Settings и narrow Drive dialog; реализованы migration `0029`, persisted reference class и fail-closed routing двух storage boundaries во всех upload/materialization/output/sample/cleanup/diagnostic paths; обновлены compose, preflight, architecture и runbook без изменения CI/CD safety contract.
+- Current step: зафиксировать синхронизированные docs, проверить Actions usage и открыть PR единственным initial push.
+- Next exact action: закоммитить documentation state, подтвердить clean branch и local checks, проверить доступный Actions usage, затем выполнить единственный initial push и создать PR.
+- Validation and Evidence: base exact-main repository CI `33242536922`, Studio PWA CI `33242536918`, Platform CD `33242536907`/`33242827363`, worker operations `33242755832`/`33242786300`/`33242964630` — success. Current branch: `git diff --check` и `python scripts/ci_checks.py` success; Python compileall success; focused storage/backend `147 passed`; Windows-portable broad suite `1132 passed, 5 skipped`; Linux shell/Docker tests не исполнимы в текущем Windows runtime; PostgreSQL-backed API/E2E требуют CI services. Frontend ESLint success; full Vitest `58 files / 636 passed`; TypeScript/Vite/PWA production build success с non-blocking chunk-size warning; Playwright collection `13` tests, включая `390x844` Drive-dialog regression. Narrow Playwright runtime ждёт exact-head CI.
 - Pull Request / CI / deployment: PR отсутствует; branch не pushed. Initial push разрешён только после полной local validation.
 - Blockers: external production bucket/IAM/lifecycle state пока не подтверждён; локальную implementation это не блокирует.
-- Unverified assumptions: provider поддерживает два distinct private S3/R2 buckets и independently scoped credentials/lifecycle; production operator сможет предоставить config без secret disclosure. UX audit основан на authenticated production surface и source review, но все изменённые paths ещё должны пройти narrow and desktop browser regression.
+- Unverified assumptions: provider поддерживает два distinct private S3/R2 buckets и independently scoped credentials/lifecycle; production operator сможет предоставить config без secret disclosure. Narrow Playwright regression написан, но локально не запущен из-за отсутствия PostgreSQL/Docker browser fixture; он требует exact-head CI.
 - Preserved pre-existing changes: шесть `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан после explicit owner addition `PUX-01..12`; ни один новый UX AC до implementation не засчитан. `STORAG-16..21` уже входили в previous denominator. Evidence gate-ит READY, но не меняет numerator.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по фактической local implementation: `PUX-01..12` и persisted data-class boundary `STORAG-16` выполнены; `STORAG-17..21` не засчитаны без external provider Evidence. Evidence gate-ит READY, но не меняет numerator.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **42,9% (`246/574`)** | **43,8% (`246/562`)** | Owner добавил `12` UX AC, выполнено `0/12`; numerator предыдущего Goal подтверждён exact-main delivery/LIVE. Изменение `-0,9` п.п. |
-| **Non-commercial scope** | **74,1% (`246/332`)** | **76,9% (`246/320`)** | Colab `32/32` + personal PWA `214/300`; denominator `+12`. Изменение `-2,8` п.п. |
+| **Полный canonical scope** | **45,1% (`259/574`)** | **42,9% (`246/574`)** | `+12` выполненных PUX AC и `+1` storage AC при неизменном denominator. Изменение `+2,2` п.п. |
+| **Non-commercial scope** | **78,0% (`259/332`)** | **74,1% (`246/332`)** | Colab `32/32` + personal PWA `227/300`. Изменение `+3,9` п.п. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **71,3% (`214/300`)** | **74,3% (`214/288`)** | Новый UX denominator `+12`; storage denominator существовал ранее. Изменение `-3,0` п.п. |
-| `PWA-USER-EXPERIENCE-02` | **0% (`0/12`)** | **N/A** | Новый owner-approved epic; audit evidence не считается implementation. |
-| `STORAGE-LIFECYCLE-02` | **28,6% (`6/21`)** | **28,6% (`6/21`)** | Goal авторизует `STORAG-16..21`, но CODE/TEST ещё отсутствуют. |
+| **Personal Studio PWA canonical** | **75,7% (`227/300`)** | **71,3% (`214/300`)** | `PUX-01..12` и `STORAG-16` выполнены локально. Изменение `+4,4` п.п. |
+| `PWA-USER-EXPERIENCE-02` | **100% (`12/12`)** | **0% (`0/12`)** | Все AC имеют CODE и local TEST evidence, но CI/DEPLOY/LIVE ещё отсутствуют; эпик не READY. Изменение `+100` п.п. обусловлено завершением всего нового 12-AC epic scope в одной owner-approved Goal. |
+| `STORAGE-LIFECYCLE-02` | **33,3% (`7/21`)** | **28,6% (`6/21`)** | Persisted distinct reference data classes выполнены; external buckets/lifecycle/access ещё не подтверждены. Изменение `+4,7` п.п. |
 
-Ни одна сопоставимая оценка не изменилась более чем на `10` п.п.; новый эпик не сравнивается с отсутствовавшим denominator.
+Общая, non-commercial, PWA и storage оценки изменились менее чем на `10` п.п. `PWA-USER-EXPERIENCE-02` изменился на `+100` п.п., потому что единая Goal реализовала все `12/12` его atomic AC; Evidence gate всё ещё удерживает lifecycle state `IN PROGRESS`.
 
 ## Candidate next Goals
 
