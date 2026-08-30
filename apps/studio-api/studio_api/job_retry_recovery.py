@@ -13,8 +13,9 @@ from .provider_part_checkpoints import checkpoint_resume_count, delete_provider_
 
 MAX_PROCESSING_ATTEMPTS = 3
 SAFE_PROVIDER_FAILURES = {"provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited"}
+SAFE_PRE_TRANSPORT_FAILURES = SAFE_PROVIDER_FAILURES | {"provider_usage_accounting_unavailable"}
 UNCERTAIN_PROVIDER_FAILURES = {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "lifecycle_changed_after_provider_call", "lease_heartbeat_failed", "lease_heartbeat_not_owned", "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "context_closed", "unknown"}
-PRE_PROVIDER_SAFE_FAILURES = {"prerequisites_unavailable", "source_materialization_unavailable", "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large", "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_state_persistence_failed", "pipeline_transcription_failed", "pipeline_output_reconciliation_prepare_failed"}
+PRE_PROVIDER_SAFE_FAILURES = {"prerequisites_unavailable", "source_materialization_unavailable", "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large", "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_state_persistence_failed", "pipeline_transcription_failed", "pipeline_output_reconciliation_prepare_failed", "provider_pricing_unavailable", "provider_usage_accounting_unavailable"}
 
 class RetryReason(str, Enum):
     available="available"; partial_provider_resume_available="partial_provider_resume_available"; partial_provider_restart_available="partial_provider_restart_available"; job_not_failed="job_not_failed"; cancelled="cancelled"; completed="completed"; attempt_limit_reached="attempt_limit_reached"; provider_outcome_uncertain="provider_outcome_uncertain"; provider_result_lost="provider_result_lost"; output_reconciliation_required="output_reconciliation_required"; legacy_or_unknown_execution_state="legacy_or_unknown_execution_state"; prerequisites_unavailable="prerequisites_unavailable"; non_retryable="non_retryable"
@@ -181,7 +182,7 @@ def classify_source_attempt_failure(db, *, job_source_id, failure_code, now, job
     elif code != "partial_provider_result":
         row.provider_failure_code=None
     row.failed_at=row.failed_at or now; row.updated_at=now
-    if code in SAFE_PROVIDER_FAILURES or (row.provider_request_started_at is None and code in PRE_PROVIDER_SAFE_FAILURES): row.retry_disposition=Disp.retry_safe
+    if code in SAFE_PRE_TRANSPORT_FAILURES or (row.provider_request_started_at is None and code in PRE_PROVIDER_SAFE_FAILURES): row.retry_disposition=Disp.retry_safe
     elif code in {"output_reconciliation_required", "existing_reconciliation_case"}: row.retry_disposition=Disp.output_reconciliation_required
     elif row.provider_response_returned_at is not None: row.retry_disposition=Disp.provider_result_lost
     elif row.provider_request_started_at is not None: row.retry_disposition=Disp.provider_outcome_uncertain
@@ -241,7 +242,7 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
             if job.error_code in {"pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed"}: safe+=1
             else: reason=reason or RetryReason.legacy_or_unknown_execution_state
         elif att.stage==Stage.prepared and att.provider_request_started_at is None: safe+=1
-        elif att.retry_disposition==Disp.retry_safe and (att.provider_request_started_at is None or att.failure_code in SAFE_PROVIDER_FAILURES): safe+=1
+        elif att.retry_disposition==Disp.retry_safe and (att.provider_request_started_at is None or att.failure_code in SAFE_PRE_TRANSPORT_FAILURES): safe+=1
         elif att.failure_code=="partial_provider_result":
             resumed = (
                 checkpoint_resume_count(

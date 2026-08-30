@@ -21,6 +21,16 @@ const valid = {
     language_mode: { ru: 1, en: 1, detect: 1, other: 0 },
     diarization: { enabled: 1, disabled: 2 },
   },
+  usage_cost: {
+    confirmed_billed_duration_seconds: 3600,
+    confirmed_provider_cost: "0.22000000",
+    currency: "USD",
+    cost_basis: "confirmed_audio_duration_x_rate_snapshot",
+    complete_jobs: 1,
+    uncertain_jobs: 1,
+    unavailable_jobs: 1,
+    in_progress_jobs: 0,
+  },
   durations: {
     queue: {
       sample_count: 2,
@@ -119,6 +129,27 @@ describe("transcription analytics parser", () => {
             ...valid.durations.queue,
             p95_seconds: -1,
           },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects fabricated or malformed provider accounting", () => {
+    expect(
+      parseTranscriptionAnalytics({
+        ...valid,
+        usage_cost: {
+          ...valid.usage_cost,
+          confirmed_provider_cost: "about 0.22",
+        },
+      }),
+    ).toBeNull();
+    expect(
+      parseTranscriptionAnalytics({
+        ...valid,
+        usage_cost: {
+          ...valid.usage_cost,
+          complete_jobs: 3,
         },
       }),
     ).toBeNull();

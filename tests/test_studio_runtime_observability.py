@@ -33,7 +33,7 @@ def identity(component: str = "worker", commit: str = "a" * 40):
 
 def test_runtime_status_migration_is_single_additive_head():
     script = ScriptDirectory.from_config(Config(str(ROOT / "apps/studio-api/alembic.ini")))
-    assert script.get_heads() == ["0029_source_reference_class"]
+    assert script.get_heads() == ["0030_provider_usage_accounting"]
     revision = script.get_revision("0026_runtime_component_status")
     assert revision is not None
     assert revision.down_revision == "0025_audio_preparation"

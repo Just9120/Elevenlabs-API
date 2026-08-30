@@ -5,7 +5,7 @@ import uuid
 import base64
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +26,9 @@ class Settings:
     source_max_upload_bytes: int = 1000
     source_s3_bucket: str = "bucket"
     provider_part_checkpoint_ttl_seconds: int = 86400
+    elevenlabs_scribe_v2_rate_per_hour_usd: str = "0.22"
+    elevenlabs_pricing_effective_date: date = date(2026, 8, 30)
+    elevenlabs_pricing_source: str = "elevenlabs_public_api_pricing"
 
     def master_key_b64(self) -> str:
         return base64.b64encode(b"1" * 32).decode("ascii")
@@ -299,6 +302,7 @@ def fake_media_preparer(**kwargs):
         mime_type=kwargs["mime_type"],
         byte_count=kwargs["byte_count"],
         stream=kwargs["stream"],
+        duration_seconds=1.0,
     )
 
 
@@ -789,13 +793,14 @@ def test_video_is_prepared_before_provider_and_revalidated_after_preparation(db,
         preparation_calls.append(kwargs)
         stream = BytesIO(b"prepared-audio")
         try:
-            yield PreparedMediaInput(
-                filename="private meeting.m4a",
-                mime_type="audio/mp4",
-                byte_count=14,
-                stream=stream,
-                audio_extracted=True,
-            )
+                yield PreparedMediaInput(
+                    filename="private meeting.m4a",
+                    mime_type="audio/mp4",
+                    byte_count=14,
+                    stream=stream,
+                    audio_extracted=True,
+                    duration_seconds=1.0,
+                )
         finally:
             stream.close()
             preparation_state["closed"] = True
@@ -1284,7 +1289,13 @@ def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, 
     monkeypatch.setattr(mod, "write_diagnostic_event", lambda **kw: events.append(kw) or SimpleNamespace(accepted=True, persisted=True))
     with run_boundary(db, models, job, rel, CaptureTransport(), now):
         pass
-    assert [e["event_code"] for e in events] == ["SOURCE_VALIDATION_STARTED", "SOURCE_READY", "PROVIDER_REQUEST_STARTED", "PROVIDER_REQUEST_COMPLETED"]
+    assert [e["event_code"] for e in events] == [
+        "SOURCE_VALIDATION_STARTED",
+        "SOURCE_READY",
+        "PROVIDER_REQUEST_STARTED",
+        "PROVIDER_USAGE_CONFIRMED",
+        "PROVIDER_REQUEST_COMPLETED",
+    ]
     assert all(e["correlation_id"] == "corr_abcdefghijklmnop" and e.get("request_id") is None for e in events)
 
 

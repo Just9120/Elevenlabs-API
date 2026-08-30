@@ -24,11 +24,12 @@ def studio_model_modules(monkeypatch, tmp_path):
     monkeypatch.setenv("STUDIO_DATABASE_USER", "studio_test")
     monkeypatch.setenv("STUDIO_POSTGRES_PASSWORD_FILE", str(password_file))
     monkeypatch.setenv("STUDIO_CREDENTIAL_MASTER_KEY_FILE", str(master_key_file))
-    from studio_api.job_retry_recovery import MAX_PROCESSING_ATTEMPTS, PRE_PROVIDER_SAFE_FAILURES, SAFE_PROVIDER_FAILURES, UNCERTAIN_PROVIDER_FAILURES
+    from studio_api.job_retry_recovery import MAX_PROCESSING_ATTEMPTS, PRE_PROVIDER_SAFE_FAILURES, SAFE_PRE_TRANSPORT_FAILURES, SAFE_PROVIDER_FAILURES, UNCERTAIN_PROVIDER_FAILURES
     from studio_api.models import SourceAttemptRetryDisposition, SourceAttemptStage, TranscriptionJobSourceAttempt
     return {
         "MAX_PROCESSING_ATTEMPTS": MAX_PROCESSING_ATTEMPTS,
         "SAFE_PROVIDER_FAILURES": SAFE_PROVIDER_FAILURES,
+        "SAFE_PRE_TRANSPORT_FAILURES": SAFE_PRE_TRANSPORT_FAILURES,
         "UNCERTAIN_PROVIDER_FAILURES": UNCERTAIN_PROVIDER_FAILURES,
         "PRE_PROVIDER_SAFE_FAILURES": PRE_PROVIDER_SAFE_FAILURES,
         "SourceAttemptRetryDisposition": SourceAttemptRetryDisposition,
@@ -48,6 +49,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
         "undetermined", "retry_safe", "provider_outcome_uncertain", "provider_result_lost", "output_reconciliation_required", "non_retryable", "completed"
     }
     assert {"provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited"} <= studio_model_modules["SAFE_PROVIDER_FAILURES"]
+    assert "provider_usage_accounting_unavailable" in studio_model_modules["SAFE_PRE_TRANSPORT_FAILURES"]
+    assert "provider_usage_outcome_uncertain" not in studio_model_modules["SAFE_PRE_TRANSPORT_FAILURES"]
     assert {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "unknown"} <= studio_model_modules["UNCERTAIN_PROVIDER_FAILURES"]
     assert {"ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large"} <= studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
     assert "media_clip_out_of_bounds" not in studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
@@ -63,8 +66,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0029_source_reference_class"]
-    assert script.get_current_head() == "0029_source_reference_class"
+    assert script.get_heads() == ["0030_provider_usage_accounting"]
+    assert script.get_current_head() == "0030_provider_usage_accounting"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():
@@ -175,6 +178,40 @@ def test_prepare_current_attempt_sources_requires_exact_processing_context_and_a
         prepare_current_attempt_sources(sqlite_db, job_id=job.id, lease_owner_id="wrong", lease_generation=7, now=now)
     with pytest.raises(RuntimeError, match="retry_state_processing_context_invalid"):
         prepare_current_attempt_sources(sqlite_db, job_id=job.id, lease_owner_id="worker", lease_generation=8, now=now)
+
+
+def test_pre_transport_accounting_failure_is_retry_safe_but_uncertain_outcome_is_not(sqlite_db):
+    from studio_api.job_retry_recovery import classify_source_attempt_failure
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db, source_count=2
+    )
+    safe_attempt = _attempt(sqlite_db, m, job, rels[0], started=True)
+    uncertain_attempt = _attempt(sqlite_db, m, job, rels[1], started=True)
+
+    classify_source_attempt_failure(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        failure_code="provider_usage_accounting_unavailable",
+        now=now,
+    )
+    classify_source_attempt_failure(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[1].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        failure_code="provider_usage_outcome_uncertain",
+        now=now,
+    )
+    assert safe_attempt.retry_disposition == m.SourceAttemptRetryDisposition.retry_safe
+    assert (
+        uncertain_attempt.retry_disposition
+        == m.SourceAttemptRetryDisposition.provider_outcome_uncertain
+    )
 
 
 def test_provider_part_progress_is_durable_monotonic_and_bounded(sqlite_db):

@@ -65,7 +65,7 @@ ERROR_CODES = frozenset({
     "media_duration_unavailable", "media_split_failed", "media_part_too_large", "media_clip_out_of_bounds", "partial_provider_result",
     "pipeline_google_docs_failed", "output_reconciliation_required", "incomplete_output_coverage", "commit_failed",
     "no_required_sources", "cancellation_requested", "google_docs_failed", "transcription_failed", "lease_heartbeat_failed", "lease_heartbeat_not_owned",
-    "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_attempt_limit_reached", "retry_recovery_state_unknown",
+    "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_attempt_limit_reached", "retry_recovery_state_unknown", "provider_pricing_unavailable", "provider_usage_accounting_unavailable", "provider_usage_outcome_uncertain",
 })
 HTTP_STATUS_CATEGORIES = frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "unknown"})
 RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
@@ -119,6 +119,7 @@ REGISTRY: dict[str, EventDef] = {
     "SOURCE_READY": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True)}),
     "PROVIDER_REQUEST_STARTED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True), "boundary": R("enum", choices=BOUNDARIES)}),
     "PROVIDER_REQUEST_COMPLETED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True), "duration_ms": R("int", min=0, max=86400000)}),
+    "PROVIDER_USAGE_CONFIRMED": EventDef(frozenset({"worker"}), "INFO", {"duration_ms": R("int", min=1, max=604800000, required=True), "cost_eight_decimal_units": R("int", min=0, max=10000000000000, required=True), "currency": R("enum", choices=frozenset({"USD"}), required=True)}),
     "PROVIDER_REQUEST_FAILED": EventDef(frozenset({"worker"}), "ERROR", {"boundary": R("enum", choices=BOUNDARIES, required=True), "error_code": R("enum", choices=ERROR_CODES, required=True), "retryable": R("bool", required=True), "attempt_number": R("int", min=1, max=1000, required=True), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES)}),
 
     "LEASE_HEARTBEAT_STARTED": EventDef(frozenset({"worker"}), "INFO", {"stage": R("enum", choices=frozenset({"source_provider", "google_output"}), required=True), "attempt_number": R("int", min=0, max=1000)}),

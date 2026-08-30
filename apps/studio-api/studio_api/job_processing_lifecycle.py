@@ -13,6 +13,7 @@ from .job_lifecycle import safe_failure_metadata_value
 from .models import JobStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, JobSourceStatus
 from sqlalchemy import func
 from .provider_part_checkpoints import delete_provider_part_checkpoints
+from .provider_usage_accounting import finalize_job_provider_accounting
 
 
 class JobProcessingFailureReason(str, Enum):
@@ -81,6 +82,7 @@ def request_job_cancellation(db: Session, *, job_id: str, now: datetime) -> tupl
         invalidate_job_lease(job)
         changed = True
         event_type = "job.cancelled"
+        finalize_job_provider_accounting(db, job=job, now=now)
     elif job.status == JobStatus.processing and job.cancel_requested_at is None:
         job.cancel_requested_at = now
         job.updated_at = now
@@ -104,6 +106,7 @@ def acknowledge_job_cancellation(db: Session, *, job_id: str, lease_owner_id: st
     job.updated_at = now
     delete_provider_part_checkpoints(db, job_id=job.id)
     invalidate_job_lease(job)
+    finalize_job_provider_accounting(db, job=job, now=now)
     db.flush()
     return _result(job)
 
@@ -119,6 +122,7 @@ def fail_job_processing(db: Session, *, job_id: str, lease_owner_id: str, lease_
     job.error_code = safe_failure_metadata_value(error_code)
     job.error_message = safe_failure_metadata_value(error_message)
     invalidate_job_lease(job)
+    finalize_job_provider_accounting(db, job=job, now=now)
     db.flush()
     return _result(job)
 
@@ -155,6 +159,8 @@ def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -
                 job.error_code = mapping.get(ready.reason.value, "retry_recovery_state_unknown")
                 job.error_message = job.error_code
     job.updated_at = now
+    if job.status in {JobStatus.cancelled, JobStatus.failed, JobStatus.completed}:
+        finalize_job_provider_accounting(db, job=job, now=now)
     invalidate_job_lease(job)
     db.flush()
     return _result(job)

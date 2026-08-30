@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .google_docs_output import GOOGLE_DOC_MIME_TYPE, OUTPUT_RECONCILIATION_APP_PROPERTY
 from .job_output_persistence import GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND, TRANSCRIPT_STANDARD
 from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Project, Source, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
+from .provider_usage_accounting import finalize_job_provider_accounting
 from .security import utcnow
 from .job_retry_recovery import mark_latest_attempt_completed_for_output
 
@@ -109,7 +110,7 @@ def persist_verified_reconciliation_output(db: Session, *, case: TranscriptionOu
     required=[r.id for r in db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.job_id==job.id)).scalars().all() if r.status!=JobSourceStatus.skipped]
     count=db.execute(select(func.count(TranscriptionJobOutput.id)).where(TranscriptionJobOutput.job_id==job.id, TranscriptionJobOutput.job_source_id.in_(required or ["__none__"]))).scalar_one()
     if job.status==JobStatus.failed and job.error_code==OUTPUT_RECONCILIATION_ERROR_CODE and required and int(count)==len(required):
-        job.status=JobStatus.completed; job.finished_at=now; job.error_code=None; job.error_message=None; job.updated_at=now
+        job.status=JobStatus.completed; job.finished_at=now; job.error_code=None; job.error_message=None; job.updated_at=now; finalize_job_provider_accounting(db, job=job, now=now)
     return True
 
 def verify_candidate(case, candidate):

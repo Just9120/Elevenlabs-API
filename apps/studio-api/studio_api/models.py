@@ -1,6 +1,7 @@
 import enum, uuid
-from datetime import datetime, timezone
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .source_policy import DEFAULT_SOURCE_RETENTION_TTL_SECONDS
@@ -234,10 +235,18 @@ class TranscriptionJob(Base):
     lease_generation: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
     claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    provider_billed_duration_ms: Mapped[int|None]=mapped_column(BigInteger, default=0)
+    provider_cost_amount: Mapped[Decimal|None]=mapped_column(Numeric(18, 8), default=Decimal("0"))
+    provider_cost_currency: Mapped[str|None]=mapped_column(String(3), default="USD")
+    provider_rate_per_hour: Mapped[Decimal|None]=mapped_column(Numeric(12, 6))
+    provider_rate_effective_date: Mapped[date|None]=mapped_column(Date)
+    provider_rate_source: Mapped[str|None]=mapped_column(String(80))
+    provider_accounting_complete: Mapped[bool|None]=mapped_column(Boolean, default=False)
+    provider_accounting_uncertain: Mapped[bool|None]=mapped_column(Boolean, default=False)
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
     speakers: Mapped[list["TranscriptionJobSpeaker"]]=relationship("TranscriptionJobSpeaker", order_by="TranscriptionJobSpeaker.display_ordinal")
-    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), CheckConstraint("provider_billed_duration_ms IS NULL OR provider_billed_duration_ms >= 0", name="ck_transcription_jobs_provider_duration_nonnegative"), CheckConstraint("provider_cost_amount IS NULL OR provider_cost_amount >= 0", name="ck_transcription_jobs_provider_cost_nonnegative"), CheckConstraint("provider_cost_currency IS NULL OR provider_cost_currency = 'USD'", name="ck_transcription_jobs_provider_currency"), CheckConstraint("provider_rate_per_hour IS NULL OR provider_rate_per_hour > 0", name="ck_transcription_jobs_provider_rate_positive"), CheckConstraint("NOT (provider_accounting_complete IS TRUE AND provider_accounting_uncertain IS TRUE)", name="ck_transcription_jobs_provider_accounting_consistent"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
 
     def apply_output_folder_snapshot(self, *, folder_id=None, folder_url=None, folder_name=None):
         from .job_output_folder_selection import normalize_drive_id, normalize_drive_url, normalize_optional_name
@@ -480,6 +489,15 @@ class TranscriptionJobSourceAttempt(Base):
     provider_response_returned_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     provider_total_parts: Mapped[int|None]=mapped_column(Integer)
     provider_completed_parts: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
+    provider_accounting_status: Mapped[str|None]=mapped_column(String(24), default="not_started")
+    provider_pending_part_index: Mapped[int|None]=mapped_column(Integer)
+    provider_pending_duration_ms: Mapped[int|None]=mapped_column(BigInteger)
+    provider_billed_duration_ms: Mapped[int|None]=mapped_column(BigInteger, default=0)
+    provider_cost_amount: Mapped[Decimal|None]=mapped_column(Numeric(18, 8), default=Decimal("0"))
+    provider_cost_currency: Mapped[str|None]=mapped_column(String(3), default="USD")
+    provider_rate_per_hour: Mapped[Decimal|None]=mapped_column(Numeric(12, 6))
+    provider_rate_effective_date: Mapped[date|None]=mapped_column(Date)
+    provider_rate_source: Mapped[str|None]=mapped_column(String(80))
     failed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
@@ -490,6 +508,14 @@ class TranscriptionJobSourceAttempt(Base):
         CheckConstraint("provider_total_parts IS NULL OR provider_total_parts > 0", name="ck_source_attempt_provider_total_parts_positive"),
         CheckConstraint("provider_completed_parts >= 0", name="ck_source_attempt_provider_completed_parts_nonnegative"),
         CheckConstraint("provider_total_parts IS NULL OR provider_completed_parts <= provider_total_parts", name="ck_source_attempt_provider_parts_bounded"),
+        CheckConstraint("provider_accounting_status IS NULL OR provider_accounting_status IN ('not_started','pending','confirmed','uncertain')", name="ck_source_attempt_provider_accounting_status"),
+        CheckConstraint("provider_pending_part_index IS NULL OR provider_pending_part_index >= 0", name="ck_source_attempt_provider_pending_part_nonnegative"),
+        CheckConstraint("provider_pending_duration_ms IS NULL OR provider_pending_duration_ms > 0", name="ck_source_attempt_provider_pending_duration_positive"),
+        CheckConstraint("((provider_pending_part_index IS NULL AND provider_pending_duration_ms IS NULL) OR (provider_pending_part_index IS NOT NULL AND provider_pending_duration_ms IS NOT NULL))", name="ck_source_attempt_provider_pending_shape"),
+        CheckConstraint("provider_billed_duration_ms IS NULL OR provider_billed_duration_ms >= 0", name="ck_source_attempt_provider_duration_nonnegative"),
+        CheckConstraint("provider_cost_amount IS NULL OR provider_cost_amount >= 0", name="ck_source_attempt_provider_cost_nonnegative"),
+        CheckConstraint("provider_cost_currency IS NULL OR provider_cost_currency = 'USD'", name="ck_source_attempt_provider_currency"),
+        CheckConstraint("provider_rate_per_hour IS NULL OR provider_rate_per_hour > 0", name="ck_source_attempt_provider_rate_positive"),
         Index("ix_source_attempts_job_id", "job_id"),
         Index("ix_source_attempts_job_source_id", "job_source_id"),
         Index("ix_source_attempts_retry_disposition", "retry_disposition"),

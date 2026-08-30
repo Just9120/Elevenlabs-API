@@ -80,6 +80,15 @@ function formatSuccessPercentage(value: number | null) {
       })}%`;
 }
 
+function formatProviderCost(value: string) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "Нет данных";
+  return `${numeric.toLocaleString("ru-RU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 8,
+  })} USD`;
+}
+
 function DurationCard({
   label,
   summary,
@@ -367,6 +376,46 @@ export function TranscriptionAnalyticsPanel({
                   </div>
                 </dl>
               </details>
+            </section>
+
+            <section aria-label="Расход ElevenLabs">
+              <h3>Расход ElevenLabs</h3>
+              <div className="analytics-total-grid">
+                <article>
+                  <span>Подтверждённо отправлено</span>
+                  <strong>
+                    {formatDuration(
+                      analytics.usage_cost.confirmed_billed_duration_seconds,
+                    )}
+                  </strong>
+                </article>
+                <article>
+                  <span>Стоимость по тарифу</span>
+                  <strong>
+                    {formatProviderCost(
+                      analytics.usage_cost.confirmed_provider_cost,
+                    )}
+                  </strong>
+                </article>
+                <article>
+                  <span>Полный учёт</span>
+                  <strong>{analytics.usage_cost.complete_jobs}</strong>
+                </article>
+              </div>
+              <p className="muted analytics-footnote">
+                Сумма рассчитана по подтверждённой длительности, реально
+                отправленной в ElevenLabs, и сохранённому тарифу. Это не счёт
+                после бесплатной квоты или подписки.
+              </p>
+              {(analytics.usage_cost.uncertain_jobs > 0 ||
+                analytics.usage_cost.unavailable_jobs > 0) && (
+                <p className="notice" role="status">
+                  Неподтверждённый исход: {analytics.usage_cost.uncertain_jobs} ·
+                  исторические задачи без учёта: {analytics.usage_cost.unavailable_jobs}.
+                  Неподтверждённая часть не добавлена к сумме; уже подтверждённые
+                  части таких задач учтены.
+                </p>
+              )}
             </section>
           </>
         )}
