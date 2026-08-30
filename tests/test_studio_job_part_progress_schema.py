@@ -34,7 +34,7 @@ def test_job_part_progress_model_exposes_only_bounded_counters(monkeypatch):
 def test_job_part_progress_migration_is_additive_single_head():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC)))
 
-    assert script.get_heads() == ["0030_provider_usage_accounting"]
+    assert script.get_heads() == ["0031_provider_account_snapshots"]
     revision = script.get_revision("0018_job_part_progress")
     assert revision is not None
     assert revision.down_revision == "0017_google_maintenance_oauth"

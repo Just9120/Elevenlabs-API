@@ -154,22 +154,6 @@ def test_confirmed_parts_are_counted_once_with_locked_rate_snapshot(db):
         now=now,
     )
     db.commit()
-    with pytest.raises(
-        ProviderUsageAccountingError,
-        match="provider_pricing_snapshot_conflict",
-    ):
-        begin_provider_part_usage(
-            db,
-            job_id=job.id,
-            job_source_id=relation.id,
-            lease_owner_id="worker",
-            lease_generation=7,
-            part_index=1,
-            duration_seconds=1800,
-            settings=_settings(Decimal("0.30")),
-            now=now,
-        )
-    assert attempt.provider_pending_part_index is None
     begin_provider_part_usage(
         db,
         job_id=job.id,
@@ -178,7 +162,7 @@ def test_confirmed_parts_are_counted_once_with_locked_rate_snapshot(db):
         lease_generation=7,
         part_index=1,
         duration_seconds=1800,
-        settings=_settings(),
+        settings=_settings(Decimal("0.30")),
         now=now,
     )
     confirm_provider_part_usage(
@@ -257,7 +241,7 @@ def test_unreturned_call_is_explicitly_uncertain_not_confirmed_cost(db):
 def test_accounting_migration_is_additive_direct_successor():
     cfg = Config("apps/studio-api/alembic.ini")
     scripts = ScriptDirectory.from_config(cfg)
-    assert scripts.get_heads() == ["0030_provider_usage_accounting"]
+    assert scripts.get_heads() == ["0031_provider_account_snapshots"]
     revision = scripts.get_revision("0030_provider_usage_accounting")
     assert revision is not None and revision.down_revision == "0029_source_reference_class"
     path = ROOT / "apps/studio-api/alembic/versions/0030_provider_usage_accounting.py"

@@ -100,6 +100,66 @@ class ProviderCredentialVersion(Base):
     __table_args__=(UniqueConstraint("credential_id","version", name="uq_credential_version"),)
 
 
+class ProviderAccountSnapshot(Base):
+    __tablename__="provider_account_snapshots"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    credential_id: Mapped[str]=mapped_column(ForeignKey("provider_credentials.id"), nullable=False, index=True)
+    credential_version_id: Mapped[str]=mapped_column(ForeignKey("provider_credential_versions.id"), nullable=False)
+    provider: Mapped[str]=mapped_column(String(40), nullable=False, default="elevenlabs")
+    subscription_tier: Mapped[str|None]=mapped_column(String(80))
+    subscription_status: Mapped[str|None]=mapped_column(String(80))
+    period_usage: Mapped[int|None]=mapped_column(BigInteger)
+    period_limit: Mapped[int|None]=mapped_column(BigInteger)
+    period_remaining: Mapped[int|None]=mapped_column(BigInteger)
+    period_unit: Mapped[str|None]=mapped_column(String(24))
+    max_credit_limit_extension: Mapped[str|None]=mapped_column(String(32))
+    usage_based_billing_enabled: Mapped[bool|None]=mapped_column(Boolean)
+    current_overage_amount: Mapped[Decimal|None]=mapped_column(Numeric(18, 8))
+    current_overage_currency: Mapped[str|None]=mapped_column(String(3))
+    open_invoice_count: Mapped[int|None]=mapped_column(Integer)
+    open_invoice_total_due_cents: Mapped[int|None]=mapped_column(BigInteger)
+    has_open_invoices: Mapped[bool|None]=mapped_column(Boolean)
+    next_invoice_amount_due_cents: Mapped[int|None]=mapped_column(BigInteger)
+    next_invoice_subtotal_cents: Mapped[int|None]=mapped_column(BigInteger)
+    next_invoice_tax_cents: Mapped[int|None]=mapped_column(BigInteger)
+    next_payment_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    subscription_currency: Mapped[str|None]=mapped_column(String(3))
+    billing_period: Mapped[str|None]=mapped_column(String(80))
+    refresh_period: Mapped[str|None]=mapped_column(String(80))
+    reset_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    pending_change_present: Mapped[bool|None]=mapped_column(Boolean)
+    subscription_fetched_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
+    last_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str|None]=mapped_column(String(80))
+    workspace_usage_total_credits: Mapped[Decimal|None]=mapped_column(Numeric(24, 8))
+    workspace_usage_unit: Mapped[str|None]=mapped_column(String(24))
+    workspace_usage_products_json: Mapped[str|None]=mapped_column(Text)
+    workspace_usage_window_start: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    workspace_usage_window_end: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    workspace_usage_window_basis: Mapped[str|None]=mapped_column(String(40))
+    workspace_usage_fetched_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    workspace_usage_error_code: Mapped[str|None]=mapped_column(String(80))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("owner_user_id", "credential_id", name="uq_provider_account_snapshot_owner_credential"),
+        CheckConstraint("provider = 'elevenlabs'", name="ck_provider_account_snapshot_provider"),
+        CheckConstraint("period_usage IS NULL OR period_usage >= 0", name="ck_provider_account_snapshot_period_usage"),
+        CheckConstraint("period_limit IS NULL OR period_limit >= 0", name="ck_provider_account_snapshot_period_limit"),
+        CheckConstraint("period_remaining IS NULL OR period_remaining >= 0", name="ck_provider_account_snapshot_period_remaining"),
+        CheckConstraint("period_unit IS NULL OR period_unit = 'characters'", name="ck_provider_account_snapshot_period_unit"),
+        CheckConstraint("current_overage_amount IS NULL OR current_overage_amount >= 0", name="ck_provider_account_snapshot_overage"),
+        CheckConstraint("open_invoice_count IS NULL OR open_invoice_count >= 0", name="ck_provider_account_snapshot_invoice_count"),
+        CheckConstraint("open_invoice_total_due_cents IS NULL OR open_invoice_total_due_cents >= 0", name="ck_provider_account_snapshot_invoice_total"),
+        CheckConstraint("next_invoice_amount_due_cents IS NULL OR next_invoice_amount_due_cents >= 0", name="ck_provider_account_snapshot_next_invoice"),
+        CheckConstraint("next_invoice_subtotal_cents IS NULL OR next_invoice_subtotal_cents >= 0", name="ck_provider_account_snapshot_next_invoice_subtotal"),
+        CheckConstraint("next_invoice_tax_cents IS NULL OR next_invoice_tax_cents >= 0", name="ck_provider_account_snapshot_next_invoice_tax"),
+        CheckConstraint("workspace_usage_total_credits IS NULL OR workspace_usage_total_credits >= 0", name="ck_provider_account_snapshot_workspace_usage"),
+        CheckConstraint("workspace_usage_unit IS NULL OR workspace_usage_unit = 'credits'", name="ck_provider_account_snapshot_workspace_usage_unit"),
+    )
+
+
 class GoogleConnection(Base):
     __tablename__="google_connections"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

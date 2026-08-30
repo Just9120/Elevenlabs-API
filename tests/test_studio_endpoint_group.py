@@ -36,3 +36,10 @@ def test_endpoint_group_matching_fails_closed_for_unknown_paths():
 
 def test_transcript_maintenance_has_a_distinct_safe_group():
     assert diagnostic_endpoint_group("/api/transcript-maintenance/standardization/apply") == "transcript_maintenance"
+
+
+def test_provider_account_routes_have_a_distinct_safe_group():
+    assert (
+        diagnostic_endpoint_group("/api/provider-accounts/elevenlabs")
+        == "provider_accounts"
+    )

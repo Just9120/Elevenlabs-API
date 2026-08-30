@@ -57,6 +57,7 @@ def test_worker_role_grants_only_current_processing_surfaces():
         "login_contexts",
         "google_oauth_states",
         "output_folder_favorites",
+        "provider_account_snapshots",
     ):
         assert re.search(rf"\\b{re.escape(forbidden)}\\b", sql) is None
 

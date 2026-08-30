@@ -142,7 +142,7 @@ def test_worker_database_role_contract_accepts_only_narrow_role():
         Connection(
             [
                 ("studio_worker", True, False, False, False, False, False, False, True),
-                (True, False, True, True, True, True, False, False),
+                (True, False, True, True, True, True, False, False, False, False),
             ]
         )
     )
@@ -151,7 +151,7 @@ def test_worker_database_role_contract_accepts_only_narrow_role():
             Connection(
                 [
                     ("studio", True, True, True, True, True, True, True, False),
-                    (True, True, True, True, True, True, True, True),
+                    (True, True, True, True, True, True, True, True, True, True),
                 ]
             )
         )
@@ -160,7 +160,7 @@ def test_worker_database_role_contract_accepts_only_narrow_role():
             Connection(
                 [
                     ("studio_worker", True, False, False, False, False, False, False, True),
-                    (True, False, True, True, True, True, True, False),
+                    (True, False, True, True, True, True, True, False, False, False),
                 ]
             )
         )

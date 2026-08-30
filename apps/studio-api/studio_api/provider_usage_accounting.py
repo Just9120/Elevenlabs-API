@@ -92,7 +92,6 @@ def begin_provider_part_usage(
     settings,
     now: datetime,
 ) -> None:
-    snapshot = pricing_snapshot(settings)
     duration_ms = _duration_ms(duration_seconds)
     job, attempt = _locked_context(
         db,
@@ -102,6 +101,7 @@ def begin_provider_part_usage(
         lease_generation=lease_generation,
         now=now,
     )
+    snapshot = _stored_pricing_snapshot(job) or pricing_snapshot(settings)
     index = int(part_index)
     if (
         attempt.stage != SourceAttemptStage.provider_request_started
@@ -369,3 +369,35 @@ def _apply_snapshot(target, snapshot: ProviderPricingSnapshot) -> None:
         raise ProviderUsageAccountingError(
             ProviderUsageAccountingReason.pricing_snapshot_conflict
         )
+
+
+def _stored_pricing_snapshot(target) -> ProviderPricingSnapshot | None:
+    values = (
+        target.provider_rate_per_hour,
+        target.provider_rate_effective_date,
+        target.provider_rate_source,
+        target.provider_cost_currency,
+    )
+    if all(value is None for value in values[:3]):
+        if values[3] in {None, CURRENCY}:
+            return None
+        raise ProviderUsageAccountingError(
+            ProviderUsageAccountingReason.pricing_snapshot_conflict
+        )
+    try:
+        rate = Decimal(str(values[0])).quantize(Decimal("0.000001"))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ProviderUsageAccountingError(
+            ProviderUsageAccountingReason.pricing_snapshot_conflict
+        ) from None
+    if (
+        not rate.is_finite()
+        or rate <= 0
+        or not isinstance(values[1], date)
+        or values[2] != "elevenlabs_public_api_pricing"
+        or values[3] != CURRENCY
+    ):
+        raise ProviderUsageAccountingError(
+            ProviderUsageAccountingReason.pricing_snapshot_conflict
+        )
+    return ProviderPricingSnapshot(rate, values[1], values[2], values[3])
