@@ -2,11 +2,11 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-WORKER-USAGE-ACCOUNTING-01` — worker isolation и personal provider usage/cost accounting.
+- **ID / title:** `PWA-WORKER-USAGE-ACCOUNTING-01` — worker isolation и reconciled ElevenLabs usage/cost accounting.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction 2026-08-30: следующей единой Goal взять `Worker isolation` и `Usage/cost accounting`.
-- **Scope:** закрыть canonical `PWAWOR-02..03` и `USAGEC-01..02`: задать и проверить CPU/memory/PID bounds worker; ограничить его writable filesystem, Linux capabilities, privilege escalation и network reachability; отделить worker от API database credential и DDL/superuser capability; сохранять фактически подтверждённую billed STT duration, provider usage cost, currency и accounting provenance на job; добавить additive migration, safe owner API/UI/diagnostics projection, tests/docs, reviewable PR, exact-head CI, applicable protected migration/API/worker delivery и одну bounded owner-authorized LIVE transcription.
-- **Non-goals:** commercial contour; пользовательские платежи, invoice reconciliation, остаток бесплатной квоты, тарифы/квоты/лимиты для пользователей; новый STT provider или automatic fallback; storage/compute/network cost; изменение `docs/ci-cd-rules.md`, GitHub protections или unrelated refactors.
+- **Authorization source:** explicit owner instructions 2026-08-30: следующей единой Goal взять `Worker isolation` и `Usage/cost accounting`; затем расширить её server-side синхронизацией всегда актуальных данных ElevenLabs subscription/usage/overage/invoice и всеми расчётами, которые допускает official provider Evidence.
+- **Scope:** закрыть canonical `PWAWOR-02..03` и `USAGEC-01..06`: задать и проверить CPU/memory/PID bounds worker; ограничить его writable filesystem, Linux capabilities, privilege escalation и network reachability; отделить worker от API database credential и DDL/superuser capability; сохранять подтверждённую STT duration и immutable nominal tariff snapshot на job; server-side получать official ElevenLabs subscription и workspace product-credit usage, сохранять bounded owner/credential-version-scoped current snapshot с freshness/error provenance; раздельно показывать job nominal estimate и account actual overage/invoices/period units; добавить additive migrations, safe owner API/UI/diagnostics projection, tests/docs, reviewable PR, exact-head CI, applicable protected migration/API/worker delivery и одну bounded owner-authorized LIVE transcription с account refresh.
+- **Non-goals:** commercial contour и пользовательский billing; scraping pricing page или автоматическое изменение public tariff snapshot без verified release input; выдуманное распределение account invoice/overage по отдельным jobs; преобразование ElevenLabs credits/characters в минуты без provider Evidence; новый STT provider или automatic fallback; realtime cost accounting; storage/compute/network cost; изменение `docs/ci-cd-rules.md`, GitHub protections или unrelated refactors.
 - **Goal AC:**
   1. `WUA-01`: canonical closure предыдущей Goal и baseline readiness reconciled; durable scope/denominator не изменены.
   2. `WUA-02`: worker Compose имеет explicit CPU, memory/swap и PID bounds, а tests проверяют rendered effective configuration.
@@ -20,26 +20,30 @@
   10. `WUA-10`: focused/full local validation, один initial push, reviewable PR и exact-head required CI завершаются success; confirmed failure исправляется одним grouped follow-up batch.
   11. `WUA-11`: protected migration/API и manual worker status→drain→deploy→status соответствуют exact merge SHA; resource/network/DB role runtime evidence подтверждено без secret values.
   12. `WUA-12`: одна owner-approved bounded transcription подтверждает persisted billed duration/cost/currency и отсутствие regression; до такого call Goal остаётся `PENDING_EXTERNAL_GATE`.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** owner должен подтвердить, что `provider cost` означает attributable usage cost по фактически подтверждённой duration и сохранённому tariff snapshot, а не invoice debit после free quota; production потребует отдельный worker DB credential и manual protected migration approval. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+  13. `WUA-13`: server-side ElevenLabs account transport валидирует bounded official subscription response и workspace product-credit response; API key, raw provider payload и provider user identifiers не попадают в browser/cache/logs.
+  14. `WUA-14`: owner/credential-version-scoped snapshot хранит plan/status, provider period usage/limit/remaining, reset, usage-based billing entitlement/cap, actual current overage, invoice aggregates и product credits с explicit units/window provenance.
+  15. `WUA-15`: automatic refresh при открытом UI использует максимум пятиминутный successful snapshot, visible timestamp и bounded polling; manual refresh доступен, а provider failure возвращает last successful snapshot как stale либо explicit unavailable без fabricated values.
+  16. `WUA-16`: UI и API раздельно обозначают local job nominal estimate, provider account usage units, current overage и invoice; model-specific minutes/remaining или per-job invoice allocation показываются только при direct provider Evidence.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** production потребует отдельный worker DB credential и manual protected migrations approval; existing ElevenLabs key должен иметь read scopes для user subscription и workspace analytics, иначе UI обязан показать actionable partial/unavailable state. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-30T10:55:07Z.
+- Updated (UTC): 2026-08-30T14:49:39Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working branch: `codex/pwa-worker-usage-accounting`.
 - Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-worker-usage-accounting`.
-- Last verified revision: pushed `fbe74ce` (`test: align accounting integration fixtures`) поверх operations commit `1edebf1`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
+- Last verified revision: pushed `d369f682eb7de369caad0b70a679edaa050cd689`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working tree at Goal start: isolated worktree clean. Основной checkout содержит unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми.
-- Completed: worker получил Compose CPU/memory/no-swap/PID/read-only/tmpfs/capability/network boundaries, отдельный direct-grant `studio_worker` login и fail-closed runtime/preflight inspection; additive `0030_provider_usage_accounting` сохраняет pending/confirmed/uncertain provider-part boundary, job totals, USD tariff snapshot и owner-safe analytics/UI. Public Scribe v2 rate `$0.22/hour` перепроверен 2026-08-30 по official ElevenAPI pricing; invoice/free-quota reconciliation явно исключена.
-- Current step: исправить оставшийся integration assertion: новый queued job с zero-initialized accounting является `in_progress`, а `unavailable` зарезервирован для legacy NULL rows.
-- Next exact action: создать минимальный assertion/checkpoint commit, отправить его после второго confirmed CI failure и дождаться required checks.
-- Validation and Evidence: backend focused sets `88 passed` и `70 passed`; frontend full Vitest `637 passed`, current focused Vitest `11 passed`, ESLint и production build success; Python compileall, YAML parse, Bash syntax, `scripts/ci_checks.py` и `git diff --check` success. Second PR runs `33307501418/33307501357`: Studio build/compose `pass` за `2m16s`, browser E2E `pass` за `1m14s`, backend `1429 passed` и один expected-value assertion failed. Docker отсутствует локально; Windows-wide pytest не authoritative из-за temp ACL/path conversion.
-- Pull Request / CI / deployment: PR `#261`; initial push `1edebf1` и grouped follow-up `fbe74ce`. Second runs `33307501418/33307501357`: `browser-e2e` и `studio` passed, migration round-trip и processing E2E passed; `checks` имеет один failed analytics expected-value assertion. Deployment не начат.
-- Blockers: owner decision по semantics `provider cost`; production setup отдельного worker DB password и protected migration approval будут external gates после CI.
-- Unverified assumptions: допустимые resource values должны быть подтверждены effective Compose config и фактической ёмкостью VPS; public provider docs не доказывают invoice debit с учётом free quota.
+- Completed: worker получил Compose CPU/memory/no-swap/PID/read-only/tmpfs/capability/network boundaries, отдельный direct-grant `studio_worker` login и fail-closed runtime/preflight inspection; additive `0030_provider_usage_accounting` сохраняет pending/confirmed/uncertain provider-part boundary, job totals, USD tariff snapshot и owner-safe analytics/UI. Account extension добавляет bounded official ElevenLabs transport, additive `0031_provider_account_snapshots`, owner/credential-version-scoped cache с advisory serialization/failure backoff, owner API, no-store browser parser и Settings UI, который отделяет provider actuals от nominal job estimate. Official ElevenLabs contracts для subscription и workspace product-credit usage проверены 2026-08-30; provider не публикует structured price-catalog API и не гарантирует model-specific remaining minutes.
+- Current step: завершить full local validation account extension и подготовить один grouped PR update.
+- Next exact action: выполнить полный portable backend suite, Studio lint/test/build и repository hygiene checks; исправить только подтверждённые regressions текущей Goal.
+- Validation and Evidence: exact-head `d369f68` CI: backend `1430 passed`, Studio `success`, browser E2E `success`. Новое расширение: focused backend/accounting/worker tests `30/30`, focused Studio model/component tests `5/5`; full regression ещё выполняется. Docker отсутствует локально; Windows-wide pytest не authoritative из-за temp ACL/path conversion.
+- Pull Request / CI / deployment: PR `#261` OPEN/CLEAN/MERGEABLE; exact-head runs `33307712572/33307712523` success. После расширения scope новые commits пока не pushed; deployment не начат.
+- Blockers: production setup отдельного worker DB password и protected migrations approval будут external gates после CI; read scopes existing ElevenLabs key проверяются только actual provider response.
+- Unverified assumptions: provider account `character_count/character_limit` остаются provider-defined period units и не равны минутам Scribe; product usage endpoint возвращает credits, которые нельзя безопасно распределить по job или перевести в invoice amount без additional provider Evidence.
 - Preserved pre-existing changes: `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
 
 ## Project readiness
@@ -48,17 +52,17 @@
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **46,0% (`264/574`)** | **45,1% (`259/574`)** | Previous Goal фактически закрыла ещё `STORAG-17..21`; denominator не изменился. Изменение `+0,9` п.п. |
-| **Non-commercial scope** | **79,5% (`264/332`)** | **78,0% (`259/332`)** | Colab `32/32` + personal PWA `232/300`. Изменение `+1,5` п.п. |
+| **Полный canonical scope** | **45,7% (`264/578`)** | **46,0% (`264/574`)** | Denominator увеличен на четыре явно согласованных provider-account AC; numerator не изменён до Evidence. Изменение `-0,3` п.п. |
+| **Non-commercial scope** | **78,6% (`264/336`)** | **79,5% (`264/332`)** | Colab `32/32` + personal PWA `232/304`; denominator увеличен на четыре AC. Изменение `-0,9` п.п. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **77,3% (`232/300`)** | **75,7% (`227/300`)** | Previous Goal закрыла `PUX-01..12` и `STORAG-16..21`; текущая Goal пока не изменила AC. Изменение `+1,6` п.п. |
+| **Personal Studio PWA canonical** | **76,3% (`232/304`)** | **77,3% (`232/300`)** | Denominator увеличен на `USAGEC-03..06`; до CODE/TEST/CI/DEPLOY/LIVE numerator не меняется. Изменение `-1,0` п.п. |
 | `PWA-USER-EXPERIENCE-02` | **100% (`12/12`)** | **100% (`12/12`)** | PR `#259/#260`, CI, DEPLOY и bounded owner LIVE закрыли required Evidence; эпик READY. |
 | `STORAGE-LIFECYCLE-02` | **57,1% (`12/21`)** | **33,3% (`7/21`)** | Distinct buckets, credentials, lifecycle rules и cross-access denial подтвердили `STORAG-17..21`. Изменение `+23,8` п.п. объясняется закрытием пяти external/runtime AC. |
 | `PWA-WORKER-ISOLATION-02` | **33,3% (`1/3`)** | **33,3% (`1/3`)** | Отдельный worker component существует; resource/privilege AC текущей Goal ещё не выполнены. |
-| `USAGE-COST-ACCOUNTING-01` | **0% (`0/2`)** | **0% (`0/2`)** | Persisted factual accounting ещё отсутствует. |
+| `USAGE-COST-ACCOUNTING-01` | **0% (`0/6`)** | **0% (`0/2`)** | Четыре новые AC добавлены explicit owner decision; текущая ветка ещё не получила provider-account reconciliation Evidence. |
 
-Только storage epic изменился более чем на `10` п.п.: причина — пять ранее external AC получили provider/runtime Evidence в предыдущем delivery flow. Новая Goal может добавить максимум четыре AC (`PWAWOR-02..03`, `USAGEC-01..02`); до фактического выполнения они не засчитываются.
+Только storage epic в previous snapshot изменился более чем на `10` п.п.: причина — пять external AC получили provider/runtime Evidence в предыдущем delivery flow. Текущая независимая переоценка изменила denominator на четыре согласованных `USAGEC-03..06`; ни одно изменение current snapshot не превышает `10` п.п.
 
 ## Candidate next Goals
 

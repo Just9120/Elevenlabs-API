@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@a31770eabcd7a97acfa084252de06f26d041bc1b` (PR `#258`). Exact-main CI, protected API/web/worker delivery и owner LIVE подтвердили continuous maintenance progress, безопасную legacy standardization и массовый explicit apply `141/141` без ошибок. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
+Verified main baseline: `main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`). Exact-main CI, protected API/web/worker delivery и owner LIVE подтвердили storage isolation UX, distinct R2 buckets/credentials/lifecycle rules и cross-access denial. Exact delivery identifiers находятся в `docs/delivery-plan-archive.md`.
 
-Current operational Goal: `PWA-USER-UX-STORAGE-ISOLATION-01` на branch `codex/pwa-user-ux-storage-isolation` от verified base `main@a31770eabcd7a97acfa084252de06f26d041bc1b`. Goal авторизует новый эпик `PWA-USER-EXPERIENCE-02` целиком и `STORAG-16..21`: пользовательский язык и progressive disclosure вместо технической консоли, семантически корректные статусы/ошибки, compact history/maintenance, mobile Drive dialog и раздельные audio/transcription reference storage classes, buckets, lifecycle/access configuration. Commercial, новый STT/provider behavior или spend, unrelated storage lifecycle `STORAG-01..15` и изменение CI/CD safety contract вне scope.
+Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01` на branch `codex/pwa-worker-usage-accounting` от verified base `main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **75,7% (`227/300`)** | previous `214` + выполненные local CODE/TEST-backed `PUX-01..12` и `STORAG-16`; Evidence ещё не закрывает READY |
-| Non-commercial scope | **78,0% (`259/332`)** | Colab `32/32` + personal PWA `227/300` |
+| Personal Studio PWA | **76,3% (`232/304`)** | exact-main `232` completed AC; denominator увеличен на согласованные `USAGEC-03..06`, которые пока не засчитаны |
+| Non-commercial scope | **78,6% (`264/336`)** | Colab `32/32` + personal PWA `232/304` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **45,1% (`259/574`)** | `259 / (332 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **45,7% (`264/578`)** | `264 / (336 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, поэтому current denominator равен `574`. Текущая Goal локально выполнила `PUX-01..12` и `STORAG-16`, подняв numerator до `259`; required CI/DEPLOY/LIVE Evidence остаётся отдельным gate и не делает эпики READY. `STORAG-17..21` уже входят в denominator, но не засчитаны без фактических distinct provider buckets/lifecycle/access boundaries. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, подняв denominator до `574`; previous delivery закрыл `STORAG-17..21` и довёл exact-main numerator до `264`. Explicit owner decision о provider account reconciliation добавил `USAGEC-03..06`, поэтому current denominator равен `578`, non-commercial `336`, personal PWA `304`; numerator остаётся `264` до required Evidence текущей Goal. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -686,12 +686,16 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `USAGE-COST-ACCOUNTING-01` — personal usage/cost evidence
 
-Status: **⬜ BACKLOG — 0% (`0/2`)**.
+Status: **🟦 IN PROGRESS — 0% (`0/6`)**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `USAGEC-01` | Каждая transcription job хранит фактически billed audio duration. | — |
-| `USAGEC-02` | Каждая transcription job хранит фактическую provider cost и currency. | — |
+| `USAGEC-01` | Каждая transcription job хранит подтверждённую длительность audio, фактически отправленную provider; uncertain outcome не выдаётся за exact billed usage. | — |
+| `USAGEC-02` | Каждая transcription job хранит nominal attributable cost как `confirmed duration × immutable public tariff snapshot`, currency и provenance; этот расчёт явно не выдаётся за invoice debit после подписки или квоты. | — |
+| `USAGEC-03` | Для каждого активного ElevenLabs credential Studio server-side получает из official account API tier/status, period usage/limit, reset, usage-based billing entitlement/cap, current overage и open/next invoice без передачи API key в браузер. | — |
+| `USAGEC-04` | Studio получает из official workspace analytics API credit usage по продуктам за применимый billing/rolling period, сохраняет нормализованный bounded snapshot и не преобразует credits в минуты без provider Evidence. | — |
+| `USAGEC-05` | Owner UI раздельно показывает job-level nominal cost и provider account actuals, включая provider-reported remaining period units, overage и invoice amounts; unavailable или semantically incomparable данные не подменяются расчётной цифрой. | — |
+| `USAGEC-06` | Account snapshot имеет видимые `fetched_at`, period/window provenance и current/stale/unavailable state; при открытом экране выполняется bounded refresh, ручное обновление доступно, а provider error сохраняет последний успешный snapshot только как stale. | — |
 
 Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
