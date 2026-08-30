@@ -95,6 +95,7 @@ import {
 } from "./projectCollectionContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
 import { AudioPreparationPage } from "./AudioPreparationPage";
+import { ElevenLabsAccountPanel } from "./ElevenLabsAccountPanel";
 import { appendUniqueItems } from "./collectionPageModel";
 import {
   isApprovedOutputUrl,
@@ -7604,6 +7605,7 @@ function SettingsPage({
               {oauthMessage}
             </p>
           )}
+          <ElevenLabsAccountPanel csrf={csrf} onCsrf={onCsrf} />
           <h3>Ключи провайдеров</h3>
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.

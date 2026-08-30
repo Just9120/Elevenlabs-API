@@ -2343,6 +2343,38 @@ code {
   background: var(--studio-surface);
 }
 
+.provider-account-panel {
+  margin: 1.25rem 0;
+}
+
+.provider-account-grid {
+  margin-bottom: 1.5rem;
+}
+
+.provider-account-card h4 {
+  margin: 0.55rem 0 0;
+  font-size: 1.05rem;
+}
+
+.provider-account-state.current {
+  color: var(--studio-success-text);
+}
+
+.provider-account-state.stale,
+.provider-account-state.unavailable {
+  color: var(--studio-danger);
+}
+
+.provider-account-metrics {
+  margin-top: 1rem;
+}
+
+.provider-account-metrics small {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--studio-muted);
+}
+
 .analytics-total-grid strong,
 .analytics-metric strong {
   font-size: 1.45rem;
