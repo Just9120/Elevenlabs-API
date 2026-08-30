@@ -29,11 +29,14 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     (repo / "apps/studio/Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
     (repo / "deploy/studio").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "deploy/studio/compose.platform.yml", repo / "deploy/studio/compose.platform.yml")
+    shutil.copy2(ROOT / "deploy/studio/worker-db-role.sql", repo / "deploy/studio/worker-db-role.sql")
+    (repo / "scripts").mkdir(parents=True, exist_ok=True)
     secret_dir = tmp_path / "secrets"
     secret_dir.mkdir()
     secrets = {}
     for name in [
         "pg",
+        "worker_pg",
         "master",
         "s3id",
         "s3secret",
@@ -53,6 +56,7 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
         secrets[name] = p
     env_text = f"""APP_PUBLIC_URL=https://secret.example
 STUDIO_POSTGRES_PASSWORD_FILE={secrets['pg']}
+STUDIO_WORKER_POSTGRES_PASSWORD_FILE={secrets['worker_pg']}
 STUDIO_CREDENTIAL_MASTER_KEY_FILE={secrets['master']}
 STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_SOURCE_S3_REGION=auto
@@ -84,6 +88,14 @@ STUDIO_WORKER_POLL_INTERVAL_SECONDS=5
 STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5
 STUDIO_WORKER_LEASE_TTL_SECONDS=3600
 STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60
+STUDIO_WORKER_CPU_LIMIT=2.0
+STUDIO_WORKER_MEMORY_LIMIT=4g
+STUDIO_WORKER_MEMORY_SWAP_LIMIT=4g
+STUDIO_WORKER_PIDS_LIMIT=256
+STUDIO_WORKER_TMPFS_SIZE=3g
+STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD=0.22
+STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE=2026-08-30
+STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing
 """
     if state.pop("omit_heartbeat", ""):
         env_text = env_text.replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60\n", "")
@@ -91,6 +103,26 @@ STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "calls.log"
+    _write_exe(
+        bin_dir / "stat",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{@: -1}}" == {secrets['worker_pg'].as_posix()!r} ]]; then
+  case "$*" in
+    *"%U"*) echo root ;;
+    *"%a"*) echo 600 ;;
+    *) exit 2 ;;
+  esac
+  exit 0
+fi
+exec /usr/bin/stat "$@"
+""",
+    )
+    _write_exe(
+        repo / "scripts/configure_studio_worker_db_role.sh",
+        f"#!/usr/bin/env bash\nprintf 'worker-role %s\\n' \"$*\" >> {str(log)!r}\n"
+        f"[[ {state.get('worker_role', 'ready')!r} == ready ]]\n",
+    )
     branch = state.get("branch", "main")
     remote = state.get("remote", "git@github.com:Just9120/Elevenlabs-API.git")
     commit = state.get("commit", SHA)
@@ -114,7 +146,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0029_source_reference_class")
+    current = state.get("current", "0030_provider_usage_accounting")
     invalid_storage_kind = state.get("invalid_storage_kind", "")
     invalid_mounted_key = state.get("invalid_mounted_key", "")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
@@ -189,9 +221,9 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_OK") == 1
     assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" not in proc.stdout
     assert "authenticated smoke-account login | not-run" in proc.stdout
-    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0029_source_reference_class" in proc.stdout
-    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0029_source_reference_class" in proc.stdout
-    assert "revision equality | pass | production database revision 0029_source_reference_class equals repository head 0029_source_reference_class" in proc.stdout
+    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0030_provider_usage_accounting" in proc.stdout
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0030_provider_usage_accounting" in proc.stdout
+    assert "revision equality | pass | production database revision 0030_provider_usage_accounting equals repository head 0030_provider_usage_accounting" in proc.stdout
     assert any(
         "exec -T studio-api python -m studio_api.container_entrypoint "
         "--drop-only alembic current" in c
@@ -303,14 +335,24 @@ def test_service_safety_blocks_unhealthy_dependencies(tmp_path: Path) -> None:
         assert_no_forbidden(calls)
 
 
+def test_worker_database_role_is_a_read_only_preflight_gate(tmp_path: Path) -> None:
+    proc, calls, _ = run_preflight(tmp_path, worker_role="missing")
+    assert proc.returncode != 0
+    assert row_statuses(proc.stdout)["worker database role"] == "blocked"
+    assert calls.count("worker-role verify") == 1
+    assert not any("worker-role apply" in call or "worker-role disable" in call for call in calls)
+    assert_no_secret_output(proc)
+    assert_no_forbidden(calls)
+
+
 def test_revision_safety_cases(tmp_path: Path) -> None:
     # no/multiple repository heads by changing down_revision graph in copied files
     proc, _, repo = run_preflight(tmp_path / "ok")
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0029_source_reference_class.py"
-    f.write_text(f.read_text().replace('revision = "0029_source_reference_class"', 'revision = "0029_wrong_head"'), encoding="utf-8")
+    f = repo / "apps/studio-api/alembic/versions/0030_provider_usage_accounting.py"
+    f.write_text(f.read_text().replace('revision = "0030_provider_usage_accounting"', 'revision = "0030_wrong_head"'), encoding="utf-8")
     proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
     assert proc.returncode != 0
 
@@ -344,7 +386,7 @@ def test_revision_output_is_known_normalized_metadata_only(tmp_path: Path) -> No
     )
     assert mismatch.returncode != 0
     assert "production Alembic revision | pass | exactly one known production database revision was reported: 0011_diagnostic_debug_sessions" in mismatch.stdout
-    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0029_source_reference_class" in mismatch.stdout
+    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0030_provider_usage_accounting" in mismatch.stdout
     assert_no_secret_output(mismatch)
     assert_no_forbidden(calls)
 
@@ -376,9 +418,9 @@ def test_workflow_contract() -> None:
 REQUIRED_ROWS = [
     "deploy directory identity", "repository remote identity", "branch identity", "commit identity", "tracked working tree",
     "runtime env presence", "runtime setting completeness",
-    "POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence", "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
+    "POSTGRES_PASSWORD secret-file presence", "WORKER_POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence", "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
     "postgres service count/status", "redis service count/status", "studio-api service count/status", "studio-web service count/status", "studio-worker service count/status",
-    "PostgreSQL health", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
+    "PostgreSQL health", "worker database role", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
     "repository Alembic head", "production Alembic revision", "revision equality",
     "authenticated smoke-account login", "active Google connection", "exactly one active ElevenLabs BYOK credential", "writable output folder selected", "one small supported source available",
 ]
@@ -441,6 +483,14 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "2147483648"),
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "61"),
         ("STUDIO_WORKER_LEASE_TTL_SECONDS", "299"),
+        ("STUDIO_WORKER_CPU_LIMIT", "0.5"),
+        ("STUDIO_WORKER_MEMORY_LIMIT", "2g"),
+        ("STUDIO_WORKER_MEMORY_SWAP_LIMIT", "8g"),
+        ("STUDIO_WORKER_PIDS_LIMIT", "0"),
+        ("STUDIO_WORKER_TMPFS_SIZE", "1g"),
+        ("STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD", "0"),
+        ("STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE", "not-a-date"),
+        ("STUDIO_ELEVENLABS_PRICING_SOURCE", "operator_guess"),
         ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "899"),
         ("STUDIO_SOURCE_PRESIGN_TTL_SECONDS", "901"),
     ]
@@ -761,6 +811,14 @@ STUDIO_GOOGLE_PICKER_APP_ID=123
 STUDIO_WORKER_POLL_INTERVAL_SECONDS=5
 STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5
 STUDIO_WORKER_LEASE_TTL_SECONDS=3600
+STUDIO_WORKER_CPU_LIMIT=2.0
+STUDIO_WORKER_MEMORY_LIMIT=4g
+STUDIO_WORKER_MEMORY_SWAP_LIMIT=4g
+STUDIO_WORKER_PIDS_LIMIT=256
+STUDIO_WORKER_TMPFS_SIZE=3g
+STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD=0.22
+STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE=2026-08-30
+STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing
 """)
     assert proc.returncode != 0
     assert "runtime setting completeness | pass" in proc.stdout

@@ -26,17 +26,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-30T09:08:00Z.
+- Updated (UTC): 2026-08-30T10:40:04Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working branch: `codex/pwa-worker-usage-accounting`.
 - Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-worker-usage-accounting`.
-- Last verified revision: base `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`; PR `#260`, exact-main CI и applicable migration/API/web/worker delivery ранее завершены success.
+- Last verified revision: local `95350a3` (`feat: persist provider usage accounting`) поверх isolation commit `0f11d48`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working tree at Goal start: isolated worktree clean. Основной checkout содержит unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми.
-- Completed: прочитаны canonical AC, CI/CD safety contract, architecture и worker runbook; подтверждены текущие gaps — Compose не задаёт CPU/memory/PID/capability/read-only/network boundaries, API и worker используют один PostgreSQL superuser credential; ElevenLabs STT response не содержит per-request monetary debit, но provider документирует billing по отправленной audio duration и USD tariff.
-- Current step: зафиксировать worker isolation design и accounting provenance без ослабления слова «фактический».
-- Next exact action: реализовать rendered Compose isolation contract и отдельный worker database-role boundary с focused tests.
-- Validation and Evidence: base/read-only inspection only; implementation tests ещё не запускались.
+- Completed: worker получил Compose CPU/memory/no-swap/PID/read-only/tmpfs/capability/network boundaries, отдельный direct-grant `studio_worker` login и fail-closed runtime/preflight inspection; additive `0030_provider_usage_accounting` сохраняет pending/confirmed/uncertain provider-part boundary, job totals, USD tariff snapshot и owner-safe analytics/UI. Public Scribe v2 rate `$0.22/hour` перепроверен 2026-08-30 по official ElevenAPI pricing; invoice/free-quota reconciliation явно исключена.
+- Current step: завершить operational preflight/docs и полную локальную validation перед единственным initial push.
+- Next exact action: создать operations/checkpoint commit, выполнить CI-equivalent локальные проверки, проверить Actions budget/текущие runs и только затем сделать один initial push с PR.
+- Validation and Evidence: backend focused sets `88 passed` и `70 passed`; frontend full Vitest `637 passed`, current focused Vitest `11 passed`, ESLint и production build success; Python compileall, YAML parse, Bash syntax и `git diff --check` success. Docker отсутствует локально; Linux shell integration остаётся обязательным CI gate. Windows-wide pytest не считается authoritative: системный temp ACL и Windows/Git-Bash path conversion воспроизводимо ломают fixtures до product assertions.
 - Pull Request / CI / deployment: отсутствуют для текущей Goal; initial push запрещён до полной local validation.
 - Blockers: owner decision по semantics `provider cost`; production setup отдельного worker DB password и protected migration approval будут external gates после CI.
 - Unverified assumptions: допустимые resource values должны быть подтверждены effective Compose config и фактической ёмкостью VPS; public provider docs не доказывают invoice debit с учётом free quota.
