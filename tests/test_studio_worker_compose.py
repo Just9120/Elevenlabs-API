@@ -34,7 +34,7 @@ def test_studio_worker_compose_contract():
     assert "redis:" not in deps and "studio-api:" not in deps
     for key in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "STUDIO_WORKER_LEASE_TTL_SECONDS", "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS"]:
         assert key in worker
-    for secret in ["studio_postgres_password", "studio_credential_master_key", "studio_source_s3_access_key_id", "studio_source_s3_secret_access_key", "studio_google_oauth_client_secret"]:
+    for secret in ["studio_postgres_password", "studio_credential_master_key", "studio_source_s3_access_key_id", "studio_source_s3_secret_access_key", "studio_audio_reference_s3_access_key_id", "studio_audio_reference_s3_secret_access_key", "studio_google_oauth_client_secret"]:
         assert secret in worker
     assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID" in worker
     assert "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE" in worker
@@ -50,6 +50,11 @@ def test_studio_worker_compose_contract():
         assert "/run/studio-runtime-secrets:mode=0711,uid=0,gid=0" in service
         assert "_FILE: /run/secrets/" not in service
         assert "STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES: ${STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES:-2147483647}" in service
+        assert "STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID" in service
+        assert "STUDIO_AUDIO_REFERENCE_S3_BUCKET" in service
+        assert "STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE" in service
+        assert "STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE" in service
+        assert "STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID" in service
     assert text.rsplit("volumes:", 1)[1].count("studio-postgres-data:") == 1
 
 

@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     source_s3_bucket: str | None = None
     source_s3_access_key_id_file: str | None = None
     source_s3_secret_access_key_file: str | None = None
+    source_s3_lifecycle_rule_id: str | None = None
+    audio_reference_s3_endpoint_url: str | None = None
+    audio_reference_s3_region: str = "auto"
+    audio_reference_s3_bucket: str | None = None
+    audio_reference_s3_access_key_id_file: str | None = None
+    audio_reference_s3_secret_access_key_file: str | None = None
+    audio_reference_s3_lifecycle_rule_id: str | None = None
     source_upload_ttl_seconds: int = Field(default=3600, ge=900, le=86400)
     source_presign_ttl_seconds: int = Field(default=900, ge=60, le=900)
     source_max_upload_bytes: int = Field(default=536870912, ge=1, le=2147483647)
@@ -100,6 +107,30 @@ class Settings(BaseSettings):
             and self.source_s3_bucket
             and self.source_s3_access_key_id_file
             and self.source_s3_secret_access_key_file
+        )
+
+    def audio_reference_storage_configured(self) -> bool:
+        return bool(
+            self.audio_reference_s3_endpoint_url
+            and self.audio_reference_s3_bucket
+            and self.audio_reference_s3_access_key_id_file
+            and self.audio_reference_s3_secret_access_key_file
+        )
+
+    def reference_storage_isolation_configured(self) -> bool:
+        transcription_lifecycle = (self.source_s3_lifecycle_rule_id or "").strip()
+        audio_lifecycle = (self.audio_reference_s3_lifecycle_rule_id or "").strip()
+        return bool(
+            self.source_storage_configured()
+            and self.audio_reference_storage_configured()
+            and self.source_s3_bucket != self.audio_reference_s3_bucket
+            and self.source_s3_access_key_id_file
+            != self.audio_reference_s3_access_key_id_file
+            and self.source_s3_secret_access_key_file
+            != self.audio_reference_s3_secret_access_key_file
+            and transcription_lifecycle
+            and audio_lifecycle
+            and transcription_lifecycle != audio_lifecycle
         )
 
     def google_picker_configured(self) -> bool:

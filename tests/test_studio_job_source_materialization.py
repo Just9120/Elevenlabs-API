@@ -19,9 +19,17 @@ sys.path.insert(0, str(ROOT / "apps/studio-api"))
 @dataclass(frozen=True)
 class SimpleSettings:
     source_s3_endpoint_url: str | None = "https://r2.test"
+    source_s3_region: str = "auto"
     source_s3_bucket: str | None = "studio-temp"
-    source_s3_access_key_id_file: str | None = None
-    source_s3_secret_access_key_file: str | None = None
+    source_s3_access_key_id_file: str | None = "transcription-access"
+    source_s3_secret_access_key_file: str | None = "transcription-secret"
+    source_s3_lifecycle_rule_id: str | None = "transcription-retention"
+    audio_reference_s3_endpoint_url: str | None = "https://r2.test"
+    audio_reference_s3_region: str = "auto"
+    audio_reference_s3_bucket: str | None = "studio-audio"
+    audio_reference_s3_access_key_id_file: str | None = "audio-access"
+    audio_reference_s3_secret_access_key_file: str | None = "audio-secret"
+    audio_reference_s3_lifecycle_rule_id: str | None = "audio-retention"
     source_max_upload_bytes: int = 1000
 
     def source_storage_configured(self) -> bool:
@@ -133,9 +141,9 @@ def make_job(db, m, *, source_type=None, source_kwargs=None, job_kwargs=None, re
     return job, src, rel, project, now, user
 
 
-def materialize(db, job, rel, *, settings=None, storage=None, token_resolver=None, drive_fetcher=None, drive_meta=None, now=None):
+def materialize(db, job, rel, *, settings=None, storage=None, storage_factory=None, token_resolver=None, drive_fetcher=None, drive_meta=None, now=None):
     from studio_api.job_source_materialization import materialize_processing_job_source
-    return materialize_processing_job_source(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker-1", lease_generation=1, settings=settings or SimpleSettings(), now=now, storage_factory=lambda _s: storage, drive_token_resolver=token_resolver or (lambda *a, **k: "token-secret"), drive_content_fetcher=drive_fetcher or (lambda *_: None), drive_metadata_fetcher=drive_meta or fake_drive_meta)
+    return materialize_processing_job_source(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker-1", lease_generation=1, settings=settings or SimpleSettings(), now=now, storage_factory=storage_factory or (lambda _s: storage), drive_token_resolver=token_resolver or (lambda *a, **k: "token-secret"), drive_content_fetcher=drive_fetcher or (lambda *_: None), drive_metadata_fetcher=drive_meta or fake_drive_meta)
 
 
 def fake_drive_meta(token, drive_file_id):
@@ -167,6 +175,35 @@ def test_local_upload_success_rewinds_metadata_repr_and_closes(sqlite_session, m
         assert_safe(repr(handle))
     assert body.closed
     assert handle.stream.closed
+
+
+def test_audio_reference_materialization_uses_only_audio_bucket_boundary(sqlite_session, models):
+    job, _, rel, _, now, _ = make_job(
+        sqlite_session,
+        models,
+        source_kwargs={
+            "reference_class": "audio_processing",
+            "s3_bucket": "studio-audio",
+        },
+    )
+    storage = FakeStorage(FakeStream(FakeBody([b"a" * 100])))
+    selected_buckets = []
+
+    def select_storage(selected_settings):
+        selected_buckets.append(selected_settings.source_s3_bucket)
+        return storage
+
+    with materialize(
+        sqlite_session,
+        job,
+        rel,
+        storage=storage,
+        storage_factory=select_storage,
+        now=now,
+    ) as handle:
+        assert handle.byte_count == 100
+
+    assert selected_buckets == ["studio-audio", "studio-audio"]
 
 
 def test_local_missing_failure_too_large_size_and_mime_are_safe(sqlite_session, models):

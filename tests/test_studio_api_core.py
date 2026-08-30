@@ -129,7 +129,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0028_transcript_maintenance_runs", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0029_source_reference_class", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -1473,10 +1473,21 @@ def enable_fake_storage(monkeypatch):
     main_mod.settings.source_s3_bucket = "studio-temp"
     main_mod.settings.source_s3_access_key_id_file = "/tmp/no-secret-id"
     main_mod.settings.source_s3_secret_access_key_file = "/tmp/no-secret-key"
+    main_mod.settings.source_s3_lifecycle_rule_id = "transcription-reference-retention"
+    main_mod.settings.audio_reference_s3_endpoint_url = "https://r2.example"
+    main_mod.settings.audio_reference_s3_region = "auto"
+    main_mod.settings.audio_reference_s3_bucket = "studio-audio"
+    main_mod.settings.audio_reference_s3_access_key_id_file = "/tmp/no-audio-secret-id"
+    main_mod.settings.audio_reference_s3_secret_access_key_file = "/tmp/no-audio-secret-key"
+    main_mod.settings.audio_reference_s3_lifecycle_rule_id = "audio-reference-retention"
     main_mod.settings.source_max_upload_bytes = 1000
     main_mod.settings.source_upload_ttl_seconds = 3600
     main_mod.settings.source_presign_ttl_seconds = 900
-    monkeypatch.setattr(main_mod, "get_source_storage", lambda settings: fake)
+    monkeypatch.setattr(
+        main_mod,
+        "get_reference_storage",
+        lambda settings, reference_class: fake,
+    )
     return fake
 
 
@@ -1858,7 +1869,7 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     def fail_storage(*_args, **_kwargs):
         raise AssertionError("Google Drive source removal must not delete Studio storage")
 
-    monkeypatch.setattr(main_mod, "get_source_storage", fail_storage)
+    monkeypatch.setattr(main_mod, "get_reference_storage", fail_storage)
     c, headers, pid = create_logged_in_project("gdrive@example.com")
     db = SessionLocal()
     user_id = db.query(User).filter_by(email="gdrive@example.com").one().id
@@ -1925,10 +1936,10 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
 def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project("local@example.com")
-    assert TestClient(app).post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}).status_code == 401
-    assert c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.txt","mime_type":"text/plain","size_bytes":10}, headers=headers).status_code == 422
-    assert c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":1001}, headers=headers).status_code == 422
-    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"../secret song.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    assert TestClient(app).post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}).status_code == 401
+    assert c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.txt","mime_type":"text/plain","size_bytes":10,"reference_class":"transcription"}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":1001,"reference_class":"transcription"}, headers=headers).status_code == 422
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"../secret song.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}, headers=headers)
     assert r.status_code == 200
     body = r.json()
     assert body["source_id"]
@@ -1944,10 +1955,12 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert original_filename not in object_key
 
     unicode_name = "Лекция 1. Личность как психологическое явление.flac"
-    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename": unicode_name,"mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename": unicode_name,"mime_type":"audio/mpeg","size_bytes":10,"reference_class":"audio_processing"}, headers=headers)
     assert r.status_code == 200
     db = SessionLocal(); src = db.get(Source, r.json()["source_id"]); db.close()
     assert src.original_filename == unicode_name
+    assert src.reference_class == "audio_processing"
+    assert src.s3_bucket == "studio-audio"
 
 
 def test_expired_local_source_is_hidden_from_active_collection_but_history_is_preserved():
@@ -2020,14 +2033,14 @@ def test_local_upload_initiate_fails_closed_without_storage(monkeypatch):
     c, headers, pid = create_logged_in_project("nostorage@example.com")
     main_mod.settings.source_s3_endpoint_url = None
     main_mod.settings.source_s3_bucket = None
-    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}, headers=headers)
     assert r.status_code == 503
 
 
 def test_complete_local_upload_missing_object_returns_conflict(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project("missing-object@example.com")
-    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"missing.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"missing.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}, headers=headers)
     sid = r.json()["source_id"]
     fake.missing = True
     r = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
@@ -2056,7 +2069,7 @@ def test_complete_local_upload_requires_exact_verified_metadata(monkeypatch, hea
     c, headers, pid = create_logged_in_project(f"upload-metadata-{size_label}-{expected_status}@example.com")
     initiated = c.post(
         f"/api/projects/{pid}/sources/local-upload/initiate",
-        json={"original_filename":"metadata.mp3", "mime_type":"audio/mpeg", "size_bytes":10},
+        json={"original_filename":"metadata.mp3", "mime_type":"audio/mpeg", "size_bytes":10, "reference_class":"transcription"},
         headers=headers,
     )
     sid = initiated.json()["source_id"]
@@ -2079,7 +2092,7 @@ def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     c1, h1, pid = create_logged_in_project("owner2@example.com")
     c2, h2, _ = create_logged_in_project("other2@example.com")
-    r = c1.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=h1)
+    r = c1.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}, headers=h1)
     sid = r.json()["source_id"]
     assert c2.post(f"/api/sources/{sid}/local-upload/complete", headers=h2).status_code == 404
     assert c1.post(f"/api/sources/{sid}/local-upload/complete", headers=h1).status_code == 200
@@ -2108,7 +2121,7 @@ def test_complete_local_upload_revalidates_after_head_race(monkeypatch, mutation
     from studio_api.source_storage import ObjectHead
 
     c, headers, pid = create_logged_in_project(f"complete-race-{mutation}@example.com")
-    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"race.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"race.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}, headers=headers)
     sid = r.json()["source_id"]
     db = SessionLocal()
     try:
@@ -2173,7 +2186,7 @@ def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypat
         headers=headers,
     )
     assert preference.status_code == 200
-    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10,"reference_class":"transcription"}, headers=headers)
     pending_expires_at = datetime.fromisoformat(r.json()["expires_at"])
     sid = r.json()["source_id"]
     response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
@@ -2196,6 +2209,7 @@ def test_complete_local_upload_replay_returns_same_verified_source_without_exten
             "original_filename": "replay.mp3",
             "mime_type": "audio/mpeg",
             "size_bytes": 10,
+            "reference_class": "transcription",
         },
         headers=headers,
     )
@@ -3129,7 +3143,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0028_transcript_maintenance_runs"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0029_source_reference_class"
 
 
 
@@ -3164,7 +3178,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0028_transcript_maintenance_runs"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0029_source_reference_class"
 
 
 
@@ -6935,7 +6949,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0028_transcript_maintenance_runs"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0029_source_reference_class"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

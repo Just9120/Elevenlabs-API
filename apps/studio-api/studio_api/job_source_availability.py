@@ -12,7 +12,13 @@ from .job_claim_lease import is_lease_active
 from .models import JobStatus, Project, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 from .security import utcnow
 from .source_policy import is_source_expired, is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
-from .source_storage import get_source_storage
+from .source_storage import (
+    get_source_storage,
+    reference_storage_bucket,
+    reference_storage_isolation_configured,
+    reference_storage_settings,
+    source_reference_class,
+)
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,7 @@ class SourceRelationSnapshot:
     drive_file_id: str | None
     s3_bucket: str | None
     s3_object_key: str | None
+    reference_class: str | None
     mime_type: str | None
     size_bytes: int | None
     upload_status: str | None
@@ -200,7 +207,7 @@ def _snapshot(job, js):
         reasons.append("unsupported_source_type")
     if not is_supported_source_mime_type(mime):
         reasons.append("unsupported_mime_type")
-    return {"source_id": src.id, "position": js.position, "source_type": source_type, "original_filename": src.original_filename, "mime_type": mime, "size_bytes": src.size_bytes, "project_id": src.project_id, "upload_status": str(src.upload_status.value), "deleted_at": src.deleted_at, "expires_at": src.expires_at, "s3_bucket": src.s3_bucket, "s3_object_key": src.s3_object_key, "drive_file_id": src.drive_file_id, "reasons": reasons}
+    return {"source_id": src.id, "position": js.position, "source_type": source_type, "original_filename": src.original_filename, "mime_type": mime, "size_bytes": src.size_bytes, "project_id": src.project_id, "upload_status": str(src.upload_status.value), "deleted_at": src.deleted_at, "expires_at": src.expires_at, "s3_bucket": src.s3_bucket, "s3_object_key": src.s3_object_key, "reference_class": source_reference_class(src), "drive_file_id": src.drive_file_id, "reasons": reasons}
 
 
 def _verify_local(snap, now, settings, storage_factory):
@@ -209,14 +216,18 @@ def _verify_local(snap, now, settings, storage_factory):
         reasons.append("source_expired")
     if not snap["s3_bucket"] or not snap["s3_object_key"]:
         reasons.append("source_missing_required_identity")
-    if not settings.source_storage_configured():
+    if not reference_storage_isolation_configured(settings):
         reasons.append("source_storage_not_configured")
-    if snap["s3_bucket"] != settings.source_s3_bucket:
+    if snap["s3_bucket"] != reference_storage_bucket(
+        settings, snap["reference_class"]
+    ):
         reasons.append("source_bucket_mismatch")
     if reasons:
         return None, None, reasons
     try:
-        head = storage_factory(settings).head_object(snap["s3_object_key"])
+        head = storage_factory(
+            reference_storage_settings(settings, snap["reference_class"])
+        ).head_object(snap["s3_object_key"])
     except FileNotFoundError:
         return None, None, ["storage_object_missing"]
     except Exception:
@@ -294,6 +305,7 @@ def _relation_source_identity(job_source) -> SourceRelationSnapshot:
         drive_file_id=src.drive_file_id if src else None,
         s3_bucket=src.s3_bucket if src else None,
         s3_object_key=src.s3_object_key if src else None,
+        reference_class=source_reference_class(src) if src else None,
         mime_type=normalize_source_mime_type(src.mime_type) if src else None,
         size_bytes=src.size_bytes if src else None,
         upload_status=_enum_value(src.upload_status) if src else None,

@@ -15,6 +15,92 @@ class SourceStorageError(RuntimeError):
     pass
 
 
+TRANSCRIPTION_REFERENCE_CLASS = "transcription"
+AUDIO_PROCESSING_REFERENCE_CLASS = "audio_processing"
+REFERENCE_CLASSES = frozenset(
+    {TRANSCRIPTION_REFERENCE_CLASS, AUDIO_PROCESSING_REFERENCE_CLASS}
+)
+
+
+@dataclass(frozen=True)
+class ReferenceStorageSettings:
+    source_s3_endpoint_url: str | None
+    source_s3_region: str
+    source_s3_bucket: str | None
+    source_s3_access_key_id_file: str | None
+    source_s3_secret_access_key_file: str | None
+    source_s3_lifecycle_rule_id: str | None
+
+    def source_storage_configured(self) -> bool:
+        return bool(
+            self.source_s3_endpoint_url
+            and self.source_s3_bucket
+            and self.source_s3_access_key_id_file
+            and self.source_s3_secret_access_key_file
+        )
+
+
+def normalize_reference_class(value: str | None) -> str:
+    normalized = value or TRANSCRIPTION_REFERENCE_CLASS
+    if normalized not in REFERENCE_CLASSES:
+        raise SourceStorageError("Неизвестный класс reference storage")
+    return normalized
+
+
+def source_reference_class(source) -> str:
+    return normalize_reference_class(getattr(source, "reference_class", None))
+
+
+def reference_storage_settings(settings, reference_class: str) -> ReferenceStorageSettings:
+    normalized = normalize_reference_class(reference_class)
+    prefix = (
+        "audio_reference_s3"
+        if normalized == AUDIO_PROCESSING_REFERENCE_CLASS
+        else "source_s3"
+    )
+    return ReferenceStorageSettings(
+        source_s3_endpoint_url=getattr(settings, f"{prefix}_endpoint_url", None),
+        source_s3_region=getattr(settings, f"{prefix}_region", "auto"),
+        source_s3_bucket=getattr(settings, f"{prefix}_bucket", None),
+        source_s3_access_key_id_file=getattr(
+            settings, f"{prefix}_access_key_id_file", None
+        ),
+        source_s3_secret_access_key_file=getattr(
+            settings, f"{prefix}_secret_access_key_file", None
+        ),
+        source_s3_lifecycle_rule_id=getattr(
+            settings, f"{prefix}_lifecycle_rule_id", None
+        ),
+    )
+
+
+def reference_storage_bucket(settings, reference_class: str) -> str | None:
+    return reference_storage_settings(settings, reference_class).source_s3_bucket
+
+
+def reference_storage_isolation_configured(settings) -> bool:
+    configured = getattr(settings, "reference_storage_isolation_configured", None)
+    if callable(configured):
+        return bool(configured())
+    transcription = reference_storage_settings(
+        settings, TRANSCRIPTION_REFERENCE_CLASS
+    )
+    audio = reference_storage_settings(settings, AUDIO_PROCESSING_REFERENCE_CLASS)
+    return bool(
+        transcription.source_storage_configured()
+        and audio.source_storage_configured()
+        and transcription.source_s3_bucket != audio.source_s3_bucket
+        and transcription.source_s3_access_key_id_file
+        != audio.source_s3_access_key_id_file
+        and transcription.source_s3_secret_access_key_file
+        != audio.source_s3_secret_access_key_file
+        and (transcription.source_s3_lifecycle_rule_id or "").strip()
+        and (audio.source_s3_lifecycle_rule_id or "").strip()
+        and transcription.source_s3_lifecycle_rule_id
+        != audio.source_s3_lifecycle_rule_id
+    )
+
+
 class SourceObjectReadReason(str, Enum):
     missing = "missing"
     unavailable = "unavailable"
@@ -52,7 +138,7 @@ class ObjectHead:
 
 
 class S3SourceStorage:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings | ReferenceStorageSettings):
         self.settings = settings
         self.bucket = settings.source_s3_bucket
         if not settings.source_storage_configured():
@@ -127,6 +213,13 @@ class S3SourceStorage:
 
 def get_source_storage(settings: Settings) -> S3SourceStorage:
     return S3SourceStorage(settings)
+
+
+def get_reference_storage(settings, reference_class: str) -> S3SourceStorage:
+    selected = reference_storage_settings(settings, reference_class)
+    if not selected.source_storage_configured():
+        raise SourceStorageError("Reference storage не настроено")
+    return get_source_storage(selected)
 
 
 SOURCE_DISPLAY_FILENAME_MAX_LENGTH = 255

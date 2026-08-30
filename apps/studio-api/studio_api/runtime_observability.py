@@ -16,6 +16,13 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
+from .source_storage import (
+    AUDIO_PROCESSING_REFERENCE_CLASS,
+    TRANSCRIPTION_REFERENCE_CLASS,
+    reference_storage_isolation_configured,
+    reference_storage_settings,
+)
+
 WEB_BUILD_METADATA_URL = "http://studio-web:8080/build-meta.json"
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
@@ -307,32 +314,43 @@ def stt_provider_runtime_status(db, *, owner_user_id: str) -> dict[str, object]:
     }
 
 
-def source_storage_runtime_status(settings, *, client_factory: Callable | None = None) -> dict[str, str]:
-    if not settings.source_storage_configured():
-        return {"status": "unconfigured", "probe": "not_run"}
-    try:
-        if client_factory is None:
-            import boto3
-            from botocore.config import Config as BotoConfig
+def source_storage_runtime_status(settings, *, client_factory: Callable | None = None) -> dict:
+    boundaries = {
+        TRANSCRIPTION_REFERENCE_CLASS: "unconfigured",
+        AUDIO_PROCESSING_REFERENCE_CLASS: "unconfigured",
+    }
+    if not reference_storage_isolation_configured(settings):
+        return {"status": "unconfigured", "probe": "not_run", "boundaries": boundaries}
+    for reference_class in (
+        TRANSCRIPTION_REFERENCE_CLASS,
+        AUDIO_PROCESSING_REFERENCE_CLASS,
+    ):
+        selected = reference_storage_settings(settings, reference_class)
+        try:
+            if client_factory is None:
+                import boto3
+                from botocore.config import Config as BotoConfig
 
-            client = boto3.client(
-                "s3",
-                endpoint_url=settings.source_s3_endpoint_url,
-                region_name=settings.source_s3_region,
-                aws_access_key_id=Path(settings.source_s3_access_key_id_file).read_text(encoding="utf-8").strip(),
-                aws_secret_access_key=Path(settings.source_s3_secret_access_key_file).read_text(encoding="utf-8").strip(),
-                config=BotoConfig(
-                    connect_timeout=2,
-                    read_timeout=2,
-                    retries={"max_attempts": 1, "mode": "standard"},
-                ),
-            )
-        else:
-            client = client_factory()
-        client.head_bucket(Bucket=settings.source_s3_bucket)
-    except Exception:
-        return {"status": "unavailable", "probe": "read_only_head"}
-    return {"status": "ready", "probe": "read_only_head"}
+                client = boto3.client(
+                    "s3",
+                    endpoint_url=selected.source_s3_endpoint_url,
+                    region_name=selected.source_s3_region,
+                    aws_access_key_id=Path(selected.source_s3_access_key_id_file).read_text(encoding="utf-8").strip(),
+                    aws_secret_access_key=Path(selected.source_s3_secret_access_key_file).read_text(encoding="utf-8").strip(),
+                    config=BotoConfig(
+                        connect_timeout=2,
+                        read_timeout=2,
+                        retries={"max_attempts": 1, "mode": "standard"},
+                    ),
+                )
+            else:
+                client = client_factory()
+            client.head_bucket(Bucket=selected.source_s3_bucket)
+            boundaries[reference_class] = "ready"
+        except Exception:
+            boundaries[reference_class] = "unavailable"
+    status = "ready" if all(value == "ready" for value in boundaries.values()) else "unavailable"
+    return {"status": status, "probe": "read_only_head", "boundaries": boundaries}
 
 
 class WorkerRuntimeHeartbeat:

@@ -25,6 +25,13 @@ from .models import (
     TranscriptionJob,
     TranscriptionJobSource,
 )
+from .source_storage import (
+    get_source_storage,
+    reference_storage_bucket,
+    reference_storage_isolation_configured,
+    reference_storage_settings,
+    source_reference_class,
+)
 
 SOURCE_CLEANUP_LEASE_TTL = timedelta(minutes=5)
 SOURCE_CLEANUP_RETRY_DELAY = timedelta(minutes=10)
@@ -59,6 +66,7 @@ class SourceCleanupClaim:
     generation: int
     s3_bucket: str
     s3_object_key: str
+    reference_class: str
     attempt_count: int
 
 
@@ -268,7 +276,7 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
     if owner_user_id:
         write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_STARTED", project_id=src.project_id, metadata={"source_type": src.source_type.value, "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     db.flush()
-    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_bucket or "", src.s3_object_key or "", src.storage_cleanup_attempt_count)
+    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_bucket or "", src.s3_object_key or "", source_reference_class(src), src.storage_cleanup_attempt_count)
 
 
 def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: datetime, success: bool, error_code: str | None = None) -> bool:
@@ -280,6 +288,7 @@ def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: date
         or src.storage_cleanup_generation != claim.generation
         or src.s3_bucket != claim.s3_bucket
         or src.s3_object_key != claim.s3_object_key
+        or source_reference_class(src) != claim.reference_class
     ):
         return False
     if success:
@@ -323,16 +332,17 @@ def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetim
     ok = True
     code = None
     try:
-        configured_bucket = getattr(settings, "source_s3_bucket", None)
-        configured = bool(getattr(settings, "source_storage_configured", lambda: False)())
-        if not configured:
+        configured_bucket = reference_storage_bucket(settings, claim.reference_class)
+        if not reference_storage_isolation_configured(settings):
             ok = False
             code = "storage_unavailable"
         elif claim.s3_bucket != configured_bucket:
             ok = False
             code = "storage_identity_mismatch"
         else:
-            (storage_factory or __import__("studio_api.source_storage", fromlist=["get_source_storage"]).get_source_storage)(settings).delete_object(claim.s3_object_key, bucket=claim.s3_bucket)
+            (storage_factory or get_source_storage)(
+                reference_storage_settings(settings, claim.reference_class)
+            ).delete_object(claim.s3_object_key, bucket=claim.s3_bucket)
     except Exception as exc:
         ok = False
         code = "storage_unavailable" if type(exc).__name__ in {"SourceStorageError", "EndpointConnectionError"} else "storage_delete_failed"

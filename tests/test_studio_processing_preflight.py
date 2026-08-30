@@ -32,11 +32,22 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     secret_dir = tmp_path / "secrets"
     secret_dir.mkdir()
     secrets = {}
-    for name in ["pg", "master", "s3id", "s3secret", "google", "google_maintenance"]:
+    for name in [
+        "pg",
+        "master",
+        "s3id",
+        "s3secret",
+        "audio_s3id",
+        "audio_s3secret",
+        "google",
+        "google_maintenance",
+    ]:
         p = secret_dir / name
         value = {
             "s3id": "a" * 32,
             "s3secret": "b" * 64,
+            "audio_s3id": "c" * 32,
+            "audio_s3secret": "d" * 64,
         }.get(name, f"SUPERSECRET-{name}-TOKEN123")
         p.write_text(value + "\n", encoding="utf-8")
         secrets[name] = p
@@ -48,6 +59,13 @@ STUDIO_SOURCE_S3_REGION=auto
 STUDIO_SOURCE_S3_BUCKET=bucket
 STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE={secrets['s3id']}
 STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE={secrets['s3secret']}
+STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID=transcription-reference-retention
+STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL=https://private-r2.invalid
+STUDIO_AUDIO_REFERENCE_S3_REGION=auto
+STUDIO_AUDIO_REFERENCE_S3_BUCKET=audio-bucket
+STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE={secrets['audio_s3id']}
+STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE={secrets['audio_s3secret']}
+STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID=audio-reference-retention
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
@@ -96,7 +114,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0028_transcript_maintenance_runs")
+    current = state.get("current", "0029_source_reference_class")
     invalid_storage_kind = state.get("invalid_storage_kind", "")
     invalid_mounted_key = state.get("invalid_mounted_key", "")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
@@ -121,8 +139,10 @@ if [[ "$1" == "compose" ]]; then
     [[ "$2" == "-T" ]] || exit 45
     if [[ "$*" == *--validate-mounted-secret* ]]; then
       if [[ -n {invalid_mounted_key!r} && "$*" == *{invalid_mounted_key!r}* ]]; then exit 1; fi
-      if [[ {invalid_storage_kind!r} == "access_key_id" && "$*" == *STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE* ]]; then exit 1; fi
-      if [[ {invalid_storage_kind!r} == "secret_access_key" && "$*" == *STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
+      if [[ {invalid_storage_kind!r} == "source_access_key_id" && "$*" == *STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE* ]]; then exit 1; fi
+      if [[ {invalid_storage_kind!r} == "source_secret_access_key" && "$*" == *STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
+      if [[ {invalid_storage_kind!r} == "audio_access_key_id" && "$*" == *STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE* ]]; then exit 1; fi
+      if [[ {invalid_storage_kind!r} == "audio_secret_access_key" && "$*" == *STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
       exit 0
     fi
     if read -r unexpected; then echo stdin-leak >> {str(log)!r}; fi
@@ -169,9 +189,9 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_OK") == 1
     assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" not in proc.stdout
     assert "authenticated smoke-account login | not-run" in proc.stdout
-    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0028_transcript_maintenance_runs" in proc.stdout
-    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0028_transcript_maintenance_runs" in proc.stdout
-    assert "revision equality | pass | production database revision 0028_transcript_maintenance_runs equals repository head 0028_transcript_maintenance_runs" in proc.stdout
+    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0029_source_reference_class" in proc.stdout
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0029_source_reference_class" in proc.stdout
+    assert "revision equality | pass | production database revision 0029_source_reference_class equals repository head 0029_source_reference_class" in proc.stdout
     assert any(
         "exec -T studio-api python -m studio_api.container_entrypoint "
         "--drop-only alembic current" in c
@@ -180,12 +200,14 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     mounted_validation_calls = [
         call for call in calls if "--validate-mounted-secret" in call
     ]
-    assert len(mounted_validation_calls) == 6
+    assert len(mounted_validation_calls) == 8
     for key in [
         "STUDIO_POSTGRES_PASSWORD_FILE",
         "STUDIO_CREDENTIAL_MASTER_KEY_FILE",
         "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE",
         "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE",
+        "STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE",
+        "STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE",
         "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE",
         "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE",
     ]:
@@ -250,8 +272,10 @@ def test_missing_or_unreadable_mounted_secret_blocks_inside_runtime_boundary(
 
 def test_source_storage_placeholder_secrets_block_inside_runtime_boundary(tmp_path: Path) -> None:
     cases = [
-        ("access_key_id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence"),
-        ("secret_access_key", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence"),
+        ("source_access_key_id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence"),
+        ("source_secret_access_key", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence"),
+        ("audio_access_key_id", "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence"),
+        ("audio_secret_access_key", "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence"),
     ]
     for index, (kind, row) in enumerate(cases):
         case = tmp_path / str(index)
@@ -285,8 +309,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0028_transcript_maintenance_runs.py"
-    f.write_text(f.read_text().replace('revision = "0028_transcript_maintenance_runs"', 'revision = "0028_wrong_head"'), encoding="utf-8")
+    f = repo / "apps/studio-api/alembic/versions/0029_source_reference_class.py"
+    f.write_text(f.read_text().replace('revision = "0029_source_reference_class"', 'revision = "0029_wrong_head"'), encoding="utf-8")
     proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
     assert proc.returncode != 0
 
@@ -320,7 +344,7 @@ def test_revision_output_is_known_normalized_metadata_only(tmp_path: Path) -> No
     )
     assert mismatch.returncode != 0
     assert "production Alembic revision | pass | exactly one known production database revision was reported: 0011_diagnostic_debug_sessions" in mismatch.stdout
-    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0028_transcript_maintenance_runs" in mismatch.stdout
+    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0029_source_reference_class" in mismatch.stdout
     assert_no_secret_output(mismatch)
     assert_no_forbidden(calls)
 
@@ -352,7 +376,7 @@ def test_workflow_contract() -> None:
 REQUIRED_ROWS = [
     "deploy directory identity", "repository remote identity", "branch identity", "commit identity", "tracked working tree",
     "runtime env presence", "runtime setting completeness",
-    "POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
+    "POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence", "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
     "postgres service count/status", "redis service count/status", "studio-api service count/status", "studio-web service count/status", "studio-worker service count/status",
     "PostgreSQL health", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
     "repository Alembic head", "production Alembic revision", "revision equality",
@@ -500,6 +524,67 @@ def test_maintenance_oauth_requires_separate_secret_file(tmp_path: Path) -> None
         == "blocked"
     )
     assert "maintenance OAuth requires a separate client secret file" in proc.stdout
+    assert not any(call.startswith("docker ") for call in calls)
+    assert_complete_table(proc)
+
+
+def test_audio_references_require_separate_storage_boundary(tmp_path: Path) -> None:
+    cases = [
+        (
+            "STUDIO_AUDIO_REFERENCE_S3_BUCKET",
+            "bucket",
+            "STUDIO_AUDIO_REFERENCE_S3_BUCKET:must_differ_from_transcription_bucket",
+        ),
+        (
+            "STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID",
+            "transcription-reference-retention",
+            "STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID:must_differ_from_transcription_lifecycle",
+        ),
+    ]
+    for index, (key, value, reason) in enumerate(cases):
+        proc, calls = with_env_override(tmp_path / str(index), key, value)
+        assert proc.returncode != 0
+        assert reason in proc.stdout
+        assert not any(call.startswith("docker ") for call in calls)
+        assert_complete_table(proc)
+
+
+def test_audio_references_require_separate_credential_files(tmp_path: Path) -> None:
+    repo, bin_dir = make_repo(tmp_path)
+    env_path = repo / "deploy/studio/.env"
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    source_access_file = next(
+        line.split("=", 1)[1]
+        for line in lines
+        if line.startswith("STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE=")
+    )
+    env_path.write_text(
+        "\n".join(
+            (
+                f"STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE={source_access_file}"
+                if line.startswith("STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE=")
+                else line
+            )
+            for line in lines
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA],
+        cwd=repo,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    calls = (
+        (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+        if (tmp_path / "calls.log").exists()
+        else []
+    )
+    assert proc.returncode != 0
+    assert "audio references require a separate credential file pair" in proc.stdout
     assert not any(call.startswith("docker ") for call in calls)
     assert_complete_table(proc)
 
@@ -656,6 +741,11 @@ def test_missing_worker_lease_heartbeat_setting_uses_safe_default(tmp_path: Path
 STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_SOURCE_S3_REGION=auto
 STUDIO_SOURCE_S3_BUCKET=bucket
+STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID=transcription-reference-retention
+STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL=https://private-r2.invalid
+STUDIO_AUDIO_REFERENCE_S3_REGION=auto
+STUDIO_AUDIO_REFERENCE_S3_BUCKET=audio-bucket
+STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID=audio-reference-retention
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
@@ -678,7 +768,20 @@ STUDIO_WORKER_LEASE_TTL_SECONDS=3600
 
 def test_worker_lease_heartbeat_too_large_blocks_preflight(tmp_path: Path) -> None:
     env = (ROOT / "deploy/studio/.env.example").read_text(encoding="utf-8")
-    env = env.replace("__REQUIRED_TEMP_SOURCE_S3_ENDPOINT_URL__", "https://private-r2.invalid").replace("__REQUIRED_TEMP_SOURCE_S3_REGION__", "auto").replace("__REQUIRED_TEMP_SOURCE_S3_BUCKET__", "bucket").replace("__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__", "client").replace("__REQUIRED_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID__", "maintenance-client").replace("__REQUIRED_PUBLIC_RESTRICTED_PICKER_API_KEY__", "picker").replace("__REQUIRED_GOOGLE_CLOUD_PROJECT_NUMBER__", "123").replace("STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent").replace("STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent-maintenance")
+    env = (
+        env.replace("__REQUIRED_TEMP_SOURCE_S3_ENDPOINT_URL__", "https://private-r2.invalid")
+        .replace("__REQUIRED_TEMP_SOURCE_S3_REGION__", "auto")
+        .replace("__REQUIRED_TEMP_SOURCE_S3_BUCKET__", "bucket")
+        .replace("__REQUIRED_AUDIO_REFERENCE_S3_ENDPOINT_URL__", "https://private-r2.invalid")
+        .replace("__REQUIRED_AUDIO_REFERENCE_S3_REGION__", "auto")
+        .replace("__REQUIRED_AUDIO_REFERENCE_S3_BUCKET__", "audio-bucket")
+        .replace("__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__", "client")
+        .replace("__REQUIRED_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID__", "maintenance-client")
+        .replace("__REQUIRED_PUBLIC_RESTRICTED_PICKER_API_KEY__", "picker")
+        .replace("__REQUIRED_GOOGLE_CLOUD_PROJECT_NUMBER__", "123")
+        .replace("STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent")
+        .replace("STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent-maintenance")
+    )
     env = env.replace("STUDIO_WORKER_LEASE_TTL_SECONDS=3600", "STUDIO_WORKER_LEASE_TTL_SECONDS=300").replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60", "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=101")
     proc, _, _ = run_preflight(tmp_path, env_text=env)
     assert proc.returncode != 0

@@ -20,6 +20,24 @@ sys.path.insert(0, str(ROOT / "apps/studio-api"))
 ALEMBIC = ROOT / "apps/studio-api" / "alembic.ini"
 
 
+def isolated_storage_settings():
+    return SimpleNamespace(
+        source_s3_endpoint_url="https://r2.test",
+        source_s3_region="auto",
+        source_s3_bucket="bucket",
+        source_s3_access_key_id_file="transcription-access",
+        source_s3_secret_access_key_file="transcription-secret",
+        source_s3_lifecycle_rule_id="transcription-retention",
+        audio_reference_s3_endpoint_url="https://r2.test",
+        audio_reference_s3_region="auto",
+        audio_reference_s3_bucket="audio-bucket",
+        audio_reference_s3_access_key_id_file="audio-access",
+        audio_reference_s3_secret_access_key_file="audio-secret",
+        audio_reference_s3_lifecycle_rule_id="audio-retention",
+        source_max_upload_bytes=100,
+    )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def speaker_identity_database_environment():
     database_url = os.environ.get("STUDIO_DATABASE_URL")
@@ -84,7 +102,7 @@ def test_speaker_identity_schema_is_owner_scoped_bounded_and_additive():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC)))
     revision = script.get_revision("0024_speaker_identity")
     assert revision.down_revision == "0023_realtime_drafts"
-    assert script.get_heads() == ["0028_transcript_maintenance_runs"]
+    assert script.get_heads() == ["0029_source_reference_class"]
     migration = Path(revision.module.__file__).read_text(encoding="utf-8")
     assert 'release_safety = "additive"' in migration
 
@@ -374,8 +392,9 @@ def test_speaker_sample_is_bounded_owner_scoped_and_not_persisted():
             project_id=project.id,
             source_type=SourceType.local_upload,
             original_filename="call.mp3",
-            s3_bucket="bucket",
+            s3_bucket="audio-bucket",
             s3_object_key="owner/source.mp3",
+            reference_class="audio_processing",
             upload_status=SourceUploadStatus.uploaded,
             expires_at=now.replace(year=2027),
         )
@@ -394,18 +413,25 @@ def test_speaker_sample_is_bounded_owner_scoped_and_not_persisted():
         db.add_all([owner, project, source, job, relation, speaker])
         db.commit()
 
+        selected_buckets = []
+
+        def select_storage(selected_settings):
+            selected_buckets.append(selected_settings.source_s3_bucket)
+            return Storage()
+
         sample = create_speaker_sample_audio(
             db,
             owner_user_id=owner.id,
             job_id=job.id,
             speaker_id=speaker.id,
-            settings=SimpleNamespace(source_s3_bucket="bucket", source_max_upload_bytes=100),
-            storage_factory=lambda _: Storage(),
+            settings=isolated_storage_settings(),
+            storage_factory=select_storage,
             runner=runner,
         )
 
         assert sample.content == b"bounded-mp3"
         assert sample.media_type == "audio/mpeg"
+        assert selected_buckets == ["audio-bucket"]
         assert captured["command"][captured["command"].index("-ss") + 1] == "1.250"
         assert captured["command"][captured["command"].index("-t") + 1] == "5.000"
         assert not captured["input"].exists()
@@ -417,7 +443,7 @@ def test_speaker_sample_is_bounded_owner_scoped_and_not_persisted():
                 owner_user_id="other-owner",
                 job_id=job.id,
                 speaker_id=speaker.id,
-                settings=SimpleNamespace(source_s3_bucket="bucket", source_max_upload_bytes=100),
+                settings=isolated_storage_settings(),
                 storage_factory=lambda _: Storage(),
                 runner=runner,
             )
