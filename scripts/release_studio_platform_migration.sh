@@ -358,7 +358,7 @@ release_safety = getattr(revision.module, "release_safety", None)
 if not isinstance(down_revision, str):
     raise SystemExit(1)
 print(target, down_revision, release_safety or "", repository_head, sep="\t")
-' "$STUDIO_REQUESTED_MIGRATION_TARGET" </dev/null 2>/dev/null
+' "$STUDIO_REQUESTED_MIGRATION_TARGET" </dev/null
 )"; then
   blocked "candidate_migration_metadata_failed"
 fi

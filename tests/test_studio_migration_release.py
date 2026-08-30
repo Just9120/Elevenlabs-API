@@ -528,6 +528,7 @@ def test_studio_ci_watches_migration_release_contract_files() -> None:
 
 def test_embedded_release_python_programs_compile() -> None:
     release = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    assert '"$STUDIO_REQUESTED_MIGRATION_TARGET" </dev/null 2>/dev/null' not in release
     heredoc_programs = re.findall(
         r"<<'PY'\n(.*?)\nPY",
         release,

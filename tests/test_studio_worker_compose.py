@@ -90,7 +90,9 @@ def test_shared_api_worker_image_drops_root_before_runtime():
     assert "groupadd --gid 10001 studio" in "\n".join(lines)
     assert "useradd --uid 10001 --gid studio --no-create-home" in "\n".join(lines)
     user_index=lines.index("USER 10001:10001")
-    assert user_index > next(i for i,line in enumerate(lines) if line == "COPY . .")
+    copy_index=lines.index("COPY . .")
+    permission_index=lines.index("RUN chmod -R u=rwX,go=rX /app")
+    assert copy_index < permission_index < user_index
     assert (
         'ENTRYPOINT ["python", "-m", "studio_api.container_entrypoint"]'
         in lines[user_index + 1 :]

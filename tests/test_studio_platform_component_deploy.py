@@ -257,9 +257,18 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
 def test_studio_ci_runs_protected_secret_bootstrap_smoke_after_image_build() -> None:
     workflow = (ROOT / ".github/workflows/studio-ci.yml").read_text(encoding="utf-8")
     build = "tags: elevenlabs-studio-api:test"
+    metadata_marker = "Verify application metadata as non-root runtime"
     marker = "Verify protected secret bootstrap and non-root runtime"
 
-    assert workflow.index(build) < workflow.index(marker)
+    assert workflow.index(build) < workflow.index(metadata_marker) < workflow.index(marker)
+    for fragment in (
+        "--network none",
+        "--read-only",
+        "--cap-drop ALL",
+        "ScriptDirectory.from_config",
+        "STUDIO_MIGRATION_METADATA_OK",
+    ):
+        assert fragment in workflow
     for fragment in (
         "chmod 600",
         "--user 0:0",
