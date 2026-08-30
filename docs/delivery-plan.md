@@ -24,23 +24,23 @@
   14. `WUA-14`: owner/credential-version-scoped snapshot хранит plan/status, provider period usage/limit/remaining, reset, usage-based billing entitlement/cap, actual current overage, invoice aggregates и product credits с explicit units/window provenance.
   15. `WUA-15`: automatic refresh при открытом UI использует максимум пятиминутный successful snapshot, visible timestamp и bounded polling; manual refresh доступен, а provider failure возвращает last successful snapshot как stale либо explicit unavailable без fabricated values.
   16. `WUA-16`: UI и API раздельно обозначают local job nominal estimate, provider account usage units, current overage и invoice; model-specific minutes/remaining или per-job invoice allocation показываются только при direct provider Evidence.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** production потребует отдельный worker DB credential и manual protected migrations approval; existing ElevenLabs key должен иметь read scopes для user subscription и workspace analytics, иначе UI обязан показать actionable partial/unavailable state. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-30T14:49:39Z.
+- Updated (UTC): 2026-08-30T14:54:57Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
 - Base branch/SHA: verified `origin/main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working branch: `codex/pwa-worker-usage-accounting`.
 - Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-worker-usage-accounting`.
-- Last verified revision: pushed `d369f682eb7de369caad0b70a679edaa050cd689`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
+- Last verified revision: local `0fbf02f`; pushed PR head пока `d369f682eb7de369caad0b70a679edaa050cd689`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
 - Working tree at Goal start: isolated worktree clean. Основной checkout содержит unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми.
 - Completed: worker получил Compose CPU/memory/no-swap/PID/read-only/tmpfs/capability/network boundaries, отдельный direct-grant `studio_worker` login и fail-closed runtime/preflight inspection; additive `0030_provider_usage_accounting` сохраняет pending/confirmed/uncertain provider-part boundary, job totals, USD tariff snapshot и owner-safe analytics/UI. Account extension добавляет bounded official ElevenLabs transport, additive `0031_provider_account_snapshots`, owner/credential-version-scoped cache с advisory serialization/failure backoff, owner API, no-store browser parser и Settings UI, который отделяет provider actuals от nominal job estimate. Official ElevenLabs contracts для subscription и workspace product-credit usage проверены 2026-08-30; provider не публикует structured price-catalog API и не гарантирует model-specific remaining minutes.
-- Current step: завершить full local validation account extension и подготовить один grouped PR update.
-- Next exact action: выполнить полный portable backend suite, Studio lint/test/build и repository hygiene checks; исправить только подтверждённые regressions текущей Goal.
-- Validation and Evidence: exact-head `d369f68` CI: backend `1430 passed`, Studio `success`, browser E2E `success`. Новое расширение: focused backend/accounting/worker tests `30/30`, focused Studio model/component tests `5/5`; full regression ещё выполняется. Docker отсутствует локально; Windows-wide pytest не authoritative из-за temp ACL/path conversion.
+- Current step: отправить один grouped PR update и получить exact-head required CI.
+- Next exact action: commit этого checkpoint, push `0fbf02f..HEAD` в PR `#261` одним batch и дождаться terminal required checks.
+- Validation and Evidence: exact-head `d369f68` CI: backend `1430 passed`, Studio `success`, browser E2E `success`. Account extension local: focused backend/accounting/worker `30/30`; full portable Python `1155 passed, 5 skipped, 1 deselected` (WindowsApps Bash shim test отдельно проверен exact Git Bash `bash -n`); Studio `642/642`; ESLint, TypeScript/Vite/PWA build и `scripts/ci_checks.py` success. PostgreSQL migration/API integration остаётся за exact-head Linux CI. Docker отсутствует локально; inaccessible pre-existing pytest temp directories сохранены.
 - Pull Request / CI / deployment: PR `#261` OPEN/CLEAN/MERGEABLE; exact-head runs `33307712572/33307712523` success. После расширения scope новые commits пока не pushed; deployment не начат.
 - Blockers: production setup отдельного worker DB password и protected migrations approval будут external gates после CI; read scopes existing ElevenLabs key проверяются только actual provider response.
 - Unverified assumptions: provider account `character_count/character_limit` остаются provider-defined period units и не равны минутам Scribe; product usage endpoint возвращает credits, которые нельзя безопасно распределить по job или перевести в invoice amount без additional provider Evidence.

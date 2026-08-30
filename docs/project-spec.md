@@ -697,7 +697,7 @@ Status: **🟦 IN PROGRESS — 0% (`0/6`)**.
 | `USAGEC-05` | Owner UI раздельно показывает job-level nominal cost и provider account actuals, включая provider-reported remaining period units, overage и invoice amounts; unavailable или semantically incomparable данные не подменяются расчётной цифрой. | — |
 | `USAGEC-06` | Account snapshot имеет видимые `fetched_at`, period/window provenance и current/stale/unavailable state; при открытом экране выполняется bounded refresh, ручное обновление доступно, а provider error сохраняет последний успешный snapshot только как stale. | — |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
 
 ### Эпик `OBSERVABILITY-AUDIT-02` — health, tracing, alerts и protected audit
 
