@@ -91,7 +91,7 @@ describe("TranscriptionAnalyticsPanel", () => {
     expect(screen.getByText("Среднее: 1 ч")).toBeInTheDocument();
     expect(screen.getByText("0,22 USD")).toBeInTheDocument();
     expect(screen.getByText("Подтверждённо отправлено")).toBeInTheDocument();
-    expect(screen.getByText(/Это не счёт после бесплатной квоты/)).toBeInTheDocument();
+    expect(screen.getByText(/Это nominal оценка, а не счёт после подписки или квоты/)).toBeInTheDocument();
     const outcomes = screen.getByRole("region", {
       name: "Исходы транскрибаций",
     });
