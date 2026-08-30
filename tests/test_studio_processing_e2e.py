@@ -7,7 +7,8 @@ import sys
 import tempfile
 import uuid
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -144,6 +145,7 @@ def passthrough_test_media(**kwargs):
         mime_type=kwargs["mime_type"],
         byte_count=kwargs["byte_count"],
         stream=kwargs["stream"],
+        duration_seconds=1.0,
     )
 
 
@@ -237,6 +239,21 @@ def test_api_created_job_completes_through_worker_and_public_output_api(monkeypa
     monkeypatch.setattr(studio_main.settings, "audio_reference_s3_secret_access_key_file", "audio-secret-for-test")
     monkeypatch.setattr(studio_main.settings, "audio_reference_s3_lifecycle_rule_id", "audio-reference-retention")
     monkeypatch.setattr(studio_main.settings, "source_max_upload_bytes", 1024 * 1024)
+    monkeypatch.setattr(
+        studio_main.settings,
+        "elevenlabs_scribe_v2_rate_per_hour_usd",
+        Decimal("0.22"),
+    )
+    monkeypatch.setattr(
+        studio_main.settings,
+        "elevenlabs_pricing_effective_date",
+        date(2026, 8, 30),
+    )
+    monkeypatch.setattr(
+        studio_main.settings,
+        "elevenlabs_pricing_source",
+        "elevenlabs_public_api_pricing",
+    )
     monkeypatch.setattr(
         studio_main,
         "get_reference_storage",

@@ -3168,10 +3168,38 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("0007_job_processing_lifecycle", env=env)
         with temp_engine.begin() as conn:
             # 0001 reflects current metadata; strip post-0007 dependent
-            # objects in dependency order to create a genuine 0007 shape.
+            # objects and 0030-owned columns in dependency order to create a
+            # genuine 0007 shape.
             conn.execute(text("DROP TABLE IF EXISTS transcription_job_source_attempts"))
             conn.execute(text("DROP TABLE IF EXISTS transcription_output_reconciliations"))
             conn.execute(text("DROP TABLE IF EXISTS transcription_job_outputs"))
+            for constraint in [
+                "ck_transcription_jobs_provider_accounting_consistent",
+                "ck_transcription_jobs_provider_rate_positive",
+                "ck_transcription_jobs_provider_currency",
+                "ck_transcription_jobs_provider_cost_nonnegative",
+                "ck_transcription_jobs_provider_duration_nonnegative",
+            ]:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE transcription_jobs DROP CONSTRAINT IF EXISTS {constraint}"
+                    )
+                )
+            for column in [
+                "provider_accounting_uncertain",
+                "provider_accounting_complete",
+                "provider_rate_source",
+                "provider_rate_effective_date",
+                "provider_rate_per_hour",
+                "provider_cost_currency",
+                "provider_cost_amount",
+                "provider_billed_duration_ms",
+            ]:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE transcription_jobs DROP COLUMN IF EXISTS {column}"
+                    )
+                )
             conn.execute(text("DROP TYPE IF EXISTS sourceattemptretrydisposition"))
             conn.execute(text("DROP TYPE IF EXISTS sourceattemptstage"))
             conn.execute(text("DROP TYPE IF EXISTS outputreconciliationstatus"))
@@ -3948,6 +3976,7 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
         "outcomes",
         "success",
         "configuration",
+        "usage_cost",
         "durations",
     }
     assert body["scope"] == "project_all_time"
@@ -3971,6 +4000,16 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
         },
         "language_mode": {"ru": 0, "en": 0, "detect": 1, "other": 0},
         "diarization": {"enabled": 0, "disabled": 1},
+    }
+    assert body["usage_cost"] == {
+        "confirmed_billed_duration_seconds": 0.0,
+        "confirmed_provider_cost": "0.00000000",
+        "currency": "USD",
+        "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
+        "complete_jobs": 0,
+        "uncertain_jobs": 0,
+        "unavailable_jobs": 1,
+        "in_progress_jobs": 0,
     }
     assert all(
         summary == {
