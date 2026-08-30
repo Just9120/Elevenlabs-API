@@ -16,6 +16,7 @@ COMMIT = "a" * 40
 OLD_REVISION = "0021_source_creation_favorites"
 MIDDLE_REVISION = "0022_account_operability"
 NEW_REVISION = "0023_realtime_drafts"
+UNRELATED_REVISION = "0019_unrelated"
 IMAGE_ID = "sha256:" + ("b" * 64)
 POSTGRES_IMAGE_ID = "sha256:" + ("e" * 64)
 OLD_SNAPSHOT = "c" * 64
@@ -43,7 +44,11 @@ def run_release(
     requested_target: str = "head",
     target_revision: str = NEW_REVISION,
     source_revision: str = OLD_REVISION,
+    source_parent_revision: str = "base",
     repository_head: str = NEW_REVISION,
+    current_revision: str = OLD_REVISION,
+    running_api_head: str = OLD_REVISION,
+    api_health: str = "healthy",
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     checkout = tmp_path / "checkout"
     fake_bin = tmp_path / "bin"
@@ -60,7 +65,7 @@ def run_release(
     revision_state = tmp_path / "revision"
     deployed = tmp_path / "deployed"
     backup_complete = tmp_path / "backup-complete"
-    revision_state.write_text(OLD_REVISION, encoding="utf-8")
+    revision_state.write_text(current_revision, encoding="utf-8")
 
     primary_secret = secrets / "primary-oauth"
     maintenance_secret = secrets / "maintenance-oauth"
@@ -240,8 +245,11 @@ elif [[ "$1 $2" == "image inspect" ]]; then
   echo {IMAGE_ID!r}
 elif [[ "$1" == "run" ]]; then
   if [[ "$*" == *"--entrypoint python"* ]]; then
-    printf '%s\\t%s\\t%s\\t%s\\n' \\
-      {target_revision!r} {source_revision!r} {release_safety!r} {repository_head!r}
+    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+      {target_revision!r} {source_revision!r} {release_safety!r} \\
+      {repository_head!r} {source_parent_revision!r}
+  elif [[ "$*" == *"--entrypoint alembic"* && "$*" == *" heads"* ]]; then
+    echo {running_api_head!r}
   elif [[ "$*" == *"--entrypoint pg_restore"* ]]; then
     [[ "$*" == *"--pull never"* ]]
     [[ "$*" == *"--network none"* ]]
@@ -258,7 +266,13 @@ elif [[ "$1" == "run" ]]; then
   fi
 elif [[ "$1" == "inspect" ]]; then
   if [[ "$*" == *".State.Health"* ]]; then
-    echo healthy
+    if [[ "${{@: -1}}" == "api-old" ]]; then
+      echo {api_health!r}
+    else
+      echo healthy
+    fi
+  elif [[ "$*" == *".State.Status"* ]]; then
+    echo running
   elif [[ "$*" == *".Image"* ]]; then
     if [[ "${{@: -1}}" == "postgres-container" ]]; then
       echo {POSTGRES_IMAGE_ID!r}
@@ -406,7 +420,48 @@ def test_intermediate_direct_additive_target_migrates_without_api_deploy(
     assert "api_deployed=no" in proc.stdout
     assert any(call.startswith("migrate ") for call in calls)
     assert not any("force-recreate studio-api" in call for call in calls)
-    assert sum(call.startswith("curl ") for call in calls) >= 3
+    curl_calls = [call for call in calls if call.startswith("curl ")]
+    assert len(curl_calls) == 3
+    assert all("/api/livez" in call for call in curl_calls)
+    assert not any("/api/readyz" in call for call in curl_calls)
+
+
+def test_schema_ahead_recovery_allows_next_direct_successor(tmp_path: Path) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        target_revision=NEW_REVISION,
+        source_revision=MIDDLE_REVISION,
+        source_parent_revision=OLD_REVISION,
+        current_revision=MIDDLE_REVISION,
+        running_api_head=OLD_REVISION,
+        api_health="unhealthy",
+    )
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(calls)
+    assert f"from={MIDDLE_REVISION}" in proc.stdout
+    assert f"to={NEW_REVISION}" in proc.stdout
+    assert "api_deployed=yes" in proc.stdout
+    assert any("--entrypoint alembic" in call for call in calls)
+    assert any("force-recreate studio-api" in call for call in calls)
+
+
+def test_unhealthy_api_without_exact_schema_chain_blocks_before_backup(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        target_revision=NEW_REVISION,
+        source_revision=MIDDLE_REVISION,
+        source_parent_revision=OLD_REVISION,
+        current_revision=MIDDLE_REVISION,
+        running_api_head=UNRELATED_REVISION,
+        api_health="unhealthy",
+    )
+
+    assert proc.returncode == 2
+    assert "reason=unhealthy_api_not_exactly_one_revision_behind" in proc.stderr
+    assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
 
 
 def test_requested_target_must_be_one_direct_successor(tmp_path: Path) -> None:
