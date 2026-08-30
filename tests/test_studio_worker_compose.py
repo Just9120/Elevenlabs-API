@@ -58,11 +58,68 @@ def test_studio_worker_compose_contract():
     assert text.rsplit("volumes:", 1)[1].count("studio-postgres-data:") == 1
 
 
+def test_worker_has_explicit_resource_and_process_isolation():
+    worker = service_block("studio-worker")
+    assert "read_only: true" in worker
+    assert "cap_drop: [ALL]" in worker
+    assert "cap_add: [CHOWN, SETGID, SETUID]" in worker
+    assert "security_opt: [no-new-privileges:true]" in worker
+    assert 'cpus: "${STUDIO_WORKER_CPU_LIMIT:-2.0}"' in worker
+    assert "mem_limit: ${STUDIO_WORKER_MEMORY_LIMIT:-4g}" in worker
+    assert "memswap_limit: ${STUDIO_WORKER_MEMORY_SWAP_LIMIT:-4g}" in worker
+    assert "pids_limit: ${STUDIO_WORKER_PIDS_LIMIT:-256}" in worker
+    assert "PYTHONDONTWRITEBYTECODE: \"1\"" in worker
+    assert "TMPDIR: /tmp" in worker
+    assert "/tmp:rw,nosuid,nodev,noexec,mode=1770,uid=10001,gid=10001,size=${STUDIO_WORKER_TMPFS_SIZE:-3g}" in worker
+
+
+def test_worker_networks_are_disjoint_from_web_api_and_redis():
+    text = COMPOSE.read_text()
+    worker = service_block("studio-worker")
+    api = service_block("studio-api")
+    web = service_block("studio-web")
+    postgres = service_block("postgres")
+    redis = service_block("redis")
+    assert "studio-worker-db" in worker and "studio-worker-egress" in worker
+    for forbidden in ("studio-web-api", "studio-api-db", "studio-api-cache", "studio-api-egress"):
+        assert forbidden not in worker
+    assert "studio-web-api" in web and "studio-web-api" in api
+    assert "studio-api-db" in api and "studio-api-cache" in api and "studio-api-egress" in api
+    assert "studio-worker-db" in postgres and "studio-api-db" in postgres
+    assert "studio-api-cache" in redis and "studio-worker" not in redis
+    networks = text.split("\nnetworks:\n", 1)[1]
+    for internal in ("studio-web-api", "studio-api-db", "studio-api-cache", "studio-worker-db"):
+        assert f"  {internal}:\n    internal: true" in networks
+    assert "  studio-api-egress:" in networks
+    assert "  studio-worker-egress:" in networks
+
+
+def test_worker_uses_dedicated_database_login_and_secret_source():
+    text = COMPOSE.read_text()
+    worker = service_block("studio-worker")
+    api = service_block("studio-api")
+    assert "STUDIO_DATABASE_USER: studio_worker" in worker
+    assert "STUDIO_DATABASE_USER: studio" in api
+    assert "source: studio_worker_postgres_password" in worker
+    assert "target: studio_postgres_password" in worker
+    assert "studio_worker_postgres_password:" in text
+    assert "STUDIO_WORKER_POSTGRES_PASSWORD_FILE:?worker database secret file required" in text
+
+
 def test_env_example_worker_defaults_once():
     text=ENV.read_text()
     for line in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS=5", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5", "STUDIO_WORKER_LEASE_TTL_SECONDS=3600"]:
         assert text.count(line) == 1
     assert text.count("STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES=2147483647") == 1
+    for line in [
+        "STUDIO_WORKER_POSTGRES_PASSWORD_FILE=/path/to/studio_worker_postgres_password",
+        "STUDIO_WORKER_CPU_LIMIT=2.0",
+        "STUDIO_WORKER_MEMORY_LIMIT=4g",
+        "STUDIO_WORKER_MEMORY_SWAP_LIMIT=4g",
+        "STUDIO_WORKER_PIDS_LIMIT=256",
+        "STUDIO_WORKER_TMPFS_SIZE=3g",
+    ]:
+        assert text.count(line) == 1
 
 
 def test_heartbeat_config_is_worker_only():

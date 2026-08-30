@@ -10,6 +10,7 @@ services:
     image: elevenlabs-studio-web:local
     restart: unless-stopped
     ports: ["127.0.0.1:8181:8080"]
+    networks: [studio-web-api]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q ok"]
       interval: 30s
@@ -27,6 +28,11 @@ services:
     user: "0:0"
     restart: unless-stopped
     ports: ["127.0.0.1:8182:8000"]
+    networks:
+      - studio-web-api
+      - studio-api-db
+      - studio-api-cache
+      - studio-api-egress
     environment:
       STUDIO_DATABASE_SCHEME: postgresql+psycopg
       STUDIO_DATABASE_HOST: postgres
@@ -100,12 +106,23 @@ services:
     user: "0:0"
     command: ["python", "-m", "studio_api.worker"]
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    cpus: "${STUDIO_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: ${STUDIO_WORKER_MEMORY_LIMIT:-4g}
+    memswap_limit: ${STUDIO_WORKER_MEMORY_SWAP_LIMIT:-4g}
+    pids_limit: ${STUDIO_WORKER_PIDS_LIMIT:-256}
+    networks:
+      - studio-worker-db
+      - studio-worker-egress
     environment:
       STUDIO_DATABASE_SCHEME: postgresql+psycopg
       STUDIO_DATABASE_HOST: postgres
       STUDIO_DATABASE_PORT: "5432"
       STUDIO_DATABASE_NAME: studio
-      STUDIO_DATABASE_USER: studio
+      STUDIO_DATABASE_USER: studio_worker
       STUDIO_CONTAINER_SECRET_BOOTSTRAP: required
       STUDIO_POSTGRES_PASSWORD_FILE: /run/studio-runtime-secrets/studio_postgres_password
       STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/studio-runtime-secrets/studio_credential_master_key
@@ -135,9 +152,15 @@ services:
       STUDIO_WORKER_ERROR_BACKOFF_SECONDS: ${STUDIO_WORKER_ERROR_BACKOFF_SECONDS:-5}
       STUDIO_WORKER_LEASE_TTL_SECONDS: ${STUDIO_WORKER_LEASE_TTL_SECONDS:-3600}
       STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS: ${STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS:-60}
+      STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD: ${STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD:?ElevenLabs Scribe v2 hourly USD rate is required}
+      STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE: ${STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE:?ElevenLabs pricing effective date is required}
+      STUDIO_ELEVENLABS_PRICING_SOURCE: ${STUDIO_ELEVENLABS_PRICING_SOURCE:?ElevenLabs pricing source is required}
+      TMPDIR: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
     secrets:
       - studio_credential_master_key
-      - studio_postgres_password
+      - source: studio_worker_postgres_password
+        target: studio_postgres_password
       - studio_source_s3_access_key_id
       - studio_source_s3_secret_access_key
       - studio_audio_reference_s3_access_key_id
@@ -146,6 +169,7 @@ services:
       - studio_google_maintenance_oauth_client_secret
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
+      - /tmp:rw,nosuid,nodev,noexec,mode=1770,uid=10001,gid=10001,size=${STUDIO_WORKER_TMPFS_SIZE:-3g}
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:
@@ -164,6 +188,9 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/studio_postgres_password
     secrets: [studio_postgres_password]
     volumes: [studio-postgres-data:/var/lib/postgresql/data]
+    networks:
+      - studio-api-db
+      - studio-worker-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
       interval: 30s
@@ -173,6 +200,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [studio-api-cache]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -181,6 +209,8 @@ services:
 secrets:
   studio_postgres_password:
     file: ${STUDIO_POSTGRES_PASSWORD_FILE:?secret file required}
+  studio_worker_postgres_password:
+    file: ${STUDIO_WORKER_POSTGRES_PASSWORD_FILE:?worker database secret file required}
   studio_credential_master_key:
     file: ${STUDIO_CREDENTIAL_MASTER_KEY_FILE:?secret file required}
   studio_source_s3_access_key_id:
@@ -197,3 +227,14 @@ secrets:
     file: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}
 volumes:
   studio-postgres-data:
+networks:
+  studio-web-api:
+    internal: true
+  studio-api-db:
+    internal: true
+  studio-api-cache:
+    internal: true
+  studio-api-egress:
+  studio-worker-db:
+    internal: true
+  studio-worker-egress:
