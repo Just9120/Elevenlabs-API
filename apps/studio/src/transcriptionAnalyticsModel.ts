@@ -40,6 +40,16 @@ export type TranscriptionAnalytics = {
       disabled: number;
     };
   };
+  usage_cost: {
+    confirmed_billed_duration_seconds: number;
+    confirmed_provider_cost: string;
+    currency: "USD";
+    cost_basis: "confirmed_audio_duration_x_rate_snapshot";
+    complete_jobs: number;
+    uncertain_jobs: number;
+    unavailable_jobs: number;
+    in_progress_jobs: number;
+  };
   durations: {
     queue: AnalyticsDurationSummary;
     processing: AnalyticsDurationSummary;
@@ -55,6 +65,7 @@ const EXACT_KEYS = {
     "outcomes",
     "success",
     "configuration",
+    "usage_cost",
     "durations",
   ],
   totals: ["jobs", "sources", "outputs"],
@@ -64,6 +75,16 @@ const EXACT_KEYS = {
   providerModel: ["elevenlabs_scribe_v2", "unknown"],
   languageMode: ["ru", "en", "detect", "other"],
   diarization: ["enabled", "disabled"],
+  usageCost: [
+    "confirmed_billed_duration_seconds",
+    "confirmed_provider_cost",
+    "currency",
+    "cost_basis",
+    "complete_jobs",
+    "uncertain_jobs",
+    "unavailable_jobs",
+    "in_progress_jobs",
+  ],
   durations: [
     "queue",
     "processing",
@@ -107,6 +128,22 @@ export function parseTranscriptionAnalytics(
       value.configuration.diarization,
       EXACT_KEYS.diarization,
     ) ||
+    !isRecord(value.usage_cost) ||
+    !hasExactKeys(value.usage_cost, EXACT_KEYS.usageCost) ||
+    !isNonNegativeFiniteNumber(
+      value.usage_cost.confirmed_billed_duration_seconds,
+    ) ||
+    typeof value.usage_cost.confirmed_provider_cost !== "string" ||
+    !/^(0|[1-9][0-9]*)[.][0-9]{8}$/.test(
+      value.usage_cost.confirmed_provider_cost,
+    ) ||
+    value.usage_cost.currency !== "USD" ||
+    value.usage_cost.cost_basis !==
+      "confirmed_audio_duration_x_rate_snapshot" ||
+    !isNonNegativeInteger(value.usage_cost.complete_jobs) ||
+    !isNonNegativeInteger(value.usage_cost.uncertain_jobs) ||
+    !isNonNegativeInteger(value.usage_cost.unavailable_jobs) ||
+    !isNonNegativeInteger(value.usage_cost.in_progress_jobs) ||
     !isRecord(value.durations) ||
     !hasExactKeys(value.durations, EXACT_KEYS.durations)
   ) {
@@ -119,7 +156,12 @@ export function parseTranscriptionAnalytics(
     sumRecord(value.outcomes) !== value.totals.jobs ||
     sumRecord(value.configuration.provider_model) !== value.totals.jobs ||
     sumRecord(value.configuration.language_mode) !== value.totals.jobs ||
-    sumRecord(value.configuration.diarization) !== value.totals.jobs
+    sumRecord(value.configuration.diarization) !== value.totals.jobs ||
+    value.usage_cost.complete_jobs +
+      value.usage_cost.uncertain_jobs +
+      value.usage_cost.unavailable_jobs +
+      value.usage_cost.in_progress_jobs !==
+      value.totals.jobs
   ) {
     return null;
   }

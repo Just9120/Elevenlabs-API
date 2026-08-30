@@ -15,6 +15,7 @@ from .transcript_catalog import (
     CURRENT_TRANSCRIPT_STANDARD as TRANSCRIPT_STANDARD,
     GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
 )
+from .provider_usage_accounting import finalize_job_provider_accounting
 
 
 class JobOutputPersistenceReason(str, Enum):
@@ -133,6 +134,7 @@ def persist_processing_job_source_output_and_maybe_complete(
         job.updated_at = now
         job.error_code = None
         job.error_message = None
+        finalize_job_provider_accounting(db, job=job, now=now)
         invalidate_job_lease(job)
         db.flush()
     return JobOutputPersistenceResult(job.id, rel.id, output.id, job.status, int(persisted_count), required_count, completed, lease_generation)

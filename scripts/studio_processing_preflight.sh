@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0029_source_reference_class"
+EXPECTED_HEAD="0031_provider_account_snapshots"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"
@@ -18,9 +18,9 @@ RUNTIME_VALIDATION_ERROR=""
 ROWS=(
   "deploy directory identity" "repository remote identity" "branch identity" "commit identity" "tracked working tree"
   "runtime env presence" "runtime setting completeness"
-  "POSTGRES_PASSWORD secret-file presence" "CREDENTIAL_MASTER_KEY secret-file presence" "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence" "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence" "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence" "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence"
+  "POSTGRES_PASSWORD secret-file presence" "WORKER_POSTGRES_PASSWORD secret-file presence" "CREDENTIAL_MASTER_KEY secret-file presence" "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence" "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence" "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence" "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence"
   "postgres service count/status" "redis service count/status" "studio-api service count/status" "studio-web service count/status" "studio-worker service count/status"
-  "PostgreSQL health" "Redis health" "localhost API health" "localhost web health" "public API health" "public web health"
+  "PostgreSQL health" "worker database role" "Redis health" "localhost API health" "localhost web health" "public API health" "public web health"
   "repository Alembic head" "production Alembic revision" "revision equality"
   "authenticated smoke-account login" "active Google connection" "exactly one active ElevenLabs BYOK credential" "writable output folder selected" "one small supported source available"
 )
@@ -68,7 +68,7 @@ parse_env() {
 
 validate_runtime_values() {
   local required k v
-  required=(APP_PUBLIC_URL STUDIO_SOURCE_S3_ENDPOINT_URL STUDIO_SOURCE_S3_REGION STUDIO_SOURCE_S3_BUCKET STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL STUDIO_AUDIO_REFERENCE_S3_REGION STUDIO_AUDIO_REFERENCE_S3_BUCKET STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID STUDIO_SOURCE_UPLOAD_TTL_SECONDS STUDIO_SOURCE_PRESIGN_TTL_SECONDS STUDIO_SOURCE_MAX_UPLOAD_BYTES STUDIO_GOOGLE_OAUTH_CLIENT_ID STUDIO_GOOGLE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_OAUTH_SCOPES STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES STUDIO_GOOGLE_PICKER_API_KEY STUDIO_GOOGLE_PICKER_APP_ID STUDIO_WORKER_POLL_INTERVAL_SECONDS STUDIO_WORKER_ERROR_BACKOFF_SECONDS STUDIO_WORKER_LEASE_TTL_SECONDS)
+  required=(APP_PUBLIC_URL STUDIO_SOURCE_S3_ENDPOINT_URL STUDIO_SOURCE_S3_REGION STUDIO_SOURCE_S3_BUCKET STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL STUDIO_AUDIO_REFERENCE_S3_REGION STUDIO_AUDIO_REFERENCE_S3_BUCKET STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID STUDIO_SOURCE_UPLOAD_TTL_SECONDS STUDIO_SOURCE_PRESIGN_TTL_SECONDS STUDIO_SOURCE_MAX_UPLOAD_BYTES STUDIO_GOOGLE_OAUTH_CLIENT_ID STUDIO_GOOGLE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_OAUTH_SCOPES STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES STUDIO_GOOGLE_PICKER_API_KEY STUDIO_GOOGLE_PICKER_APP_ID STUDIO_WORKER_CPU_LIMIT STUDIO_WORKER_MEMORY_LIMIT STUDIO_WORKER_MEMORY_SWAP_LIMIT STUDIO_WORKER_PIDS_LIMIT STUDIO_WORKER_TMPFS_SIZE STUDIO_WORKER_POLL_INTERVAL_SECONDS STUDIO_WORKER_ERROR_BACKOFF_SECONDS STUDIO_WORKER_LEASE_TTL_SECONDS STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE STUDIO_ELEVENLABS_PRICING_SOURCE)
   for k in "${required[@]}"; do
     v="${ENV_VALUES[$k]-}"
     if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]][[:space:]]* ]]; then
@@ -93,6 +93,14 @@ validate_runtime_values() {
   in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || { invalid_runtime_setting "STUDIO_WORKER_POLL_INTERVAL_SECONDS" "outside_approved_range"; return 1; }
   in_range "${ENV_VALUES[STUDIO_WORKER_ERROR_BACKOFF_SECONDS]}" 1 300 || { invalid_runtime_setting "STUDIO_WORKER_ERROR_BACKOFF_SECONDS" "outside_approved_range"; return 1; }
   in_range "${ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS]}" 300 86400 || { invalid_runtime_setting "STUDIO_WORKER_LEASE_TTL_SECONDS" "outside_approved_range"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_WORKER_CPU_LIMIT]}" == "2.0" ]] || { invalid_runtime_setting "STUDIO_WORKER_CPU_LIMIT" "unexpected_resource_bound"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_WORKER_MEMORY_LIMIT]}" == "4g" ]] || { invalid_runtime_setting "STUDIO_WORKER_MEMORY_LIMIT" "unexpected_resource_bound"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_WORKER_MEMORY_SWAP_LIMIT]}" == "${ENV_VALUES[STUDIO_WORKER_MEMORY_LIMIT]}" ]] || { invalid_runtime_setting "STUDIO_WORKER_MEMORY_SWAP_LIMIT" "must_equal_memory_limit"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_WORKER_PIDS_LIMIT]}" == "256" ]] || { invalid_runtime_setting "STUDIO_WORKER_PIDS_LIMIT" "unexpected_process_bound"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_WORKER_TMPFS_SIZE]}" == "3g" ]] || { invalid_runtime_setting "STUDIO_WORKER_TMPFS_SIZE" "unexpected_tmpfs_bound"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD]}" =~ ^[0-9]+([.][0-9]{1,6})?$ && "${ENV_VALUES[STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD]}" != "0" ]] || { invalid_runtime_setting "STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD" "invalid_positive_decimal"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE]}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { invalid_runtime_setting "STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE" "invalid_iso_date"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_ELEVENLABS_PRICING_SOURCE]}" == "elevenlabs_public_api_pricing" ]] || { invalid_runtime_setting "STUDIO_ELEVENLABS_PRICING_SOURCE" "unsupported_pricing_source"; return 1; }
   local heartbeat_interval="${ENV_VALUES[STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS]-60}"
   in_range "$heartbeat_interval" 5 28800 || { invalid_runtime_setting "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" "outside_approved_range"; return 1; }
   (( heartbeat_interval * 3 <= ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS] )) || { invalid_runtime_setting "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" "incompatible_with_lease_ttl"; return 1; }
@@ -128,7 +136,7 @@ case "$remote" in git@github.com:${EXPECTED_REPO}.git|git@github.com:${EXPECTED_
 status="$(git status --porcelain --untracked-files=no 2>/dev/null || true)"
 [[ -z "$status" ]] && set_row "tracked working tree" "pass" "tracked working tree is clean" || { set_row "tracked working tree" "blocked" "tracked working tree is not clean"; block_exit; }
 
-[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
+[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" && -x "scripts/configure_studio_worker_db_role.sh" && -f "deploy/studio/worker-db-role.sql" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
 set_row "runtime env presence" "pass" "required runtime and inspection files are present"
 parse_env || { set_row "runtime setting completeness" "blocked" "runtime env contains malformed or duplicate required syntax"; block_exit; }
 validate_runtime_values || { set_row "runtime setting completeness" "blocked" "invalid non-secret runtime setting: ${RUNTIME_VALIDATION_ERROR:-unknown}"; block_exit; }
@@ -141,6 +149,16 @@ for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_
   fi
   set_row "$label" "pass" "required absolute secret-file path is configured; runtime mount validation pending"
 done
+worker_password_file="${ENV_VALUES[STUDIO_WORKER_POSTGRES_PASSWORD_FILE]-}"
+if [[ -z "$worker_password_file" || "$worker_password_file" == __*__ || "$worker_password_file" == *REQUIRED* || "$worker_password_file" == *[[:space:]]* || "$worker_password_file" != /* || ! -f "$worker_password_file" || -L "$worker_password_file" ]]; then
+  set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret-file path is missing, placeholder, unsafe, or unavailable"
+  block_exit
+fi
+worker_password_mode="$(stat -c '%a' "$worker_password_file" 2>/dev/null || true)"
+worker_password_owner="$(stat -c '%U' "$worker_password_file" 2>/dev/null || true)"
+[[ "$worker_password_owner" == "root" && ( "$worker_password_mode" == "600" || "$worker_password_mode" == "400" ) ]] || { set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret file must be root-owned mode 0600 or 0400"; block_exit; }
+set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "pass" "dedicated root-owned worker database secret file is configured"
+[[ "${ENV_VALUES[STUDIO_WORKER_POSTGRES_PASSWORD_FILE]}" != "${ENV_VALUES[STUDIO_POSTGRES_PASSWORD_FILE]}" ]] || { set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret must differ from PostgreSQL bootstrap secret"; block_exit; }
 if [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE]}" == "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE]}" ]]; then
   set_row "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence" "blocked" "maintenance OAuth requires a separate client secret file"
   block_exit
@@ -155,6 +173,12 @@ declare -A SCOUNT SRUN SSTATUS
 for svc in postgres redis studio-api studio-web studio-worker; do IFS=: read -r c r s < <(service_status "$svc"); SCOUNT[$svc]="$c"; SRUN[$svc]="$r"; SSTATUS[$svc]="$s"; set_row "$svc service count/status" "pass" "total count ${c}; running count ${r}; status ${s}"; done
 [[ "${SRUN[studio-worker]}" == "0" ]] || { set_row "studio-worker service count/status" "blocked" "total count ${SCOUNT[studio-worker]}; studio-worker running count is not zero"; block_exit; }
 [[ "${SSTATUS[postgres]}" == "healthy" ]] && set_row "PostgreSQL health" "pass" "postgres service is healthy" || { set_row "PostgreSQL health" "blocked" "postgres service is not healthy"; block_exit; }
+if STUDIO_DEPLOY_DIR="$expected_dir" scripts/configure_studio_worker_db_role.sh verify >/dev/null 2>&1; then
+  set_row "worker database role" "pass" "dedicated non-superuser worker role and allowlisted grants are active"
+else
+  set_row "worker database role" "blocked" "dedicated worker database role or allowlisted grants are unavailable"
+  block_exit
+fi
 [[ "${SSTATUS[redis]}" == "healthy" ]] && set_row "Redis health" "pass" "redis service is healthy" || { set_row "Redis health" "blocked" "redis service is not healthy"; block_exit; }
 [[ "${SSTATUS[studio-api]}" == "healthy" ]] || { set_row "localhost API health" "blocked" "studio-api is not healthy before localhost check"; block_exit; }
 [[ "${SSTATUS[studio-web]}" == "healthy" ]] || { set_row "localhost web health" "blocked" "studio-web is not healthy before localhost check"; block_exit; }

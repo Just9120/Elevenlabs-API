@@ -45,6 +45,38 @@ image_id_of() { docker image inspect --format '{{.Id}}' "$1" 2>/dev/null || true
 image_exists() { docker image inspect "$1" >/dev/null 2>&1; }
 rollback_present() { image_exists "$ROLLBACK_TAG" && echo present || echo absent; }
 
+container_isolation_report() {
+  local id="$1" nano memory swap pids readonly cap_drop cap_add security networks
+  if [[ -z "$id" ]]; then
+    printf 'cpu_nano=not-applicable\nmemory_bytes=not-applicable\nmemory_swap_bytes=not-applicable\npids_limit=not-applicable\nreadonly_rootfs=not-applicable\ncap_drop=not-applicable\ncap_add=not-applicable\nsecurity_opt=not-applicable\nnetworks=not-applicable\nisolation_match=not-applicable\n'
+    return
+  fi
+  nano="$(inspect_field '{{.HostConfig.NanoCpus}}' "$id")"
+  memory="$(inspect_field '{{.HostConfig.Memory}}' "$id")"
+  swap="$(inspect_field '{{.HostConfig.MemorySwap}}' "$id")"
+  pids="$(inspect_field '{{.HostConfig.PidsLimit}}' "$id")"
+  readonly="$(inspect_field '{{.HostConfig.ReadonlyRootfs}}' "$id")"
+  cap_drop="$(inspect_field '{{json .HostConfig.CapDrop}}' "$id")"
+  cap_add="$(inspect_field '{{json .HostConfig.CapAdd}}' "$id")"
+  security="$(inspect_field '{{json .HostConfig.SecurityOpt}}' "$id")"
+  networks="$(inspect_field '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}},{{end}}' "$id")"
+  local network_count=0 network valid_networks=true
+  IFS=',' read -ra network_items <<<"$networks"
+  for network in "${network_items[@]}"; do
+    [[ -n "$network" ]] || continue
+    network_count=$((network_count + 1))
+    case "$network" in
+      *_studio-worker-db|*_studio-worker-egress) ;;
+      *) valid_networks=false ;;
+    esac
+  done
+  local match=no
+  if [[ "$nano" == 2000000000 && "$memory" == 4294967296 && "$swap" == 4294967296 && "$pids" == 256 && "$readonly" == true && "$cap_drop" == '["ALL"]' && "$cap_add" == '["CHOWN","SETGID","SETUID"]' && "$security" == '["no-new-privileges:true"]' && "$network_count" -eq 2 && "$valid_networks" == true && "$networks" == *"_studio-worker-db,"* && "$networks" == *"_studio-worker-egress,"* ]]; then
+    match=yes
+  fi
+  printf 'cpu_nano=%s\nmemory_bytes=%s\nmemory_swap_bytes=%s\npids_limit=%s\nreadonly_rootfs=%s\ncap_drop=%s\ncap_add=%s\nsecurity_opt=%s\nnetworks=%s\nisolation_match=%s\n' "$nano" "$memory" "$swap" "$pids" "$readonly" "$cap_drop" "$cap_add" "$security" "$networks" "$match"
+}
+
 commit_tag_name() {
   local head
   head="$(git rev-parse HEAD 2>/dev/null || true)"
@@ -118,6 +150,7 @@ cmd_status() {
   fi
   rollback="$(rollback_present)"; dstate="$(drain_state_for "$state" "$code")"
   printf 'container_state=%s\nexit_code=%s\ndrain_state=%s\nhealth=%s\nrunning_image_id=%s\ncommit_tag=%s\ncommit_tag_state=%s\ncommit_image_id=%s\nidentity_match=%s\nrollback_candidate=%s\n' "$state" "$code" "$dstate" "$health" "$image" "$tag" "$tag_state" "$commit_image" "$identity" "$rollback"
+  container_isolation_report "$id"
   echo STUDIO_WORKER_STATUS_OK
 }
 

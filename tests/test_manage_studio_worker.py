@@ -33,6 +33,7 @@ def run_cmd(
     commit_tag: str = "present",
     commit_image: str = "sha256:worker-old",
     health: str = "healthy",
+    isolation_match: bool = True,
 ):
     tmp_path.mkdir(parents=True, exist_ok=True)
     bindir = tmp_path / "bin"; bindir.mkdir()
@@ -67,7 +68,19 @@ if [[ "$1" == compose ]]; then
   esac
 elif [[ "$1" == inspect ]]; then
   fmt="$3"
-  if [[ "$fmt" == *State.Status* ]]; then echo "$state"; elif [[ "$fmt" == *State.ExitCode* ]]; then echo "$code"; elif [[ "$fmt" == *State.Health* ]]; then echo {health!r}; else echo "$image"; fi
+  if [[ "$fmt" == *State.Status* ]]; then echo "$state"
+  elif [[ "$fmt" == *State.ExitCode* ]]; then echo "$code"
+  elif [[ "$fmt" == *State.Health* ]]; then echo {health!r}
+  elif [[ "$fmt" == *HostConfig.NanoCpus* ]]; then echo $([[ {isolation_match!r} == True ]] && echo 2000000000 || echo 0)
+  elif [[ "$fmt" == *HostConfig.MemorySwap* ]]; then echo 4294967296
+  elif [[ "$fmt" == *HostConfig.Memory* ]]; then echo 4294967296
+  elif [[ "$fmt" == *HostConfig.PidsLimit* ]]; then echo 256
+  elif [[ "$fmt" == *HostConfig.ReadonlyRootfs* ]]; then echo true
+  elif [[ "$fmt" == *HostConfig.CapDrop* ]]; then echo '["ALL"]'
+  elif [[ "$fmt" == *HostConfig.CapAdd* ]]; then echo '["CHOWN","SETGID","SETUID"]'
+  elif [[ "$fmt" == *HostConfig.SecurityOpt* ]]; then echo '["no-new-privileges:true"]'
+  elif [[ "$fmt" == *NetworkSettings.Networks* ]]; then echo 'elevenlabs-studio-platform_studio-worker-db,elevenlabs-studio-platform_studio-worker-egress,'
+  else echo "$image"; fi
 elif [[ "$1 $2" == "image inspect" ]]; then
   target="${{@: -1}}"
   if [[ "$target" == elevenlabs-studio-worker:rollback-candidate ]]; then [[ {rollback!r} == present ]] || exit 1; [[ "$*" == *--format* ]] && echo {rollback_image!r}; exit 0; fi
@@ -160,9 +173,12 @@ def test_status_reports_drain_state_and_identity(tmp_path: Path) -> None:
     for i, (st, code, expected) in enumerate(cases):
         proc, calls = run_cmd(tmp_path / f"s{i}", "status", state=st, exit_code=code)
         assert proc.returncode == 0 and "STUDIO_WORKER_STATUS_OK" in proc.stdout and expected in proc.stdout
+        assert ("isolation_match=not-applicable" if st == "absent" else "isolation_match=yes") in proc.stdout
         assert_no_forbidden(calls)
     proc, _ = run_cmd(tmp_path / "mismatch", "status", state="exited", exit_code="0", commit_image="sha256:new")
     assert "identity_match=no" in proc.stdout
+    proc, _ = run_cmd(tmp_path / "isolation-mismatch", "status", state="running", isolation_match=False)
+    assert "isolation_match=no" in proc.stdout
 
 
 def test_resume_schema_gate_uses_exact_stopped_image_before_start(tmp_path: Path) -> None:

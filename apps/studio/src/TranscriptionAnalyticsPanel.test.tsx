@@ -23,6 +23,16 @@ const analytics = {
     language_mode: { ru: 1, en: 1, detect: 1, other: 0 },
     diarization: { enabled: 1, disabled: 2 },
   },
+  usage_cost: {
+    confirmed_billed_duration_seconds: 3600,
+    confirmed_provider_cost: "0.22000000",
+    currency: "USD",
+    cost_basis: "confirmed_audio_duration_x_rate_snapshot",
+    complete_jobs: 1,
+    uncertain_jobs: 1,
+    unavailable_jobs: 1,
+    in_progress_jobs: 0,
+  },
   durations: {
     queue: {
       sample_count: 2,
@@ -79,6 +89,9 @@ describe("TranscriptionAnalyticsPanel", () => {
     expect(screen.getByText("Успешно 1 из 2 завершённых исходов.")).toBeInTheDocument();
     expect(screen.getByText(/английский 1/)).toBeInTheDocument();
     expect(screen.getByText("Среднее: 1 ч")).toBeInTheDocument();
+    expect(screen.getByText("0,22 USD")).toBeInTheDocument();
+    expect(screen.getByText("Подтверждённо отправлено")).toBeInTheDocument();
+    expect(screen.getByText(/Это nominal оценка, а не счёт после подписки или квоты/)).toBeInTheDocument();
     const outcomes = screen.getByRole("region", {
       name: "Исходы транскрибаций",
     });
@@ -138,6 +151,15 @@ describe("TranscriptionAnalyticsPanel", () => {
         provider_model: { elevenlabs_scribe_v2: 1, unknown: 0 },
         language_mode: { ru: 1, en: 0, detect: 0, other: 0 },
         diarization: { enabled: 0, disabled: 1 },
+      },
+      usage_cost: {
+        ...analytics.usage_cost,
+        confirmed_billed_duration_seconds: 0,
+        confirmed_provider_cost: "0.00000000",
+        complete_jobs: 0,
+        uncertain_jobs: 0,
+        unavailable_jobs: 0,
+        in_progress_jobs: 1,
       },
     };
     render(
@@ -302,6 +324,15 @@ describe("TranscriptionAnalyticsPanel", () => {
         provider_model: { elevenlabs_scribe_v2: 0, unknown: 0 },
         language_mode: { ru: 0, en: 0, detect: 0, other: 0 },
         diarization: { enabled: 0, disabled: 0 },
+      },
+      usage_cost: {
+        ...analytics.usage_cost,
+        confirmed_billed_duration_seconds: 0,
+        confirmed_provider_cost: "0.00000000",
+        complete_jobs: 0,
+        uncertain_jobs: 0,
+        unavailable_jobs: 0,
+        in_progress_jobs: 0,
       },
       durations: Object.fromEntries(
         Object.keys(analytics.durations).map((key) => [

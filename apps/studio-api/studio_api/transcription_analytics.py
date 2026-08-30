@@ -5,6 +5,7 @@ import statistics
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any
+from decimal import Decimal
 
 from .transcription_options import browser_language_mode, job_diarization_enabled
 
@@ -77,6 +78,14 @@ def build_transcription_analytics_payload(
     diarization = {"enabled": 0, "disabled": 0}
     queue_durations: list[float] = []
     processing_durations: list[float] = []
+    billed_duration_ms = 0
+    confirmed_cost = Decimal("0")
+    accounting_counts = {
+        "complete_jobs": 0,
+        "uncertain_jobs": 0,
+        "unavailable_jobs": 0,
+        "in_progress_jobs": 0,
+    }
 
     for job in job_rows:
         status = _enum_value(getattr(job, "status", ""))
@@ -117,6 +126,20 @@ def build_transcription_analytics_payload(
         )
         if processing_duration is not None:
             processing_durations.append(processing_duration)
+        raw_duration = getattr(job, "provider_billed_duration_ms", None)
+        if raw_duration is None:
+            accounting_counts["unavailable_jobs"] += 1
+        elif getattr(job, "provider_accounting_uncertain", False):
+            accounting_counts["uncertain_jobs"] += 1
+        elif getattr(job, "provider_accounting_complete", False):
+            accounting_counts["complete_jobs"] += 1
+        else:
+            accounting_counts["in_progress_jobs"] += 1
+        if raw_duration is not None:
+            billed_duration_ms += max(0, int(raw_duration))
+            confirmed_cost += Decimal(
+                str(getattr(job, "provider_cost_amount", None) or 0)
+            )
 
     provider_durations: list[float] = []
     post_provider_durations: list[float] = []
@@ -161,6 +184,9 @@ def build_transcription_analytics_payload(
             "language_mode": language_mode,
             "diarization": diarization,
         },
+        "usage_cost": _usage_cost_payload(
+            billed_duration_ms, confirmed_cost, accounting_counts
+        ),
         "durations": {
             "queue": _duration_summary(queue_durations),
             "processing": _duration_summary(processing_durations),
@@ -177,7 +203,7 @@ def load_transcription_analytics_payload(
     project_id: str,
     since: datetime | None = None,
 ):
-    from sqlalchemy import and_, func
+    from sqlalchemy import and_, case, func
 
     from .models import (
         ProviderCredential,
@@ -313,6 +339,40 @@ def load_transcription_analytics_payload(
         outcomes[status] for status in ("completed", "failed", "cancelled")
     )
     successful_jobs = outcomes["completed"]
+    (
+        billed_duration_ms,
+        confirmed_cost,
+        complete_jobs,
+        uncertain_jobs,
+        unavailable_jobs,
+    ) = db.query(
+        func.coalesce(func.sum(TranscriptionJob.provider_billed_duration_ms), 0),
+        func.coalesce(func.sum(TranscriptionJob.provider_cost_amount), 0),
+        func.coalesce(
+            func.sum(case((TranscriptionJob.provider_accounting_complete.is_(True), 1), else_=0)),
+            0,
+        ),
+        func.coalesce(
+            func.sum(case((TranscriptionJob.provider_accounting_uncertain.is_(True), 1), else_=0)),
+            0,
+        ),
+        func.coalesce(
+            func.sum(case((TranscriptionJob.provider_billed_duration_ms.is_(None), 1), else_=0)),
+            0,
+        ),
+    ).filter(*scope_filters).one()
+    accounting_counts = {
+        "complete_jobs": int(complete_jobs or 0),
+        "uncertain_jobs": int(uncertain_jobs or 0),
+        "unavailable_jobs": int(unavailable_jobs or 0),
+        "in_progress_jobs": max(
+            0,
+            total_jobs
+            - int(complete_jobs or 0)
+            - int(uncertain_jobs or 0)
+            - int(unavailable_jobs or 0),
+        ),
+    }
     return {
         "scope": "project_since_reset" if since is not None else "project_all_time",
         "totals": {
@@ -335,6 +395,11 @@ def load_transcription_analytics_payload(
             "language_mode": language_mode,
             "diarization": diarization,
         },
+        "usage_cost": _usage_cost_payload(
+            int(billed_duration_ms or 0),
+            Decimal(str(confirmed_cost or 0)),
+            accounting_counts,
+        ),
         "durations": {
             "queue": duration_summary(
                 started_column=TranscriptionJob.created_at,
@@ -355,4 +420,26 @@ def load_transcription_analytics_payload(
                 join_job=True,
             ),
         },
+    }
+
+
+def _usage_cost_payload(
+    billed_duration_ms: int,
+    confirmed_cost: Decimal,
+    counts: Mapping[str, int],
+) -> dict[str, Any]:
+    return {
+        "confirmed_billed_duration_seconds": round(
+            max(0, int(billed_duration_ms)) / 1000, 3
+        ),
+        "confirmed_provider_cost": format(
+            max(Decimal("0"), confirmed_cost).quantize(Decimal("0.00000001")),
+            "f",
+        ),
+        "currency": "USD",
+        "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
+        "complete_jobs": max(0, int(counts.get("complete_jobs", 0))),
+        "uncertain_jobs": max(0, int(counts.get("uncertain_jobs", 0))),
+        "unavailable_jobs": max(0, int(counts.get("unavailable_jobs", 0))),
+        "in_progress_jobs": max(0, int(counts.get("in_progress_jobs", 0))),
     }

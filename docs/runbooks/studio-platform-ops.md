@@ -236,7 +236,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0029_source_reference_class`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0031_provider_account_snapshots`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no`.
@@ -375,7 +375,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0029_source_reference_class`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0031_provider_account_snapshots`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -552,7 +552,7 @@ The worker healthcheck runs inside the worker container with:
 python -m studio_api.worker_health --mode readiness
 ```
 
-Readiness verifies PID 1 has the worker process shape, the component-baked identity is exact, PostgreSQL answers, the database is at the reviewed Alembic head, and the authoritative heartbeat belongs to this exact container-process incarnation and commit and is not stale. `python -m studio_api.worker_health --mode liveness` checks only PID 1 process shape and deliberately does not load runtime configuration or touch dependencies. Neither mode claims jobs, reads job payloads, calls providers, calls Google, uses Redis as queue logic, or checks object storage. Readiness updates no state; the worker process owns the heartbeat write.
+Readiness verifies PID 1 has the worker process shape, the runtime has exact UID/GID `10001` with no supplementary groups, the component-baked identity is exact, PostgreSQL answers as login `studio_worker`, that role has the expected non-superuser attributes and required/prohibited grants, the database is at the reviewed Alembic head, and the authoritative heartbeat belongs to this exact container-process incarnation and commit and is not stale. `python -m studio_api.worker_health --mode liveness` checks only PID 1 and process identity and deliberately does not load runtime configuration or touch dependencies. Neither mode claims jobs, reads job payloads, calls providers, calls Google, uses Redis as queue logic, or checks object storage. Readiness updates no state; the worker process owns the heartbeat write.
 
 ### Worker status
 
@@ -561,11 +561,29 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh status
 ```
 
-The status command reports only safe container state, exit code, drain state, Docker health, running/stopped container image ID, current commit tag presence, commit tag image ID, identity match, and rollback-candidate presence. Any worker lifecycle operation, including status, drain, pause, resume, deploy, and rollback, blocks fail-closed with `STUDIO_WORKER_OP_BLOCKED reason=multiple_worker_containers` (or the deploy equivalent) if more than one `studio-worker` container is discovered; multiple containers are an invalid topology, not a supported mode. Only `container_state=exited` with `exit_code=0` is `drain_state=gracefully-drained`; non-zero exits, including `137` and `143`, are `abnormal-exit` and are not paused/drained. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes, even when the worker state itself requires operator review.
+The status command reports only safe container state, exit code, drain state, Docker health, running/stopped container image ID, current commit tag presence, commit tag image ID, identity match, rollback-candidate presence and effective Docker CPU/memory/swap/PID/read-only/capability/security/network values. `isolation_match=yes` requires the reviewed two-CPU, 4-GiB/no-swap, 256-PID, read-only-root, capability and two-network contract; any other effective state is `no`, not success. Any worker lifecycle operation, including status, drain, pause, resume, deploy, and rollback, blocks fail-closed with `STUDIO_WORKER_OP_BLOCKED reason=multiple_worker_containers` (or the deploy equivalent) if more than one `studio-worker` container is discovered; multiple containers are an invalid topology, not a supported mode. Only `container_state=exited` with `exit_code=0` is `drain_state=gracefully-drained`; non-zero exits, including `137` and `143`, are `abnormal-exit` and are not paused/drained. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes, even when the worker state itself requires operator review.
+
+### Dedicated worker database role and tariff snapshot
+
+Before the first isolated worker deploy, stage a separate root-owned password file outside the checkout, set `STUDIO_WORKER_POSTGRES_PASSWORD_FILE` in `deploy/studio/.env`, and configure the three non-secret tariff fields shown in `.env.example`. Do not reuse the PostgreSQL bootstrap password. With the worker absent or gracefully drained and the trusted checkout clean, apply and verify the reviewed direct-grant role:
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/configure_studio_worker_db_role.sh apply
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/configure_studio_worker_db_role.sh verify
+```
+
+The script reads the password only from the root-owned `0400`/`0600` file, sends it to `psql` over stdin and prints no credential. It revokes broad table/sequence access and any role memberships before granting the current worker allowlist; new tables receive no implicit worker access. `verify` is read-only. `disable` changes the role to `NOLOGIN` and is an explicit operator recovery action only after a safe worker drain; it is not a normal rollback step.
+
+`STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD`, `STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE` and `STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing` form one complete snapshot. The operator verifies the value and effective date against the [official ElevenAPI pricing page](https://elevenlabs.io/pricing/api?price.section=speech_to_text) before changing it. Missing/partial/unsupported pricing blocks a provider call. A job keeps the first accepted snapshot across all parts, so changing environment pricing affects only jobs that have not started provider usage. Studio shows attributable confirmed usage cost, not an ElevenLabs invoice debit after free quota or subscription credits.
+
+The same active BYOK key is read server-side for the official `GET /v1/user/subscription` and `POST /v1/workspace/analytics/query/usage-by-product-over-time` account views. It must have the provider read scopes for subscription and workspace analytics and satisfy any configured IP allowlist. No second Studio credential is required. The UI shows an actionable unavailable/stale state when either scope, allowlist, authentication, rate limit or provider availability blocks a read; never broaden or replace a provider key during deploy merely to make this panel green.
+
+Account actuals are refreshed through a five-minute server snapshot and a visible manual refresh. They include provider tier/status, period characters, reset, usage-based billing entitlement/cap, current overage, invoice aggregates and workspace credits by product. They do not replace the immutable job tariff snapshot: ElevenLabs does not expose an official structured price-catalog endpoint, so do not scrape the pricing page or derive an hourly Scribe price from account credits. When public Scribe pricing changes, update the three non-secret tariff fields together in a reviewed deployment; already-started jobs retain their first accepted snapshot.
 
 ### Initial worker deploy
 
-A worker deploy is manual-only and must be run only when the worker is absent or already drained/stopped:
+A worker deploy is manual-only and must be run only when the worker is absent or already drained/stopped, the dedicated role verifies successfully, the runtime secret/pricing configuration is complete, and the production schema exactly matches the new worker image:
 
 ```bash
 cd /opt/elevenlabs-studio
@@ -603,8 +621,10 @@ Recommended operator sequence:
 status
 → drain
 → confirm stopped
+→ apply/verify dedicated worker database role and runtime configuration
 → deploy worker manually
 → verify image/commit identity
+→ verify `isolation_match=yes` and readiness as `studio_worker`
 → verify healthy
 → leave idle
 → operator separately decides whether to run controlled canary
@@ -655,4 +675,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0029_source_reference_class`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0031_provider_account_snapshots`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

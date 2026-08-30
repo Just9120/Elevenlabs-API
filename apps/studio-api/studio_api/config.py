@@ -1,4 +1,6 @@
 from functools import lru_cache
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote_plus
 from pydantic import Field, IPvAnyAddress, field_validator, model_validator
@@ -67,6 +69,9 @@ class Settings(BaseSettings):
     worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     worker_lease_heartbeat_interval_seconds: int = Field(default=60, ge=5)
     provider_part_checkpoint_ttl_seconds: int = Field(default=86400, ge=3600, le=86400)
+    elevenlabs_scribe_v2_rate_per_hour_usd: Decimal | None = Field(default=None, gt=0, le=100)
+    elevenlabs_pricing_effective_date: date | None = None
+    elevenlabs_pricing_source: str | None = Field(default=None, max_length=80)
     realtime_draft_ttl_seconds: int = Field(default=259200, ge=259200, le=259200)
     diagnostic_retention_days: int = Field(default=14, ge=1, le=30)
     diagnostic_debug_retention_hours: int = Field(default=24, ge=1, le=24)
@@ -93,6 +98,15 @@ class Settings(BaseSettings):
             raise ValueError("worker lease heartbeat interval must be at most one third of worker lease ttl")
         if self.runtime_worker_heartbeat_interval_seconds * 2 > self.runtime_worker_stale_after_seconds:
             raise ValueError("runtime worker stale threshold must cover at least two heartbeat intervals")
+        pricing = (
+            self.elevenlabs_scribe_v2_rate_per_hour_usd,
+            self.elevenlabs_pricing_effective_date,
+            self.elevenlabs_pricing_source,
+        )
+        if any(item is not None for item in pricing) and not all(item is not None for item in pricing):
+            raise ValueError("ElevenLabs pricing snapshot must be complete")
+        if self.elevenlabs_pricing_source not in {None, "elevenlabs_public_api_pricing"}:
+            raise ValueError("unsupported ElevenLabs pricing source")
         return self
 
     def master_key_b64(self) -> str:

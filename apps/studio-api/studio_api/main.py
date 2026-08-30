@@ -65,6 +65,12 @@ from .session_control import (
 )
 from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
+from .elevenlabs_account import ElevenLabsAccountTransport
+from .provider_account_sync import (
+    provider_account_payload,
+    sync_elevenlabs_account,
+    unavailable_provider_account_payload,
+)
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
 from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry, requires_provider_cost_confirmation
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
@@ -3188,6 +3194,136 @@ def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db))
         v=db.get(ProviderCredentialVersion, c.active_version_id) if c.active_version_id else None
         out.append({"id":c.id,"provider":c.provider.value,"label":c.label,"status":c.status.value,"active_version":v.version if v else None,"masked_value":v.masked_value if v else None,"created_at":c.created_at.isoformat()})
     return {"credentials": out}
+
+
+def _active_elevenlabs_credentials(db: Session, user: User):
+    return (
+        db.query(ProviderCredential)
+        .filter(
+            ProviderCredential.user_id == user.id,
+            ProviderCredential.provider == CredentialProvider.elevenlabs,
+            ProviderCredential.status == CredentialStatus.active,
+            ProviderCredential.deleted_at.is_(None),
+        )
+        .order_by(ProviderCredential.label.asc(), ProviderCredential.id.asc())
+        .all()
+    )
+
+
+def _refresh_elevenlabs_account_payload(
+    db: Session,
+    user: User,
+    credential: ProviderCredential,
+    *,
+    now: datetime,
+    force: bool,
+):
+    version = (
+        db.get(ProviderCredentialVersion, credential.active_version_id)
+        if credential.active_version_id
+        else None
+    )
+    active_version = version.version if version is not None else None
+    if (
+        version is None
+        or version.credential_id != credential.id
+        or version.revoked_at is not None
+        or version.deleted_at is not None
+        or version.ciphertext is None
+        or version.nonce is None
+    ):
+        return unavailable_provider_account_payload(
+            credential=credential,
+            active_version=active_version,
+            now=now,
+            error_code="credential_unavailable",
+        )
+    try:
+        api_key = _open_active_elevenlabs_api_key(db, user, credential.id)
+    except HTTPException:
+        return unavailable_provider_account_payload(
+            credential=credential,
+            active_version=active_version,
+            now=now,
+            error_code="credential_unavailable",
+        )
+    try:
+        row = sync_elevenlabs_account(
+            db,
+            owner_user_id=user.id,
+            credential=credential,
+            credential_version_id=version.id,
+            api_key=api_key,
+            now=now,
+            force=force,
+            transport=ElevenLabsAccountTransport(),
+        )
+    finally:
+        api_key = ""
+    return provider_account_payload(
+        row,
+        credential=credential,
+        active_version=version.version,
+        now=now,
+    )
+
+
+@app.get("/api/provider-accounts/elevenlabs")
+def list_elevenlabs_accounts(
+    response: Response,
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("provider-account:list:" + user.id, 240, 3600)
+    current = utcnow()
+    accounts = [
+        _refresh_elevenlabs_account_payload(
+            db, user, credential, now=current, force=False
+        )
+        for credential in _active_elevenlabs_credentials(db, user)
+    ]
+    db.commit()
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {"accounts": accounts, "server_time": current.isoformat()}
+
+
+@app.post("/api/provider-accounts/elevenlabs/{credential_id}/refresh")
+def refresh_elevenlabs_account(
+    credential_id: str,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("provider-account:refresh:" + user.id, 30, 3600)
+    credential = db.get(ProviderCredential, credential_id)
+    if (
+        credential is None
+        or credential.user_id != user.id
+        or credential.provider != CredentialProvider.elevenlabs
+        or credential.status != CredentialStatus.active
+        or credential.deleted_at is not None
+    ):
+        raise HTTPException(404, "Не найдено")
+    current = utcnow()
+    account = _refresh_elevenlabs_account_payload(
+        db, user, credential, now=current, force=True
+    )
+    audit(
+        db,
+        "provider_account.refreshed",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+        provider="elevenlabs",
+        credential_id=credential.id,
+        reason=account["state"],
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {"account": account, "server_time": current.isoformat()}
 
 def key(): return master_key_from_b64(settings.master_key_b64())
 def add_version(db,user,c,raw):

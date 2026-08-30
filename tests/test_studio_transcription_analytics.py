@@ -28,6 +28,10 @@ def job(
     provider: str | None = None,
     language: str | None = "ru",
     options_json: str | None = None,
+    billed_duration_ms: int | None = None,
+    cost_amount: str | None = None,
+    accounting_complete: bool | None = None,
+    accounting_uncertain: bool | None = None,
 ):
     return SimpleNamespace(
         status=enum(status),
@@ -46,6 +50,10 @@ def job(
         provider=provider,
         language=language,
         options_json=options_json,
+        provider_billed_duration_ms=billed_duration_ms,
+        provider_cost_amount=cost_amount,
+        provider_accounting_complete=accounting_complete,
+        provider_accounting_uncertain=accounting_uncertain,
         title="private title",
         output_drive_folder_url="https://drive.google.com/private-folder",
     )
@@ -78,6 +86,10 @@ def test_analytics_aggregates_only_safe_durable_counts_and_intervals():
                 credential_id="credential-elevenlabs",
                 language="ru",
                 options_json='{"diarize":true}',
+                billed_duration_ms=3_600_000,
+                cost_amount="0.22000000",
+                accounting_complete=True,
+                accounting_uncertain=False,
             ),
             job(
                 "failed",
@@ -86,6 +98,10 @@ def test_analytics_aggregates_only_safe_durable_counts_and_intervals():
                 finished_after=80,
                 credential_id="credential-missing",
                 language=None,
+                billed_duration_ms=60_000,
+                cost_amount="0.00366667",
+                accounting_complete=False,
+                accounting_uncertain=True,
             ),
             job(
                 "queued",
@@ -142,6 +158,16 @@ def test_analytics_aggregates_only_safe_durable_counts_and_intervals():
             },
             "language_mode": {"ru": 1, "en": 1, "detect": 1, "other": 0},
             "diarization": {"enabled": 1, "disabled": 2},
+        },
+        "usage_cost": {
+            "confirmed_billed_duration_seconds": 3660.0,
+            "confirmed_provider_cost": "0.22366667",
+            "currency": "USD",
+            "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
+            "complete_jobs": 1,
+            "uncertain_jobs": 1,
+            "unavailable_jobs": 1,
+            "in_progress_jobs": 0,
         },
         "durations": {
             "queue": {
@@ -314,7 +340,7 @@ def test_database_analytics_is_exact_and_uses_constant_query_count(monkeypatch):
         event.remove(engine, "before_cursor_execute", count_selects)
 
     engine.dispose()
-    assert query_count == 7
+    assert query_count == 8
     assert payload["totals"] == {"jobs": 25, "sources": 25, "outputs": 0}
     assert payload["outcomes"]["completed"] == 13
     assert payload["outcomes"]["failed"] == 12
@@ -326,6 +352,16 @@ def test_database_analytics_is_exact_and_uses_constant_query_count(monkeypatch):
     assert payload["configuration"]["provider_model"] == {
         "elevenlabs_scribe_v2": 25,
         "unknown": 0,
+    }
+    assert payload["usage_cost"] == {
+        "confirmed_billed_duration_seconds": 0.0,
+        "confirmed_provider_cost": "0.00000000",
+        "currency": "USD",
+        "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
+        "complete_jobs": 0,
+        "uncertain_jobs": 0,
+        "unavailable_jobs": 0,
+        "in_progress_jobs": 25,
     }
     assert payload["durations"]["queue"] == {
         "sample_count": 25,

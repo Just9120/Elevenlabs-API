@@ -2,66 +2,72 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-USER-UX-STORAGE-ISOLATION-01` — пользовательский UX и изоляция reference storage.
+- **ID / title:** `PWA-WORKER-USAGE-ACCOUNTING-01` — worker isolation и reconciled ElevenLabs usage/cost accounting.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction 2026-08-30: весь согласованный production UX/UI audit выполнить единой Goal, дополнительно включить candidate `PWA-STORAGE-ISOLATION-01`, поставить Goal и приступить.
-- **Scope:** выполнить `PUX-01..12` во всех текущих PWA surfaces; сделать primary copy/actions пользовательскими, спрятать implementation details за progressive disclosure, исправить semantic status/error presentation, упростить одиночные/групповые cards и History, сделать maintenance summary-first с bounded list navigation, отделить support/advanced Settings, устранить mobile Drive-dialog overflow; выполнить `STORAG-16..21` через раздельные audio/transcription reference data classes, S3/R2 buckets, credentials и lifecycle configuration с persisted safe routing и backward compatibility; добавить tests/docs, PR/CI, applicable protected delivery и bounded owner LIVE без provider call.
-- **Non-goals:** commercial contour; новый STT/provider, provider call или spend; durable transcript/audio-recording features; `STORAG-01..15`; перенос/удаление существующих objects; bucket/IAM provisioning без отдельной external authorization; DB least privilege; OAuth scopes; изменение `docs/ci-cd-rules.md`, repository protections или deployment topology; unrelated refactors.
+- **Authorization source:** explicit owner instructions 2026-08-30: следующей единой Goal взять `Worker isolation` и `Usage/cost accounting`; затем расширить её server-side синхронизацией всегда актуальных данных ElevenLabs subscription/usage/overage/invoice и всеми расчётами, которые допускает official provider Evidence.
+- **Scope:** закрыть canonical `PWAWOR-02..03` и `USAGEC-01..06`: задать и проверить CPU/memory/PID bounds worker; ограничить его writable filesystem, Linux capabilities, privilege escalation и network reachability; отделить worker от API database credential и DDL/superuser capability; сохранять подтверждённую STT duration и immutable nominal tariff snapshot на job; server-side получать official ElevenLabs subscription и workspace product-credit usage, сохранять bounded owner/credential-version-scoped current snapshot с freshness/error provenance; раздельно показывать job nominal estimate и account actual overage/invoices/period units; добавить additive migrations, safe owner API/UI/diagnostics projection, tests/docs, reviewable PR, exact-head CI, applicable protected migration/API/worker delivery и одну bounded owner-authorized LIVE transcription с account refresh.
+- **Non-goals:** commercial contour и пользовательский billing; scraping pricing page или автоматическое изменение public tariff snapshot без verified release input; выдуманное распределение account invoice/overage по отдельным jobs; преобразование ElevenLabs credits/characters в минуты без provider Evidence; новый STT provider или automatic fallback; realtime cost accounting; storage/compute/network cost; изменение `docs/ci-cd-rules.md`, GitHub protections или unrelated refactors.
 - **Goal AC:**
-  1. `UXSI-01`: canonical `PUX-01..12`, `STORAG-16..21`, denominator и factual closure PR `#258` синхронизированы без изменения unrelated scope.
-  2. `UXSI-02`: terminal success/failure/cancel имеют разные semantic visual/ARIA tones; raw error code заменён локализованной actionable причиной, а support code доступен только под disclosure.
-  3. `UXSI-03`: single/group transcription cards и History не используют default `Мульти-транскрибация`, `Элемент`, UUID или internal source/output type labels и не дублируют одинаковые metadata/timestamps.
-  4. `UXSI-04`: Dashboard, Audio, ordinary Transcriptions/preflight и Live primary copy/actions описывают пользовательский результат; технические implementation details доступны только явно и вторично.
-  5. `UXSI-05`: maintenance и Settings используют user-task IA/copy, отделяют support/advanced surfaces; maintenance result summary precedes filterable bounded/paginated rows.
-  6. `UXSI-06`: Drive dialogs на `390x844` не имеют horizontal overflow, сохраняют доступные controls и modal scroll isolation.
-  7. `UXSI-07`: новые local references явно относятся к `audio_processing` либо `transcription`, сохраняют exact bucket identity и используют разные configured buckets; existing legacy sources читаются/удаляются без object move.
-  8. `UXSI-08`: audio/transcription buckets имеют разные credential files и independently declared lifecycle policy identifiers; equal/missing identities fail closed, и runtime health проверяет оба boundaries без раскрытия values.
-  9. `UXSI-09`: API/worker upload, completion, materialization, audio output, speaker sample, cleanup и diagnostics выбирают storage по persisted class/bucket и не получают silent cross-bucket fallback.
-  10. `UXSI-10`: focused и full local tests подтверждают UX regressions, narrow viewport, storage configuration/routing/legacy compatibility, secret boundary и existing product behavior.
-  11. `UXSI-11`: один initial push после полной local validation, reviewable PR и exact-head required CI завершаются success; failure исправляется одним grouped follow-up batch.
-  12. `UXSI-12`: applicable migration/API/web/worker delivery соответствует exact merge revision; bounded authenticated UX LIVE и distinct storage runtime Evidence подтверждены либо Goal честно достигает `PENDING_EXTERNAL_GATE` до external bucket/IAM/lifecycle setup.
-- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY ❌ | LIVE —`.
-- **Known blockers/dependencies:** distinct provider buckets, lifecycle rules, scoped credential pairs и cross-access denial подтверждены; production activation блокирует воспроизведённый image-permission defect protected migration preflight. Migration не применялась, backup/schema не затронуты, manual recovery не требуется. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; существующие objects не мигрируются автоматически; после closure к следующей Goal без новой authorization не переходить.
+  1. `WUA-01`: canonical closure предыдущей Goal и baseline readiness reconciled; durable scope/denominator не изменены.
+  2. `WUA-02`: worker Compose имеет explicit CPU, memory/swap и PID bounds, а tests проверяют rendered effective configuration.
+  3. `WUA-03`: worker root filesystem read-only; writable paths bounded; capabilities dropped; privilege escalation disabled; runtime после secret bootstrap остаётся UID/GID `10001`.
+  4. `WUA-04`: Compose networks дают worker только PostgreSQL и отдельный outbound boundary, без API/web/Redis discovery и published ports.
+  5. `WUA-05`: worker использует отдельный non-superuser login без DDL/role capability; read/write grants ограничены documented current worker tables и проверены integration test/runtime preflight.
+  6. `WUA-06`: каждый фактически подтверждённый provider part идемпотентно учитывается ровно один раз; retries/checkpoint resume не дублируют confirmed usage, а uncertain provider outcome не выдаётся за exact billed usage.
+  7. `WUA-07`: job хранит confirmed billed duration, provider cost, currency, rate snapshot/provenance и accounting completeness; unsupported/missing tariff fail closed before spend.
+  8. `WUA-08`: owner API/UI и diagnostics показывают безопасную duration/cost summary без credential, raw provider payload или internal request identifiers.
+  9. `WUA-09`: additive migration и backward-compatible reads корректны для existing jobs; downgrade/rollback boundary documented и tested.
+  10. `WUA-10`: focused/full local validation, один initial push, reviewable PR и exact-head required CI завершаются success; confirmed failure исправляется одним grouped follow-up batch.
+  11. `WUA-11`: protected migration/API и manual worker status→drain→deploy→status соответствуют exact merge SHA; resource/network/DB role runtime evidence подтверждено без secret values.
+  12. `WUA-12`: одна owner-approved bounded transcription подтверждает persisted billed duration/cost/currency и отсутствие regression; до такого call Goal остаётся `PENDING_EXTERNAL_GATE`.
+  13. `WUA-13`: server-side ElevenLabs account transport валидирует bounded official subscription response и workspace product-credit response; API key, raw provider payload и provider user identifiers не попадают в browser/cache/logs.
+  14. `WUA-14`: owner/credential-version-scoped snapshot хранит plan/status, provider period usage/limit/remaining, reset, usage-based billing entitlement/cap, actual current overage, invoice aggregates и product credits с explicit units/window provenance.
+  15. `WUA-15`: automatic refresh при открытом UI использует максимум пятиминутный successful snapshot, visible timestamp и bounded polling; manual refresh доступен, а provider failure возвращает last successful snapshot как stale либо explicit unavailable без fabricated values.
+  16. `WUA-16`: UI и API раздельно обозначают local job nominal estimate, provider account usage units, current overage и invoice; model-specific minutes/remaining или per-job invoice allocation показываются только при direct provider Evidence.
+- **Required Evidence:** target `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; current `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** production потребует отдельный worker DB credential и manual protected migrations approval; existing ElevenLabs key должен иметь read scopes для user subscription и workspace analytics, иначе UI обязан показать actionable partial/unavailable state. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-30T08:34:55Z.
+- Updated (UTC): 2026-08-30T14:54:57Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
-- Base branch/SHA: verified `origin/main@c11de8af22d694540b26d98c2ec40aab064adf25`.
-- Working branch: `codex/pwa-storage-permission-hotfix`.
-- Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-pwa-user-ux-storage-isolation`.
-- Last verified revision: merged Goal revision `c11de8af22d694540b26d98c2ec40aab064adf25`; exact-main CI success, protected migration run `33301092693` failed before mutation because candidate image preserved restrictive checkout permissions on new migration file.
-- Working tree at Goal start: isolated worktree clean. Основной checkout содержал unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми, основной checkout возвращён на `main`.
-- Completed: PR `#259` merged as `c11de8af22d694540b26d98c2ec40aab064adf25`; exact-main CI `33300960336` и Studio PWA CI `33300960367` success. Provider lifecycle и independently scoped access подтверждены без создания objects. Worker status `33300735593` success, graceful drain `33300899674` success (`exited`, `exit_code=0`). Automatic Platform CD временно отключён; protected migration изолированно воспроизвела non-root read failure до backup/schema mutation. Hotfix нормализует application image permissions, добавляет networkless/read-only Alembic metadata probe под runtime UID и сохраняет безопасный traceback release preflight.
-- Current step: завершить hotfix validation и создать reviewable commit.
-- Next exact action: закоммитить hotfix, выполнить один push/PR batch, дождаться exact-head Linux container CI и merge; затем повторить owner-approved protected migration без speculative rerun.
-- Validation and Evidence: reproduction: `PermissionError` при чтении `/app/alembic/versions/0029_source_reference_class.py` под image runtime user. Local hotfix: affected portable contracts `8 passed`; portable baseline без недоступного host-only WSL syntax probe `1131 passed, 5 skipped, 1 deselected`; lightweight checks и YAML parse success; `git diff --check` success. Full shell/Docker validation остаётся exact-head Linux CI gate.
-- Pull Request / CI / deployment: PR `#259` merged; hotfix PR ещё не создан. Main CI runs `33300960336` / `33300960367` success. Migration run `33301092693` failed terminally with `migration_applied=no`, `manual_recovery_required=no`; web/API/worker deployment в этом run не выполнялся. `STUDIO_PLATFORM_CD_ENABLED=false`, `STUDIO_MIGRATION_RELEASE_ENABLED=false` до validated hotfix.
-- Blockers: exact-head Linux Docker build должен подтвердить новый non-root Alembic metadata probe; после CI потребуется новый protected migration approval.
-- Unverified assumptions: deterministic `/app` permission normalization устраняет VPS checkout umask drift для всех новых application files; это подтверждается Docker CI, не локальным Windows host без Docker/WSL.
-- Preserved pre-existing changes: шесть `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
+- Base branch/SHA: verified `origin/main@c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
+- Working branch: `codex/pwa-worker-usage-accounting`.
+- Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-worker-usage-accounting`.
+- Last verified revision: local `0fbf02f`; pushed PR head пока `d369f682eb7de369caad0b70a679edaa050cd689`; base остаётся `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`.
+- Working tree at Goal start: isolated worktree clean. Основной checkout содержит unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми.
+- Completed: worker получил Compose CPU/memory/no-swap/PID/read-only/tmpfs/capability/network boundaries, отдельный direct-grant `studio_worker` login и fail-closed runtime/preflight inspection; additive `0030_provider_usage_accounting` сохраняет pending/confirmed/uncertain provider-part boundary, job totals, USD tariff snapshot и owner-safe analytics/UI. Account extension добавляет bounded official ElevenLabs transport, additive `0031_provider_account_snapshots`, owner/credential-version-scoped cache с advisory serialization/failure backoff, owner API, no-store browser parser и Settings UI, который отделяет provider actuals от nominal job estimate. Official ElevenLabs contracts для subscription и workspace product-credit usage проверены 2026-08-30; provider не публикует structured price-catalog API и не гарантирует model-specific remaining minutes.
+- Current step: отправить один grouped PR update и получить exact-head required CI.
+- Next exact action: commit этого checkpoint, push `0fbf02f..HEAD` в PR `#261` одним batch и дождаться terminal required checks.
+- Validation and Evidence: exact-head `d369f68` CI: backend `1430 passed`, Studio `success`, browser E2E `success`. Account extension local: focused backend/accounting/worker `30/30`; full portable Python `1155 passed, 5 skipped, 1 deselected` (WindowsApps Bash shim test отдельно проверен exact Git Bash `bash -n`); Studio `642/642`; ESLint, TypeScript/Vite/PWA build и `scripts/ci_checks.py` success. PostgreSQL migration/API integration остаётся за exact-head Linux CI. Docker отсутствует локально; inaccessible pre-existing pytest temp directories сохранены.
+- Pull Request / CI / deployment: PR `#261` OPEN/CLEAN/MERGEABLE; exact-head runs `33307712572/33307712523` success. После расширения scope новые commits пока не pushed; deployment не начат.
+- Blockers: production setup отдельного worker DB password и protected migrations approval будут external gates после CI; read scopes existing ElevenLabs key проверяются только actual provider response.
+- Unverified assumptions: provider account `character_count/character_limit` остаются provider-defined period units и не равны минутам Scribe; product usage endpoint возвращает credits, которые нельзя безопасно распределить по job или перевести в invoice amount без additional provider Evidence.
+- Preserved pre-existing changes: `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо пересчитан по фактической local implementation: `PUX-01..12` и persisted data-class boundary `STORAG-16` выполнены; `STORAG-17..21` не засчитаны без external provider Evidence. Evidence gate-ит READY, но не меняет numerator.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Current snapshot независимо reconciled по merged code, exact-main CI, protected deployment и LIVE предыдущей Goal; новая Goal пока numerator не меняет. Evidence gate-ит READY, но не меняет numerator.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **45,1% (`259/574`)** | **42,9% (`246/574`)** | `+12` выполненных PUX AC и `+1` storage AC при неизменном denominator. Изменение `+2,2` п.п. |
-| **Non-commercial scope** | **78,0% (`259/332`)** | **74,1% (`246/332`)** | Colab `32/32` + personal PWA `227/300`. Изменение `+3,9` п.п. |
+| **Полный canonical scope** | **45,7% (`264/578`)** | **46,0% (`264/574`)** | Denominator увеличен на четыре явно согласованных provider-account AC; numerator не изменён до Evidence. Изменение `-0,3` п.п. |
+| **Non-commercial scope** | **78,6% (`264/336`)** | **79,5% (`264/332`)** | Colab `32/32` + personal PWA `232/304`; denominator увеличен на четыре AC. Изменение `-0,9` п.п. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **75,7% (`227/300`)** | **71,3% (`214/300`)** | `PUX-01..12` и `STORAG-16` выполнены локально. Изменение `+4,4` п.п. |
-| `PWA-USER-EXPERIENCE-02` | **100% (`12/12`)** | **0% (`0/12`)** | Все AC имеют CODE и local TEST evidence, но CI/DEPLOY/LIVE ещё отсутствуют; эпик не READY. Изменение `+100` п.п. обусловлено завершением всего нового 12-AC epic scope в одной owner-approved Goal. |
-| `STORAGE-LIFECYCLE-02` | **33,3% (`7/21`)** | **28,6% (`6/21`)** | Persisted distinct reference data classes выполнены; external buckets/lifecycle/access ещё не подтверждены. Изменение `+4,7` п.п. |
+| **Personal Studio PWA canonical** | **76,3% (`232/304`)** | **77,3% (`232/300`)** | Denominator увеличен на `USAGEC-03..06`; до CODE/TEST/CI/DEPLOY/LIVE numerator не меняется. Изменение `-1,0` п.п. |
+| `PWA-USER-EXPERIENCE-02` | **100% (`12/12`)** | **100% (`12/12`)** | PR `#259/#260`, CI, DEPLOY и bounded owner LIVE закрыли required Evidence; эпик READY. |
+| `STORAGE-LIFECYCLE-02` | **57,1% (`12/21`)** | **33,3% (`7/21`)** | Distinct buckets, credentials, lifecycle rules и cross-access denial подтвердили `STORAG-17..21`. Изменение `+23,8` п.п. объясняется закрытием пяти external/runtime AC. |
+| `PWA-WORKER-ISOLATION-02` | **33,3% (`1/3`)** | **33,3% (`1/3`)** | Отдельный worker component существует; resource/privilege AC текущей Goal ещё не выполнены. |
+| `USAGE-COST-ACCOUNTING-01` | **0% (`0/6`)** | **0% (`0/2`)** | Четыре новые AC добавлены explicit owner decision; текущая ветка ещё не получила provider-account reconciliation Evidence. |
 
-Общая, non-commercial, PWA и storage оценки изменились менее чем на `10` п.п. `PWA-USER-EXPERIENCE-02` изменился на `+100` п.п., потому что единая Goal реализовала все `12/12` его atomic AC; Evidence gate всё ещё удерживает lifecycle state `IN PROGRESS`.
+Только storage epic в previous snapshot изменился более чем на `10` п.п.: причина — пять external AC получили provider/runtime Evidence в предыдущем delivery flow. Текущая независимая переоценка изменила denominator на четыре согласованных `USAGEC-03..06`; ни одно изменение current snapshot не превышает `10` п.п.
 
 ## Candidate next Goals
 
-1. `DB-LEAST-PRIVILEGE-01` — actual roles Evidence и отдельные migration/application roles с backup/rollback plan.
-2. `STORAGE-LIFECYCLE-FOLLOWUP-01` — только после отдельного owner decision выбрать bounded subset из `STORAG-01..15`.
+1. `STORAGE-LIFECYCLE-FOLLOWUP-01` — только после отдельного owner decision выбрать bounded subset из `STORAG-01..15`.
+2. `DB-LEAST-PRIVILEGE-01` — после текущего worker-only role boundary отдельно ограничить API/migration roles; current Goal не закрывает system-wide DB least privilege.
 
 ## Risks и boundaries
 
