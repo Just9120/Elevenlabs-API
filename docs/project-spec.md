@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository baseline: `main@807bc4abc8b0b4791f210a23f5fb7faa62dae007` (PR `#261/#262/#263/#264/#265`) имеет exact-main CI для worker isolation, usage/account implementation и diagnosed migration/role-verifier/protected-secret preflight recovery. Последний полностью ready production baseline до этой Goal — `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`); current API deployment is verified at `bd51e756`, but worker delivery/LIVE текущей Goal ещё не завершены. Exact delivery identifiers находятся в `docs/delivery-plan.md` и archive завершённых Goals.
+Verified repository baseline: `main@8957e974abe8c03224a572389c41aac84c99b609` (PR `#261/#262/#263/#264/#265/#266`) имеет exact-main CI для worker isolation, usage/account implementation и diagnosed migration/role/preflight recovery. API deployment verified at `bd51e756`; worker deployed/healthy on `8957e974`. Web rollout `33388699857` failed after replacement and public web returns `502`; previous fully accepted web `c443de68` is historical, not current runtime Evidence. Production acceptance для frontend приостановлен до восстановления. Exact identifiers находятся в `docs/delivery-plan.md`.
 
-Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; owner-approved protected run `33360460155` migrated production to `0031_provider_account_snapshots` and deployed API on exact `bd51e7569370ec059b5926cee974c63a2d5c168f`; public readiness independently confirmed. Preflight correction PR `#265` merged as `807bc4abc8b0b4791f210a23f5fb7faa62dae007`; all exact-head/main CI and real root-only Docker checks passed. Owner delivered that revision and obtained `STUDIO_PROCESSING_HOST_PREFLIGHT_OK`; read-only status `33377366826` confirms the old worker remains gracefully stopped. A subsequent source check found missing worker SELECT on `alembic_version`, not covered by the old verifier/API-role schema probe. A focused grant/verifier/runtime-test correction is `IN_PROGRESS`; production role/secret permissions remain unchanged. Worker deployment and bounded accounting LIVE remain unverified. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
+Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; protected run `33360460155` migrated production to `0031_provider_account_snapshots` and deployed API at `bd51e7569370ec059b5926cee974c63a2d5c168f`. After operator SELECT grant and single-file master-key owner correction, worker run `33388441193` and separate status `33388535135` confirm deployment/health/resource and privilege isolation on exact `8957e974abe8c03224a572389c41aac84c99b609`. Web run `33388699857` failed at localhost health after replacing its container; public web returns `502`, while API readiness remains healthy. Owner diagnostics confirmed nginx healthy on Docker 29.7.2 but no actual published host binding for the internal-only web container. Current Goal is `IN_PROGRESS`: bounded recovery branch `codex/pwa-web-ingress-recovery`, code commit `133dd57a6caa385a5eabc506b78619ed72a98625`, restores the existing loopback endpoint with a web-only non-internal bridge and adds actual Docker host-publication CI plus exact CAP_ alias normalization. Local validation passed; PR/CI/web-only delivery remain pending before separately approved accounting LIVE. No automatic rollback, broad network/privilege changes or secret rotation is authorized by failure. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **76,3% (`232/304`)** | exact-main `232` completed AC; denominator увеличен на согласованные `USAGEC-03..06`, которые пока не засчитаны |
-| Non-commercial scope | **78,6% (`264/336`)** | Colab `32/32` + personal PWA `232/304` |
+| Personal Studio PWA | **77,0% (`234/304`)** | `PWAWOR-02..03` подтверждены effective runtime configuration и restricted-role health; usage/account LIVE ещё не засчитан |
+| Non-commercial scope | **79,2% (`266/336`)** | Colab `32/32` + personal PWA `234/304` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **45,7% (`264/578`)** | `264 / (336 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **46,0% (`266/578`)** | `266 / (336 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, подняв denominator до `574`; previous delivery закрыл `STORAG-17..21` и довёл exact-main numerator до `264`. Explicit owner decision о provider account reconciliation добавил `USAGEC-03..06`, поэтому current denominator равен `578`, non-commercial `336`, personal PWA `304`; numerator остаётся `264` до required Evidence текущей Goal. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, подняв denominator до `574`; previous delivery закрыл `STORAG-17..21` и довёл exact-main numerator до `264`. Explicit owner decision о provider account reconciliation добавил `USAGEC-03..06`, поэтому current denominator равен `578`, non-commercial `336`, personal PWA `304`; после worker rollout и runtime inspection numerator стал `266` за счёт `PWAWOR-02..03`, без изменения denominator. Web incident блокирует current production acceptance и Goal closure; проценты не означают доступность сервиса или READY. Нерешённые формулировки сохранены в разделе 6 как `SPEC gaps` и не входят в denominator до отдельного решения владельца.
 
 ### Commercial scope decision
 
@@ -608,15 +608,15 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-WORKER-ISOLATION-02` — worker resource и privilege boundary
 
-Status: **🟦 IN PROGRESS — 33,3% (`1/3`)**.
+Status: **🟦 IN PROGRESS — 100% AC (`3/3`); required bounded LIVE gate ещё не закрыт, не READY**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
 | `PWAWOR-01` | Media/FFmpeg worker работает как component, отделённый от API process. | ✅ |
-| `PWAWOR-02` | Media/FFmpeg worker имеет явные CPU/memory/process resource bounds. | — |
-| `PWAWOR-03` | Media/FFmpeg worker имеет минимально необходимые filesystem/network/database privileges. | — |
+| `PWAWOR-02` | Media/FFmpeg worker имеет явные CPU/memory/process resource bounds. | ✅ |
+| `PWAWOR-03` | Media/FFmpeg worker имеет минимально необходимые filesystem/network/database privileges. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`. Найден missing schema-revision SELECT; focused correction и actual restricted-login CI ещё не завершены. Product AC остаются `1/3` до runtime isolation Evidence.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`. После operator master-key ownership correction worker deployment `33388441193`/job `99476297938` прошёл на exact `8957e974`; image `sha256:19d8c05f9de9777d87e5694673ed4a931591c5bbef7d577c1ee52fe10fcfa972`. Status `33388535135`/job `99476560035` подтвердил running/healthy, image/commit identity, 2 CPU, 4 GiB memory без дополнительного swap, 256 PID, read-only rootfs, no-new-privileges, две разрешённые сети и только CHOWN/SETGID/SETUID bootstrap capabilities. Required worker health проверяет restricted DB role/grants и current runtime heartbeat; owner helper подтвердил UID/GID `10001`. Status helper выдал false-negative `isolation_match=no`: Docker возвращает `CAP_CHOWN/CAP_SETGID/CAP_SETUID`, а comparison ожидает эквивалентные имена без `CAP_`. Фактические поля проверены отдельно; parser defect сохранён как technical debt, marker не выдан за success. Bounded end-to-end LIVE текущей Goal ещё не выполнен. Изменение `+66,7` п.п. — выполнение двух runtime AC, denominator не изменён.
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 
@@ -1150,15 +1150,15 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Verified repository/VPS checkout: `807bc4abc8b0b4791f210a23f5fb7faa62dae007`. API deployed at `bd51e7569370ec059b5926cee974c63a2d5c168f`; web remains at previous verified `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`. Old worker is gracefully stopped; current checkout does not imply component redeployment.
+- Verified repository main/VPS checkout: `8957e974abe8c03224a572389c41aac84c99b609`. API deployed at `bd51e7569370ec059b5926cee974c63a2d5c168f` and remains ready/schema `0031`. Worker deployed at `8957e974`, running/healthy with exact image identity and verified isolation; rollback candidate preserved. Web was replaced by run `33388699857`, but required localhost health failed and public endpoint returns `502`; current public build metadata unavailable. No automatic rollback attempted.
 - Production schema — `0031_provider_account_snapshots`, confirmed by protected release and owner preflight. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
 - Distinct audio/transcription reference buckets, lifecycle rules и scoped credentials подтверждены предыдущей Goal. Existing legacy Sources сохраняют прежний routing; текущая Goal не переносит bytes и не меняет retention.
 
 ## 9. Current critical path
 
-1. Завершить worker schema-readiness correction и exact-head CI с actual restricted PostgreSQL login.
-2. Получить explicit operator grant correction/verification; не менять production role, secrets или schema скрыто в CD.
-3. Доставить isolated worker через status → confirmed stopped → deploy → exact identity/health/status. API migration уже завершена; повторная migration не нужна.
+1. Worker schema-readiness correction и exact-head/main CI с actual restricted PostgreSQL login завершены в PR `#266`.
+2. Operator SELECT grant, master-key owner correction, restricted bootstrap/schema probes и worker rollout/inspection завершены. Status classifier имеет известный false negative для `CAP_` prefix; actual capabilities проверены отдельно.
+3. Восстановить web после failed rollout `33388699857`: сначала bounded operator evidence (container/internal health, configured/actual published port и internal network), затем reviewed correction/recovery без weakening worker boundary. API migration завершена и повторять её не нужно.
 4. Только после отдельного owner approval выполнить одну bounded LIVE transcription/account refresh для текущей Goal; deployment health не подтверждает provider accounting.
 5. Commercial contour, новый STT provider, realtime/storage cost, `STORAG-01..15`, system-wide API/DB least privilege и CI/CD policy вне current Goal. Durable scope определяется epic AC, authorization/checkpoint — `docs/delivery-plan.md`.
 
