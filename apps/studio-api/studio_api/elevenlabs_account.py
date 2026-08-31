@@ -258,17 +258,17 @@ def normalize_subscription(payload: Any) -> SubscriptionSnapshot:
             else None
         ),
         next_invoice_subtotal_cents=(
-            _nonnegative_int(next_invoice.get("subtotal_cents"))
+            _optional_nonnegative_int(next_invoice.get("subtotal_cents"))
             if next_invoice is not None
             else None
         ),
         next_invoice_tax_cents=(
-            _nonnegative_int(next_invoice.get("tax_cents"))
+            _optional_nonnegative_int(next_invoice.get("tax_cents"))
             if next_invoice is not None
             else None
         ),
         next_payment_attempt_at=(
-            _optional_unix_datetime(next_invoice.get("next_payment_attempt_unix"))
+            _optional_payment_attempt_datetime(next_invoice.get("next_payment_attempt_unix"))
             if next_invoice is not None
             else None
         ),
@@ -386,6 +386,10 @@ def _nonnegative_int(value: Any) -> int:
     return value
 
 
+def _optional_nonnegative_int(value: Any) -> int | None:
+    return None if value is None else _nonnegative_int(value)
+
+
 def _decimal(value: Any) -> Decimal:
     if isinstance(value, bool):
         _malformed()
@@ -420,6 +424,14 @@ def _optional_unix_datetime(value: Any) -> datetime | None:
         raise ElevenLabsAccountError(
             ElevenLabsAccountReason.malformed_provider_response
         ) from exc
+
+
+def _optional_payment_attempt_datetime(value: Any) -> datetime | None:
+    # InvoiceResponse uses integer -1 for no scheduled attempt, not a date.
+    # Keep this exception local to invoices; reset timestamps remain nonnegative.
+    if type(value) is int and value == -1:
+        return None
+    return _optional_unix_datetime(value)
 
 
 def _aware_utc(value: datetime) -> datetime:

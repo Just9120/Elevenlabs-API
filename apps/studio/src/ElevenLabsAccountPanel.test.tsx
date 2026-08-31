@@ -122,4 +122,24 @@ describe("ElevenLabs account panel", () => {
     expect(screen.getByText(/Актуальные данные подписки пока не получены/)).toBeInTheDocument();
     expect(screen.queryByText("creator")).not.toBeInTheDocument();
   });
+
+  it("shows account data when invoice breakdown and payment date are unavailable", async () => {
+    api.mockResolvedValue({ accounts: [{
+      ...validAccount,
+      subscription: {
+        ...validAccount.subscription,
+        next_invoice: {
+          ...validAccount.subscription.next_invoice,
+          subtotal_cents: null,
+          tax_cents: null,
+          payment_attempt_at: null,
+        },
+      },
+    }] });
+    render(<ElevenLabsAccountPanel csrf="csrf" onCsrf={vi.fn()} />);
+    expect(await screen.findByText("creator")).toBeInTheDocument();
+    expect(screen.getByText(/22,99/)).toBeInTheDocument();
+    expect(screen.getByText("ElevenLabs не передал дату оплаты")).toBeInTheDocument();
+    expect(screen.queryByText(/Актуальные данные подписки пока не получены/)).not.toBeInTheDocument();
+  });
 });
