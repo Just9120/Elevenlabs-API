@@ -15,6 +15,8 @@ on:
       - 'scripts/check_studio_worker_secret.py'
       - 'tests/test_studio_processing_preflight.py'
       - 'tests/test_studio_worker_secret_metadata.py'
+      - 'tests/support/studio_web_network_smoke.py'
+      - 'tests/test_studio_web_network_smoke.py'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/release_studio_platform_migration.sh'
       - 'scripts/release_studio_edge.sh'
@@ -41,6 +43,8 @@ on:
       - 'scripts/check_studio_worker_secret.py'
       - 'tests/test_studio_processing_preflight.py'
       - 'tests/test_studio_worker_secret_metadata.py'
+      - 'tests/support/studio_web_network_smoke.py'
+      - 'tests/test_studio_web_network_smoke.py'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/release_studio_platform_migration.sh'
       - 'scripts/release_studio_edge.sh'
@@ -104,6 +108,8 @@ jobs:
           cp deploy/studio/.env.example "$tmp/.env"
           printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\nSTUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" "$CREDENTIAL_MASTER_KEY_FILE" >> "$tmp/.env"
           docker compose --env-file "$tmp/.env" -f deploy/studio/compose.platform.yml config >/dev/null
+      - name: Verify web host port publication
+        run: python tests/support/studio_web_network_smoke.py
       - name: Build Studio API image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "deploy/studio/compose.platform.yml"
 ENV = ROOT / "deploy/studio/.env.example"
@@ -92,6 +94,20 @@ def test_worker_networks_are_disjoint_from_web_api_and_redis():
         assert f"  {internal}:\n    internal: true" in networks
     assert "  studio-api-egress:" in networks
     assert "  studio-worker-egress:" in networks
+
+
+def test_web_has_a_private_host_publish_network_without_relaxing_internal_networks():
+    config = yaml.safe_load(COMPOSE.read_text())
+    services = config["services"]
+    web = services["studio-web"]
+    assert web["ports"] == ["127.0.0.1:8181:8080"]
+    assert set(web["networks"]) == {"studio-web-api", "studio-web-ingress"}
+    assert config["networks"]["studio-web-ingress"] == {"driver": "bridge", "internal": False}
+    for name, service in services.items():
+        if name != "studio-web":
+            assert "studio-web-ingress" not in service.get("networks", [])
+    for name in ("studio-web-api", "studio-api-db", "studio-api-cache", "studio-worker-db"):
+        assert config["networks"][name]["internal"] is True
 
 
 def test_worker_uses_dedicated_database_login_and_secret_source():

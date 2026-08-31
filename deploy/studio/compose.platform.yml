@@ -10,7 +10,9 @@ services:
     image: elevenlabs-studio-web:local
     restart: unless-stopped
     ports: ["127.0.0.1:8181:8080"]
-    networks: [studio-web-api]
+    # Docker does not publish host ports for an internal-only container.
+    # Keep this non-internal bridge exclusive to web; the binding stays loopback.
+    networks: [studio-web-api, studio-web-ingress]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q ok"]
       interval: 30s
@@ -228,6 +230,9 @@ secrets:
 volumes:
   studio-postgres-data:
 networks:
+  studio-web-ingress:
+    driver: bridge
+    internal: false
   studio-web-api:
     internal: true
   studio-api-db:

@@ -45,6 +45,24 @@ or bypass the entrypoint for commands that need database/runtime secrets.
 
 ## Trusted reverse-proxy peer
 
+### Web host-port publication
+
+The static web container joins `studio-web-ingress` (a web-only non-internal
+bridge) and the existing internal `studio-web-api` network. Keep the published
+endpoint exactly `127.0.0.1:8181:8080`; do not change it to `0.0.0.0`, host
+networking, or attach web to a database/worker/Redis network. Docker 29.7.2 was
+observed accepting the configured binding but not publishing it for an
+internal-only web container. Container health alone is not delivery acceptance:
+the standard web deployment must also pass host `8181/healthz` and the public
+web build/health check. A web-only recreate applies the corrected attachment;
+API, worker, databases, volumes and secrets must remain untouched.
+
+Worker status preserves raw capability names but compares the exact allowed
+`CAP_CHOWN`, `CAP_SETGID`, `CAP_SETUID` aliases as equivalent to their unprefixed
+forms. Additional or malformed capabilities still produce `isolation_match=no`.
+
+### API proxy trust
+
 `STUDIO_TRUSTED_PROXY_IP` is one exact IP address, never a hostname, CIDR, wildcard,
 or forwarded client address. The API accepts the first `X-Forwarded-For` value only
 when the direct request peer equals that configured address; otherwise it uses the

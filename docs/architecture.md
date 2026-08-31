@@ -58,6 +58,11 @@ Manual speaker identity is an owner-scoped post-processing contour for accepted 
 - Browser is untrusted for durable secrets and raw server-side content. It normally receives only safe normalized owner-scoped metadata; explicit OAuth-start, Picker, and direct-upload capabilities are bounded exceptions governed by the product contract.
 - API owns authentication, authorization, encryption/decryption, Drive/provider calls, separate maintenance token refresh/traversal, source storage access, and lifecycle checks.
 - Worker uses the API codebase/internal services but must be deployed and validated as a distinct runtime component.
+- Web publishes only `127.0.0.1:8181:8080` for host nginx. A web-exclusive,
+  non-internal `studio-web-ingress` bridge enables Docker host-port publication;
+  its separate `studio-web-api` network stays internal. API, worker, PostgreSQL
+  and Redis do not join the ingress bridge. An internal-only web container can
+  be healthy internally while Docker leaves the host port unpublished.
 - API/worker Compose services use a bounded root bootstrap only to copy allowlisted
   host-owned file-backed secrets into root-owned tmpfs runtime storage as `0400` files
   for UID/GID `10001`; the entrypoint then clears supplementary groups, drops to
