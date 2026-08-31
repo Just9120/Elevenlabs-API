@@ -128,6 +128,25 @@ jobs:
           assert getattr(revision.module, "release_safety", None) == "additive"
           print("STUDIO_MIGRATION_METADATA_OK")
           '
+          task_probe_container="$(docker run --detach \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 32 \
+            --user 0:0 \
+            --entrypoint sleep \
+            elevenlabs-studio-api:test 60)"
+          [[ "$task_probe_container" =~ ^[0-9a-f]{64}$ ]]
+          trap 'docker rm --force "$task_probe_container" >/dev/null' EXIT
+          task_probe_head="$(docker exec \
+            --user 10001:10001 \
+            --workdir /app \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            "$task_probe_container" \
+            alembic -c /app/alembic.ini heads </dev/null)"
+          [[ "$task_probe_head" =~ ^[[:alnum:]_]+\ \(head\)$ ]]
+          echo STUDIO_RUNNING_CONTAINER_METADATA_OK
       - name: Verify protected secret bootstrap and non-root runtime
         run: |
           tmp=$(mktemp -d "$RUNNER_TEMP/studio-secret-bootstrap.XXXXXX")

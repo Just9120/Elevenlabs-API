@@ -18,6 +18,7 @@ MIDDLE_REVISION = "0022_account_operability"
 NEW_REVISION = "0023_realtime_drafts"
 UNRELATED_REVISION = "0019_unrelated"
 IMAGE_ID = "sha256:" + ("b" * 64)
+RUNNING_API_IMAGE_ID = "sha256:" + ("f" * 64)
 POSTGRES_IMAGE_ID = "sha256:" + ("e" * 64)
 OLD_SNAPSHOT = "c" * 64
 NEW_SNAPSHOT = "d" * 64
@@ -49,6 +50,8 @@ def run_release(
     current_revision: str = OLD_REVISION,
     running_api_head: str = OLD_REVISION,
     api_health: str = "healthy",
+    running_api_probe_ok: bool = True,
+    api_container_changed: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     checkout = tmp_path / "checkout"
     fake_bin = tmp_path / "bin"
@@ -64,6 +67,7 @@ def run_release(
     calls = tmp_path / "calls.log"
     revision_state = tmp_path / "revision"
     deployed = tmp_path / "deployed"
+    candidate_built = tmp_path / "candidate-built"
     backup_complete = tmp_path / "backup-complete"
     revision_state.write_text(current_revision, encoding="utf-8")
 
@@ -216,7 +220,8 @@ if [[ "$1" == "compose" ]]; then
   while [[ "$1" == "--env-file" || "$1" == "-f" ]]; do shift 2; done
   command="$1"; shift
   case "$command" in
-    config|build) exit 0 ;;
+    config) exit 0 ;;
+    build) touch {str(candidate_built)!r}; exit 0 ;;
     ps)
       if [[ "$1" == "-a" && "$2" == "-q" && "$3" == "studio-worker" ]]; then
         exit 0
@@ -226,6 +231,10 @@ if [[ "$1" == "compose" ]]; then
         postgres) echo postgres-container ;;
         redis) echo redis-container ;;
         studio-api)
+          if [[ {str(api_container_changed).lower()} == true && -f {str(candidate_built)!r} ]]; then
+            echo api-replaced
+            exit 0
+          fi
           [[ -f {str(deployed)!r} ]] && echo api-new || echo api-old
           ;;
         *) exit 44 ;;
@@ -242,14 +251,20 @@ if [[ "$1" == "compose" ]]; then
     *) exit 47 ;;
   esac
 elif [[ "$1 $2" == "image inspect" ]]; then
+  [[ "$*" != *{RUNNING_API_IMAGE_ID!r}* ]] || exit 49
   echo {IMAGE_ID!r}
+elif [[ "$1" == "exec" ]]; then
+  [[ "$*" == "exec --user 10001:10001 --workdir /app --env PYTHONDONTWRITEBYTECODE=1 api-old alembic -c /app/alembic.ini heads" ]]
+  [[ {str(running_api_probe_ok).lower()} == true ]] || exit 49
+  echo {running_api_head!r}
 elif [[ "$1" == "run" ]]; then
   if [[ "$*" == *"--entrypoint python"* ]]; then
     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \\
       {target_revision!r} {source_revision!r} {release_safety!r} \\
       {repository_head!r} {source_parent_revision!r}
   elif [[ "$*" == *"--entrypoint alembic"* && "$*" == *" heads"* ]]; then
-    echo {running_api_head!r}
+    echo 'No such image' >&2
+    exit 49
   elif [[ "$*" == *"--entrypoint pg_restore"* ]]; then
     [[ "$*" == *"--pull never"* ]]
     [[ "$*" == *"--network none"* ]]
@@ -276,6 +291,8 @@ elif [[ "$1" == "inspect" ]]; then
   elif [[ "$*" == *".Image"* ]]; then
     if [[ "${{@: -1}}" == "postgres-container" ]]; then
       echo {POSTGRES_IMAGE_ID!r}
+    elif [[ "${{@: -1}}" == "api-old" ]]; then
+      echo {RUNNING_API_IMAGE_ID!r}
     else
       echo {IMAGE_ID!r}
     fi
@@ -426,7 +443,9 @@ def test_intermediate_direct_additive_target_migrates_without_api_deploy(
     assert not any("/api/readyz" in call for call in curl_calls)
 
 
-def test_schema_ahead_recovery_allows_next_direct_successor(tmp_path: Path) -> None:
+def test_schema_ahead_recovery_uses_running_container_without_local_image(
+    tmp_path: Path,
+) -> None:
     proc, calls = run_release(
         tmp_path,
         target_revision=NEW_REVISION,
@@ -441,8 +460,46 @@ def test_schema_ahead_recovery_allows_next_direct_successor(tmp_path: Path) -> N
     assert f"from={MIDDLE_REVISION}" in proc.stdout
     assert f"to={NEW_REVISION}" in proc.stdout
     assert "api_deployed=yes" in proc.stdout
-    assert any("--entrypoint alembic" in call for call in calls)
+    assert _index(calls, "docker exec --user 10001:10001") < _index(calls, "backup")
+    assert not any(
+        call.startswith("docker run ") and RUNNING_API_IMAGE_ID in call
+        for call in calls
+    )
     assert any("force-recreate studio-api" in call for call in calls)
+
+
+def test_api_container_replacement_blocks_before_metadata_probe(tmp_path: Path) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        source_revision=MIDDLE_REVISION,
+        source_parent_revision=OLD_REVISION,
+        current_revision=MIDDLE_REVISION,
+        api_health="unhealthy",
+        api_container_changed=True,
+    )
+
+    assert proc.returncode == 2
+    assert "reason=running_api_container_changed" in proc.stderr
+    assert not any(call.startswith("docker exec ") for call in calls)
+    assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
+
+
+def test_running_container_probe_failure_blocks_before_backup(tmp_path: Path) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        source_revision=MIDDLE_REVISION,
+        source_parent_revision=OLD_REVISION,
+        current_revision=MIDDLE_REVISION,
+        api_health="unhealthy",
+        running_api_probe_ok=False,
+    )
+
+    assert proc.returncode == 2
+    assert "reason=running_api_head_probe_failed" in proc.stderr
+    assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
 
 
 def test_unhealthy_api_without_exact_schema_chain_blocks_before_backup(
@@ -579,6 +636,9 @@ def test_studio_ci_watches_migration_release_contract_files() -> None:
         "tests/test_studio_migration_release.py",
     ):
         assert workflow.count(f"- '{path}'") == 2
+    assert "echo STUDIO_RUNNING_CONTAINER_METADATA_OK" in workflow
+    assert "--user 10001:10001" in workflow
+    assert "--env PYTHONDONTWRITEBYTECODE=1" in workflow
 
 
 def test_embedded_release_python_programs_compile() -> None:

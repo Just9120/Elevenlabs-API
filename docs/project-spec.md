@@ -30,9 +30,9 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository baseline: `main@8ab3410312e0be5c7e5303ca514a199969d9f602` (PR `#261`) имеет exact-main CI для worker isolation и usage/account implementation. Последний полностью ready production baseline до этой Goal — `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`); protected delivery текущей Goal ещё не завершён. Exact delivery identifiers находятся в `docs/delivery-plan.md` и archive завершённых Goals.
+Verified repository baseline: `main@6ca4006fb97852df8c42896160a55e2eebc3b26e` (PR `#261/#262`) имеет exact-main CI для worker isolation, usage/account implementation и sequential-migration recovery. Последний полностью ready production baseline до этой Goal — `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`); protected delivery текущей Goal ещё не завершён. Exact delivery identifiers находятся в `docs/delivery-plan.md` и archive завершённых Goals.
 
-Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; implementation merged в `main@8ab3410312e0be5c7e5303ca514a199969d9f602`, diagnosed release recovery выполняется на branch `codex/pwa-worker-usage-accounting-hotfix` от этого base. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
+Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; implementation merged, diagnosed release recovery выполняется на branch `codex/pwa-migration-container-probe` от `main@6ca4006fb97852df8c42896160a55e2eebc3b26e`. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -608,7 +608,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-WORKER-ISOLATION-02` — worker resource и privilege boundary
 
-Status: **⬜ BACKLOG — 33,3% (`1/3`)**.
+Status: **🟦 IN PROGRESS — 33,3% (`1/3`)**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|

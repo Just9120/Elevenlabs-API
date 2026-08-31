@@ -146,7 +146,7 @@ bounded Alembic revision identifier. It locks the release,
 fast-forwards the clean `studio-deploy` checkout to the exact current remote
 `main`, materializes the versioned runner from that SHA, clears the SSH
 environment, and executes the runner. The runner requires root-owned protected
-backup/OAuth secret files, healthy PostgreSQL/Redis/API, and a stopped worker.
+backup/OAuth secret files, the health/schema conditions below, and a stopped worker.
 It requires healthy PostgreSQL/Redis, a running API process and local API
 liveness. A non-healthy API is accepted only for diagnosed schema-ahead recovery
 when the running image head is exactly the current database revision's direct
@@ -160,6 +160,13 @@ an ephemeral container with no network, a read-only root filesystem, dropped
 capabilities, no image pull, and only the restored dump mounted read-only. An
 ephemeral tmpfs covers the image-declared PostgreSQL data path so the validation
 does not create or attach a persistent Docker volume.
+
+Schema-ahead recovery reads `alembic heads` from the exact captured running API
+container ID with `docker exec --user 10001:10001`, bytecode writes disabled and
+no database command. A running container can outlive its local image-store
+entry; a missing old image must not trigger an image rebuild, API restart or a
+skipped schema check. Container replacement, an unsuccessful metadata probe or
+anything other than one matching head blocks before backup/migration.
 
 One-time setup must be completed in this order:
 
