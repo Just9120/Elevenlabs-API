@@ -610,6 +610,18 @@ The script reads the password only from the root-owned `0400`/`0600` file, sends
 
 Attribute verification evaluates one boolean predicate in PostgreSQL and accepts only the single `psql` result `t`; an absent role, unexpected attributes, query failure or unavailable Git status must block. If `apply` committed but a verifier defect stopped the flow, deliver the reviewed correction and run `verify` first. Do not repeat grants/password activation or start the worker merely to bypass a failed verification.
 
+The worker allowlist includes **SELECT only** on `public.alembic_version`: both
+deployment's `alembic current` and runtime readiness read the schema revision
+through the dedicated worker login. INSERT/UPDATE/DELETE/TRUNCATE on that table
+remain forbidden, as do public-schema CREATE and migrations. Operator `verify`
+and worker readiness enforce this read-only boundary. A schema probe using the
+API/admin credential does not prove worker access. CI applies the actual grant
+manifest in an isolated migrated database and connects with a real restricted
+login, checks readiness, exercises denied writes/DDL, and reproduces the missing
+SELECT regression. If an older manifest was already applied without this grant,
+keep the worker stopped and use an explicitly approved, reviewed operator grant
+correction followed by `verify`; do not relax the role or run a migration.
+
 `STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD`, `STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE` and `STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing` form one complete snapshot. The operator verifies the value and effective date against the [official ElevenAPI pricing page](https://elevenlabs.io/pricing/api?price.section=speech_to_text) before changing it. Missing/partial/unsupported pricing blocks a provider call. A job keeps the first accepted snapshot across all parts, so changing environment pricing affects only jobs that have not started provider usage. Studio shows attributable confirmed usage cost, not an ElevenLabs invoice debit after free quota or subscription credits.
 
 The same active BYOK key is read server-side for the official `GET /v1/user/subscription` and `POST /v1/workspace/analytics/query/usage-by-product-over-time` account views. It must have the provider read scopes for subscription and workspace analytics and satisfy any configured IP allowlist. No second Studio credential is required. The UI shows an actionable unavailable/stale state when either scope, allowlist, authentication, rate limit or provider availability blocks a read; never broaden or replace a provider key during deploy merely to make this panel green.

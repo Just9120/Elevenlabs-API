@@ -31,7 +31,7 @@ from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
@@ -166,6 +166,76 @@ def test_worker_role_operator_predicate_on_real_postgresql():
         # An absent role must return false, never an empty/implicitly accepted row.
         cte = "WITH pg_roles AS (SELECT * FROM pg_catalog.pg_roles WHERE FALSE) "
         assert conn.execute(text(cte + query)).scalar_one() is False
+
+
+def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(monkeypatch):
+    from studio_api import worker_health
+    from studio_api.runtime_observability import check_database_readiness, repository_schema_head
+
+    role_name = f"studio_worker_test_{uuid.uuid4().hex}"
+    password = f"synthetic-{uuid.uuid4().hex}"
+    monkeypatch.setattr(worker_health, "EXPECTED_DATABASE_ROLE", role_name)
+    worker_engine = None
+    try:
+        with isolated_migration_database("studio_worker_grants") as (temp_engine, env):
+            run_alembic("head", env=env)
+            # Execute the production manifest unchanged except for the two
+            # isolated test identifiers; never mutate the real studio_worker.
+            manifest = (ROOT / "deploy/studio/worker-db-role.sql").read_text(encoding="utf-8")
+            manifest = re.sub(r"\bstudio_worker\b", role_name, manifest)
+            manifest = manifest.replace("ON DATABASE studio TO", f'ON DATABASE "{temp_engine.url.database}" TO')
+            with temp_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.exec_driver_sql(manifest, execution_options={"no_parameters": True})
+                conn.exec_driver_sql(f"ALTER ROLE {role_name} LOGIN PASSWORD '{password}'")
+
+            # A new authenticated connection is essential: admin/SET ROLE
+            # substitutes cannot prove the worker credential boundary.
+            worker_engine = create_engine(temp_engine.url.set(username=role_name, password=password))
+            with worker_engine.connect() as conn:
+                assert conn.execute(text("SELECT current_user")).scalar_one() == role_name
+                assert check_database_readiness(conn)["schema_revision"] == repository_schema_head()
+                worker_health.check_worker_database_role(conn)
+                conn.rollback()
+                for statement in (
+                    "INSERT INTO alembic_version (version_num) VALUES ('forbidden')",
+                    "UPDATE alembic_version SET version_num = version_num",
+                    "DELETE FROM alembic_version",
+                    "TRUNCATE alembic_version",
+                    "CREATE TABLE public.worker_must_not_create (id integer)",
+                    "SELECT * FROM sessions LIMIT 0",
+                    "SELECT * FROM provider_account_snapshots LIMIT 0",
+                ):
+                    with pytest.raises(ProgrammingError) as failure:
+                        conn.execute(text(statement))
+                    assert failure.value.orig.sqlstate == "42501", statement
+                    conn.rollback()
+
+            script = (ROOT / "scripts/configure_studio_worker_db_role.sh").read_text(encoding="utf-8")
+            queries = [query.replace("${ROLE_NAME}", role_name)
+                       for query in re.findall(r'psql_admin -Atqc "([^"]+)"', script)]
+            assert len(queries) == 6
+            with temp_engine.begin() as conn:
+                assert all(conn.execute(text(query)).scalar_one() is True for query in queries)
+                conn.execute(text(f"REVOKE SELECT ON alembic_version FROM {role_name}"))
+            with worker_engine.connect() as conn:
+                # Reproduce the missing-grant failure, not just a bool fixture.
+                with pytest.raises(ProgrammingError) as failure:
+                    check_database_readiness(conn)
+                assert failure.value.orig.sqlstate == "42501"
+                conn.rollback()
+                with pytest.raises(RuntimeError, match="worker_database_privileges_invalid"):
+                    worker_health.check_worker_database_role(conn)
+            with temp_engine.begin() as conn:
+                conn.execute(text(f"GRANT SELECT ON alembic_version TO {role_name}"))
+            with worker_engine.connect() as conn:
+                assert check_database_readiness(conn)["migrations"] == "current"
+                worker_health.check_worker_database_role(conn)
+    finally:
+        if worker_engine is not None:
+            worker_engine.dispose()
+        # The isolated database (and its grants) is already gone at this point.
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP ROLE IF EXISTS {role_name}"))
 
 
 def test_query_bound_indexes_are_applied_to_postgresql():

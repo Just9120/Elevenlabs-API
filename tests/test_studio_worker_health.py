@@ -142,7 +142,7 @@ def test_worker_database_role_contract_accepts_only_narrow_role():
         Connection(
             [
                 ("studio_worker", True, False, False, False, False, False, False, True),
-                (True, False, True, True, True, True, False, False, False, False),
+                (True, False, True, True, True, True, False, False, False, False, True, False),
             ]
         )
     )
@@ -160,7 +160,19 @@ def test_worker_database_role_contract_accepts_only_narrow_role():
             Connection(
                 [
                     ("studio_worker", True, False, False, False, False, False, False, True),
-                    (True, False, True, True, True, True, True, False, False, False),
+                    (True, False, True, True, True, True, True, False, False, False, True, False),
                 ]
             )
         )
+
+
+@pytest.mark.parametrize("revision_privileges", [(False, False), (True, True)])
+def test_worker_health_requires_read_only_schema_revision_privilege(revision_privileges):
+    from types import SimpleNamespace
+    rows = iter([
+        ("studio_worker", True, False, False, False, False, False, False, True),
+        (True, False, True, True, True, True, False, False, False, False) + revision_privileges,
+    ])
+    connection = SimpleNamespace(execute=lambda _sql: SimpleNamespace(one=lambda: next(rows)))
+    with pytest.raises(RuntimeError, match="worker_database_privileges_invalid"):
+        worker_health.check_worker_database_role(connection)

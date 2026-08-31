@@ -54,6 +54,7 @@ case "$query" in
     printf '%s\n' "${ROLE_TEST_ATTRIBUTES-t}" ;;
   *"pg_auth_members"*) printf '%s\n' "${ROLE_TEST_MEMBERSHIPS-t}" ;;
   *"has_schema_privilege"*) printf '%s\n' "${ROLE_TEST_SCHEMA-t}" ;;
+  *"alembic_version"*) printf '%s\n' "${ROLE_TEST_REVISION-t}" ;;
   *"SELECT NOT (has_table_privilege"*) printf '%s\n' "${ROLE_TEST_PROHIBITED-t}" ;;
   *"has_table_privilege"*) printf '%s\n' "${ROLE_TEST_REQUIRED-t}" ;;
   *) exit 99 ;;
@@ -78,7 +79,7 @@ def test_worker_role_verifier_accepts_postgresql_boolean_output(tmp_path):
     proc, queries = run_verifier(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert proc.stdout.strip() == "STUDIO_WORKER_DB_ROLE_OK"
-    assert len(queries) == 5
+    assert len(queries) == 6
     assert all(query.startswith("SELECT") for query in queries)
 
 
@@ -101,8 +102,9 @@ def test_worker_role_verifier_stops_on_query_failure(tmp_path):
 @pytest.mark.parametrize("gate,message,count", [
     ("memberships", "worker role memberships invalid", 2),
     ("schema", "worker schema privileges invalid", 3),
-    ("required", "worker required table privileges missing", 4),
-    ("prohibited", "worker prohibited table privileges present", 5),
+    ("revision", "worker schema revision read-only privilege invalid", 4),
+    ("required", "worker required table privileges missing", 5),
+    ("prohibited", "worker prohibited table privileges present", 6),
 ])
 def test_worker_role_verifier_preserves_each_privilege_gate(tmp_path, gate, message, count):
     proc, queries = run_verifier(tmp_path, **{gate: "f"})

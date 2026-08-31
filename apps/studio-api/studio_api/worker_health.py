@@ -79,10 +79,15 @@ def check_worker_database_role(connection) -> None:
             "has_table_privilege(current_user, 'sessions', 'SELECT'), "
             "has_table_privilege(current_user, 'provider_credentials', 'UPDATE'), "
             "has_table_privilege(current_user, 'provider_account_snapshots', 'SELECT'), "
-            "has_table_privilege(current_user, 'provider_account_snapshots', 'UPDATE')"
+            "has_table_privilege(current_user, 'provider_account_snapshots', 'UPDATE'), "
+            "has_table_privilege(current_user, 'alembic_version', 'SELECT'), "
+            "has_table_privilege(current_user, 'alembic_version', 'INSERT') OR "
+            "has_table_privilege(current_user, 'alembic_version', 'UPDATE') OR "
+            "has_table_privilege(current_user, 'alembic_version', 'DELETE') OR "
+            "has_table_privilege(current_user, 'alembic_version', 'TRUNCATE')"
         )
     ).one()
-    if tuple(privileges) != (True, False, True, True, True, True, False, False, False, False):
+    if tuple(privileges) != (True, False, True, True, True, True, False, False, False, False, True, False):
         raise RuntimeError("worker_database_privileges_invalid")
 
 
