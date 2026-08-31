@@ -315,15 +315,24 @@ def normalize_workspace_usage(
         or len(columns) > 20
         or len(units) != len(columns)
         or len(rows) > MAX_USAGE_ROWS
+        or any(not isinstance(column, str) for column in columns)
         or len(set(columns)) != len(columns)
     ):
         _malformed()
     try:
         product_index = columns.index("product_type")
-        credits_index = columns.index("credits_used")
     except ValueError:
         _malformed()
-    if units[credits_index] not in {None, "", "credits"}:
+    # The published example uses credits_used; verified runtime responses use
+    # total_usage alongside separate minute/cost columns. Never infer its unit
+    # or silently choose one of two competing credit metrics.
+    credit_columns = [name for name in ("credits_used", "total_usage") if name in columns]
+    if len(credit_columns) != 1:
+        _malformed()
+    credit_column = credit_columns[0]
+    credits_index = columns.index(credit_column)
+    allowed_units = ("credits",) if credit_column == "total_usage" else (None, "", "credits")
+    if units[credits_index] not in allowed_units:
         _malformed()
 
     product_totals: dict[str, Decimal] = {}

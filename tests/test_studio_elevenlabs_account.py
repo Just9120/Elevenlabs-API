@@ -70,7 +70,23 @@ def _usage_payload():
     }
 
 
-def test_transport_normalizes_subscription_and_product_credit_usage():
+def _runtime_usage_payload():
+    # Column names/types/units verified by the owner's 2026-08-31 diagnostic.
+    # All products, timestamps and amounts below are synthetic, not a raw export.
+    return {
+        "columns": ["product_type", "timestamp", "total_usage", "total_minutes", "total_cost", "usage_count", "total_charge_count"],
+        "column_types": ["String", "DateTime", "Int", "Float", "Float", "Int", "Float"],
+        "column_units": [None, None, "credits", "min", "usd", None, None],
+        "rows": [
+            ["speech-to-text", "2026-08-29T00:00:00Z", 125, 3.5, 0.75, 1, 1.25],
+            ["speech-to-text", "2026-08-30T00:00:00Z", 5, 0, 0, 1, 0],
+            ["text-to-speech", "2026-08-30T00:00:00Z", 10, 0.5, 0.25, 1, 0.5],
+        ],
+    }
+
+
+@pytest.mark.parametrize("usage_payload", [_usage_payload, _runtime_usage_payload], ids=["documented", "runtime"])
+def test_transport_normalizes_subscription_and_product_credit_usage(usage_payload):
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request):
@@ -79,7 +95,7 @@ def test_transport_normalizes_subscription_and_product_credit_usage():
         if request.method == "GET":
             return httpx.Response(200, json=_subscription_payload())
         assert json.loads(request.content)["group_by"] == ["product_type"]
-        return httpx.Response(200, json=_usage_payload())
+        return httpx.Response(200, json=usage_payload())
 
     from studio_api.elevenlabs_account import ElevenLabsAccountTransport
 
@@ -102,6 +118,62 @@ def test_transport_normalizes_subscription_and_product_credit_usage():
         ("text-to-speech", Decimal("10.00000000")),
     ]
     assert len(requests) == 2
+
+
+def _normalize_usage(payload):
+    from studio_api.elevenlabs_account import normalize_workspace_usage
+
+    return normalize_workspace_usage(
+        payload,
+        window_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        window_end=datetime(2026, 8, 30, tzinfo=timezone.utc),
+        window_basis="rolling_30_days",
+    )
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_runtime_usage_resolves_columns_by_name_and_accepts_empty_window(empty):
+    payload = _runtime_usage_payload()
+    for key in ("columns", "column_types", "column_units"):
+        payload[key].reverse()
+    payload["rows"] = [] if empty else [list(reversed(row)) for row in payload["rows"]]
+    result = _normalize_usage(payload)
+    assert result.total_credits == Decimal("0" if empty else "140")
+    assert result.unit == "credits"
+
+
+@pytest.mark.parametrize("unit", [None, "", "min", "usd", "seconds", [], {}])
+def test_runtime_total_usage_requires_explicit_credit_unit(unit):
+    from studio_api.elevenlabs_account import ElevenLabsAccountError
+
+    payload = _runtime_usage_payload()
+    payload["column_units"][2] = unit
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        _normalize_usage(payload)
+
+
+@pytest.mark.parametrize("value", [None, True, -1, "NaN", "Infinity", "1e19", {}])
+def test_runtime_usage_rejects_invalid_credit_cells_without_partial_totals(value):
+    from studio_api.elevenlabs_account import ElevenLabsAccountError
+
+    payload = _runtime_usage_payload()
+    payload["rows"][-1][2] = value
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        _normalize_usage(payload)
+
+
+@pytest.mark.parametrize("column", ["credits_used", "total_usage", "unknown_metric", [], {}])
+def test_usage_rejects_ambiguous_duplicate_missing_or_nonstring_columns(column):
+    from studio_api.elevenlabs_account import ElevenLabsAccountError
+
+    payload = _runtime_usage_payload()
+    if column == "unknown_metric":
+        payload["columns"][2] = column
+    else:
+        payload["columns"][3] = column
+        payload["column_units"][3] = "credits"
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        _normalize_usage(payload)
 
 
 # InvoiceResponse permits nullable/omitted subtotal/tax and the exact integer
@@ -408,7 +480,8 @@ def test_credential_version_change_never_serves_previous_snapshot_as_stale(db):
     assert payload["workspace_usage"]["products"] == []
 
 
-def test_nullable_invoice_refresh_persists_and_projects_absence_not_old_values(db):
+@pytest.mark.parametrize("usage_payload", [_usage_payload, _runtime_usage_payload], ids=["documented", "runtime"])
+def test_nullable_invoice_refresh_persists_and_projects_absence_not_old_values(db, usage_payload):
     from studio_api.provider_account_sync import provider_account_payload, sync_elevenlabs_account
 
     user, credential, version = _credential(db)
@@ -434,7 +507,7 @@ def test_nullable_invoice_refresh_persists_and_projects_absence_not_old_values(d
 
     def handler(request):
         requests.append(request.method)
-        return httpx.Response(200, json=response if request.method == "GET" else _usage_payload())
+        return httpx.Response(200, json=response if request.method == "GET" else usage_payload())
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         row = sync_elevenlabs_account(
@@ -463,6 +536,10 @@ def test_nullable_invoice_refresh_persists_and_projects_absence_not_old_values(d
         "payment_attempt_at": None,
     }
     assert projected["workspace_usage"]["total"] == "140.00000000"
+    assert projected["workspace_usage"]["state"] == "current"
+    assert projected["workspace_usage"]["error_code"] is None
+    assert projected["workspace_usage"]["unit"] == "credits"
+    assert all(key not in json.dumps(projected) for key in ("total_minutes", "total_cost", "total_charge_count"))
     assert requests == ["GET", "POST"]
     assert "never-returned" not in json.dumps(projected)
 
