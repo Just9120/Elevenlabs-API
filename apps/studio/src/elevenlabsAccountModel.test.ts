@@ -64,6 +64,47 @@ describe("ElevenLabs account parser", () => {
     ]);
   });
 
+  it.each([null, 0, 125])("preserves optional invoice amounts as %s", (amount) => {
+    const account = {
+      ...validAccount,
+      subscription: {
+        ...validAccount.subscription,
+        next_invoice: {
+          ...validAccount.subscription.next_invoice,
+          subtotal_cents: amount,
+          tax_cents: amount,
+          payment_attempt_at: null,
+        },
+      },
+    };
+    expect(parseElevenLabsAccount(account)).toEqual(account);
+  });
+
+  it.each([undefined, -1, true, 1.5, "0", {}, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid optional invoice amount %s",
+    (amount) => {
+      for (const field of ["subtotal_cents", "tax_cents"]) {
+        expect(parseElevenLabsAccount({
+          ...validAccount,
+          subscription: {
+            ...validAccount.subscription,
+            next_invoice: { ...validAccount.subscription.next_invoice, [field]: amount },
+          },
+        })).toBeNull();
+      }
+    },
+  );
+
+  it("keeps invoice amount due required", () => {
+    expect(parseElevenLabsAccount({
+      ...validAccount,
+      subscription: {
+        ...validAccount.subscription,
+        next_invoice: { ...validAccount.subscription.next_invoice, amount_due_cents: null },
+      },
+    })).toBeNull();
+  });
+
   it("rejects fabricated units, invalid money, duplicate credentials and hidden payload additions", () => {
     expect(
       parseElevenLabsAccount({

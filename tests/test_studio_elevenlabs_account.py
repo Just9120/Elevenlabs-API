@@ -104,6 +104,90 @@ def test_transport_normalizes_subscription_and_product_credit_usage():
     assert len(requests) == 2
 
 
+# InvoiceResponse permits nullable/omitted subtotal/tax and the exact integer
+# -1 for no scheduled payment; do not apply that sentinel to other timestamps.
+# https://github.com/elevenlabs/elevenlabs-python/blob/a33cb6a262897dc7e453f32cd0770dc515b09634/src/elevenlabs/types/invoice_response.py
+@pytest.mark.parametrize("field", ["subtotal_cents", "tax_cents"])
+@pytest.mark.parametrize("case", ["missing", "null", "zero", "positive"])
+def test_subscription_accepts_optional_invoice_amounts_without_inventing_zero(field, case):
+    from studio_api.elevenlabs_account import normalize_subscription
+
+    payload = _subscription_payload()
+    if case == "missing":
+        payload["next_invoice"].pop(field)
+        expected = None
+    else:
+        expected = {"null": None, "zero": 0, "positive": 125}[case]
+        payload["next_invoice"][field] = expected
+
+    snapshot = normalize_subscription(payload)
+    assert getattr(snapshot, "next_invoice_" + field) == expected
+    assert snapshot.next_invoice_amount_due_cents == 2299
+    assert snapshot.current_overage_amount == Decimal("1.25000000")
+
+
+@pytest.mark.parametrize("case", ["missing", "null", "not_scheduled", "epoch", "scheduled"])
+def test_subscription_accepts_documented_next_payment_attempt_states(case):
+    from studio_api.elevenlabs_account import normalize_subscription
+
+    payload = _subscription_payload()
+    value = {"null": None, "not_scheduled": -1, "epoch": 0, "scheduled": 1798761600}
+    if case == "missing":
+        payload["next_invoice"].pop("next_payment_attempt_unix")
+    else:
+        payload["next_invoice"]["next_payment_attempt_unix"] = value[case]
+
+    snapshot = normalize_subscription(payload)
+    if case in {"missing", "null", "not_scheduled"}:
+        assert snapshot.next_payment_attempt_at is None
+    else:
+        assert snapshot.next_payment_attempt_at == datetime.fromtimestamp(value[case], timezone.utc)
+    assert snapshot.reset_at == datetime.fromtimestamp(1798761600, timezone.utc)
+
+
+@pytest.mark.parametrize("field", ["amount_due_cents", "subtotal_cents", "tax_cents"])
+@pytest.mark.parametrize("value", [-1, True, 1.5, "0", {}, 9_007_199_254_740_992])
+def test_subscription_still_rejects_invalid_invoice_amounts(field, value):
+    from studio_api.elevenlabs_account import ElevenLabsAccountError, normalize_subscription
+
+    payload = _subscription_payload()
+    payload["next_invoice"][field] = value
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        normalize_subscription(payload)
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_subscription_invoice_amount_due_remains_required(missing):
+    from studio_api.elevenlabs_account import ElevenLabsAccountError, normalize_subscription
+
+    payload = _subscription_payload()
+    if missing:
+        payload["next_invoice"].pop("amount_due_cents")
+    else:
+        payload["next_invoice"]["amount_due_cents"] = None
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        normalize_subscription(payload)
+
+
+@pytest.mark.parametrize("value", [-2, -1.0, "-1", True, 1.5, {}, 9_007_199_254_740_992])
+def test_subscription_rejects_invalid_payment_attempt_values(value):
+    from studio_api.elevenlabs_account import ElevenLabsAccountError, normalize_subscription
+
+    payload = _subscription_payload()
+    payload["next_invoice"]["next_payment_attempt_unix"] = value
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        normalize_subscription(payload)
+
+
+def test_subscription_does_not_allow_payment_sentinel_for_reset_date():
+    from studio_api.elevenlabs_account import ElevenLabsAccountError, normalize_subscription
+
+    payload = _subscription_payload()
+    payload["next_character_count_reset_unix"] = -1
+    with pytest.raises(ElevenLabsAccountError, match="malformed_provider_response"):
+        normalize_subscription(payload)
+
+
 @pytest.mark.parametrize("status,reason", [(401, "provider_authentication_rejected"), (403, "provider_scope_rejected"), (429, "provider_rate_limited"), (503, "provider_unavailable")])
 def test_transport_classifies_safe_provider_failures(status, reason):
     from studio_api.elevenlabs_account import (
@@ -322,6 +406,65 @@ def test_credential_version_change_never_serves_previous_snapshot_as_stale(db):
     assert payload["state"] == "unavailable"
     assert payload["subscription"] is None
     assert payload["workspace_usage"]["products"] == []
+
+
+def test_nullable_invoice_refresh_persists_and_projects_absence_not_old_values(db):
+    from studio_api.provider_account_sync import provider_account_payload, sync_elevenlabs_account
+
+    user, credential, version = _credential(db)
+    now = datetime(2026, 8, 30, 12, tzinfo=timezone.utc)
+    row = sync_elevenlabs_account(
+        db,
+        owner_user_id=user.id,
+        credential=credential,
+        credential_version_id=version.id,
+        api_key="never-returned",
+        now=now,
+        transport=_SuccessfulTransport(),
+    )
+    db.commit()
+    assert row.next_invoice_tax_cents == 299
+
+    response = _subscription_payload()
+    response["next_invoice"].pop("subtotal_cents")
+    response["next_invoice"].update(tax_cents=None, next_payment_attempt_unix=-1)
+    from studio_api.elevenlabs_account import ElevenLabsAccountTransport
+
+    requests = []
+
+    def handler(request):
+        requests.append(request.method)
+        return httpx.Response(200, json=response if request.method == "GET" else _usage_payload())
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        row = sync_elevenlabs_account(
+            db,
+            owner_user_id=user.id,
+            credential=credential,
+            credential_version_id=version.id,
+            api_key="never-returned",
+            now=now,
+            force=True,
+            transport=ElevenLabsAccountTransport(client=client),
+        )
+    db.commit()
+    db.refresh(row)
+    assert row.next_invoice_subtotal_cents is None
+    assert row.next_invoice_tax_cents is None
+    assert row.next_payment_attempt_at is None
+    projected = provider_account_payload(row, credential=credential, active_version=1, now=now)
+    assert projected["state"] == "current"
+    assert projected["error_code"] is None
+    assert projected["subscription"]["next_invoice"] == {
+        "amount_due_cents": 2299,
+        "subtotal_cents": None,
+        "tax_cents": None,
+        "currency": "USD",
+        "payment_attempt_at": None,
+    }
+    assert projected["workspace_usage"]["total"] == "140.00000000"
+    assert requests == ["GET", "POST"]
+    assert "never-returned" not in json.dumps(projected)
 
 
 def test_provider_account_snapshot_migration_is_additive_direct_successor():

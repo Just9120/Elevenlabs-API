@@ -29,8 +29,8 @@ export type ElevenLabsAccount = {
     };
     next_invoice: {
       amount_due_cents: number;
-      subtotal_cents: number;
-      tax_cents: number;
+      subtotal_cents: number | null;
+      tax_cents: number | null;
       currency: string;
       payment_attempt_at: string | null;
     } | null;
@@ -131,8 +131,8 @@ function parseSubscription(value: unknown): ElevenLabsAccount["subscription"] | 
   if (
     nextInvoice &&
     (!count(nextInvoice.amount_due_cents) ||
-      !count(nextInvoice.subtotal_cents) ||
-      !count(nextInvoice.tax_cents) ||
+      !(nextInvoice.subtotal_cents === null || count(nextInvoice.subtotal_cents)) ||
+      !(nextInvoice.tax_cents === null || count(nextInvoice.tax_cents)) ||
       !currency(nextInvoice.currency) ||
       !time(nextInvoice.payment_attempt_at))
   ) {
@@ -165,8 +165,8 @@ function parseSubscription(value: unknown): ElevenLabsAccount["subscription"] | 
     next_invoice: nextInvoice
       ? {
           amount_due_cents: nextInvoice.amount_due_cents as number,
-          subtotal_cents: nextInvoice.subtotal_cents as number,
-          tax_cents: nextInvoice.tax_cents as number,
+          subtotal_cents: nextInvoice.subtotal_cents as number | null,
+          tax_cents: nextInvoice.tax_cents as number | null,
           currency: nextInvoice.currency as string,
           payment_attempt_at: nextInvoice.payment_attempt_at as string | null,
         }

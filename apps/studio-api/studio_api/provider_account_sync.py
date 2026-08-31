@@ -130,8 +130,16 @@ def provider_account_payload(
             "next_invoice": (
                 {
                     "amount_due_cents": int(row.next_invoice_amount_due_cents),
-                    "subtotal_cents": int(row.next_invoice_subtotal_cents or 0),
-                    "tax_cents": int(row.next_invoice_tax_cents or 0),
+                    "subtotal_cents": (
+                        int(row.next_invoice_subtotal_cents)
+                        if row.next_invoice_subtotal_cents is not None
+                        else None
+                    ),
+                    "tax_cents": (
+                        int(row.next_invoice_tax_cents)
+                        if row.next_invoice_tax_cents is not None
+                        else None
+                    ),
                     "currency": row.subscription_currency
                     or row.current_overage_currency,
                     "payment_attempt_at": _iso(row.next_payment_attempt_at),
