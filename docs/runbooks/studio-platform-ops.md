@@ -453,7 +453,7 @@ Before any processing rollout or canary, verify without printing sensitive value
 - production database revision is known and compared to the exact reviewed repository Alembic head for the intended deployment;
 - exactly one worker instance is intended for the canary.
 
-The host preflight validates current Compose-mounted runtime secret files only
+The host preflight validates current API Compose-mounted runtime secret files only
 through the reviewed `container_entrypoint --validate-mounted-secret` mode inside
 the healthy API container. That mode accepts only keys from the entrypoint's
 secret allowlist, performs no copy or write, emits no value, and exits before
@@ -461,6 +461,23 @@ starting an application command. Both reference-storage credential pairs additio
 their bounded structural/placeholder validation. Do not replace this with direct
 deploy-user reads, stale runtime-tmpfs inspection, relaxed host permissions, or
 ad-hoc root commands.
+
+The separate worker password is not mounted in the API, and a stopped worker
+must not be started to inspect it. Its preflight uses one ephemeral metadata-only
+helper on the immutable image ID of the single healthy API container, with
+`--pull never`, no network, read-only root filesystem, all capabilities dropped,
+no privilege escalation and bounded CPU/memory/PIDs. Only the configured parent
+directory is bind-mounted read-only, with submounts excluded, so `lstat` can
+reject a symlink leaf without following it. The reviewed stdin program uses
+Python isolated/no-site mode; it checks only regular-file type, root ownership,
+`0400`/`0600`, nonempty bounded size and a root-owned non-writable-by-others
+parent. It never opens secret bytes or lists the directory, receives no runtime
+environment secrets, and emits no values. The running API is not changed and
+receives no worker credential. Missing helper image, API identity change,
+missing file or invalid metadata blocks preflight. A root-only `0700` parent is
+valid and does not require deploy-user visibility, chmod, ACLs or credential
+copying. This metadata check does not prove DB authentication; the separate role,
+schema and deployed worker health gates remain required.
 
 ## Controlled worker rollout sequence
 

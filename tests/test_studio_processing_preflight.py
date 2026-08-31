@@ -6,6 +6,7 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,24 +14,38 @@ SCRIPT = ROOT / "scripts" / "studio_processing_preflight.sh"
 WORKFLOW = ROOT / ".github/workflows/studio-processing-preflight.yml"
 SHA = "a" * 40
 SECRET_MARKERS = ["SUPERSECRET", "TOKEN123", "container-alpha", "private@example.com", "https://secret.example"]
+IMAGE_ID = "sha256:" + "c" * 64
+
+
+def invoke_preflight(repo: Path, bin_dir: Path, *, cwd: Path | None = None):
+    # Resolve paths inside Bash, including native Windows Python + Git Bash.
+    return subprocess.run(
+        ["bash", "-c", 'export PREFLIGHT_TEST_PYTHON="$(command -v python)"; '
+         'export PATH="$(cd "$1" && pwd):$PATH"; '
+         'target="$(cd "$3" && pwd)"; exec bash "$2" "$target" main '
+         'Just9120/Elevenlabs-API "$4"', "preflight-test",
+         bin_dir.as_posix(), SCRIPT.as_posix(), repo.as_posix(), SHA],
+        cwd=cwd or repo, env=os.environ.copy(), text=True, capture_output=True, timeout=15,
+    )
 
 
 def _write_exe(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
 def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     repo = tmp_path / "repo"
-    shutil.copytree(ROOT / "apps/studio-api/alembic", repo / "apps/studio-api/alembic")
+    shutil.copytree(ROOT / "apps/studio-api/alembic", repo / "apps/studio-api/alembic", ignore=shutil.ignore_patterns("__pycache__"))
     (repo / "apps/studio-api/Dockerfile").parent.mkdir(parents=True, exist_ok=True)
-    (repo / "apps/studio-api/Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    (repo / "apps/studio-api/Dockerfile").write_text("FROM scratch\n", encoding="utf-8", newline="\n")
     (repo / "apps/studio/Dockerfile").parent.mkdir(parents=True, exist_ok=True)
-    (repo / "apps/studio/Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    (repo / "apps/studio/Dockerfile").write_text("FROM scratch\n", encoding="utf-8", newline="\n")
     (repo / "deploy/studio").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "deploy/studio/compose.platform.yml", repo / "deploy/studio/compose.platform.yml")
     shutil.copy2(ROOT / "deploy/studio/worker-db-role.sql", repo / "deploy/studio/worker-db-role.sql")
     (repo / "scripts").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "scripts/check_studio_worker_secret.py", repo / "scripts/check_studio_worker_secret.py")
     secret_dir = tmp_path / "secrets"
     secret_dir.mkdir()
     secrets = {}
@@ -52,8 +67,9 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
             "audio_s3id": "c" * 32,
             "audio_s3secret": "d" * 64,
         }.get(name, f"SUPERSECRET-{name}-TOKEN123")
-        p.write_text(value + "\n", encoding="utf-8")
-        secrets[name] = p
+        p.write_text(value + "\n", encoding="utf-8", newline="\n")
+        # These paths are deliberately unavailable to the simulated deploy user.
+        secrets[name] = f"/protected-studio-secrets/{name}"
     env_text = f"""APP_PUBLIC_URL=https://secret.example
 STUDIO_POSTGRES_PASSWORD_FILE={secrets['pg']}
 STUDIO_WORKER_POSTGRES_PASSWORD_FILE={secrets['worker_pg']}
@@ -99,28 +115,14 @@ STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing
 """
     if state.pop("omit_heartbeat", ""):
         env_text = env_text.replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60\n", "")
-    (repo / "deploy/studio/.env").write_text(state.pop("env_text", env_text), encoding="utf-8")
+    (repo / "deploy/studio/.env").write_text(state.pop("env_text", env_text), encoding="utf-8", newline="\n")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    _write_exe(bin_dir / "python", '#!/usr/bin/env bash\nset -euo pipefail\n"$PREFLIGHT_TEST_PYTHON" "$@" | tr -d "\\r"\n')
     log = tmp_path / "calls.log"
     _write_exe(
-        bin_dir / "stat",
-        f"""#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${{@: -1}}" == {secrets['worker_pg'].as_posix()!r} ]]; then
-  case "$*" in
-    *"%U"*) echo root ;;
-    *"%a"*) echo 600 ;;
-    *) exit 2 ;;
-  esac
-  exit 0
-fi
-exec /usr/bin/stat "$@"
-""",
-    )
-    _write_exe(
         repo / "scripts/configure_studio_worker_db_role.sh",
-        f"#!/usr/bin/env bash\nprintf 'worker-role %s\\n' \"$*\" >> {str(log)!r}\n"
+        f"#!/usr/bin/env bash\nprintf 'worker-role %s\\n' \"$*\" >> {log.as_posix()!r}\n"
         f"[[ {state.get('worker_role', 'ready')!r} == ready ]]\n",
     )
     branch = state.get("branch", "main")
@@ -129,12 +131,12 @@ exec /usr/bin/stat "$@"
     dirty = state.get("dirty", "")
     _write_exe(bin_dir / "git", f"""#!/usr/bin/env bash
 set -euo pipefail
-printf 'git %s\n' "$*" >> {str(log)!r}
+printf 'git %s\n' "$*" >> {log.as_posix()!r}
 case "$*" in
  'rev-parse --abbrev-ref HEAD') echo {branch!r} ;;
  'config --get remote.origin.url') echo {remote!r} ;;
  'rev-parse HEAD') echo {commit!r} ;;
- 'status --porcelain --untracked-files=no') echo {dirty!r} ;;
+ 'status --porcelain --untracked-files=no') [[ {state.get('git_error', '')!r} != yes ]] || exit 3; echo {dirty!r} ;;
  *) echo unexpected git >&2; exit 9 ;;
 esac
 """)
@@ -151,13 +153,18 @@ esac
     invalid_mounted_key = state.get("invalid_mounted_key", "")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
-printf 'docker %s\n' "$*" >> {str(log)!r}
+printf 'docker %s\n' "$*" >> {log.as_posix()!r}
 joined="$*"
-case "$joined" in *config*|*build*|*pull*|*up*|*down*|*restart*|*stop*|*start*|*kill*|*logs*|*upgrade*|*downgrade*|*stamp*) exit 44;; esac
+if [[ "$1" != run ]]; then
+  case "$joined" in *config*|*build*|*pull*|*up*|*down*|*restart*|*stop*|*start*|*kill*|*logs*|*upgrade*|*downgrade*|*stamp*) exit 44;; esac
+fi
 if [[ "$1" == "compose" ]]; then
   shift
   while [[ "$1" == "--env-file" || "$1" == "-f" ]]; do shift 2; done
   if [[ "$1" == "ps" ]]; then
+    if [[ "$*" == 'ps -q studio-api' && -f {(tmp_path / 'probe-ran').as_posix()!r} && {state.get('replacement', '')!r} == yes ]]; then
+      echo container-alpha-replaced; exit 0
+    fi
     svc="${{@: -1}}"
     statuses=""
     case "$svc" in
@@ -177,10 +184,22 @@ if [[ "$1" == "compose" ]]; then
       if [[ {invalid_storage_kind!r} == "audio_secret_access_key" && "$*" == *STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
       exit 0
     fi
-    if read -r unexpected; then echo stdin-leak >> {str(log)!r}; fi
+    if read -r unexpected; then echo stdin-leak >> {log.as_posix()!r}; fi
     printf '%s\n' {current!r}
   else exit 5; fi
+elif [[ "$1" == "image" ]]; then
+  [[ "$*" == 'image inspect --format {{{{.Id}}}} {IMAGE_ID}' ]] || exit 49
+  [[ {state.get('image_missing', '')!r} != yes ]] || exit 1
+  echo {IMAGE_ID}; exit 0
+elif [[ "$1" == "run" ]]; then
+  [[ "$*" == 'run --rm --pull never --network none --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges --pids-limit 32 --memory 64m --memory-swap 64m --cpus 0.25 --log-driver none --mount type=bind,src=/protected-studio-secrets,dst=/run/studio-worker-secret-probe,readonly,bind-recursive=disabled --entrypoint python -i {IMAGE_ID} -I -S - worker_pg' ]] || exit 50
+  input="$(cat)"
+  [[ "$input" == *'def validate_metadata('* ]] || exit 51
+  touch {(tmp_path / 'probe-ran').as_posix()!r}
+  [[ {state.get('worker_secret', 'valid')!r} == valid ]] || exit 1
+  exit 0
 elif [[ "$1" == "inspect" ]]; then
+  if [[ "$2 $3" == '--format {{{{.Image}}}}' ]]; then echo {state.get('image_id', IMAGE_ID)!r}; exit 0; fi
   id="${{@: -1}}"; rest="${{id#container-alpha-}}"; idx="${{rest##*-}}"; svc="${{rest%-*}}"
   case "$svc" in
     postgres) statuses={service['postgres']!r};; redis) statuses={service['redis']!r};; studio-api) statuses={service['studio-api']!r};; studio-web) statuses={service['studio-web']!r};; studio-worker) statuses={state.get('worker', 'healthy')!r};; *) statuses=unknown;;
@@ -190,15 +209,13 @@ elif [[ "$1" == "inspect" ]]; then
   if [[ "$*" == *State.Health* ]]; then [[ "$status" == "stopped" ]] && echo none || echo "$status"; else [[ "$status" == "stopped" || "$status" == "missing" ]] && echo exited || echo running; fi
 else exit 6; fi
 """)
-    _write_exe(bin_dir / "curl", f"#!/usr/bin/env bash\nprintf 'curl %s\\n' \"$*\" >> {str(log)!r}\nexit {state.get('curl_exit', '0')}\n")
+    _write_exe(bin_dir / "curl", f"#!/usr/bin/env bash\nprintf 'curl %s\\n' \"$*\" >> {log.as_posix()!r}\nexit {state.get('curl_exit', '0')}\n")
     return repo, bin_dir
 
 
 def run_preflight(tmp_path: Path, **state: str):
     repo, bin_dir = make_repo(tmp_path, **state)
-    env = os.environ.copy()
-    env["PATH"] = f"{bin_dir}:{env['PATH']}"
-    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env=env, text=True, capture_output=True, timeout=15)
+    proc = invoke_preflight(repo, bin_dir)
     calls = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines() if (tmp_path / "calls.log").exists() else []
     return proc, calls, repo
 
@@ -260,7 +277,7 @@ def test_identity_failures_block_before_docker(tmp_path: Path) -> None:
         case.mkdir()
         if kwargs.pop("wrong_cwd", None):
             repo, bin_dir = make_repo(case)
-            proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=case, env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)
+            proc = invoke_preflight(repo, bin_dir, cwd=case)
             calls = (case / "calls.log").read_text().splitlines() if (case / "calls.log").exists() else []
         else:
             proc, calls, _ = run_preflight(case, **kwargs)
@@ -268,6 +285,52 @@ def test_identity_failures_block_before_docker(tmp_path: Path) -> None:
         assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" in proc.stdout
         assert not any(c.startswith("docker ") for c in calls)
         assert_no_secret_output(proc)
+
+
+def test_root_only_worker_secret_uses_metadata_probe_not_host_reads(tmp_path):
+    proc, calls, _ = run_preflight(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "protected metadata probe confirmed" in proc.stdout
+    probes = [call for call in calls if call.startswith("docker run ")]
+    assert len(probes) == 1
+    assert "--network none --read-only --user 0:0" in probes[0]
+    assert "readonly,bind-recursive=disabled" in probes[0]
+    assert IMAGE_ID in probes[0]
+    assert not any("worker_pg" in call for call in calls if "exec -T studio-api" in call)
+    assert_no_secret_output(proc)
+    assert_no_forbidden(calls)
+
+
+@pytest.mark.parametrize("state", [
+    {"worker_secret": "invalid"}, {"image_missing": "yes"},
+    {"image_id": "mutable-tag"}, {"replacement": "yes"},
+    {"api": "healthy,healthy"},
+])
+def test_worker_secret_probe_fails_closed(tmp_path, state):
+    proc, calls, _ = run_preflight(tmp_path, **state)
+    assert proc.returncode != 0
+    assert row_statuses(proc.stdout)["WORKER_POSTGRES_PASSWORD secret-file presence"] == "blocked"
+    assert_no_secret_output(proc)
+    assert_no_forbidden(calls)
+
+
+def test_unavailable_git_status_blocks_before_docker(tmp_path):
+    proc, calls, _ = run_preflight(tmp_path, git_error="yes")
+    assert proc.returncode != 0
+    assert row_statuses(proc.stdout)["tracked working tree"] == "blocked"
+    assert not any(call.startswith("docker ") for call in calls)
+
+
+@pytest.mark.parametrize("value", [
+    "", "relative/path", "/password", "/x/password,readonly=false",
+    "/x/../password", "/x/./password", "/x/..", "/x/.", "/x//password",
+    "/x/", "/x/pass word", "/x/REQUIRED_password",
+])
+def test_unsafe_worker_secret_mount_path_blocks_before_docker(tmp_path, value):
+    proc, calls = with_env_override(tmp_path, "STUDIO_WORKER_POSTGRES_PASSWORD_FILE", value)
+    assert proc.returncode != 0
+    assert row_statuses(proc.stdout)["WORKER_POSTGRES_PASSWORD secret-file presence"] == "blocked"
+    assert not any(call.startswith("docker ") for call in calls)
 
 
 def test_runtime_gate_failures_block_before_service_inspection(tmp_path: Path) -> None:
@@ -283,7 +346,7 @@ def test_runtime_gate_failures_block_before_service_inspection(tmp_path: Path) -
         if kwargs.get("remove_env"):
             repo, bin_dir = make_repo(case / "x")
             (repo / "deploy/studio/.env").unlink()
-            proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)
+            proc = invoke_preflight(repo, bin_dir)
             calls = (case / "x/calls.log").read_text().splitlines() if (case / "x/calls.log").exists() else []
         assert proc.returncode != 0
         assert not any(c.startswith("docker ") for c in calls)
@@ -328,8 +391,8 @@ def test_worker_running_blocks_without_mutation(tmp_path: Path) -> None:
 
 
 def test_service_safety_blocks_unhealthy_dependencies(tmp_path: Path) -> None:
-    for kwargs in [{"postgres": "missing"}, {"postgres": "unhealthy"}, {"redis": "missing"}, {"redis": "unhealthy"}, {"api": "unhealthy"}, {"web": "unhealthy"}]:
-        proc, calls, _ = run_preflight(tmp_path / repr(kwargs), **kwargs)
+    for index, kwargs in enumerate([{"postgres": "missing"}, {"postgres": "unhealthy"}, {"redis": "missing"}, {"redis": "unhealthy"}, {"api": "unhealthy"}, {"web": "unhealthy"}]):
+        proc, calls, _ = run_preflight(tmp_path / str(index), **kwargs)
         assert proc.returncode != 0
         assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" in proc.stdout
         assert_no_forbidden(calls)
@@ -352,8 +415,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
     f = repo / "apps/studio-api/alembic/versions/0031_provider_account_snapshots.py"
-    f.write_text(f.read_text().replace('revision = "0031_provider_account_snapshots"', 'revision = "0031_wrong_head"'), encoding="utf-8")
-    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
+    f.write_text(f.read_text().replace('revision = "0031_provider_account_snapshots"', 'revision = "0031_wrong_head"'), encoding="utf-8", newline="\n")
+    proc = invoke_preflight(repo, case / "bin")
     assert proc.returncode != 0
 
     case = tmp_path / "multi"
@@ -370,8 +433,8 @@ def upgrade():
 
 def downgrade():
     pass
-''', encoding="utf-8")
-    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
+''', encoding="utf-8", newline="\n")
+    proc = invoke_preflight(repo, case / "bin")
     assert proc.returncode != 0
     for current in ["", "abc\ndef", "0007_job_processing_lifecycle"]:
         proc, calls, _ = run_preflight(tmp_path / ("cur" + (current or "empty").replace("\n", "_")), current=current)
@@ -444,7 +507,7 @@ def assert_complete_table(proc: subprocess.CompletedProcess[str]) -> None:
 
 def test_blocked_results_emit_complete_table(tmp_path: Path) -> None:
     scenarios = [
-        ("directory", lambda d: subprocess.run(["bash", str(SCRIPT), str(make_repo(d)[0]), "main", "Just9120/Elevenlabs-API", SHA], cwd=d, env={**os.environ, "PATH": f"{d/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)),
+        ("directory", lambda d: invoke_preflight(make_repo(d)[0], d / "bin", cwd=d)),
         ("remote", lambda d: run_preflight(d, remote="git@github.com:Other/Repo.git")[0]),
         ("runtime", lambda d: run_preflight(d, env_text="APP_PUBLIC_URL=not-a-url\n")[0]),
         ("worker", lambda d: run_preflight(d, worker_count="1", worker="healthy")[0]),
@@ -462,8 +525,8 @@ def with_env_override(tmp_path: Path, key: str, value: str):
     repo, bin_dir = make_repo(tmp_path)
     env_path = repo / "deploy/studio/.env"
     lines = env_path.read_text(encoding="utf-8").splitlines()
-    env_path.write_text("\n".join((f"{key}={value}" if line.startswith(f"{key}=") else line) for line in lines) + "\n", encoding="utf-8")
-    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)
+    env_path.write_text("\n".join((f"{key}={value}" if line.startswith(f"{key}=") else line) for line in lines) + "\n", encoding="utf-8", newline="\n")
+    proc = invoke_preflight(repo, bin_dir)
     calls = (tmp_path / "calls.log").read_text().splitlines() if (tmp_path / "calls.log").exists() else []
     return proc, calls
 
@@ -542,24 +605,10 @@ def test_maintenance_oauth_requires_separate_secret_file(tmp_path: Path) -> None
             for line in lines
         )
         + "\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
 
-    proc = subprocess.run(
-        [
-            "bash",
-            str(SCRIPT),
-            str(repo),
-            "main",
-            "Just9120/Elevenlabs-API",
-            SHA,
-        ],
-        cwd=repo,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
-        text=True,
-        capture_output=True,
-        timeout=10,
-    )
+    proc = invoke_preflight(repo, bin_dir)
     calls = (
         (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
         if (tmp_path / "calls.log").exists()
@@ -618,16 +667,9 @@ def test_audio_references_require_separate_credential_files(tmp_path: Path) -> N
             for line in lines
         )
         + "\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
-    proc = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA],
-        cwd=repo,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
-        text=True,
-        capture_output=True,
-        timeout=10,
-    )
+    proc = invoke_preflight(repo, bin_dir)
     calls = (
         (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
         if (tmp_path / "calls.log").exists()
@@ -715,7 +757,7 @@ def run_workflow_transport(tmp_path: Path, *, scp_fail: bool = False, exec_fail:
         bin_dir / "ssh",
         f'''#!/usr/bin/env python3
 import os, shlex, subprocess, sys
-log={str(log)!r}
+log={log.as_posix()!r}
 remote={remote_path!r}
 args=sys.argv[1:]
 cmd=args[-1]
@@ -741,7 +783,7 @@ sys.exit(0)
         bin_dir / "scp",
         f'''#!/usr/bin/env python3
 import os, shutil, sys
-log={str(log)!r}
+log={log.as_posix()!r}
 with open(log, 'a', encoding='utf-8') as f: f.write('scp-args '+repr(sys.argv[1:])+'\\n')
 if {str(scp_fail)}: sys.exit(22)
 target=sys.argv[-1]
@@ -753,8 +795,8 @@ os.chmod({remote_path!r}, 0o700)
     script_dir = tmp_path / "scripts"
     script_dir.mkdir()
     (script_dir / "studio_processing_preflight.sh").write_text(
-        f"#!/usr/bin/env bash\nprintf 'remote-preflight-args %s\\n' \"$*\" >> {str(log)!r}\n",
-        encoding="utf-8",
+        f"#!/usr/bin/env bash\nprintf 'remote-preflight-args %s\\n' \"$*\" >> {log.as_posix()!r}\n",
+        encoding="utf-8", newline="\n",
     )
     (script_dir / "studio_processing_preflight.sh").chmod(0o700)
     env = os.environ.copy()

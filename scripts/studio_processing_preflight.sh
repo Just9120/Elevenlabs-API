@@ -55,6 +55,29 @@ validate_container_secret() {
     --validate-mounted-secret "$env_key" >/dev/null 2>&1
 }
 
+validate_worker_secret_metadata() {
+  local api_container api_image inspected_image parent name
+  api_container="$("${compose[@]}" ps -q studio-api 2>/dev/null)" || return 1
+  [[ "$api_container" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
+  api_image="$(docker inspect --format '{{.Image}}' "$api_container" 2>/dev/null)" || return 1
+  [[ "$api_image" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  inspected_image="$(docker image inspect --format '{{.Id}}' "$api_image" 2>/dev/null)" || return 1
+  [[ "$inspected_image" == "$api_image" ]] || return 1
+  parent="${worker_password_file%/*}"
+  name="${worker_password_file##*/}"
+  # The Docker daemon can mount a root-only directory. Only lstat metadata is
+  # inspected; no secret is read or added to the running API/worker container.
+  # Mount the parent so a symlink leaf is rejected rather than dereferenced.
+  docker run --rm --pull never --network none --read-only --user 0:0 \
+    --cap-drop ALL --security-opt no-new-privileges --pids-limit 32 \
+    --memory 64m --memory-swap 64m --cpus 0.25 --log-driver none \
+    --mount "type=bind,src=${parent},dst=/run/studio-worker-secret-probe,readonly,bind-recursive=disabled" \
+    --entrypoint python -i "$api_image" -I -S - "$name" \
+    < scripts/check_studio_worker_secret.py >/dev/null 2>&1 || return 1
+  [[ "$("${compose[@]}" ps -q studio-api 2>/dev/null)" == "$api_container" ]] || return 1
+  [[ "$(docker inspect --format '{{.Image}}' "$api_container" 2>/dev/null)" == "$api_image" ]]
+}
+
 parse_env() {
   local line key val
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -133,10 +156,10 @@ head="$(git rev-parse HEAD 2>/dev/null || true)"
 case "$remote" in git@github.com:${EXPECTED_REPO}.git|git@github.com:${EXPECTED_REPO}|https://github.com/${EXPECTED_REPO}.git) set_row "repository remote identity" "pass" "origin remote matches an accepted repository form" ;; *) set_row "repository remote identity" "blocked" "origin remote does not match an accepted repository form"; block_exit ;; esac
 [[ "$branch" == "$EXPECTED_BRANCH" ]] && set_row "branch identity" "pass" "current branch matches expected branch" || { set_row "branch identity" "blocked" "current branch does not match expected branch"; block_exit; }
 [[ "$head" == "$EXPECTED_COMMIT" ]] && set_row "commit identity" "pass" "HEAD matches expected commit" || { set_row "commit identity" "blocked" "HEAD does not match expected commit"; block_exit; }
-status="$(git status --porcelain --untracked-files=no 2>/dev/null || true)"
+status="$(git status --porcelain --untracked-files=no 2>/dev/null)" || { set_row "tracked working tree" "blocked" "cannot inspect tracked working tree"; block_exit; }
 [[ -z "$status" ]] && set_row "tracked working tree" "pass" "tracked working tree is clean" || { set_row "tracked working tree" "blocked" "tracked working tree is not clean"; block_exit; }
 
-[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" && -x "scripts/configure_studio_worker_db_role.sh" && -f "deploy/studio/worker-db-role.sql" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
+[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" && -x "scripts/configure_studio_worker_db_role.sh" && -f "scripts/check_studio_worker_secret.py" && -f "deploy/studio/worker-db-role.sql" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
 set_row "runtime env presence" "pass" "required runtime and inspection files are present"
 parse_env || { set_row "runtime setting completeness" "blocked" "runtime env contains malformed or duplicate required syntax"; block_exit; }
 validate_runtime_values || { set_row "runtime setting completeness" "blocked" "invalid non-secret runtime setting: ${RUNTIME_VALIDATION_ERROR:-unknown}"; block_exit; }
@@ -150,14 +173,11 @@ for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_
   set_row "$label" "pass" "required absolute secret-file path is configured; runtime mount validation pending"
 done
 worker_password_file="${ENV_VALUES[STUDIO_WORKER_POSTGRES_PASSWORD_FILE]-}"
-if [[ -z "$worker_password_file" || "$worker_password_file" == __*__ || "$worker_password_file" == *REQUIRED* || "$worker_password_file" == *[[:space:]]* || "$worker_password_file" != /* || ! -f "$worker_password_file" || -L "$worker_password_file" ]]; then
-  set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret-file path is missing, placeholder, unsafe, or unavailable"
+if [[ ! "$worker_password_file" =~ ^/[^,\\[:space:]]+/[^,\\[:space:]]+$ || "$worker_password_file" == *REQUIRED* || "$worker_password_file" == *//* || "$worker_password_file" == */../* || "$worker_password_file" == */./* || "$worker_password_file" == */.. || "$worker_password_file" == */. ]]; then
+  set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret-file path is missing, placeholder, or unsafe"
   block_exit
 fi
-worker_password_mode="$(stat -c '%a' "$worker_password_file" 2>/dev/null || true)"
-worker_password_owner="$(stat -c '%U' "$worker_password_file" 2>/dev/null || true)"
-[[ "$worker_password_owner" == "root" && ( "$worker_password_mode" == "600" || "$worker_password_mode" == "400" ) ]] || { set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret file must be root-owned mode 0600 or 0400"; block_exit; }
-set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "pass" "dedicated root-owned worker database secret file is configured"
+set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "pass" "dedicated absolute worker secret-file path is configured; protected metadata validation pending"
 [[ "${ENV_VALUES[STUDIO_WORKER_POSTGRES_PASSWORD_FILE]}" != "${ENV_VALUES[STUDIO_POSTGRES_PASSWORD_FILE]}" ]] || { set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret must differ from PostgreSQL bootstrap secret"; block_exit; }
 if [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE]}" == "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE]}" ]]; then
   set_row "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence" "blocked" "maintenance OAuth requires a separate client secret file"
@@ -182,6 +202,12 @@ fi
 [[ "${SSTATUS[redis]}" == "healthy" ]] && set_row "Redis health" "pass" "redis service is healthy" || { set_row "Redis health" "blocked" "redis service is not healthy"; block_exit; }
 [[ "${SSTATUS[studio-api]}" == "healthy" ]] || { set_row "localhost API health" "blocked" "studio-api is not healthy before localhost check"; block_exit; }
 [[ "${SSTATUS[studio-web]}" == "healthy" ]] || { set_row "localhost web health" "blocked" "studio-web is not healthy before localhost check"; block_exit; }
+if validate_worker_secret_metadata; then
+  set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "pass" "protected metadata probe confirmed a nonempty root-owned regular file with mode 0600 or 0400"
+else
+  set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "protected worker secret metadata probe failed; file, permissions or immutable helper image unavailable"
+  block_exit
+fi
 for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
   label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"
   if validate_container_secret "$k"; then
