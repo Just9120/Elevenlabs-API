@@ -75,3 +75,12 @@ def test_worker_role_operator_script_keeps_password_off_argv_and_disk():
     assert "echo $password" not in script
     assert "STUDIO_WORKER_DB_ROLE_OK" in script
     assert "STUDIO_WORKER_DB_ROLE_DISABLED" in script
+
+
+def test_schema_revision_table_has_select_only_in_privilege_manifest():
+    sql = ROLE_SQL.read_text(encoding="utf-8")
+    grants = re.findall(r"GRANT (\w+) ON TABLE(.*?)TO studio_worker;", sql, re.DOTALL)
+    assert [operation for operation, tables in grants if re.search(r"\balembic_version\b", tables)] == ["SELECT"]
+    script = ROLE_SCRIPT.read_text(encoding="utf-8")
+    for operation in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"):
+        assert f"'alembic_version', '{operation}'" in script

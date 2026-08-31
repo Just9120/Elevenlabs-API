@@ -54,6 +54,7 @@ REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM studio_worker;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM studio_worker;
 
 GRANT SELECT ON TABLE
+    alembic_version,
     users,
     provider_credentials,
     provider_credential_versions,
