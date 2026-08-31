@@ -30,18 +30,18 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-30T18:21:38Z.
+- Updated (UTC): 2026-08-31T05:16:16Z.
 - Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
-- Base branch/SHA: verified `origin/main@8ab3410312e0be5c7e5303ca514a199969d9f602`.
-- Working branch: `codex/pwa-worker-usage-accounting-hotfix`.
+- Base branch/SHA: verified `origin/main@6ca4006fb97852df8c42896160a55e2eebc3b26e`.
+- Working branch: `codex/pwa-migration-container-probe`.
 - Isolated worktree: `C:/Users/wait9/AppData/Local/Temp/codex-elevenlabs-worker-usage-accounting`.
-- Last verified revision: hotfix `0a9f548d0d80c066a422f339b21e8ee37c9a41da` поверх merged Goal implementation `8ab3410312e0be5c7e5303ca514a199969d9f602`.
+- Last verified revision: local container-probe hotfix `4c93432badf4107717c727cf1f02975e58739c94` поверх verified base `6ca4006fb97852df8c42896160a55e2eebc3b26e`.
 - Working tree at Goal start: isolated worktree clean. Основной checkout содержит unknown/unrelated `.pytest-tmp-*` directories; они сохранены нетронутыми.
-- Completed: PR `#261` merged как `8ab3410312e0be5c7e5303ca514a199969d9f602`; exact-main repository/Studio CI success. Worker configuration и dedicated credential files staged, old worker gracefully drained (`exited`, code `0`). Protected run `33322760011` создал и проверил snapshot `ee9c4b84b51c…`, затем успешно применил `0029_source_reference_class → 0030_provider_usage_accounting`. После migration old API закономерно стал unready, и release выявил orchestration defect: intermediate target ошибочно требовал `/api/readyz`. Новый fail-closed hotfix разрешает recovery только при точной цепочке running API head → current DB → requested successor и проверяет `/api/livez` для intermediate target.
+- Completed: implementation PR `#261` и sequential-migration hotfix PR `#262` merged; exact-main CI success. Worker configuration/credential staged, old worker gracefully drained. Protected run `33322760011` verified snapshot `ee9c4b84b51c…` и применил `0029 → 0030`. Run `33328210998` после owner approval остановился до backup/migration (`running_api_head_probe_failed`, `migration_applied=no`). Owner VPS Evidence 2026-08-31 подтвердило: running API container существует, но image `sha256:75cda05ecfcbf87a5b7d86bcc17fce0b42a69c00988296f96ba88d333fd86420` отсутствует в local image store. Local correction читает baked head через exact running container под UID/GID `10001`, сохраняя schema-chain и container-identity gates.
 - Current step: отправить reviewable hotfix, получить exact-head CI и merge до нового protected migration approval.
-- Next exact action: commit этого checkpoint, выполнить один initial push и создать hotfix PR от `8ab3410`.
-- Validation and Evidence: merged PR exact-head CI success; push-main runs `33318370362` и `33318370360` success. Hotfix local: exact Git Bash `bash -n` success; `tests/test_studio_migration_release.py` — `13 passed`, включая positive schema-ahead recovery и negative mismatched-head gate. Первый sandbox pytest не исполнил Git Bash из-за WindowsApps/ACL и не является test result.
-- Pull Request / CI / deployment: PR `#261` MERGED. Initial CD `33318370347` failed before deploy on missing runtime settings. Migration run `33319551039` applied nothing; run `33322760011` applied `0030` and then stopped on old API readiness. Production DB=`0030`; running API image head=`0029`, API unready; worker safely stopped. `STUDIO_MIGRATION_RELEASE_ENABLED=false` confirmed after diagnosis. Hotfix PR not yet created.
+- Next exact action: commit этого checkpoint и выполнить один initial push для container-probe hotfix PR от `6ca4006`.
+- Validation and Evidence: `main@6ca4006` CI `33328050158` и Studio/browser CI `33328050182` success. Container-probe local: migration/release suite `23 passed`, lightweight CI checks, release/CI shell syntax success. Regression покрывает отсутствующий old image, замену container, unsuccessful probe и mismatched schema head; дополнительный real-container non-root metadata smoke добавлен в existing Studio CI без нового build. Локальный Docker daemon недоступен, этот smoke требует exact-head Linux CI.
+- Pull Request / CI / deployment: PR `#261/#262` MERGED. Production DB=`0030`; running API head=`0029`, API unready; worker safely stopped. Run `33328210998` failed before migration; повтор не запущен. `STUDIO_MIGRATION_RELEASE_ENABLED=false` confirmed. Container-probe hotfix PR not yet created.
 - Blockers: новый protected `0031` approval возможен только после hotfix merge и terminal required CI; затем нужны worker DB-role apply/verify, worker deploy и owner-authorized bounded LIVE transcription/account refresh.
 - Unverified assumptions: provider account `character_count/character_limit` остаются provider-defined period units и не равны минутам Scribe; product usage endpoint возвращает credits, которые нельзя безопасно распределить по job или перевести в invoice amount без additional provider Evidence.
 - Preserved pre-existing changes: `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
