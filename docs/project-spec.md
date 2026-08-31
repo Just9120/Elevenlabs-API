@@ -30,9 +30,9 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository baseline: `main@1e9cebc4da72082f49ed1843f56dc67d5dd60431` (PR `#261/#262/#263/#264`) имеет exact-main CI для worker isolation, usage/account implementation и diagnosed migration/role-verifier recovery. Последний полностью ready production baseline до этой Goal — `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`); current API deployment is verified at `bd51e756`, but worker delivery/LIVE текущей Goal ещё не завершены. Exact delivery identifiers находятся в `docs/delivery-plan.md` и archive завершённых Goals.
+Verified repository baseline: `main@807bc4abc8b0b4791f210a23f5fb7faa62dae007` (PR `#261/#262/#263/#264/#265`) имеет exact-main CI для worker isolation, usage/account implementation и diagnosed migration/role-verifier/protected-secret preflight recovery. Последний полностью ready production baseline до этой Goal — `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc` (PR `#260`); current API deployment is verified at `bd51e756`, but worker delivery/LIVE текущей Goal ещё не завершены. Exact delivery identifiers находятся в `docs/delivery-plan.md` и archive завершённых Goals.
 
-Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; owner-approved protected run `33360460155` migrated production to `0031_provider_account_snapshots` and deployed API on exact `bd51e7569370ec059b5926cee974c63a2d5c168f`; public readiness independently confirmed. Role-verifier hotfix PR `#264` merged with real PostgreSQL CI success; owner VPS update/read-only verification returned `STUDIO_WORKER_DB_ROLE_OK`. Preflight `33370288755` failed at worker-secret host visibility; owner confirmed valid root-owned `0600` file behind root-owned `0700` directory. The bounded preflight correction is `IN_PROGRESS`; permissions remain unchanged. Worker deployment and bounded accounting LIVE remain unverified. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
+Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`; owner-approved protected run `33360460155` migrated production to `0031_provider_account_snapshots` and deployed API on exact `bd51e7569370ec059b5926cee974c63a2d5c168f`; public readiness independently confirmed. Preflight correction PR `#265` merged as `807bc4abc8b0b4791f210a23f5fb7faa62dae007`; all exact-head/main CI and real root-only Docker checks passed. Owner delivered that revision and obtained `STUDIO_PROCESSING_HOST_PREFLIGHT_OK`; read-only status `33377366826` confirms the old worker remains gracefully stopped. A subsequent source check found missing worker SELECT on `alembic_version`, not covered by the old verifier/API-role schema probe. A focused grant/verifier/runtime-test correction is `IN_PROGRESS`; production role/secret permissions remain unchanged. Worker deployment and bounded accounting LIVE remain unverified. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`: worker resource/privilege/network/DB-role isolation, exact provider-call accounting, immutable nominal tariff snapshot и official ElevenLabs subscription/workspace-usage reconciliation с explicit freshness. Commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation вне scope.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -531,7 +531,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `STORAGE-LIFECYCLE-02` — полный storage lifecycle
 
-Status: **🟦 IN PROGRESS — 33,3% (`7/21`)**. Persisted data-class boundary `STORAG-16` реализована и локально подтверждена. `STORAG-17..21` не засчитаны без фактических distinct provider buckets, lifecycle rules и access permissions; остальные незавершённые AC эпика остаются вне implementation scope текущей Goal.
+Status: **🟦 IN PROGRESS — 57,1% (`12/21`)**. Persisted data-class boundary `STORAG-16` и distinct buckets/lifecycle/access `STORAG-17..21` подтверждены предыдущей Goal на `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`: protected API `33302350705`, worker `33302841078`, status `33302990622`, owner/provider evidence и bounded LIVE. Эти пять operational markers синхронизированы с уже учтённым dashboard numerator; durable requirements не меняются. Остальные незавершённые AC эпика остаются вне implementation scope текущей Goal.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -551,11 +551,11 @@ Status: **🟦 IN PROGRESS — 33,3% (`7/21`)**. Persisted data-class boundary `
 | `STORAG-14` | Diagnostic/log data имеет явную retention policy. | ✅ |
 | `STORAG-15` | Deletion считается завершённым только после подтверждения cleanup всеми internal stores. | — |
 | `STORAG-16` | Audio-processing references и transcription references являются разными data classes. | ✅ |
-| `STORAG-17` | Audio-reference использует отдельный S3 bucket. | — |
-| `STORAG-18` | Transcription-reference использует отдельный S3 bucket. | — |
-| `STORAG-19` | Audio-reference bucket имеет независимые lifecycle rules. | — |
-| `STORAG-20` | Transcription-reference bucket имеет независимые lifecycle rules. | — |
-| `STORAG-21` | Два reference buckets имеют независимо ограниченные access permissions. | — |
+| `STORAG-17` | Audio-reference использует отдельный S3 bucket. | ✅ |
+| `STORAG-18` | Transcription-reference использует отдельный S3 bucket. | ✅ |
+| `STORAG-19` | Audio-reference bucket имеет независимые lifecycle rules. | ✅ |
+| `STORAG-20` | Transcription-reference bucket имеет независимые lifecycle rules. | ✅ |
+| `STORAG-21` | Два reference buckets имеют независимо ограниченные access permissions. | ✅ |
 
 Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
 
@@ -616,7 +616,7 @@ Status: **🟦 IN PROGRESS — 33,3% (`1/3`)**.
 | `PWAWOR-02` | Media/FFmpeg worker имеет явные CPU/memory/process resource bounds. | — |
 | `PWAWOR-03` | Media/FFmpeg worker имеет минимально необходимые filesystem/network/database privileges. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`. Найден missing schema-revision SELECT; focused correction и actual restricted-login CI ещё не завершены. Product AC остаются `1/3` до runtime isolation Evidence.
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 
@@ -1150,17 +1150,17 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Current verified repository/web/API/worker revision: `main@a31770eabcd7a97acfa084252de06f26d041bc1b` (PR `#258`); exact-main CI, protected delivery и owner LIVE maintenance apply завершены success.
-- Production schema — `0028_transcript_maintenance_runs`. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
-- Source storage runtime использует один legacy S3/R2 credential/bucket boundary. Раздельные audio/transcription reference buckets, lifecycle и credentials ещё не являются production fact и входят в current Goal как `STORAG-16..21`.
+- Verified repository/VPS checkout: `807bc4abc8b0b4791f210a23f5fb7faa62dae007`. API deployed at `bd51e7569370ec059b5926cee974c63a2d5c168f`; web remains at previous verified `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`. Old worker is gracefully stopped; current checkout does not imply component redeployment.
+- Production schema — `0031_provider_account_snapshots`, confirmed by protected release and owner preflight. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
+- Distinct audio/transcription reference buckets, lifecycle rules и scoped credentials подтверждены предыдущей Goal. Existing legacy Sources сохраняют прежний routing; текущая Goal не переносит bytes и не меняет retention.
 
 ## 9. Current critical path
 
-1. Локальная implementation `PUX-01..12` и persisted storage routing `STORAG-16` завершена; не считать её production behavior до exact-head delivery Evidence.
-2. Получить external operator Evidence для distinct transcription/audio buckets, lifecycle policies и independently scoped credentials; существующие objects не перемещать и не удалять.
-3. Выполнить exact-head CI и только после external storage gate — applicable protected migration/delivery. Storage migration/configuration считается stateful/external gate и не выполняется скрыто standard CD.
-4. Authenticated LIVE не запускает provider job и проверяет bounded UX matrix; storage LIVE требует фактические distinct bucket identities и read/write/cleanup probes без раскрытия names/secrets.
-5. Commercial contour, новый STT/provider behavior/spend, `STORAG-01..15`, DB least privilege и CI/CD policy остаются вне current Goal.
+1. Завершить worker schema-readiness correction и exact-head CI с actual restricted PostgreSQL login.
+2. Получить explicit operator grant correction/verification; не менять production role, secrets или schema скрыто в CD.
+3. Доставить isolated worker через status → confirmed stopped → deploy → exact identity/health/status. API migration уже завершена; повторная migration не нужна.
+4. Только после отдельного owner approval выполнить одну bounded LIVE transcription/account refresh для текущей Goal; deployment health не подтверждает provider accounting.
+5. Commercial contour, новый STT provider, realtime/storage cost, `STORAG-01..15`, system-wide API/DB least privilege и CI/CD policy вне current Goal. Durable scope определяется epic AC, authorization/checkpoint — `docs/delivery-plan.md`.
 
 ## 10. Supporting documents
 
