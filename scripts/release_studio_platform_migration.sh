@@ -126,20 +126,18 @@ probe_current_revision() {
   printf '%s\n' "${revisions[0]}"
 }
 
-probe_image_head() {
-  local image_id="$1"
+probe_running_api_head() {
+  local container_id="$1"
   local raw
+  # A running container can outlive its image-store entry. Read only its baked
+  # migration metadata as the application UID; `heads` does not connect to DB.
   if ! raw="$(
-    docker run --rm \
-      --pull never \
-      --network none \
-      --read-only \
-      --cap-drop ALL \
-      --security-opt no-new-privileges \
-      --pids-limit 32 \
-      --entrypoint alembic \
-      "$image_id" \
-      -c /app/alembic.ini heads </dev/null 2>/dev/null
+    docker exec \
+      --user 10001:10001 \
+      --workdir /app \
+      --env PYTHONDONTWRITEBYTECODE=1 \
+      "$container_id" \
+      alembic -c /app/alembic.ini heads </dev/null 2>/dev/null
   )"; then
     blocked "running_api_head_probe_failed"
   fi
@@ -451,7 +449,9 @@ current_revision="$(probe_current_revision)"
   || blocked "migration_is_not_exactly_one_linear_revision"
 
 if [[ "$api_health_status" != "healthy" ]]; then
-  running_api_head="$(probe_image_head "$running_api_image_id")"
+  [[ "$(require_running_service studio-api)" == "$api_container_id" ]] \
+    || blocked "running_api_container_changed"
+  running_api_head="$(probe_running_api_head "$api_container_id")"
   [[ "$source_parent_revision" != "base" \
     && "$running_api_head" == "$source_parent_revision" ]] \
     || blocked "unhealthy_api_not_exactly_one_revision_behind"
