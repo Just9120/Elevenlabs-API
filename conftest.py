@@ -13,6 +13,7 @@ PORTABLE_EXCLUDED_TEST_MODULES = frozenset(
         "test_studio_platform_component_deploy.py",
         "test_studio_processing_e2e.py",
         "test_studio_processing_preflight.py",
+        "test_studio_worker_db_role_integration.py",
     }
 )
 

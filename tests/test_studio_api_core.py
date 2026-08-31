@@ -134,6 +134,40 @@ def test_alembic_upgrade_and_readiness_current():
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
 
+def test_worker_role_operator_predicate_on_real_postgresql():
+    script = (ROOT / "scripts/configure_studio_worker_db_role.sh").read_text(encoding="utf-8")
+    match = re.search(r'result="\$\(psql_admin -Atqc "([^"]+)"\)', script)
+    assert match is not None
+    query = match.group(1).replace("${ROLE_NAME}", "studio_worker")
+    attributes = (
+        "rolcanlogin", "rolsuper", "rolcreatedb", "rolcreaterole",
+        "rolreplication", "rolbypassrls", "rolinherit",
+    )
+    expected = [True, False, False, False, False, False, False]
+    cases = [("studio_worker", expected, True), ("other_role", expected, False)]
+    for index in range(len(attributes)):
+        toggled = expected.copy()
+        toggled[index] = not toggled[index]
+        cases.append(("studio_worker", toggled, False))
+        nullable = expected.copy()
+        nullable[index] = None
+        cases.append(("studio_worker", nullable, False))
+    with engine.connect() as conn:
+        # This reproduces the original concat_ws formatting mistake against
+        # PostgreSQL itself, not a Python/bool mock or an explicit text cast.
+        assert conn.execute(text("SELECT concat_ws(':', TRUE, FALSE)")).scalar_one() == "t:f"
+        for name, values, accepted in cases:
+            expressions = ", ".join(
+                "NULL::boolean" if value is None else "TRUE" if value else "FALSE"
+                for value in values
+            )
+            cte = f"WITH pg_roles(rolname, {', '.join(attributes)}) AS (VALUES ('{name}', {expressions})) "
+            assert conn.execute(text(cte + query)).scalar_one() is accepted, (name, values)
+        # An absent role must return false, never an empty/implicitly accepted row.
+        cte = "WITH pg_roles AS (SELECT * FROM pg_catalog.pg_roles WHERE FALSE) "
+        assert conn.execute(text(cte + query)).scalar_one() is False
+
+
 def test_query_bound_indexes_are_applied_to_postgresql():
     expected = {
         "projects": "ix_projects_owner_active_updated_id",

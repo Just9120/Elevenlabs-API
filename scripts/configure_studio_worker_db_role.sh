@@ -12,9 +12,11 @@ fail() { printf '[studio-worker-db-role] ERROR: %s\n' "$*" >&2; exit 1; }
 compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
 require_runtime() {
+  local tracked_status
   cd "$EXPECTED_DIR"
   [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -f "$ROLE_SQL" ]] || fail "missing runtime contract"
-  [[ "$(git status --porcelain --untracked-files=no)" == "" ]] || fail "tracked checkout is dirty"
+  tracked_status="$(git status --porcelain --untracked-files=no)" || fail "cannot inspect tracked checkout"
+  [[ -z "$tracked_status" ]] || fail "tracked checkout is dirty"
 }
 
 env_value_once() {
@@ -40,8 +42,10 @@ psql_admin() {
 
 verify_role() {
   local result
-  result="$(psql_admin -Atqc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit) FROM pg_roles WHERE rolname = '${ROLE_NAME}'")"
-  [[ "$result" == "true:false:false:false:false:false:false" ]] || fail "worker role attributes invalid"
+  # Evaluate attributes in PostgreSQL; concat_ws emits t/f, not true/false.
+  # EXISTS also rejects an absent role without accepting an empty result.
+  result="$(psql_admin -Atqc "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${ROLE_NAME}' AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit)")"
+  [[ "$result" == "t" ]] || fail "worker role attributes invalid"
   [[ "$(psql_admin -Atqc "SELECT NOT EXISTS (SELECT 1 FROM pg_auth_members AS membership JOIN pg_roles AS member_role ON member_role.oid = membership.member WHERE member_role.rolname = '${ROLE_NAME}')")" == "t" ]] || fail "worker role memberships invalid"
   [[ "$(psql_admin -Atqc "SELECT has_schema_privilege('${ROLE_NAME}', 'public', 'USAGE') AND NOT has_schema_privilege('${ROLE_NAME}', 'public', 'CREATE')")" == "t" ]] || fail "worker schema privileges invalid"
   [[ "$(psql_admin -Atqc "SELECT has_table_privilege('${ROLE_NAME}', 'transcription_jobs', 'SELECT') AND has_table_privilege('${ROLE_NAME}', 'transcription_jobs', 'UPDATE') AND has_table_privilege('${ROLE_NAME}', 'transcription_job_outputs', 'SELECT') AND has_table_privilege('${ROLE_NAME}', 'transcription_job_outputs', 'INSERT') AND has_table_privilege('${ROLE_NAME}', 'diagnostic_events', 'DELETE')")" == "t" ]] || fail "worker required table privileges missing"
