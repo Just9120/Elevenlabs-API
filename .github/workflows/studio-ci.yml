@@ -11,6 +11,10 @@ on:
       - '.github/workflows/studio-edge-cd.yml'
       - '.github/workflows/studio-migration-environment-probe.yml'
       - 'scripts/deploy_studio_platform_component.sh'
+      - 'scripts/studio_processing_preflight.sh'
+      - 'scripts/check_studio_worker_secret.py'
+      - 'tests/test_studio_processing_preflight.py'
+      - 'tests/test_studio_worker_secret_metadata.py'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/release_studio_platform_migration.sh'
       - 'scripts/release_studio_edge.sh'
@@ -33,6 +37,10 @@ on:
       - '.github/workflows/studio-edge-cd.yml'
       - '.github/workflows/studio-migration-environment-probe.yml'
       - 'scripts/deploy_studio_platform_component.sh'
+      - 'scripts/studio_processing_preflight.sh'
+      - 'scripts/check_studio_worker_secret.py'
+      - 'tests/test_studio_processing_preflight.py'
+      - 'tests/test_studio_worker_secret_metadata.py'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/release_studio_platform_migration.sh'
       - 'scripts/release_studio_edge.sh'
@@ -147,6 +155,40 @@ jobs:
             alembic -c /app/alembic.ini heads </dev/null)"
           [[ "$task_probe_head" =~ ^[[:alnum:]_]+\ \(head\)$ ]]
           echo STUDIO_RUNNING_CONTAINER_METADATA_OK
+      - name: Verify metadata-only worker secret probe behind root-only directory
+        run: |
+          task_probe_dir="$(mktemp -d "$RUNNER_TEMP/studio-worker-secret.XXXXXX")"
+          [[ "$task_probe_dir" == "$RUNNER_TEMP"/studio-worker-secret.* ]]
+          trap 'sudo rm -f -- "$task_probe_dir/password" "$task_probe_dir/link"; sudo rmdir -- "$task_probe_dir"' EXIT
+          printf 'synthetic-ci-worker-password' > "$task_probe_dir/password"
+          chmod 600 "$task_probe_dir/password"
+          chmod 700 "$task_probe_dir"
+          sudo chown root:root "$task_probe_dir" "$task_probe_dir/password"
+          if sudo -u nobody test -f "$task_probe_dir/password"; then
+            echo 'fixture is not root-only'; exit 1
+          fi
+          task_probe_image="$(docker image inspect --format '{{.Id}}' elevenlabs-studio-api:test)"
+          [[ "$task_probe_image" =~ ^sha256:[0-9a-f]{64}$ ]]
+          task_probe() {
+            docker run --rm --pull never --network none --read-only --user 0:0 \
+              --cap-drop ALL --security-opt no-new-privileges --pids-limit 32 \
+              --memory 64m --memory-swap 64m --cpus 0.25 --log-driver none \
+              --mount "type=bind,src=${task_probe_dir},dst=/run/studio-worker-secret-probe,readonly,bind-recursive=disabled" \
+              --entrypoint python -i "$task_probe_image" -I -S - "$1" \
+              < scripts/check_studio_worker_secret.py
+          }
+          task_probe password
+          sudo chmod 400 "$task_probe_dir/password"
+          task_probe password
+          sudo chmod 644 "$task_probe_dir/password"
+          if task_probe password; then echo 'unsafe permissions accepted'; exit 1; fi
+          sudo chmod 600 "$task_probe_dir/password"
+          sudo ln -s password "$task_probe_dir/link"
+          if task_probe link; then echo 'symlink accepted'; exit 1; fi
+          if task_probe absent; then echo 'missing file accepted'; exit 1; fi
+          sudo truncate --size 0 "$task_probe_dir/password"
+          if task_probe password; then echo 'empty file accepted'; exit 1; fi
+          echo STUDIO_WORKER_SECRET_METADATA_OK
       - name: Verify protected secret bootstrap and non-root runtime
         run: |
           tmp=$(mktemp -d "$RUNNER_TEMP/studio-secret-bootstrap.XXXXXX")
