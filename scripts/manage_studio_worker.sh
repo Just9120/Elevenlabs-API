@@ -70,8 +70,13 @@ container_isolation_report() {
       *) valid_networks=false ;;
     esac
   done
-  local match=no
-  if [[ "$nano" == 2000000000 && "$memory" == 4294967296 && "$swap" == 4294967296 && "$pids" == 256 && "$readonly" == true && "$cap_drop" == '["ALL"]' && "$cap_add" == '["CHOWN","SETGID","SETUID"]' && "$security" == '["no-new-privileges:true"]' && "$network_count" -eq 2 && "$valid_networks" == true && "$networks" == *"_studio-worker-db,"* && "$networks" == *"_studio-worker-egress,"* ]]; then
+  # Engine versions may return canonical CAP_ names. Normalize only the three
+  # exact allowed aliases; preserve raw output and reject extra/malformed names.
+  local normalized_cap_add="$cap_add" match=no
+  normalized_cap_add="${normalized_cap_add//\"CAP_CHOWN\"/\"CHOWN\"}"
+  normalized_cap_add="${normalized_cap_add//\"CAP_SETGID\"/\"SETGID\"}"
+  normalized_cap_add="${normalized_cap_add//\"CAP_SETUID\"/\"SETUID\"}"
+  if [[ "$nano" == 2000000000 && "$memory" == 4294967296 && "$swap" == 4294967296 && "$pids" == 256 && "$readonly" == true && "$cap_drop" == '["ALL"]' && "$normalized_cap_add" == '["CHOWN","SETGID","SETUID"]' && "$security" == '["no-new-privileges:true"]' && "$network_count" -eq 2 && "$valid_networks" == true && "$networks" == *"_studio-worker-db,"* && "$networks" == *"_studio-worker-egress,"* ]]; then
     match=yes
   fi
   printf 'cpu_nano=%s\nmemory_bytes=%s\nmemory_swap_bytes=%s\npids_limit=%s\nreadonly_rootfs=%s\ncap_drop=%s\ncap_add=%s\nsecurity_opt=%s\nnetworks=%s\nisolation_match=%s\n' "$nano" "$memory" "$swap" "$pids" "$readonly" "$cap_drop" "$cap_add" "$security" "$networks" "$match"
