@@ -305,13 +305,19 @@ def test_api_created_job_completes_through_worker_and_public_output_api(monkeypa
         )
 
     def transcription_opener(db, **kwargs):
+        @contextmanager
+        def transaction_free_media(**media_kwargs):
+            assert db.in_transaction() is False
+            with passthrough_test_media(**media_kwargs) as prepared:
+                yield prepared
+
         return transcribe_processing_job_source_with_elevenlabs(
             db,
             **kwargs,
             token_resolver=resolve_google_token,
             metadata_fetcher=fetch_folder_metadata,
             storage_factory=lambda settings: storage,
-            media_preparer=passthrough_test_media,
+            media_preparer=transaction_free_media,
             elevenlabs_transport=transcribe_with_fake_provider,
         )
 

@@ -126,6 +126,9 @@ def verify_processing_job_sources(
 
     boundary_snapshot = _boundary_snapshot(job, project, job_sources)
     snapshots = [_snapshot(job, js) for js in job_sources]
+    # The immutable snapshot is sufficient for external checks. Do not leave the
+    # restricted worker connection idle while R2 or Google Drive responds.
+    db.rollback()
     token: str | None = None
     token_failed_reason: str | None = None
     source_summaries: list[ProcessingSourceAvailabilitySourceSummary] = []
@@ -144,7 +147,12 @@ def verify_processing_job_sources(
             elif snap["source_type"] == SourceType.google_drive.value:
                 if token is None and token_failed_reason is None:
                     try:
-                        token = drive_token_resolver(db, user_id=job.owner_user_id, settings=settings)
+                        token = drive_token_resolver(
+                            db,
+                            user_id=boundary_snapshot.job.owner_user_id,
+                            settings=settings,
+                        )
+                        db.rollback()
                     except GoogleConnectionAccessError as exc:
                         token_failed_reason = "google_token_unavailable" if exc.reason.value == "google_config_unavailable" else exc.reason.value
                     except Exception:
@@ -168,7 +176,14 @@ def verify_processing_job_sources(
             for s in source_summaries
         ]
     all_reasons = _dedupe([r for s in source_summaries for r in s.blocking_reasons] + list(recheck.blocking_reasons))
-    return _summary(job.id, job.project_id, recheck_now, lease_generation, all_reasons, source_summaries)
+    return _summary(
+        boundary_snapshot.job.id,
+        boundary_snapshot.job.project_id,
+        recheck_now,
+        lease_generation,
+        all_reasons,
+        source_summaries,
+    )
 
 
 def _load_job(db: Session, job_id: str):

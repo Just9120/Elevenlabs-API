@@ -177,6 +177,26 @@ def test_local_upload_success_rewinds_metadata_repr_and_closes(sqlite_session, m
     assert handle.stream.closed
 
 
+def test_source_download_runs_without_idle_database_transaction(
+    sqlite_session,
+    models,
+):
+    job, _, rel, _, now, _ = make_job(sqlite_session, models)
+    body = FakeBody([b"a" * 100])
+    observed = []
+
+    class TransactionAwareStorage(FakeStorage):
+        def open_read(self, key):
+            observed.append(sqlite_session.in_transaction())
+            return super().open_read(key)
+
+    storage = TransactionAwareStorage(FakeStream(body))
+    with materialize(sqlite_session, job, rel, storage=storage, now=now) as handle:
+        assert handle.byte_count == 100
+
+    assert observed == [False]
+
+
 def test_audio_reference_materialization_uses_only_audio_bucket_boundary(sqlite_session, models):
     job, _, rel, _, now, _ = make_job(
         sqlite_session,
