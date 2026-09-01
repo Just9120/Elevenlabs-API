@@ -768,6 +768,34 @@ def owned_project_or_404(db: Session, user: User, project_id: str) -> Project:
     if not p or p.owner_user_id!=user.id or p.archived_at is not None: raise HTTPException(404,"Не найдено")
     return p
 
+def _locked_owned_project_for_archive(
+    db: Session,
+    user: User,
+    project_id: str,
+) -> Project:
+    project = db.execute(
+        select(Project)
+        .where(
+            Project.id == project_id,
+            Project.owner_user_id == user.id,
+            Project.archived_at.is_(None),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(404, "Не найдено")
+    # Output persistence locks its job before reading the project. Archive uses
+    # the same mutable boundary, so it waits for in-flight persistence without
+    # granting the worker UPDATE on the read-only projects table.
+    db.execute(
+        select(TranscriptionJob.id)
+        .where(TranscriptionJob.project_id == project.id)
+        .order_by(TranscriptionJob.id)
+        .with_for_update()
+    ).all()
+    return project
+
 @app.get("/api/projects")
 def list_projects(
     cursor: str|None=Query(None, max_length=MAX_COLLECTION_CURSOR_LENGTH),
@@ -838,7 +866,7 @@ def update_project(project_id: str, data: ProjectPatch, pair=Depends(require_csr
 
 @app.post("/api/projects/{project_id}/archive")
 def archive_project(project_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("project:archive:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
+    _,user=pair; limiter.check("project:archive:"+user.id, 120, 3600); p=_locked_owned_project_for_archive(db,user,project_id)
     now=utcnow(); p.archived_at=now; p.updated_at=now; audit(db,"project.archived",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return {"ok": True}
 
 
