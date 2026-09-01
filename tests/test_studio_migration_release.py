@@ -193,7 +193,8 @@ esac
     )
     _write_exe(
         fake_bin / "runuser",
-        """#!/usr/bin/env bash
+        f"""#!/usr/bin/env bash
+printf 'runuser %s\\n' "$*" >> {str(calls)!r}
 [[ "$1" == "-u" && "$3" == "--" ]] || exit 51
 shift 3
 exec "$@"
@@ -434,6 +435,11 @@ def test_worker_role_recovery_uses_protected_lane_without_migration_or_deploy(
 
     assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(calls)
     assert "operation=worker_role" in proc.stdout
+    assert any(
+        call.startswith("runuser -u studio-deploy -- env STUDIO_DEPLOY_DIR=")
+        and call.endswith("configure_studio_worker_db_role.sh apply")
+        for call in calls
+    )
     assert _index(calls, "worker-role apply") < _index(calls, "worker-role verify")
     assert not any(call == "backup" for call in calls)
     assert not any(call.startswith("restic ") for call in calls)
