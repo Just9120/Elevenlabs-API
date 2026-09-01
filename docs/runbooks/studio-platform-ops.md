@@ -741,6 +741,20 @@ SELECT regression. If an older manifest was already applied without this grant,
 keep the worker stopped and use an explicitly approved, reviewed operator grant
 correction followed by `verify`; do not relax the role or run a migration.
 
+Every protected additive migration re-applies and verifies the reviewed direct
+grant allowlist after the migration commits and before API recreation. This is
+required because PostgreSQL gives `studio_worker` no implicit access to new
+tables. If an older release committed a migration but the exact worker image is
+unhealthy only because the new allowlist was not applied, keep the worker
+gracefully drained and dispatch `Studio Platform CD` from exact `main` with
+`component=migration` and `migration_target=worker_role`. The same disabled-by-
+default release gate and `studio-production-migration` approval apply. This
+recovery target performs only `configure_studio_worker_db_role.sh apply` plus
+`verify` and a localhost API readiness check; it does not create a backup, run a
+migration, rebuild/recreate API, start the worker, call a provider, or process a
+job. Resume the unchanged exact worker image only after the recovery run
+finishes successfully.
+
 `STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD`, `STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE` and `STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing` form one complete snapshot. The operator verifies the value and effective date against the [official ElevenAPI pricing page](https://elevenlabs.io/pricing/api?price.section=speech_to_text) before changing it. Missing/partial/unsupported pricing blocks a provider call. A job keeps the first accepted snapshot across all parts, so changing environment pricing affects only jobs that have not started provider usage. Studio shows attributable confirmed usage cost, not an ElevenLabs invoice debit after free quota or subscription credits.
 
 The same active BYOK key is read server-side for the official `GET /v1/user/subscription` and `POST /v1/workspace/analytics/query/usage-by-product-over-time` account views. It must have the provider read scopes for subscription and workspace analytics and satisfy any configured IP allowlist. No second Studio credential is required. The UI shows an actionable unavailable/stale state when either scope, allowlist, authentication, rate limit or provider availability blocks a read; never broaden or replace a provider key during deploy merely to make this panel green.

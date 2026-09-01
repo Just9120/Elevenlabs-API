@@ -9,11 +9,13 @@ ENV_FILE="deploy/studio/.env"
 API_IMAGE="elevenlabs-studio-api:local"
 BACKUP_SCRIPT="scripts/backup_studio_postgres_r2.sh"
 MIGRATION_SCRIPT="scripts/migrate_studio_platform.sh"
+WORKER_ROLE_SCRIPT="scripts/configure_studio_worker_db_role.sh"
 BACKUP_ENV_FILE="${STUDIO_BACKUP_ENV_FILE:-/etc/elevenlabs-studio/backup.env}"
 PYTHON_BIN="${STUDIO_RELEASE_PYTHON_BIN:-python3}"
 phase="preflight"
 snapshot_id=""
 migration_applied="no"
+worker_role_change_attempted="no"
 release_workspace=""
 
 cleanup() {
@@ -24,13 +26,15 @@ trap cleanup EXIT
 blocked() {
   local reason="$1"
   local recovery="no"
-  [[ "$migration_applied" == "yes" ]] && recovery="yes"
-  printf '%s BLOCKED phase=%s reason=%s snapshot=%s migration_applied=%s manual_recovery_required=%s\n' \
+  [[ "$migration_applied" == "yes" || "$worker_role_change_attempted" == "yes" ]] \
+    && recovery="yes"
+  printf '%s BLOCKED phase=%s reason=%s snapshot=%s migration_applied=%s worker_role_change_attempted=%s manual_recovery_required=%s\n' \
     "$PREFIX" \
     "$phase" \
     "$reason" \
     "${snapshot_id:0:12}" \
     "$migration_applied" \
+    "$worker_role_change_attempted" \
     "$recovery" >&2
   exit 2
 }
@@ -222,10 +226,44 @@ for required in \
   "$ENV_FILE" \
   "$BACKUP_SCRIPT" \
   "$MIGRATION_SCRIPT" \
+  "$WORKER_ROLE_SCRIPT" \
   apps/studio-api/Dockerfile \
   apps/studio-api/alembic.ini; do
   [[ -f "$required" ]] || blocked "release_file_missing"
 done
+
+# A protected, exact-SHA recovery lane for the only expected post-migration
+# worker failure: a reviewed allowlist gained newly created tables after the
+# migration committed. It deliberately performs no backup, migration, image
+# build, API recreation, provider call, or worker start. The forced-command
+# wrapper, environment approval and release lock remain identical to the
+# migration lane, and the worker must already be safely stopped.
+if [[ "$STUDIO_REQUESTED_MIGRATION_TARGET" == "worker_role" ]]; then
+  phase="worker_role"
+  compose config --quiet >/dev/null 2>&1 || blocked "compose_config_invalid"
+  require_healthy_service postgres
+  require_healthy_service redis
+  require_running_service studio-api >/dev/null
+  require_worker_stopped
+
+  worker_role_change_attempted="yes"
+  if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+    bash "$WORKER_ROLE_SCRIPT" apply </dev/null; then
+    blocked "worker_role_apply_failed"
+  fi
+  if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+    bash "$WORKER_ROLE_SCRIPT" verify </dev/null; then
+    blocked "worker_role_verify_failed"
+  fi
+
+  curl -fsS -o /dev/null --max-time 5 \
+    http://127.0.0.1:8182/api/readyz </dev/null \
+    || blocked "localhost_api_health_failed"
+  phase="complete"
+  printf '%s OK commit=%s operation=worker_role\n' \
+    "$PREFIX" "${STUDIO_EXPECTED_COMMIT:0:12}"
+  exit 0
+fi
 
 release_workspace="$(mktemp -d /tmp/studio-migration-release.XXXXXX)"
 runtime_metadata="$release_workspace/runtime-metadata"
@@ -522,6 +560,20 @@ migration_applied="yes"
 post_revision="$(probe_current_revision)"
 [[ "$post_revision" == "$target_revision" ]] \
   || blocked "post_migration_revision_mismatch"
+
+# New tables receive no implicit studio_worker access. Re-apply the reviewed
+# direct-grant allowlist only after the additive migration committed and while
+# the release gate still proves the worker is safely stopped.
+phase="worker_role"
+worker_role_change_attempted="yes"
+if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+  bash "$WORKER_ROLE_SCRIPT" apply </dev/null; then
+  blocked "worker_role_apply_failed"
+fi
+if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+  bash "$WORKER_ROLE_SCRIPT" verify </dev/null; then
+  blocked "worker_role_verify_failed"
+fi
 
 api_deployed="no"
 if [[ "$target_revision" == "$repository_head" ]]; then
