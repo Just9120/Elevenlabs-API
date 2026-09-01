@@ -30,14 +30,14 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository/runtime baseline: `main@cf8a4595044a0d5ce33e85515d1f0bb64483e415` has successful exact-main repository/Studio CI, API CD and manual worker delivery recorded in `docs/delivery-plan.md`; public web/API health, exact API/worker identity и schema `0031` подтверждены. Owner-authorized long-media LIVE evidence proved continuous progress and the transaction-free source-preparation boundary. The checkpoint persistence regression caused by `SELECT ... FOR UPDATE` against the intentionally immutable restricted-worker checkpoint grant is fixed and deployed without broadening grants. A post-fix sufficiently-long paid LIVE retry remains an external gate.
+Verified repository/runtime baseline: functional production web/API `main@30f21a66bcba966134b07407aa7fbad18f6a88e9`, delivery record `main@e73697cc4f0a2d96c0ed420466a65428f5abaf2c`. Exact-main repository/Studio CI, web/API CD, public health и schema `0031` подтверждены; worker не требовал повторной delivery для последнего UX fix. Owner-authorized long-media LIVE evidence proved continuous progress and the transaction-free source-preparation boundary. Checkpoint persistence под restricted worker role и recovery-job visibility после очистки истории исправлены без broadening grants или automatic provider retry.
 
-Current operational Goal: `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`, state `PENDING_EXTERNAL_GATE`. `PUX-13` и `JOBREL-17` закрыты exact-main CI/deployment/LIVE; current delivered baseline `cf8a459` исправляет immutable checkpoint persistence под restricted worker role и сохраняет automatic retry blocked. Existing confirmed-but-uncheckpointed result предлагает только explicit cost-confirmed full restart. Remaining `TPH-10` требует отдельной authorization на один sufficiently-long paid retry. Worker isolation, `idle_in_transaction_session_timeout=60s`, provider-cost/lifecycle gates, realtime STT и commercial contour остаются вне разрешённых изменений.
+Current operational Goal: `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`, state `DONE` по explicit owner acceptance 2026-09-01. `PUX-13`, `JOBREL-17` и recovery visibility закрыты exact-main CI/deployment/LIVE; exact functional baseline `30f21a66` сохраняет automatic retry blocked и предлагает для confirmed-but-uncheckpointed result только explicit cost-confirmed full restart. Planned sufficiently-long paid retry снят owner как closure gate; возможная новая regression будет отдельным hotfix. Worker isolation, `idle_in_transaction_session_timeout=60s`, provider-cost/lifecycle gates, realtime STT и commercial contour не изменены.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **78,8% (`241/306`)** | `PUX-13` и `JOBREL-17` закрыты exact-main CI/deployment/LIVE; current delivered baseline `cf8a459` |
+| Personal Studio PWA | **78,8% (`241/306`)** | `PUX-13`, `JOBREL-17` и recovery visibility закрыты exact-main CI/deployment/LIVE; current functional baseline `30f21a66` |
 | Non-commercial scope | **80,8% (`273/338`)** | Colab `32/32` + personal PWA `241/306` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
 | Полный canonical scope | **47,1% (`273/580`)** | `273 / (338 non-commercial + 242 commercial/cross-contour)` |
@@ -1152,15 +1152,15 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Verified repository/VPS API/worker baseline: exact `main@cf8a4595044a0d5ce33e85515d1f0bb64483e415`. Repository CI `33510444507`, Studio/browser `33510444555`, API CD `33510444491`, worker pre-status `33510825049`, drain `33510913841`, deploy `33511004307` и final status `33511394349` завершились success. Public API/web health, API/worker identity и worker isolation совпали с exact merge; schema остаётся `0031`. Web source не менялся.
+- Verified repository/VPS baseline: exact functional web/API `main@30f21a66bcba966134b07407aa7fbad18f6a88e9`; repository CI `33521901250`, Studio/browser `33521901245` и platform CD `33521901302` завершились success. Public API/web health и exact web build identity подтверждены; schema остаётся `0031`. Worker не менялся последним UX fix и сохраняет ранее подтверждённые identity/isolation Evidence exact `cf8a459`.
 - Production schema — `0031_provider_account_snapshots`, confirmed by protected release and owner preflight. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
 - Distinct audio/transcription reference buckets, lifecycle rules и scoped credentials подтверждены предыдущей Goal. Existing legacy Sources сохраняют прежний routing; текущая Goal не переносит bytes и не меняет retention.
 
 ## 9. Current critical path
 
-1. Progress/transaction hotfix завершён в PR `#271`; safe provider diagnostics — в PR `#272`; immutable checkpoint-role fix — в PR `#273`, exact delivered baseline `main@cf8a459`.
+1. Progress/transaction hotfix завершён в PR `#271`; safe provider diagnostics — в PR `#272`; immutable checkpoint-role fix — в PR `#273`; recovery visibility после очистки истории — в PR `#275`, exact functional baseline `main@30f21a66`.
 2. Existing failed multi-part job сохраняет confirmed usage `801.689 s` и после delivery показывает только explicit cost-confirmed full restart. Действие не выполнялось; automatic recovery запрещён.
-3. Exact-main CI, API/worker delivery, health/identity/isolation и browser-safe retry UI подтверждены. Remaining `TPH-10` — один separately owner-authorized sufficiently-long paid LIVE retry.
+3. Exact-main CI, applicable web/API/worker delivery, health/identity/isolation и browser-safe retry UI подтверждены. Goal закрыта owner; дополнительный paid LIVE retry не требуется, а возможная новая regression будет отдельным hotfix.
 4. Production schema `0031` current; повторная migration не требуется. Existing worker isolation, account snapshots, lifecycle/provider-cost gates и duplicate protection не ослабляются.
 5. Commercial contour, новый STT provider, realtime/storage cost, `STORAG-01..15`, system-wide API/DB least privilege и CI/CD policy вне current Goal.
 
