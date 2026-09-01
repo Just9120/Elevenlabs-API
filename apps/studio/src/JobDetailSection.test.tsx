@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type {
   JobOutputsResponse,
   JobSource,
+  JobUsageCost,
   TranscriptionJob,
 } from "./jobModel";
 import type { JobRetryState } from "./jobRecoveryModel";
@@ -61,6 +62,20 @@ const job: TranscriptionJob = {
   },
 };
 
+const completeUsage: JobUsageCost = {
+  accounting_status: "complete",
+  confirmed_billed_duration_seconds: 12.612,
+  confirmed_provider_cost: "0.00077073",
+  currency: "USD",
+  cost_basis: "confirmed_audio_duration_x_rate_snapshot",
+  rate_snapshot: {
+    rate_per_hour: "0.220000",
+    currency: "USD",
+    effective_date: "2026-08-30",
+    source: "elevenlabs_public_api_pricing",
+  },
+};
+
 function retry(overrides: Partial<JobRetryState> = {}): JobRetryState {
   return {
     loading: false,
@@ -95,6 +110,9 @@ describe("JobDetailSection", () => {
     const detail = screen.getByLabelText("Подробности транскрибации");
     expect(detail).toHaveTextContent("Язык: Русский");
     expect(detail).toHaveTextContent("Разделение спикеров: Включено");
+    expect(detail).toHaveTextContent(
+      "Для этой задачи нет подтверждённых данных о расходе.",
+    );
     const text = detail.textContent ?? "";
     expect(text.indexOf("1. first.ogg")).toBeLessThan(
       text.indexOf("2. second.ogg"),
@@ -110,6 +128,70 @@ describe("JobDetailSection", () => {
       }),
     ).toHaveAttribute("href", "https://drive.example/file/safe");
     expect(detail).not.toHaveTextContent("https://evil.example/file/token");
+  });
+
+  it("shows confirmed nominal job cost separately from account actuals", () => {
+    render(
+      <JobDetailSection
+        job={{ ...job, usage_cost: completeUsage }}
+        outputs={null}
+        retry={undefined}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const usage = screen.getByLabelText("Расход ElevenLabs по задаче");
+    expect(usage).toHaveTextContent("Подтверждённая длительность: 12,612 с");
+    expect(usage).toHaveTextContent("Номинальная стоимость: 0,00077073 USD");
+    expect(usage).toHaveTextContent("а не фактическое списание");
+    expect(usage).toHaveTextContent("Настройки → Подключения");
+    expect(usage).toHaveTextContent("Тариф: 0,22 USD/ч");
+    expect(usage).toHaveTextContent("официальные публичные тарифы ElevenLabs");
+  });
+
+  it("does not present an uncertain provider outcome as an exact total", () => {
+    render(
+      <JobDetailSection
+        job={{
+          ...job,
+          usage_cost: { ...completeUsage, accounting_status: "uncertain" },
+        }}
+        outputs={null}
+        retry={undefined}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const usage = screen.getByLabelText("Расход ElevenLabs по задаче");
+    expect(usage).toHaveTextContent("Показана только подтверждённая часть");
+    expect(usage).toHaveTextContent("Итоговый расход неопределён");
+    expect(usage).toHaveTextContent("0,00077073 USD");
+  });
+
+  it("shows a distinct state before provider usage is confirmed", () => {
+    render(
+      <JobDetailSection
+        job={{
+          ...job,
+          usage_cost: {
+            accounting_status: "not_started",
+            confirmed_billed_duration_seconds: null,
+            confirmed_provider_cost: null,
+            currency: null,
+            cost_basis: null,
+            rate_snapshot: null,
+          },
+        }}
+        outputs={null}
+        retry={undefined}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Подтверждённый расход пока не зафиксирован."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/0,00 USD/)).not.toBeInTheDocument();
   });
 
   it("runs an available safe retry for the current job", async () => {

@@ -63,6 +63,26 @@ export type JobBatchReference = {
   id: string;
   position: number;
 };
+export type JobUsageAccountingStatus =
+  | "unavailable"
+  | "not_started"
+  | "confirmed_partial"
+  | "complete"
+  | "uncertain";
+export type JobUsageRateSnapshot = {
+  rate_per_hour: string;
+  currency: "USD";
+  effective_date: string;
+  source: "elevenlabs_public_api_pricing";
+};
+export type JobUsageCost = {
+  accounting_status: JobUsageAccountingStatus;
+  confirmed_billed_duration_seconds: number | null;
+  confirmed_provider_cost: string | null;
+  currency: "USD" | null;
+  cost_basis: "confirmed_audio_duration_x_rate_snapshot" | null;
+  rate_snapshot: JobUsageRateSnapshot | null;
+};
 export type SpeakerProfileSummary = {
   id: string;
   display_name: string;
@@ -98,6 +118,7 @@ export type TranscriptionJob = {
   error_message: string | null;
   output_folder?: JobOutputFolder | null;
   speaker_identities?: JobSpeakerIdentity[];
+  usage_cost?: JobUsageCost;
 };
 export type JobState = {
   loading: boolean;

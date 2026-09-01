@@ -238,6 +238,131 @@ def test_unreturned_call_is_explicitly_uncertain_not_confirmed_cost(db):
     assert job.provider_accounting_complete is False
 
 
+def _usage_job(**overrides):
+    values = {
+        "provider_billed_duration_ms": 12_612,
+        "provider_cost_amount": Decimal("0.00077073"),
+        "provider_cost_currency": "USD",
+        "provider_rate_per_hour": Decimal("0.220000"),
+        "provider_rate_effective_date": date(2026, 8, 30),
+        "provider_rate_source": "elevenlabs_public_api_pricing",
+        "provider_accounting_complete": True,
+        "provider_accounting_uncertain": False,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_job_usage_cost_payload_exposes_only_confirmed_nominal_snapshot():
+    from studio_api.provider_usage_accounting import job_usage_cost_payload
+
+    assert job_usage_cost_payload(_usage_job()) == {
+        "accounting_status": "complete",
+        "confirmed_billed_duration_seconds": 12.612,
+        "confirmed_provider_cost": "0.00077073",
+        "currency": "USD",
+        "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
+        "rate_snapshot": {
+            "rate_per_hour": "0.220000",
+            "currency": "USD",
+            "effective_date": "2026-08-30",
+            "source": "elevenlabs_public_api_pricing",
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("job", "expected_status"),
+    [
+        (
+            _usage_job(
+                provider_billed_duration_ms=None,
+                provider_cost_amount=None,
+                provider_cost_currency=None,
+                provider_rate_per_hour=None,
+                provider_rate_effective_date=None,
+                provider_rate_source=None,
+                provider_accounting_complete=None,
+            ),
+            "unavailable",
+        ),
+        (
+            _usage_job(
+                provider_billed_duration_ms=0,
+                provider_cost_amount=Decimal("0"),
+                provider_rate_per_hour=None,
+                provider_rate_effective_date=None,
+                provider_rate_source=None,
+                provider_accounting_complete=False,
+            ),
+            "not_started",
+        ),
+    ],
+)
+def test_job_usage_cost_payload_does_not_fabricate_unrecorded_values(
+    job, expected_status
+):
+    from studio_api.provider_usage_accounting import job_usage_cost_payload
+
+    payload = job_usage_cost_payload(job)
+    assert payload == {
+        "accounting_status": expected_status,
+        "confirmed_billed_duration_seconds": None,
+        "confirmed_provider_cost": None,
+        "currency": None,
+        "cost_basis": None,
+        "rate_snapshot": None,
+    }
+
+
+def test_job_usage_cost_payload_keeps_confirmed_part_but_marks_uncertain_total():
+    from studio_api.provider_usage_accounting import job_usage_cost_payload
+
+    payload = job_usage_cost_payload(
+        _usage_job(
+            provider_accounting_complete=False,
+            provider_accounting_uncertain=True,
+        )
+    )
+    assert payload["accounting_status"] == "uncertain"
+    assert payload["confirmed_billed_duration_seconds"] == 12.612
+    assert payload["confirmed_provider_cost"] == "0.00077073"
+
+
+def test_job_usage_cost_payload_fails_closed_on_invalid_tariff_provenance():
+    from studio_api.provider_usage_accounting import job_usage_cost_payload
+
+    payload = job_usage_cost_payload(
+        _usage_job(provider_rate_source="private-provider-request-id")
+    )
+    assert payload["accounting_status"] == "unavailable"
+    assert payload["confirmed_provider_cost"] is None
+    assert payload["rate_snapshot"] is None
+    assert "private-provider-request-id" not in repr(payload)
+
+
+def test_job_usage_cost_payload_supports_confirmed_zero_without_tariff_use():
+    from studio_api.provider_usage_accounting import job_usage_cost_payload
+
+    payload = job_usage_cost_payload(
+        _usage_job(
+            provider_billed_duration_ms=0,
+            provider_cost_amount=Decimal("0"),
+            provider_rate_per_hour=None,
+            provider_rate_effective_date=None,
+            provider_rate_source=None,
+        )
+    )
+    assert payload == {
+        "accounting_status": "complete",
+        "confirmed_billed_duration_seconds": 0.0,
+        "confirmed_provider_cost": "0.00000000",
+        "currency": "USD",
+        "cost_basis": "confirmed_audio_duration_x_rate_snapshot",
+        "rate_snapshot": None,
+    }
+
+
 def test_accounting_migration_is_additive_direct_successor():
     cfg = Config("apps/studio-api/alembic.ini")
     scripts = ScriptDirectory.from_config(cfg)

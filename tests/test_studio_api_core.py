@@ -195,6 +195,13 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                 assert conn.execute(text("SELECT current_user")).scalar_one() == role_name
                 assert check_database_readiness(conn)["schema_revision"] == repository_schema_head()
                 worker_health.check_worker_database_role(conn)
+                # Project metadata is read-only for the worker. PostgreSQL
+                # correctly rejects FOR UPDATE here, so processing code must not
+                # request that lock merely to validate project ownership/state.
+                conn.execute(text("SELECT id FROM projects LIMIT 0"))
+                with pytest.raises(ProgrammingError) as failure:
+                    conn.execute(text("SELECT id FROM projects LIMIT 0 FOR UPDATE"))
+                assert failure.value.orig.sqlstate == "42501"
                 conn.rollback()
                 for statement in (
                     "INSERT INTO alembic_version (version_num) VALUES ('forbidden')",
@@ -1853,6 +1860,14 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
     body = r.json()
     assert body["status"] == "queued"
     assert body["source_count"] == 2
+    assert body["usage_cost"] == {
+        "accounting_status": "not_started",
+        "confirmed_billed_duration_seconds": None,
+        "confirmed_provider_cost": None,
+        "currency": None,
+        "cost_basis": None,
+        "rate_snapshot": None,
+    }
     assert body["language_mode"] == "en_us"
     assert body["diarization_enabled"] is False
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
@@ -3562,7 +3577,6 @@ def test_output_persistence_refreshes_stale_identity_map_before_authorizing(muta
 
 @pytest.mark.parametrize("mutate", [
     lambda job, project, rel, source: setattr(job, "output_drive_folder_id", "folder-blocked"),
-    lambda job, project, rel, source: setattr(project, "archived_at", LEASE_TEST_NOW),
     lambda job, project, rel, source: (setattr(source, "deleted_at", LEASE_TEST_NOW), setattr(source, "upload_status", SourceUploadStatus.deleted)),
 ])
 def test_output_persistence_authority_locks_block_concurrent_mutations(mutate):
@@ -3601,6 +3615,48 @@ def test_output_persistence_authority_locks_block_concurrent_mutations(mutate):
 
         assert session_b.query(TranscriptionJobOutput).filter_by(job_id=job_id).count() == 0
         assert session_b.get(TranscriptionJob, job_id).status == JobStatus.processing
+    finally:
+        session_a.rollback(); session_a.close(); session_b.close()
+
+
+def test_output_persistence_job_lock_blocks_project_archive_without_project_update_grant():
+    from studio_api.main import _locked_owned_project_for_archive
+
+    user_id, job_id = lease_test_job(status=JobStatus.queued, ready=True)
+    setup = SessionLocal()
+    try:
+        handle = acquire_job_lease(setup, job_id=job_id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        begin_job_processing(setup, job_id=job_id, lease_owner_id=handle.lease_owner_id, lease_generation=handle.lease_generation, now=LEASE_TEST_NOW)
+        rel_id = setup.execute(select(TranscriptionJobSource.id).where(TranscriptionJobSource.job_id == job_id)).scalar_one()
+        setup.commit()
+    finally:
+        setup.close()
+
+    session_a = SessionLocal()
+    session_b = SessionLocal()
+    try:
+        _load_locked_output_authority(
+            session_a,
+            job_id=job_id,
+            job_source_id=rel_id,
+            lease_owner_id="owner-1",
+            lease_generation=handle.lease_generation,
+            output_folder_id="folder-1",
+            now=LEASE_TEST_NOW,
+        )
+
+        session_b.execute(text("SET LOCAL lock_timeout = '100ms'"))
+        user_b = session_b.get(User, user_id)
+        with pytest.raises(OperationalError):
+            _locked_owned_project_for_archive(
+                session_b,
+                user_b,
+                session_b.get(TranscriptionJob, job_id).project_id,
+            )
+        session_b.rollback()
+
+        assert session_b.get(Project, session_b.get(TranscriptionJob, job_id).project_id).archived_at is None
+        assert session_b.query(TranscriptionJobOutput).filter_by(job_id=job_id).count() == 0
     finally:
         session_a.rollback(); session_a.close(); session_b.close()
 

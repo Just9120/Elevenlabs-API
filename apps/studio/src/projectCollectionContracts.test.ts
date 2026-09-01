@@ -54,6 +54,20 @@ const job = {
   },
 };
 
+const usageCost = {
+  accounting_status: "complete",
+  confirmed_billed_duration_seconds: 12.612,
+  confirmed_provider_cost: "0.00077073",
+  currency: "USD",
+  cost_basis: "confirmed_audio_duration_x_rate_snapshot",
+  rate_snapshot: {
+    rate_per_hour: "0.220000",
+    currency: "USD",
+    effective_date: "2026-08-30",
+    source: "elevenlabs_public_api_pricing",
+  },
+} as const;
+
 describe("project collection contracts", () => {
   it("validates bounded signed page envelopes", () => {
     const cursor = "signed_cursor-1";
@@ -180,6 +194,69 @@ describe("project collection contracts", () => {
     expect(parsed?.[0]).not.toHaveProperty("provider_credential_id");
     expect(parsed?.[0]).not.toHaveProperty("lease_owner_id");
     expect(parsed?.[0]).not.toHaveProperty("sources");
+  });
+
+  it("accepts a bounded job usage projection and discards private extras", () => {
+    const parsed = parseProjectJobCollection(
+      {
+        jobs: [
+          {
+            ...job,
+            usage_cost: {
+              ...usageCost,
+              provider_request_id: "private-request-id",
+              rate_snapshot: {
+                ...usageCost.rate_snapshot,
+                raw_provider_payload: "private-payload",
+              },
+            },
+          },
+        ],
+      },
+      "project-safe",
+    );
+
+    expect(parsed?.[0].usage_cost).toEqual(usageCost);
+    expect(parsed?.[0].usage_cost).not.toHaveProperty("provider_request_id");
+    expect(parsed?.[0].usage_cost?.rate_snapshot).not.toHaveProperty(
+      "raw_provider_payload",
+    );
+  });
+
+  it("rejects malformed or internally inconsistent job usage projections", () => {
+    const invalidUsageCosts = [
+      { ...usageCost, accounting_status: "provider-private-state" },
+      { ...usageCost, currency: "EUR" },
+      {
+        ...usageCost,
+        rate_snapshot: {
+          ...usageCost.rate_snapshot,
+          source: "private-provider-request-id",
+        },
+      },
+      {
+        ...usageCost,
+        confirmed_billed_duration_seconds: 0,
+        confirmed_provider_cost: "0.00000001",
+      },
+      {
+        accounting_status: "not_started",
+        confirmed_billed_duration_seconds: 0,
+        confirmed_provider_cost: "0.00000000",
+        currency: "USD",
+        cost_basis: "confirmed_audio_duration_x_rate_snapshot",
+        rate_snapshot: null,
+      },
+    ];
+
+    for (const invalid of invalidUsageCosts) {
+      expect(
+        parseProjectJobCollection(
+          { jobs: [{ ...job, usage_cost: invalid }] },
+          "project-safe",
+        ),
+      ).toBeNull();
+    }
   });
 
   it("accepts only safe speaker identity history metadata", () => {

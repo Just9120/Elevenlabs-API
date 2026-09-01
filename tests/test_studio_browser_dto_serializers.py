@@ -44,6 +44,7 @@ JOB_KEYS = {
     "error_message",
     "output_folder",
     "speaker_identities",
+    "usage_cost",
 }
 
 
@@ -130,6 +131,14 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     assert payload["media_clip"] is None
     assert payload["terminal_dismissed_at"] is None
     assert payload["speaker_identities"] == []
+    assert payload["usage_cost"] == {
+        "accounting_status": "unavailable",
+        "confirmed_billed_duration_seconds": None,
+        "confirmed_provider_cost": None,
+        "currency": None,
+        "cost_basis": None,
+        "rate_snapshot": None,
+    }
 
 
 def test_job_browser_payload_exposes_only_safe_clip_bounds(browser_serializers):

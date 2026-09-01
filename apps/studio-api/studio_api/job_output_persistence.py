@@ -166,7 +166,10 @@ def _load_locked_output_authority(
         raise JobOutputPersistenceError(JobOutputPersistenceReason.job_not_found)
     _require_job_boundary(db, job, lease_owner_id, lease_generation, now)
 
-    project = db.execute(select(Project).where(Project.id == job.project_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    # Project is a read-only authorization lookup for the worker. The API
+    # archive path serializes through the locked job row, so persistence keeps
+    # the race guard without granting the worker UPDATE on projects.
+    project = db.execute(select(Project).where(Project.id == job.project_id).execution_options(populate_existing=True)).scalar_one_or_none()
     if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.project_unavailable)
     if not job.output_drive_folder_id:

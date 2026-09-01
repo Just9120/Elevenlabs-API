@@ -23,6 +23,7 @@ CURRENCY = "USD"
 COST_BASIS = "confirmed_audio_duration_x_rate_snapshot"
 COST_QUANTUM = Decimal("0.00000001")
 MAX_BILLED_PART_SECONDS = 604800
+MAX_SAFE_BROWSER_INTEGER = 9_007_199_254_740_991
 
 
 class ProviderUsageAccountingReason(str, Enum):
@@ -241,15 +242,89 @@ def finalize_job_provider_accounting(
 
 
 def accounting_status(job: TranscriptionJob) -> str:
-    if job.provider_billed_duration_ms is None:
+    billed_duration_ms = getattr(job, "provider_billed_duration_ms", None)
+    if billed_duration_ms is None:
         return "unavailable"
-    if job.provider_accounting_uncertain:
+    if getattr(job, "provider_accounting_uncertain", False):
         return "uncertain"
-    if job.provider_accounting_complete:
+    if getattr(job, "provider_accounting_complete", False):
         return "complete"
-    if int(job.provider_billed_duration_ms or 0) > 0:
+    if int(billed_duration_ms or 0) > 0:
         return "confirmed_partial"
     return "not_started"
+
+
+def job_usage_cost_payload(job: TranscriptionJob) -> dict[str, object | None]:
+    """Return a bounded browser projection of confirmed job-level usage."""
+    empty = {
+        "accounting_status": "unavailable",
+        "confirmed_billed_duration_seconds": None,
+        "confirmed_provider_cost": None,
+        "currency": None,
+        "cost_basis": None,
+        "rate_snapshot": None,
+    }
+    status = accounting_status(job)
+    if status in {"unavailable", "not_started"}:
+        return {**empty, "accounting_status": status}
+
+    raw_duration = getattr(job, "provider_billed_duration_ms", None)
+    raw_cost = getattr(job, "provider_cost_amount", None)
+    if (
+        type(raw_duration) is not int
+        or raw_duration < 0
+        or raw_duration > MAX_SAFE_BROWSER_INTEGER
+        or getattr(job, "provider_cost_currency", None) != CURRENCY
+    ):
+        return empty
+    try:
+        cost = Decimal(str(raw_cost))
+        if not cost.is_finite() or cost < 0:
+            return empty
+        cost = cost.quantize(COST_QUANTUM)
+    except (InvalidOperation, TypeError, ValueError):
+        return empty
+    if raw_duration == 0 and cost != Decimal("0"):
+        return empty
+
+    rate_values = (
+        getattr(job, "provider_rate_per_hour", None),
+        getattr(job, "provider_rate_effective_date", None),
+        getattr(job, "provider_rate_source", None),
+    )
+    rate_snapshot = None
+    if not all(value is None for value in rate_values):
+        try:
+            rate = Decimal(str(rate_values[0]))
+            if not rate.is_finite() or rate <= 0:
+                return empty
+            rate = rate.quantize(Decimal("0.000001"))
+        except (InvalidOperation, TypeError, ValueError):
+            return empty
+        if (
+            not isinstance(rate_values[1], date)
+            or rate_values[2] != "elevenlabs_public_api_pricing"
+        ):
+            return empty
+        rate_snapshot = {
+            "rate_per_hour": format(rate, "f"),
+            "currency": CURRENCY,
+            "effective_date": rate_values[1].isoformat(),
+            "source": rate_values[2],
+        }
+    elif status != "complete" or raw_duration != 0:
+        # A positive/partial/uncertain provider usage record must retain its
+        # immutable tariff provenance. Never substitute the current tariff.
+        return empty
+
+    return {
+        "accounting_status": status,
+        "confirmed_billed_duration_seconds": round(raw_duration / 1000, 3),
+        "confirmed_provider_cost": format(cost, "f"),
+        "currency": CURRENCY,
+        "cost_basis": COST_BASIS,
+        "rate_snapshot": rate_snapshot,
+    }
 
 
 def _locked_context(

@@ -71,6 +71,7 @@ from .provider_account_sync import (
     sync_elevenlabs_account,
     unavailable_provider_account_payload,
 )
+from .provider_usage_accounting import job_usage_cost_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
 from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry, requires_provider_cost_confirmation
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
@@ -713,7 +714,7 @@ def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)]}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)], "usage_cost": job_usage_cost_payload(job)}
     batch=browser_batch_reference(job)
     if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
@@ -766,6 +767,34 @@ def owned_project_or_404(db: Session, user: User, project_id: str) -> Project:
     p=db.get(Project, project_id)
     if not p or p.owner_user_id!=user.id or p.archived_at is not None: raise HTTPException(404,"Не найдено")
     return p
+
+def _locked_owned_project_for_archive(
+    db: Session,
+    user: User,
+    project_id: str,
+) -> Project:
+    project = db.execute(
+        select(Project)
+        .where(
+            Project.id == project_id,
+            Project.owner_user_id == user.id,
+            Project.archived_at.is_(None),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(404, "Не найдено")
+    # Output persistence locks its job before reading the project. Archive uses
+    # the same mutable boundary, so it waits for in-flight persistence without
+    # granting the worker UPDATE on the read-only projects table.
+    db.execute(
+        select(TranscriptionJob.id)
+        .where(TranscriptionJob.project_id == project.id)
+        .order_by(TranscriptionJob.id)
+        .with_for_update()
+    ).all()
+    return project
 
 @app.get("/api/projects")
 def list_projects(
@@ -837,7 +866,7 @@ def update_project(project_id: str, data: ProjectPatch, pair=Depends(require_csr
 
 @app.post("/api/projects/{project_id}/archive")
 def archive_project(project_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("project:archive:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
+    _,user=pair; limiter.check("project:archive:"+user.id, 120, 3600); p=_locked_owned_project_for_archive(db,user,project_id)
     now=utcnow(); p.archived_at=now; p.updated_at=now; audit(db,"project.archived",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return {"ok": True}
 
 
