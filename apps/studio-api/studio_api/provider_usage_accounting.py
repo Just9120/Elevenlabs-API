@@ -242,13 +242,14 @@ def finalize_job_provider_accounting(
 
 
 def accounting_status(job: TranscriptionJob) -> str:
-    if job.provider_billed_duration_ms is None:
+    billed_duration_ms = getattr(job, "provider_billed_duration_ms", None)
+    if billed_duration_ms is None:
         return "unavailable"
-    if job.provider_accounting_uncertain:
+    if getattr(job, "provider_accounting_uncertain", False):
         return "uncertain"
-    if job.provider_accounting_complete:
+    if getattr(job, "provider_accounting_complete", False):
         return "complete"
-    if int(job.provider_billed_duration_ms or 0) > 0:
+    if int(billed_duration_ms or 0) > 0:
         return "confirmed_partial"
     return "not_started"
 
