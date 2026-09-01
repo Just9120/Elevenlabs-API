@@ -104,7 +104,10 @@ test('authenticated user opens transcriptions and reads a completed job result',
   const navigation = await login(page);
   await openResultTranscriptions(page, navigation);
 
-  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
+  await page
+    .locator('details.recent-jobs')
+    .getByText(/^Недавние транскрибации · \d+$/)
+    .click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
@@ -769,13 +772,19 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
 }) => {
   const navigation = await login(page);
   await openResultTranscriptions(page, navigation);
-  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
-  const jobCard = page
+  const currentJobs = page.getByLabel('Текущие транскрибации');
+  const jobCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: UNCERTAIN_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Ошибка')).toBeVisible();
+  await expect(jobCard).toContainText(
+    'Эта задача требует решения и сохранена после очистки истории.',
+  );
+  await expect(
+    jobCard.getByRole('button', { name: 'Убрать в историю' }),
+  ).toHaveCount(0);
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryResponsePromise = page.waitForResponse(
@@ -846,13 +855,19 @@ test('unresolved output reconciliation waits for an explicit safe action', async
 }) => {
   const navigation = await login(page);
   await openResultTranscriptions(page, navigation);
-  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
-  const jobCard = page
+  const currentJobs = page.getByLabel('Текущие транскрибации');
+  const jobCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: RECONCILIATION_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Ошибка')).toBeVisible();
+  await expect(jobCard).toContainText(
+    'Эта задача требует решения и сохранена после очистки истории.',
+  );
+  await expect(
+    jobCard.getByRole('button', { name: 'Убрать в историю' }),
+  ).toHaveCount(0);
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryResponsePromise = page.waitForResponse(
@@ -1300,7 +1315,10 @@ test('queued cancellation performs one bounded API mutation', async ({
       .filter({ hasText: QUEUED_CANCELLATION_JOB }),
   ).toHaveCount(0);
 
-  await page.getByText('Недавние транскрибации · 5', { exact: true }).click();
+  await page
+    .locator('details.recent-jobs')
+    .getByText(/^Недавние транскрибации · \d+$/)
+    .click();
   const cancelledCard = page
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })

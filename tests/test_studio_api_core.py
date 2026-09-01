@@ -4481,7 +4481,7 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
         headers=headers1,
     )
     assert analytics.status_code == 200
-    assert analytics.json()["hidden_job_count"] == 1
+    assert analytics.json()["hidden_job_count"] == 2
     reset_payload = c1.get(
         f"/api/projects/{pid1}/transcription-analytics"
     ).json()
