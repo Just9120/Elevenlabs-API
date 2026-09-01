@@ -26,15 +26,15 @@
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-01T20:24:45Z`.
+- **Updated (UTC):** `2026-09-01T20:34:01Z`.
 - **Base branch/SHA:** verified exact `origin/main@c244241076f4c6b73b436b3fd2f5cfeec29590a9` после fetch.
 - **Working branch:** `codex/observability-alerts-audit` от exact verified `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
-- **Last verified revision:** `c244241076f4c6b73b436b3fd2f5cfeec29590a9`.
+- **Last verified revision:** implementation commit `e700c1ac8496abadb938af3b2b8bd084ab608fcf`.
 - **Completed:** реализованы additive schema `0033`, browser/API/job/worker trace continuity, explicit audit outcomes и database-enforced append-only boundary, owner-scoped incident/delivery authority с dedup/cooldown/recovery, deterministic provider/queue/maintenance/backup/storage/account rules, optional secret-file-backed Telegram transport, bounded worker evaluation/delivery, Support UI и safe suppressed-delivery canary. Transport не помещает token в URL, application logs или persisted outcome. Local Evidence: affected portable backend `224 passed`; финальный объединённый observability/schema/worker/diagnostics subset `73 passed`; frontend full `674 passed`; ESLint, TypeScript, Vite/PWA production build, Python compileall и `git diff --check` success. Owner-isolation regression также закрепляет CSRF acknowledge, trace-bearing audit и эквивалентные JSON/YAML/TOML exports с инцидентами.
-- **Current step:** reviewable commit и exact-head PR/CI.
-- **Next exact action:** зафиксировать intended diff без unrelated untracked files, push branch, открыть PR и дождаться exact-head required CI.
-- **PR / CI / deployment:** ещё отсутствуют. PostgreSQL/Redis integration, Linux Bash tests и protected migration/API/web/worker delivery не заявлены локально и остаются обязательными exact-head CI/DEPLOY gates.
+- **Current step:** reviewable commit готов; branch push, PR и exact-head CI.
+- **Next exact action:** зафиксировать этот checkpoint, выполнить единственный initial push branch, открыть PR и дождаться exact-head required CI.
+- **PR / CI / deployment:** implementation commit `e700c1ac8496abadb938af3b2b8bd084ab608fcf`; PR/CI ещё отсутствуют. PostgreSQL/Redis integration, Linux Bash tests и protected migration/API/web/worker delivery не заявлены локально и остаются обязательными exact-head CI/DEPLOY gates.
 - **Blockers / unverified assumptions:** blockers для review отсутствуют. Optional Telegram credentials/configuration не проверялись и не нужны для honest `not_configured`; реальное Telegram сообщение запрещено без отдельной action-time authorization. Production canary реализован как internal create/dedup/resolve в одной transaction и заранее suppress-ит delivery rows, поэтому не вызывает внешний transport.
 
 ## Previous Goal closure — `STORAGE-LIFECYCLE-FOLLOWUP-01`
