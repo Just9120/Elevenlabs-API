@@ -307,6 +307,9 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                     ),
                     {"checkpoint_id": checkpoint_id},
                 ).scalar_one() == checkpoint_id
+                # Operational alert evaluation reads the current provider
+                # account snapshot, but never mutates provider accounting.
+                conn.execute(text("SELECT id FROM provider_account_snapshots LIMIT 0"))
                 with pytest.raises(ProgrammingError) as failure:
                     conn.execute(
                         text(
@@ -324,7 +327,6 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                     "TRUNCATE alembic_version",
                     "CREATE TABLE public.worker_must_not_create (id integer)",
                     "SELECT * FROM sessions LIMIT 0",
-                    "SELECT * FROM provider_account_snapshots LIMIT 0",
                 ):
                     with pytest.raises(ProgrammingError) as failure:
                         conn.execute(text(statement))
