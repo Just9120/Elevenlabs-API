@@ -42,8 +42,8 @@ Manual speaker identity is an owner-scoped post-processing contour for accepted 
 | --- | --- | --- | --- |
 | Studio frontend | `apps/studio/` | Browser UI for sessions, standalone audio preparation, bounded direct-to-Drive media upload, ordinary/Live/maintenance `Транскрибации`, app-owned searchable Drive dialogs, internal legacy workspaces, sources, credentials, primary Google connection, separate maintenance consent, grouped multi-transcriptions with item-level jobs/outputs, manual speaker profile/listen/assign flow, provider-account subscription/usage freshness, diagnostics, standardization, `Манифест Studio`, and Live workspace with IndexedDB/server draft recovery; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Current merge/CI/deployment evidence belongs in `docs/delivery-plan.md`; source presence is not deployment, live provider/account, Google, recovery or Live-capture evidence. |
 | Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, audio-preparation/job/source/credential/output/diagnostic/catalog services, bounded official ElevenLabs subscription/workspace-usage reads, descriptor-bound direct-Drive upload issuance and result verification, encrypted temporary Live drafts, separate maintenance OAuth/token refresh, durable maintenance run enqueue/read authority, exact-document revalidation, bounded recursive folder traversal, and redacted single-use realtime capability issuance. | Current merge/CI/deployment evidence belongs in `docs/delivery-plan.md`; newer schema/config requires a separately verified API rollout. |
-| Database | PostgreSQL via Studio deployment | Durable users/preferences/projects/sources/credentials/transcription and audio-preparation jobs/outputs/diagnostics/catalog state, persisted Source reference class and exact bucket identity, durable single-PUT/multipart upload authority, owner-scoped output-folder Favorites, authoritative optional source-creation metadata, separately encrypted maintenance grant fields, owner-scoped transcript-maintenance run/progress/lease/result state, bounded provider-part progress counters, confirmed provider usage/cost with an immutable per-job tariff snapshot, bounded owner/credential-version-scoped ElevenLabs account snapshots, immutable optional media-clip bounds, safe underlying provider failure categories, TTL-bounded encrypted completed-part checkpoints, 72-hour encrypted Live transcript drafts, and the single authoritative worker-runtime heartbeat row. | This branch contains migrations through additive `0032_source_multipart_authority`; exact production revision evidence is tracked separately in `docs/delivery-plan.md` and must never be inferred from repository source. |
-| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current branch head is additive direct successor `0032_source_multipart_authority`; ordinary component CD does not apply it. The separately enabled protected release lane may apply only one reviewed direct additive successor per approval. |
+| Database | PostgreSQL via Studio deployment | Durable users/preferences/projects/sources/credentials/transcription and audio-preparation jobs/outputs/diagnostics/catalog state, persisted Source reference class and exact bucket identity, durable single-PUT/multipart upload authority, owner-scoped output-folder Favorites, authoritative optional source-creation metadata, separately encrypted maintenance grant fields, owner-scoped transcript-maintenance run/progress/lease/result state, bounded provider-part progress counters, confirmed provider usage/cost with an immutable per-job tariff snapshot, bounded owner/credential-version-scoped ElevenLabs account snapshots, immutable optional media-clip bounds, safe underlying provider failure categories, TTL-bounded encrypted completed-part checkpoints, 72-hour encrypted Live transcript drafts, trace-linked append-only audit records, owner-scoped operational incidents/deliveries, and the single authoritative worker-runtime heartbeat row. | This branch contains migrations through additive `0033_observability_alerts_audit`; exact production revision evidence is tracked separately in `docs/delivery-plan.md` and must never be inferred from repository source. |
+| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current branch head is additive direct successor `0033_observability_alerts_audit`; ordinary component CD does not apply it. The separately enabled protected release lane may apply only one reviewed direct additive successor per approval. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
 | Object storage | Two S3/R2-compatible reference boundaries | Private temporary/local-upload source bytes. `transcription` and `audio_processing` select separate configured buckets, credential files and lifecycle identifiers; Sources persist class, exact bucket and upload protocol/session authority. Small files receive one bounded PUT capability. Large files use owner-scoped multipart part capabilities; the server alone retains upload ID, object key and ETags, validates exact part count/sizes and confirms the completed object. | Missing/equal boundaries or a persisted bucket mismatch fail closed without cross-bucket fallback. Existing objects keep the migration-default `transcription` class and are not moved. Object keys/source bytes/session IDs remain server-only. Abandoned multipart sessions enter durable cleanup and provider lifecycle is a second bounded safety net. Provider-side permissions/lifecycle require external Evidence. |
 | Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process bounded work according to lease and lifecycle rules. Audio preparation and normal transcription claims precede transcript maintenance; maintenance has its own fenced generation and shared stage heartbeat. The runtime has explicit CPU/memory/PID limits, a read-only root filesystem, bounded tmpfs, a dedicated outbound/DB network pair and a direct-grant `studio_worker` PostgreSQL login without DDL/role/auth-session authority. | Worker deployment is manual-only. Current running/stopped identity, effective isolation and canary evidence belong in `docs/delivery-plan.md`; multi-worker behavior remains unproven. |
@@ -234,6 +234,45 @@ nginx, verify exact local/public headers and API health, and restore the backup
 on post-mutation failure. This path owns no site rewrite, container, database,
 worker, secret, Google, or provider operation and is distinct from both ordinary
 component CD and the protected migration lane.
+
+## Observability, audit and operational-alert authority
+
+The browser creates one opaque bounded `trace_id` for each API request. The API
+accepts only the canonical shape or replaces it, echoes the effective value in
+`X-Trace-ID`, keeps it in request-local context and snapshots the job-creation
+trace on transcription and audio-preparation jobs. Worker diagnostics recover
+that trace only through the exact owner/job relation. Diagnostic and audit
+projections may expose the opaque identifier for support correlation, but never
+derive it from or attach transcript content, storage identity, provider payload
+or credentials. External providers do not receive Studio trace headers; the
+allowlisted local result/error event is the external-boundary correlation point.
+
+Every newly written audit row has one bounded operation outcome. Null remains
+reserved for legacy rows and is projected honestly as `legacy_unknown`. An
+additive PostgreSQL trigger rejects update/delete of historical audit rows even
+for ordinary application credentials; worker grants likewise exclude those
+operations. Maintenance/migration ownership remains explicit and separate from
+History/Analytics clear behavior.
+
+Operational alerts are PostgreSQL-owned state, not log scraping and not a second
+queue. One `OperationalIncident` per owner/kind carries a lifecycle generation,
+aggregate evidence and safe summary. `OperationalAlertDelivery` owns the unique
+generation/kind/channel attempt, short claim, bounded retry and terminal outcome.
+The idle worker evaluates bounded database/diagnostic/account signals, commits a
+delivery claim before releasing the transaction, performs optional Telegram I/O
+without a database transaction, then commits only a safe result code. It sends no
+user job notification and performs no remediation, restart, retry or deletion.
+
+The owner-facing Support settings API reads only owner-scoped incidents and the
+latest delivery state. It exposes explicit `ready`, `not_configured`, `pending`,
+`firing`, `acknowledged`, `resolved`, `delivered`, `failed` or `suppressed`
+states without trace IDs or raw evidence. Email remains an honest
+`not_configured` health dimension. Telegram credentials are optional separate
+file-backed runtime secrets mounted only into API/worker; message text is a fixed
+allowlisted Russian summary. Backup automation can append a success/failure
+audit outcome through the running API for one explicitly configured personal
+owner, but alert-recording failure never changes the authoritative backup exit
+code.
 
 ## Worker operational boundary
 

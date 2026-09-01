@@ -26,6 +26,7 @@ Required secret-file classes include:
 - primary Google OAuth client secret file when Picker/browser OAuth is enabled;
 - separate maintenance Google OAuth client secret file when recursive transcript maintenance is enabled;
 - separate transcription-reference and audio-reference access-key files for two private S3/R2-compatible buckets;
+- optional Telegram operational-alert bot-token and chat-ID files when that transport is enabled;
 - backup/restic repository/password/access secret files when backup automation is used.
 
 Rules:
@@ -267,7 +268,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0031_provider_account_snapshots`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0033_observability_alerts_audit`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -413,7 +414,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0031_provider_account_snapshots`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0033_observability_alerts_audit`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -445,6 +446,102 @@ Google Docs standardization and **Манифест Studio** are two separately i
 A PostgreSQL restore can recover catalog metadata, but it does not automatically revert Google Docs changed by standardization before a database failure. Google recovery depends on approved canary copies or Google version history. If standardization may have partially changed external documents, do not automatically rerun apply, delete documents, restore production PostgreSQL, or broaden permissions. Stop and make recovery a separate operator-reviewed stateful task.
 
 Safe evidence includes the merged commit, required CI result, deployed web/API image identities, database revision, backup snapshot ID, public and localhost health, non-private target mode, aggregate dry-run/apply counts, absence of provider/job mutations, and the explicit operator approval. It must exclude private folder/object identifiers, document names or bodies, Google responses, credentials, and tokens.
+
+## Operational incidents and optional Telegram
+
+Migration `0033_observability_alerts_audit` is the additive authority for
+cross-boundary `trace_id`, explicit audit outcome, database-enforced append-only
+audit rows, owner-scoped operational incidents and bounded delivery attempts. The
+PostgreSQL trigger rejects `UPDATE` and `DELETE` on `audit_events`; ordinary API
+and worker roles must keep only their required read/insert grants. `TRUNCATE`,
+trigger removal and downgrade remain maintenance/migration actions and are never
+application recovery mechanisms.
+
+The idle worker evaluates active owners at the configured bounded interval. It
+does not evaluate or deliver after a stop signal and it never holds a database
+transaction during Telegram network I/O. Current deterministic signals are:
+
+- allowlisted critical API/worker diagnostics;
+- queued jobs older than `STUDIO_ALERT_STUCK_QUEUE_SECONDS` or processing jobs
+  whose lease is already expired;
+- at least `STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD` provider unavailable,
+  timeout or `5xx` occurrences inside `STUDIO_ALERT_SIGNAL_WINDOW_SECONDS`;
+- transcript-maintenance or source-storage-cleanup failures;
+- the latest owner-scoped PostgreSQL backup outcome when it is `failed`;
+- remaining provider-period units at or below
+  `STUDIO_ALERT_LIMIT_REMAINING_PERCENT`, but only when an authoritative current
+  account snapshot contains both period limit and remaining values;
+- Studio-managed local-reference bytes near `STUDIO_ALERT_STORAGE_LIMIT_BYTES`,
+  but only when the operator has configured that known limit. An absent storage
+  limit is `not_configured`, not zero and not proof of unlimited capacity.
+
+Warning signals require a repeated evaluation before firing. Critical signals
+fire immediately. One owner/kind row owns `pending → firing → acknowledged →
+resolved`; lifecycle generation, a unique delivery key, cooldown, bounded retry
+count and a stale-claim terminal state prevent an unbounded alert storm. An
+acknowledgement suppresses only a not-yet-sent firing delivery and does not
+resolve the underlying signal. Recovery is produced only after a previously
+firing/acknowledged signal clears.
+
+Telegram is optional and disabled by default. To enable it, create two distinct
+operator-managed regular secret files outside the checkout, normally root-owned
+`0600`: one bot token and one numeric chat ID. Set their host paths in
+`STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE` and
+`STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE`, set
+`STUDIO_ALERT_TELEGRAM_ENABLED=true`, and recreate only the reviewed API/worker
+components after migration and configuration validation. Never print either
+file, pass its content in `.env`, or reuse a reference-storage credential file.
+The UI reports Telegram as ready only when both mounted files can be read and
+pass their bounded shape checks. Email remains explicitly `not_configured`; no
+SMTP transport is implied by this Goal.
+
+Telegram text contains only the product name, lifecycle state, allowlisted
+summary and severity. It never includes owner email, source/job/document IDs,
+filenames, object keys, transcript text, provider response, URL, token or stack
+trace. Delivery timeout is bounded; provider response bodies are discarded; a
+failed send records only an allowlisted error code. Disable the transport first
+if credential validity is uncertain—do not diagnose by printing a token or by
+sending an uncontrolled production message.
+
+For host PostgreSQL backups, configure only the personal owner UUID as
+`STUDIO_ALERT_OWNER_USER_ID` in `/etc/elevenlabs-studio/backup.env`. The reviewed
+backup script asks the already-running API container to append one `success` or
+`failed` outcome after the backup attempt. Failure to record that secondary
+outcome is reported safely but never changes the original backup exit code. An
+absent owner UUID leaves the legacy backup behavior unchanged. Do not invent a
+failure outcome merely to test alerts.
+
+Safe rollout order is: protected additive migration → API/web component delivery
+→ stopped-worker configuration/DB-role verification → worker deploy/status. A
+green component health check proves neither incident evaluation nor Telegram
+delivery. Production verification without external messaging may inspect an
+existing naturally occurring safe signal or use the dedicated internal canary;
+a real Telegram send requires separate action-time owner authorization. After
+the exact migrated API revision is healthy, run the canary once with the approved
+active personal owner UUID:
+
+```bash
+docker compose \
+  --env-file deploy/studio/.env \
+  -f deploy/studio/compose.platform.yml \
+  exec -T studio-api \
+  python -m studio_api.cli run-observability-alert-canary __OWNER_USER_UUID__
+```
+
+The command uses a dedicated `operator_canary` kind, creates the warning,
+observes it twice, resolves it, and suppresses both firing and recovery delivery
+rows before the single transaction becomes visible. It therefore cannot collide
+with a real signal and cannot be claimed by the worker, even if Telegram is
+configured. Accept only `OBSERVABILITY_ALERT_CANARY_OK` with `status=resolved`,
+one incremented generation, two observations for that generation and an opaque
+valid `trace_id`. Then confirm through the authenticated owner endpoint/UI that
+the recent recovery is visible and carries the same safe trace through its audit
+record. Do not print the owner UUID in durable evidence, rerun merely to change a
+timestamp, or use a real failure/provider/storage mutation as a substitute.
+Stop on duplicate deliveries for one lifecycle generation, cross-owner data,
+unbounded retry, secret-bearing output, unknown storage/account limits or an
+unexpected provider/Google call. Do not restart services, requeue jobs, mutate
+audit history or delete storage as alert remediation.
 
 ## Component deployment
 
@@ -748,4 +845,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0032_source_multipart_authority`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0033_observability_alerts_audit`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

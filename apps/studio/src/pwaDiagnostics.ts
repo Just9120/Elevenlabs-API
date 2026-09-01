@@ -1,3 +1,5 @@
+import { newTraceId } from "./traceId";
+
 export type PwaDiagnosticEventCode =
   | "PWA_APP_ERROR"
   | "PWA_UNHANDLED_REJECTION"
@@ -134,7 +136,7 @@ export async function flushPwaDiagnostics() {
     await fetch("/api/diagnostics/pwa-events", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
+      headers: { "content-type": "application/json", "x-csrf-token": csrfToken, "x-trace-id": newTraceId() },
       body: JSON.stringify({ events: batch }),
     });
   } catch { /* best effort: failed batch is not retried */ }

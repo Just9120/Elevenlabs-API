@@ -2099,6 +2099,40 @@ code {
   padding-left: 0;
   list-style: none;
 }
+
+.operational-incidents {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.operational-incident {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--studio-border);
+  border-left: 4px solid var(--warning, #f5a524);
+  border-radius: 0.75rem;
+  background: var(--studio-soft);
+}
+
+.operational-incident.critical {
+  border-left-color: var(--danger, #ef6461);
+}
+
+.operational-incident p {
+  margin: 0.25rem 0 0;
+}
+
+@media (max-width: 720px) {
+  .operational-incident {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
 .diagnostics-event {
   display: grid;
   gap: 0.55rem;

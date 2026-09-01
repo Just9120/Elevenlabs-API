@@ -31,6 +31,8 @@ SECRET_FILES = {
     "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE": (
         "studio_google_maintenance_oauth_client_secret"
     ),
+    "STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE": "studio_alert_telegram_bot_token",
+    "STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE": "studio_alert_telegram_chat_id",
 }
 MOUNTED_SECRET_RULES: dict[str, tuple[int, int] | None] = {
     "STUDIO_POSTGRES_PASSWORD_FILE": None,
@@ -41,6 +43,8 @@ MOUNTED_SECRET_RULES: dict[str, tuple[int, int] | None] = {
     "STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE": (32, 256),
     "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE": None,
     "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE": None,
+    "STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE": None,
+    "STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE": None,
 }
 
 

@@ -35,6 +35,14 @@ describe("CSRF mutation retry contract", () => {
     ).resolves.toEqual({ ok: true });
     expect(onCsrf).toHaveBeenCalledWith("csrf-new");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    const firstTrace = new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+      "x-trace-id",
+    );
+    const replayTrace = new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get(
+      "x-trace-id",
+    );
+    expect(firstTrace).toMatch(/^trace_[A-Za-z0-9_-]{16,64}$/);
+    expect(replayTrace).toBe(firstTrace);
   });
 
   it.each([401, 403, 419])(

@@ -91,12 +91,32 @@ class Settings(BaseSettings):
     runtime_worker_heartbeat_interval_seconds: int = Field(default=30, ge=5, le=300)
     runtime_worker_stale_after_seconds: int = Field(default=120, ge=30, le=900)
     diagnostic_report_max_events: int = Field(default=5000, ge=1, le=5000)
+    alert_evaluation_interval_seconds: int = Field(default=60, ge=30, le=3600)
+    alert_signal_window_seconds: int = Field(default=900, ge=300, le=86400)
+    alert_stuck_queue_seconds: int = Field(default=900, ge=300, le=86400)
+    alert_provider_failure_threshold: int = Field(default=3, ge=2, le=20)
+    alert_limit_remaining_percent: int = Field(default=15, ge=1, le=50)
+    alert_storage_limit_bytes: int | None = Field(default=None, ge=1048576, le=109951162777600)
+    alert_incident_cooldown_seconds: int = Field(default=1800, ge=300, le=86400)
+    alert_delivery_retry_seconds: int = Field(default=300, ge=60, le=3600)
+    alert_delivery_max_attempts: int = Field(default=3, ge=1, le=5)
+    alert_telegram_enabled: bool = False
+    alert_telegram_bot_token_file: str | None = None
+    alert_telegram_chat_id_file: str | None = None
+    alert_telegram_timeout_seconds: int = Field(default=5, ge=1, le=15)
 
     @field_validator("trusted_proxy_ip")
     @classmethod
     def validate_trusted_proxy_ip(cls, value: IPvAnyAddress):
         if value.is_unspecified or value.is_multicast:
             raise ValueError("trusted proxy must be one specific unicast IP")
+        return value
+
+    @field_validator("alert_storage_limit_bytes", mode="before")
+    @classmethod
+    def normalize_optional_storage_alert_limit(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @model_validator(mode="after")
@@ -118,6 +138,14 @@ class Settings(BaseSettings):
             raise ValueError("multipart part size must not exceed multipart threshold")
         if self.storage_reconciliation_apply_limit > self.storage_reconciliation_scan_limit:
             raise ValueError("reconciliation apply limit must not exceed scan limit")
+        telegram_files = (
+            self.alert_telegram_bot_token_file,
+            self.alert_telegram_chat_id_file,
+        )
+        if self.alert_telegram_enabled and not all(telegram_files):
+            raise ValueError("Telegram alerts require bot token and chat id secret files")
+        if all(telegram_files) and telegram_files[0] == telegram_files[1]:
+            raise ValueError("Telegram alert secret files must be distinct")
         return self
 
     def master_key_b64(self) -> str:
@@ -160,6 +188,28 @@ class Settings(BaseSettings):
 
     def google_picker_configured(self) -> bool:
         return bool((self.google_picker_api_key or "").strip() and (self.google_picker_app_id or "").strip())
+
+    def telegram_alerts_configured(self) -> bool:
+        try:
+            self.telegram_alert_credentials()
+        except (OSError, RuntimeError, UnicodeError):
+            return False
+        return True
+
+    def telegram_alert_credentials(self) -> tuple[str, str]:
+        if not (
+            self.alert_telegram_enabled
+            and self.alert_telegram_bot_token_file
+            and self.alert_telegram_chat_id_file
+        ):
+            raise RuntimeError("Telegram alerts are not configured")
+        token = Path(self.alert_telegram_bot_token_file or "").read_text(encoding="utf-8").strip()
+        chat_id = Path(self.alert_telegram_chat_id_file or "").read_text(encoding="utf-8").strip()
+        if not (20 <= len(token) <= 256 and ":" in token):
+            raise RuntimeError("Telegram bot token secret is invalid")
+        if not (1 <= len(chat_id) <= 32 and chat_id.lstrip("-").isdigit()):
+            raise RuntimeError("Telegram chat id secret is invalid")
+        return token, chat_id
 
     def sqlalchemy_url(self) -> str:
         if self.database_url:

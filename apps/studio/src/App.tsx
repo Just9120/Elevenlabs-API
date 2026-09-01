@@ -265,7 +265,8 @@ function isExpectedOkResponse(candidate: unknown): candidate is { ok: true } {
     (candidate as { ok?: unknown }).ok === true
   );
 }
-type Audit = { id: string; type: string; created_at: string };
+type AuditOutcome = "success" | "rejected" | "failed" | "partial" | "legacy_unknown";
+type Audit = { id: string; type: string; outcome: AuditOutcome; trace_id?: string | null; created_at: string };
 type AuditPage = {
   items: Audit[];
   nextCursor: string | null;
@@ -279,6 +280,7 @@ function parseAuditCollection(candidate: unknown): AuditPage | null {
   for (const rawEvent of rawEvents) {
     if (!rawEvent || typeof rawEvent !== "object") return null;
     const event = rawEvent as Record<string, unknown>;
+    const outcome = event.outcome === undefined ? "legacy_unknown" : event.outcome;
     if (
       typeof event.id !== "string" ||
       event.id.length === 0 ||
@@ -287,13 +289,18 @@ function parseAuditCollection(candidate: unknown): AuditPage | null {
       event.type.length === 0 ||
       event.type.length > 80 ||
       typeof event.created_at !== "string" ||
-      !Number.isFinite(Date.parse(event.created_at))
+      !Number.isFinite(Date.parse(event.created_at)) ||
+      (event.trace_id !== undefined && event.trace_id !== null &&
+        (typeof event.trace_id !== "string" || !/^trace_[A-Za-z0-9_-]{16,64}$/.test(event.trace_id))) ||
+      !["success", "rejected", "failed", "partial", "legacy_unknown"].includes(String(outcome))
     ) {
       return null;
     }
     events.push({
       id: event.id,
       type: event.type,
+      outcome: outcome as AuditOutcome,
+      trace_id: event.trace_id as string | null | undefined,
       created_at: event.created_at,
     });
   }
@@ -363,6 +370,7 @@ type DiagnosticsSystem = {
     worker?: { status?: string };
     object_storage?: { status?: string; probe?: string };
     stt_provider?: { status?: string; availability?: string; probe?: string; configured_credentials?: number };
+    email?: { status?: string };
   };
   google_drive?: { connected?: boolean; scope_ready?: boolean };
   provider_credentials?: { active_count?: number; ready?: boolean };
@@ -373,6 +381,28 @@ type DiagnosticsSystem = {
     debug_retention_hours?: number;
   };
   report_limits?: { max_days?: number; max_timeline_events?: number };
+  alerts?: {
+    incident_monitoring?: string;
+    telegram?: string;
+    email?: string;
+    storage_limit?: string;
+    api_limit?: string;
+    incidents?: OperationalIncident[];
+  };
+};
+type OperationalIncident = {
+  id: string;
+  kind: "critical_error" | "stuck_queue" | "provider_unavailable" | "maintenance_failure" | "backup_failure" | "storage_limit" | "api_limit" | "operator_canary";
+  severity: "warning" | "critical";
+  status: "pending" | "firing" | "acknowledged" | "resolved";
+  summary_code: "critical_errors" | "queue_stuck" | "provider_unavailable" | "maintenance_failure" | "backup_failure" | "storage_limit_near" | "api_limit_near" | "operator_canary_ok";
+  occurrence_count: number;
+  evidence_count: number;
+  first_detected_at: string;
+  last_detected_at: string;
+  last_transition_at: string;
+  trace_id?: string | null;
+  delivery: { channel: "telegram"; state: string; attempt_count: number; notification_kind?: string | null };
 };
 type DiagnosticsEvent = {
   id: string;
@@ -433,6 +463,31 @@ function hasOptionalDiagnosticsCount(
     (Number.isInteger(record[key]) && (record[key] as number) >= 0)
   );
 }
+function parseOperationalIncidents(candidate: unknown): OperationalIncident[] | null {
+  if (!Array.isArray(candidate) || candidate.length > 20) return null;
+  const incidents: OperationalIncident[] = [];
+  const ids = new Set<string>();
+  for (const raw of candidate) {
+    if (!isDiagnosticsRecord(raw) || !isDiagnosticsRecord(raw.delivery)) return null;
+    if (
+      typeof raw.id !== "string" || raw.id.length > 36 || ids.has(raw.id) ||
+      !["critical_error", "stuck_queue", "provider_unavailable", "maintenance_failure", "backup_failure", "storage_limit", "api_limit", "operator_canary"].includes(String(raw.kind)) ||
+      !["warning", "critical"].includes(String(raw.severity)) ||
+      !["pending", "firing", "acknowledged", "resolved"].includes(String(raw.status)) ||
+      !["critical_errors", "queue_stuck", "provider_unavailable", "maintenance_failure", "backup_failure", "storage_limit_near", "api_limit_near", "operator_canary_ok"].includes(String(raw.summary_code)) ||
+      !Number.isInteger(raw.occurrence_count) || (raw.occurrence_count as number) < 1 ||
+      !Number.isInteger(raw.evidence_count) || (raw.evidence_count as number) < 0 ||
+      ![raw.first_detected_at, raw.last_detected_at, raw.last_transition_at].every((value) => typeof value === "string" && Number.isFinite(Date.parse(value))) ||
+      (raw.trace_id !== undefined && raw.trace_id !== null &&
+        (typeof raw.trace_id !== "string" || !/^trace_[A-Za-z0-9_-]{16,64}$/.test(raw.trace_id))) ||
+      raw.delivery.channel !== "telegram" || typeof raw.delivery.state !== "string" || raw.delivery.state.length > 32 ||
+      !Number.isInteger(raw.delivery.attempt_count) || (raw.delivery.attempt_count as number) < 0
+    ) return null;
+    ids.add(raw.id);
+    incidents.push(raw as OperationalIncident);
+  }
+  return incidents;
+}
 function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
   if (!isDiagnosticsRecord(candidate)) return null;
   const build = candidate.build;
@@ -442,6 +497,12 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
   const reportLimits = candidate.report_limits;
   const components = candidate.components;
   const health = candidate.health;
+  const alerts = candidate.alerts;
+  const parsedIncidents = alerts === undefined
+    ? []
+    : isDiagnosticsRecord(alerts)
+      ? parseOperationalIncidents(alerts.incidents ?? [])
+      : null;
   if (
     !isDiagnosticsRecord(build) ||
     !isDiagnosticsRecord(googleDrive) ||
@@ -465,7 +526,9 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
     !hasOptionalDiagnosticsCount(diagnostics, "retention_days") ||
     !hasOptionalDiagnosticsCount(diagnostics, "debug_retention_hours") ||
     !hasOptionalDiagnosticsCount(reportLimits, "max_days") ||
-    !hasOptionalDiagnosticsCount(reportLimits, "max_timeline_events")
+    !hasOptionalDiagnosticsCount(reportLimits, "max_timeline_events") ||
+    parsedIncidents === null ||
+    (isDiagnosticsRecord(alerts) && !["incident_monitoring", "telegram", "email", "storage_limit", "api_limit"].every((key) => hasOptionalDiagnosticsString(alerts, key)))
   ) {
     return null;
   }
@@ -488,6 +551,7 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
     const worker = health.worker;
     const storage = health.object_storage;
     const provider = health.stt_provider;
+    const email = health.email;
     if (
       !hasOptionalDiagnosticsString(health, "backend") ||
       !hasOptionalDiagnosticsString(health, "database") ||
@@ -505,7 +569,8 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
       !hasOptionalDiagnosticsString(provider, "status") ||
       !hasOptionalDiagnosticsString(provider, "availability") ||
       !hasOptionalDiagnosticsString(provider, "probe") ||
-      !hasOptionalDiagnosticsCount(provider, "configured_credentials")
+      !hasOptionalDiagnosticsCount(provider, "configured_credentials") ||
+      (email !== undefined && (!isDiagnosticsRecord(email) || !hasOptionalDiagnosticsString(email, "status")))
     ) return null;
   }
   return {
@@ -542,6 +607,14 @@ function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
         | number
         | undefined,
     },
+    alerts: isDiagnosticsRecord(alerts) ? {
+      incident_monitoring: alerts.incident_monitoring as string | undefined,
+      telegram: alerts.telegram as string | undefined,
+      email: alerts.email as string | undefined,
+      storage_limit: alerts.storage_limit as string | undefined,
+      api_limit: alerts.api_limit as string | undefined,
+      incidents: parsedIncidents ?? [],
+    } : undefined,
   };
 }
 function parseDiagnosticsEvent(candidate: unknown): DiagnosticsEvent | null {
@@ -6483,6 +6556,62 @@ function auditLabel(type: string) {
   return labels[type] ?? "Событие безопасности";
 }
 
+function auditOutcomeLabel(outcome: AuditOutcome) {
+  return {
+    success: "выполнено",
+    rejected: "отклонено",
+    failed: "ошибка",
+    partial: "частично",
+    legacy_unknown: "старый формат",
+  }[outcome];
+}
+
+function incidentSummaryLabel(code: OperationalIncident["summary_code"]) {
+  return {
+    critical_errors: "Критические ошибки Studio",
+    queue_stuck: "Очередь обработки не продвигается",
+    provider_unavailable: "STT provider временно недоступен",
+    maintenance_failure: "Ошибка обслуживания или очистки",
+    backup_failure: "Ошибка резервного копирования PostgreSQL",
+    storage_limit_near: "Временное хранилище близко к лимиту",
+    api_limit_near: "API credits близки к лимиту",
+    operator_canary_ok: "Проверка контура предупреждений завершена",
+  }[code];
+}
+
+function incidentStatusLabel(status: OperationalIncident["status"]) {
+  return {
+    pending: "проверяем повторно",
+    firing: "требует внимания",
+    acknowledged: "принято к сведению",
+    resolved: "восстановлено",
+  }[status];
+}
+
+function alertTransportLabel(status?: string) {
+  return status === "ready" ? "готов" : status === "not_configured" ? "не настроен" : safeText(status);
+}
+
+function alertSignalLabel(status?: string) {
+  return {
+    enabled: "работает",
+    configured: "данные доступны",
+    unavailable: "данные пока недоступны",
+    not_configured: "не настроен",
+  }[status ?? ""] ?? safeText(status);
+}
+
+function incidentDeliveryLabel(state: string) {
+  return {
+    not_attempted: "не требовалась",
+    pending: "ожидает отправки",
+    claimed: "отправляется",
+    delivered: "отправлено",
+    failed: "будет повторена",
+    suppressed: "не отправлялось",
+  }[state] ?? "состояние неизвестно";
+}
+
 function SourceStorageSettings({
   csrf,
   onCsrf,
@@ -8125,7 +8254,7 @@ function SettingsPage({
                 .slice(0, 20)
                 .map((e) => (
                   <li key={e.id}>
-                    {auditLabel(e.type)} ·{" "}
+                    {auditLabel(e.type)} · {auditOutcomeLabel(e.outcome)} ·{" "}
                     {new Date(e.created_at).toLocaleString("ru-RU")}
                   </li>
                 ))}
@@ -8135,7 +8264,7 @@ function SettingsPage({
               <ul>
                 {events.slice(0, 20).map((e) => (
                   <li key={e.id}>
-                    {e.type} · {new Date(e.created_at).toLocaleString("ru-RU")}
+                    {e.type} · {auditOutcomeLabel(e.outcome)} · {new Date(e.created_at).toLocaleString("ru-RU")}
                   </li>
                 ))}
               </ul>
@@ -8197,6 +8326,8 @@ function DiagnosticsSettings({
   );
   const [exportState, setExportState] = useState("");
   const [exportPending, setExportPending] = useState(false);
+  const [incidentMutationId, setIncidentMutationId] = useState<string | null>(null);
+  const [incidentMessage, setIncidentMessage] = useState("");
   const [debugSession, setDebugSession] =
     useState<DiagnosticsDebugSession | null>(null);
   const [debugState, setDebugState] = useState<"loading" | "ready" | "error">(
@@ -8292,6 +8423,47 @@ function DiagnosticsSettings({
       () => {
         setSystem(null);
         setSystemState("error");
+      },
+      {
+        controllers: diagnosticsReadControllersRef.current,
+        timeoutMs: DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const acknowledgeOperationalIncident = (incidentId: string) => {
+    if (incidentMutationId) return;
+    setIncidentMutationId(incidentId);
+    setIncidentMessage("");
+    void settleLatestRequest(
+      diagnosticsReadEpochsRef.current,
+      "diagnostics:incident-ack",
+      async (signal) => {
+        const candidate = await csrfMutate<unknown>(
+          `/diagnostics/incidents/${incidentId}/acknowledge`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        );
+        const parsed = parseOperationalIncidents([candidate]);
+        if (!parsed || parsed[0]?.id !== incidentId || parsed[0].status !== "acknowledged") {
+          throw new Error("invalid_incident_acknowledgement_response");
+        }
+        return parsed[0];
+      },
+      (incident) => {
+        setSystem((current) => current ? {
+          ...current,
+          alerts: {
+            ...current.alerts,
+            incidents: (current.alerts?.incidents ?? []).map((item) => item.id === incident.id ? incident : item),
+          },
+        } : current);
+        setIncidentMutationId(null);
+        setIncidentMessage("Предупреждение отмечено как просмотренное.");
+      },
+      () => {
+        setIncidentMutationId(null);
+        setIncidentMessage("Не удалось подтвердить предупреждение. Повторите попытку.");
       },
       {
         controllers: diagnosticsReadControllersRef.current,
@@ -8631,6 +8803,63 @@ function DiagnosticsSettings({
           </dl>
         )}
       </section>
+      <section className="card" aria-labelledby="operational-incidents-title">
+        <h3 id="operational-incidents-title">Системные предупреждения</h3>
+        <p className="muted">
+          Studio объединяет повторяющиеся сбои и отдельно сообщает о восстановлении. Содержимое файлов и транскрипций сюда не попадает.
+        </p>
+        {systemState === "loading" && <p role="status">Проверяем предупреждения…</p>}
+        {systemState === "ready" && system && (
+          <>
+            <dl className="meta">
+              <dt>Встроенный мониторинг</dt>
+              <dd>{alertSignalLabel(system.alerts?.incident_monitoring)}</dd>
+              <dt>Telegram</dt>
+              <dd>{alertTransportLabel(system.alerts?.telegram)}</dd>
+              <dt>Email</dt>
+              <dd>{alertTransportLabel(system.alerts?.email ?? system.health?.email?.status)}</dd>
+              <dt>Лимит временного хранилища</dt>
+              <dd>{alertSignalLabel(system.alerts?.storage_limit)}</dd>
+              <dt>Остаток API credits</dt>
+              <dd>{alertSignalLabel(system.alerts?.api_limit)}</dd>
+            </dl>
+            {(system.alerts?.incidents ?? []).filter((incident) => incident.status !== "resolved").length === 0 ? (
+              <p className="notice" role="status">Активных системных предупреждений нет.</p>
+            ) : (
+              <ul className="operational-incidents">
+                {(system.alerts?.incidents ?? []).filter((incident) => incident.status !== "resolved").map((incident) => (
+                  <li key={incident.id} className={`operational-incident ${incident.severity}`}>
+                    <div>
+                      <b>{incidentSummaryLabel(incident.summary_code)}</b>
+                      <p>{incidentStatusLabel(incident.status)} · обновлено {formatTime(incident.last_transition_at)}</p>
+                      <p className="muted">Повторений: {incident.occurrence_count} · уведомление: {incidentDeliveryLabel(incident.delivery.state)}</p>
+                    </div>
+                    {(incident.status === "pending" || incident.status === "firing") && (
+                      <button type="button" className="secondary" disabled={incidentMutationId !== null} onClick={() => acknowledgeOperationalIncident(incident.id)}>
+                        {incidentMutationId === incident.id ? "Подтверждаем…" : "Просмотрено"}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(system.alerts?.incidents ?? []).some((incident) => incident.status === "resolved") && (
+              <details className="technical-details">
+                <summary>Недавние восстановления</summary>
+                <ul>
+                  {(system.alerts?.incidents ?? []).filter((incident) => incident.status === "resolved").map((incident) => (
+                    <li key={incident.id}>
+                      {incidentSummaryLabel(incident.summary_code)} · {formatTime(incident.last_transition_at)}
+                      {incident.trace_id && <> · <code>{incident.trace_id}</code></>}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {incidentMessage && <p role={incidentMessage.startsWith("Не удалось") ? "alert" : "status"}>{incidentMessage}</p>}
+          </>
+        )}
+      </section>
       <section className="card" aria-labelledby="timeline-title">
         <h3 id="timeline-title">События диагностики</h3>
         <form
@@ -8963,7 +9192,8 @@ function DiagnosticsSettings({
           <ul>
             {visibleAuditEvents.map((event) => (
               <li key={event.id}>
-                {auditLabel(event.type)} · {formatTime(event.created_at)}
+                {auditLabel(event.type)} · {auditOutcomeLabel(event.outcome)} · {formatTime(event.created_at)}
+                {event.trace_id && <> · <code>{event.trace_id}</code></>}
               </li>
             ))}
           </ul>

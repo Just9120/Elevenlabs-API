@@ -57,6 +57,22 @@ def test_studio_worker_compose_contract():
         assert "STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE" in service
         assert "STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE" in service
         assert "STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID" in service
+        for key in (
+            "STUDIO_ALERT_EVALUATION_INTERVAL_SECONDS",
+            "STUDIO_ALERT_SIGNAL_WINDOW_SECONDS",
+            "STUDIO_ALERT_STUCK_QUEUE_SECONDS",
+            "STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD",
+            "STUDIO_ALERT_LIMIT_REMAINING_PERCENT",
+            "STUDIO_ALERT_INCIDENT_COOLDOWN_SECONDS",
+            "STUDIO_ALERT_DELIVERY_RETRY_SECONDS",
+            "STUDIO_ALERT_DELIVERY_MAX_ATTEMPTS",
+            "STUDIO_ALERT_TELEGRAM_ENABLED",
+            "STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE",
+            "STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE",
+        ):
+            assert key in service
+        assert "studio_alert_telegram_bot_token" in service
+        assert "studio_alert_telegram_chat_id" in service
     assert text.rsplit("volumes:", 1)[1].count("studio-postgres-data:") == 1
 
 
@@ -134,6 +150,18 @@ def test_env_example_worker_defaults_once():
         "STUDIO_WORKER_MEMORY_SWAP_LIMIT=4g",
         "STUDIO_WORKER_PIDS_LIMIT=256",
         "STUDIO_WORKER_TMPFS_SIZE=3g",
+    ]:
+        assert text.count(line) == 1
+    for line in [
+        "STUDIO_ALERT_EVALUATION_INTERVAL_SECONDS=60",
+        "STUDIO_ALERT_SIGNAL_WINDOW_SECONDS=900",
+        "STUDIO_ALERT_STUCK_QUEUE_SECONDS=900",
+        "STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD=3",
+        "STUDIO_ALERT_LIMIT_REMAINING_PERCENT=15",
+        "STUDIO_ALERT_INCIDENT_COOLDOWN_SECONDS=1800",
+        "STUDIO_ALERT_DELIVERY_RETRY_SECONDS=300",
+        "STUDIO_ALERT_DELIVERY_MAX_ATTEMPTS=3",
+        "STUDIO_ALERT_TELEGRAM_ENABLED=false",
     ]:
         assert text.count(line) == 1
 

@@ -415,10 +415,12 @@ def test_unhandled_middleware_emits_safe_owner_event_without_exception_text(monk
     assert json.loads(response.body) == {"detail":"Internal server error"}
     assert response.headers["X-Request-ID"].startswith("req_")
     assert response.headers["X-Correlation-ID"].startswith("corr_")
+    assert response.headers["X-Trace-ID"].startswith("trace_")
     assert events == [{
         "owner_user_id":owner,
         "component":"api",
         "event_code":"API_UNHANDLED_EXCEPTION",
+        "trace_id":response.headers["X-Trace-ID"],
         "correlation_id":response.headers["X-Correlation-ID"],
         "request_id":response.headers["X-Request-ID"],
         "metadata":{"endpoint_group":"jobs", "http_status_category":"5xx"},
@@ -500,6 +502,32 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
     for i in range(3):
         write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, metadata={"source_count": i+1, "credential_selected": False}, session_factory=Session, now=datetime(2026,7,16,12,i,0))
     write_diagnostic_event(owner_user_id=other.id, component="api", event_code="JOB_CREATED", metadata={"source_count": 1, "credential_selected": False}, session_factory=Session)
+    incident_now=datetime(2026,7,17,11,0,0)
+    owned_incident=m.OperationalIncident(
+        owner_user_id=u.id,
+        incident_kind="provider_unavailable",
+        severity="warning",
+        status="firing",
+        summary_code="provider_unavailable",
+        first_detected_at=incident_now,
+        last_detected_at=incident_now,
+        last_transition_at=incident_now,
+        created_at=incident_now,
+        updated_at=incident_now,
+    )
+    other_incident=m.OperationalIncident(
+        owner_user_id=other.id,
+        incident_kind="critical_error",
+        severity="critical",
+        status="firing",
+        summary_code="critical_errors",
+        first_detected_at=incident_now,
+        last_detected_at=incident_now,
+        last_transition_at=incident_now,
+        created_at=incident_now,
+        updated_at=incident_now,
+    )
+    db.add_all([owned_incident,other_incident]); db.commit()
     sess=m.Session(user_id=u.id, token_hash="hash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(sess); db.commit()
     def override_db(): yield db
     def override_current(): return sess,u
@@ -538,6 +566,32 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
         assert sysr["release_version"] == "0.1.0" and sysr["schema_revision"] == "0026_runtime_component_status"
         assert {sysr["components"][key]["commit_sha"] for key in ("web","api","worker")} == {"a"*40}
         assert sysr["health"]["object_storage"] == {"status":"ready", "probe":"read_only_head"}
+        assert sysr["alerts"]["api_limit"] == "unavailable"
+        assert [row["id"] for row in sysr["alerts"]["incidents"]] == [owned_incident.id]
+        incidents=client.get("/api/diagnostics/incidents")
+        assert incidents.status_code == 200
+        assert [row["id"] for row in incidents.json()["incidents"]] == [owned_incident.id]
+        mutation_headers={
+            "Origin":"https://studio.test",
+            "X-CSRF-Token":"x",
+            "X-Trace-ID":"trace_1234567890abcdef",
+        }
+        assert client.post(
+            f"/api/diagnostics/incidents/{other_incident.id}/acknowledge",
+            headers=mutation_headers,
+        ).status_code == 404
+        acknowledged=client.post(
+            f"/api/diagnostics/incidents/{owned_incident.id}/acknowledge",
+            headers=mutation_headers,
+        )
+        assert acknowledged.status_code == 200 and acknowledged.json()["status"] == "acknowledged"
+        db.expire_all()
+        acknowledgement_audit=db.query(m.AuditEvent).filter_by(
+            event_type="operational_incident.acknowledged",
+            subject_user_id=u.id,
+        ).one()
+        assert acknowledgement_audit.outcome == "success"
+        assert acknowledgement_audit.trace_id == "trace_1234567890abcdef"
         report=client.post("/api/diagnostics/report.md", json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id,"problem_description":"Задача не завершилась","operation_reference":"canary 14:20"}, headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"})
         assert report.status_code == 200
         assert report.headers["content-type"].startswith("text/markdown") and "studio-diagnostics-report.md" in report.headers["content-disposition"]
@@ -554,7 +608,7 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
                 json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id},
                 headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"},
             )
-            assert response.status_code == 200
+            assert response.status_code == 200, extension
             assert response.headers["content-type"].startswith(media_type)
             assert f"studio-diagnostics-report.{extension}" in response.headers["content-disposition"]
             assert response.headers["cache-control"] == "no-store"

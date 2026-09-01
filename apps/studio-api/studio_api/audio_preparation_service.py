@@ -66,6 +66,7 @@ def create_audio_preparation_job(
     output_destination: str,
     output_folder: object | None,
     now: datetime,
+    trace_id: str | None = None,
 ) -> AudioPreparationJob:
     project = _owned_project(db, owner_user_id, project_id)
     clean_title = normalize_source_display_filename(title, max_length=160).rsplit(".", 1)[0].strip()
@@ -96,6 +97,7 @@ def create_audio_preparation_job(
     job = AudioPreparationJob(
         project_id=project.id,
         owner_user_id=owner_user_id,
+        trace_id=trace_id,
         status=AudioPreparationStatus.preview_queued,
         title=clean_title,
         options_json=serialize_options(options),

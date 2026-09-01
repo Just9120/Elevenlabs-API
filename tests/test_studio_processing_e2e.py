@@ -164,10 +164,18 @@ def platform_services():
         if os.environ.get("CI", "").lower() == "true":
             pytest.fail("Redis is required for the processing E2E in CI")
         pytest.skip("Redis unavailable for the processing E2E")
+    migration_env = os.environ.copy()
+    # Other collected test modules intentionally exercise SQLite through the
+    # direct URL override. The processing E2E must always migrate PostgreSQL;
+    # preserve an explicit PostgreSQL URL when the operator supplied one.
+    direct_database_url = migration_env.get("STUDIO_DATABASE_URL", "").strip().lower()
+    if direct_database_url.startswith("sqlite"):
+        migration_env.pop("STUDIO_DATABASE_URL", None)
     subprocess.run(
         [sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"],
         cwd=ROOT,
         check=True,
+        env=migration_env,
     )
     yield
 

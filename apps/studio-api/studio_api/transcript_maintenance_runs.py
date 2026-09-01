@@ -500,6 +500,7 @@ def process_claimed_transcript_maintenance_run(
             "transcript_maintenance.failed",
             actor_user_id=run.owner_user_id,
             subject_user_id=run.owner_user_id,
+            outcome="failed",
         )
         db.commit()
     return TranscriptMaintenanceProcessedRun(

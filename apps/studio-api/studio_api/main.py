@@ -31,6 +31,8 @@ from .google_scopes import has_maintenance_server_scope_boundary, has_picker_bro
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
+from .trace_context import reset_current_trace_id, sanitize_inbound_trace, set_current_trace_id, valid_trace_id
+from .operational_alerts import acknowledge_incident, incident_payload
 from .diagnostic_reports import build_diagnostic_report, serialize_diagnostic_report
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_progress import load_browser_job_progress_payloads
@@ -176,27 +178,34 @@ async def request_validation_error_handler(request: Request, exc: RequestValidat
 async def request_correlation_middleware(request: Request, call_next):
     request_id = new_request_id()
     correlation_id = sanitize_inbound_correlation(request.headers.get("x-correlation-id"))
+    trace_id = sanitize_inbound_trace(request.headers.get("x-trace-id"))
+    trace_token = set_current_trace_id(trace_id)
     request.state.request_id = request_id
     request.state.correlation_id = correlation_id
+    request.state.trace_id = trace_id
     request.state.owner_user_id = None
     try:
-        response = await call_next(request)
-    except Exception:
-        endpoint_group=diagnostic_endpoint_group(request.url.path)
-        LOGGER.error("api_unhandled_exception request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
-        owner_user_id=getattr(request.state, "owner_user_id", None)
-        if owner_user_id:
-            try:
-                write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="API_UNHANDLED_EXCEPTION", correlation_id=correlation_id, request_id=request_id, metadata={"endpoint_group":endpoint_group, "http_status_category":"5xx"})
-            except Exception:
-                LOGGER.warning("api_unhandled_diagnostic_write_failed request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
-        response = JSONResponse({"detail": "Internal server error"}, status_code=500)
-    if _is_realtime_draft_route(request.url.path):
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Correlation-ID"] = correlation_id
-    return response
+        try:
+            response = await call_next(request)
+        except Exception:
+            endpoint_group=diagnostic_endpoint_group(request.url.path)
+            LOGGER.error("api_unhandled_exception request_id=%s correlation_id=%s trace_id=%s endpoint_group=%s", request_id, correlation_id, trace_id, endpoint_group)
+            owner_user_id=getattr(request.state, "owner_user_id", None)
+            if owner_user_id:
+                try:
+                    write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="API_UNHANDLED_EXCEPTION", trace_id=trace_id, correlation_id=correlation_id, request_id=request_id, metadata={"endpoint_group":endpoint_group, "http_status_category":"5xx"})
+                except Exception:
+                    LOGGER.warning("api_unhandled_diagnostic_write_failed request_id=%s correlation_id=%s trace_id=%s endpoint_group=%s", request_id, correlation_id, trace_id, endpoint_group)
+            response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+        if _is_realtime_draft_route(request.url.path):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Trace-ID"] = trace_id
+        return response
+    finally:
+        reset_current_trace_id(trace_token)
 
 
 class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
@@ -539,7 +548,7 @@ def login(data: LoginIn, request: Request, response: Response, db: Session=Depen
     ctx.used_at=utcnow()
     user=db.query(User).filter_by(email=email, status=UserStatus.active).first(); ident=db.get(LocalIdentity, user.id) if user else None
     if not user or not ident or not verify_password(ident.password_hash, data.password):
-        audit(db,"auth.login_failed"); db.commit(); raise HTTPException(401, "Неверная почта или пароль")
+        audit(db,"auth.login_failed",outcome="rejected"); db.commit(); raise HTTPException(401, "Неверная почта или пароль")
     raw_session, raw_csrf = new_token(), new_token()
     sess=Session(user_id=user.id, token_hash=token_hash(raw_session), csrf_hash=token_hash(raw_csrf), expires_at=expires(settings.session_days), rotated_at=utcnow())
     db.add(sess); audit(db,"auth.login", actor_user_id=user.id, subject_user_id=user.id); db.commit(); sess._raw_csrf=raw_csrf; set_cookie(response, raw_session); return session_payload(sess,user)
@@ -1018,7 +1027,7 @@ def apply_storage_reconciliation(data: StorageReconciliationApplyIn, request: Re
         raise HTTPException(status_code,"План проверки изменился; выполните dry-run заново") from exc
     except Exception as exc:
         raise HTTPException(503,"Очистку хранилища не удалось подтвердить") from exc
-    audit(db,"storage.reconciliation_applied",actor_user_id=user.id,subject_user_id=user.id,planned_count=result.planned_count,deleted_count=result.deleted_count,failed_count=result.failed_count,deleted_bytes=result.deleted_bytes)
+    audit(db,"storage.reconciliation_applied",actor_user_id=user.id,subject_user_id=user.id,outcome="success" if result.failed_count == 0 else "partial",planned_count=result.planned_count,deleted_count=result.deleted_count,failed_count=result.failed_count,deleted_bytes=result.deleted_bytes)
     write_diagnostic_event(owner_user_id=user.id,component="api",event_code="STORAGE_RECONCILIATION_APPLIED",request_id=getattr(request.state,"request_id",None),correlation_id=getattr(request.state,"correlation_id",None),metadata={"planned_count":result.planned_count,"deleted_count":result.deleted_count,"failed_count":result.failed_count,"deleted_bytes":result.deleted_bytes,"boundary":"storage_reconciliation"})
     db.commit()
     return {"status":"completed" if result.failed_count == 0 else "partial","planned_count":result.planned_count,"deleted_count":result.deleted_count,"failed_count":result.failed_count,"deleted_bytes":result.deleted_bytes}
@@ -2010,7 +2019,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
                 data.options.diarize,
                 existing_result_reprocess_authorized=reprocess_existing[idx],
             )
-            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx, media_clip_start_seconds=media_clip.start_seconds, media_clip_end_seconds=media_clip.end_seconds)
+            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, trace_id=getattr(request.state,"trace_id",None), status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx, media_clip_start_seconds=media_clip.start_seconds, media_clip_end_seconds=media_clip.end_seconds)
             job.apply_output_folder_snapshot(folder_id=vf.id, folder_url=vf.web_view_url, folder_name=vf.name)
             db.add(job); db.flush(); db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0, status=JobSourceStatus.queued)); jobs.append(job)
         audit(db,"job.batch_created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,created_count=len(jobs))
@@ -2360,6 +2369,7 @@ def list_audio_preparations(project_id: str, pair=Depends(current_session), db: 
 def create_audio_preparation(
     project_id: str,
     data: AudioPreparationCreateIn,
+    request: Request,
     pair=Depends(require_csrf),
     db: Session=Depends(get_db),
     _=Depends(require_same_origin),
@@ -2386,6 +2396,7 @@ def create_audio_preparation(
             output_destination=data.output_destination,
             output_folder=folder,
             now=utcnow(),
+            trace_id=getattr(request.state, "trace_id", None),
         )
         audit(db, "audio_preparation.created", actor_user_id=user.id, subject_user_id=user.id, project_id=project_id, job_id=job.id)
         db.commit()
@@ -2617,7 +2628,7 @@ def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, re
         for source in sources
     ):
         raise HTTPException(409, "Используйте пакетную проверку для явного решения")
-    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=language, options_json=options_json)
+    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, trace_id=getattr(request.state,"trace_id",None), status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=language, options_json=options_json)
     job.apply_output_folder_snapshot(folder_id=output_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
     db.add(job); db.flush()
     for idx, src in enumerate(sources):
@@ -2663,7 +2674,7 @@ def post_job_retry(job_id: str, request: Request, data: JobRetryIn | None = None
     if result is None: raise HTTPException(404, "Не найдено")
     queued, ready = result.job, result.readiness
     if not ready.available or queued.status != JobStatus.queued:
-        audit(db,"job.retry_blocked",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id,retry_reason=ready.reason.value)
+        audit(db,"job.retry_blocked",actor_user_id=user.id,subject_user_id=user.id,outcome="rejected",project_id=job.project_id,job_id=job.id,retry_reason=ready.reason.value)
         db.commit()
         write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_BLOCKED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"retry_reason": ready.reason.value, "retry_available": False, "retry_safe_source_count": ready.retry_safe_source_count, "missing_output_count": ready.missing_output_count, "boundary":"retry_api"})
         raise HTTPException(409, "Повтор недоступен")
@@ -2821,7 +2832,30 @@ def _diag_filters(db: Session, user: User, *, start=None, end=None, level=None, 
     return q, start_dt, end_dt
 
 def _diag_payload(e: DiagnosticEvent):
-    return {"id": e.id, "occurred_at": e.first_occurred_at.isoformat(), "last_occurred_at": e.last_occurred_at.isoformat(), "level": e.level.value, "component": e.component.value, "event_code": e.event_code, "correlation_id": e.correlation_id, "request_id": e.request_id, "project_id": e.project_id, "job_id": e.job_id, "metadata": json.loads(e.metadata_json or "{}"), "occurrence_count": e.occurrence_count}
+    return {"id": e.id, "occurred_at": e.first_occurred_at.isoformat(), "last_occurred_at": e.last_occurred_at.isoformat(), "level": e.level.value, "component": e.component.value, "event_code": e.event_code, "trace_id": e.trace_id, "correlation_id": e.correlation_id, "request_id": e.request_id, "project_id": e.project_id, "job_id": e.job_id, "metadata": json.loads(e.metadata_json or "{}"), "occurrence_count": e.occurrence_count}
+
+def _owner_incident_summary(db: Session, user: User):
+    rows=(
+        db.query(OperationalIncident)
+        .filter(OperationalIncident.owner_user_id==user.id)
+        .order_by(
+            OperationalIncident.status.in_(["pending","firing","acknowledged"]).desc(),
+            OperationalIncident.updated_at.desc(),
+            OperationalIncident.id.desc(),
+        )
+        .limit(20)
+        .all()
+    )
+    deliveries={}
+    if rows:
+        for delivery in (
+            db.query(OperationalAlertDelivery)
+            .filter(OperationalAlertDelivery.incident_id.in_([row.id for row in rows]))
+            .order_by(OperationalAlertDelivery.updated_at.desc(), OperationalAlertDelivery.id.desc())
+            .all()
+        ):
+            deliveries.setdefault((delivery.incident_id,delivery.lifecycle_generation),delivery)
+    return [incident_payload(row,delivery=deliveries.get((row.id,row.lifecycle_generation))) for row in rows]
 
 def _system_summary(db: Session, user: User):
     conn=current_google_connection(db, user)
@@ -2845,6 +2879,16 @@ def _system_summary(db: Session, user: User):
         provider_status=stt_provider_runtime_status(db, owner_user_id=user.id)
     except Exception:
         provider_status={"status":"unavailable", "availability":"unknown", "probe":"not_run"}
+    provider_limit_available=(
+        db.query(ProviderAccountSnapshot.id)
+        .filter(
+            ProviderAccountSnapshot.owner_user_id==user.id,
+            ProviderAccountSnapshot.period_limit.is_not(None),
+            ProviderAccountSnapshot.period_remaining.is_not(None),
+        )
+        .first()
+        is not None
+    )
     component_status={
         "web": runtime_identity_payload(web_identity),
         "api": runtime_identity_payload(api_identity),
@@ -2865,10 +2909,19 @@ def _system_summary(db: Session, user: User):
             "worker": {"status": worker_status.get("status", "unavailable")},
             "object_storage": storage_status,
             "stt_provider": provider_status,
+            "email": {"status": "not_configured"},
         },
         "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_picker_browser_scope_boundary(conn.scopes))},
         "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0},
         "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours},
+        "alerts": {
+            "incident_monitoring": "enabled",
+            "telegram": "ready" if settings.telegram_alerts_configured() else "not_configured",
+            "email": "not_configured",
+            "storage_limit": "configured" if settings.alert_storage_limit_bytes is not None else "not_configured",
+            "api_limit": "configured" if provider_limit_available else "unavailable",
+            "incidents": _owner_incident_summary(db,user),
+        },
         "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events},
     }
 
@@ -2998,6 +3051,67 @@ def diagnostics_events(start: datetime|None=Query(None), end: datetime|None=Quer
 def diagnostics_system(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("diagnostics:system:"+user.id, 120, 3600); return _system_summary(db,user)
 
+@app.get("/api/diagnostics/incidents")
+def diagnostics_incidents(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    limiter.check("diagnostics:incidents:"+user.id, 120, 3600)
+    rows=(
+        db.query(OperationalIncident)
+        .filter(OperationalIncident.owner_user_id==user.id)
+        .order_by(
+            OperationalIncident.status.in_(["pending","firing","acknowledged"]).desc(),
+            OperationalIncident.updated_at.desc(),
+            OperationalIncident.id.desc(),
+        )
+        .limit(100)
+        .all()
+    )
+    deliveries={}
+    if rows:
+        for delivery in (
+            db.query(OperationalAlertDelivery)
+            .filter(OperationalAlertDelivery.incident_id.in_([row.id for row in rows]))
+            .order_by(OperationalAlertDelivery.updated_at.desc(), OperationalAlertDelivery.id.desc())
+            .all()
+        ):
+            key=(delivery.incident_id, delivery.lifecycle_generation)
+            deliveries.setdefault(key, delivery)
+    return {
+        "incidents":[incident_payload(row,delivery=deliveries.get((row.id,row.lifecycle_generation))) for row in rows],
+        "transports":{
+            "telegram":"ready" if settings.telegram_alerts_configured() else "not_configured",
+            "email":"not_configured",
+        },
+        "evaluation":{
+            "interval_seconds":settings.alert_evaluation_interval_seconds,
+            "stuck_queue_seconds":settings.alert_stuck_queue_seconds,
+            "provider_failure_threshold":settings.alert_provider_failure_threshold,
+            "limit_remaining_percent":settings.alert_limit_remaining_percent,
+        },
+    }
+
+@app.post("/api/diagnostics/incidents/{incident_id}/acknowledge")
+def acknowledge_diagnostics_incident(incident_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair
+    limiter.check("diagnostics:incident-ack:"+user.id, 30, 3600)
+    if not valid_uuid(incident_id):
+        raise HTTPException(404,"Не найдено")
+    row=acknowledge_incident(db,owner_user_id=user.id,incident_id=incident_id,now=utcnow())
+    if row is None:
+        raise HTTPException(404,"Не найдено")
+    audit(db,"operational_incident.acknowledged",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); db.refresh(row)
+    delivery=(
+        db.query(OperationalAlertDelivery)
+        .filter(
+            OperationalAlertDelivery.incident_id==row.id,
+            OperationalAlertDelivery.lifecycle_generation==row.lifecycle_generation,
+        )
+        .order_by(OperationalAlertDelivery.updated_at.desc(),OperationalAlertDelivery.id.desc())
+        .first()
+    )
+    return incident_payload(row,delivery=delivery)
+
 DIAGNOSTIC_REPORT_OUTPUTS = {
     "md": ("text/markdown; charset=utf-8", "studio-diagnostics-report.md"),
     "json": ("application/json; charset=utf-8", "studio-diagnostics-report.json"),
@@ -3023,6 +3137,7 @@ def _diagnostics_report_response(data: DiagnosticReportIn, pair, db: Session, re
             "event_code": r.event_code,
             "project_id": r.project_id,
             "job_id": r.job_id,
+            "trace_id": r.trace_id,
             "correlation_id": r.correlation_id,
             "request_id": r.request_id,
             "occurrence_count": r.occurrence_count,
@@ -3299,6 +3414,8 @@ def google_oauth_failed_redirect(
         ),
         actor_user_id=row.user_id if row else None,
         subject_user_id=row.user_id if row else None,
+        outcome="failed",
+        reason=result,
     )
     db.commit()
     return google_oauth_redirect(result, purpose=purpose)
@@ -3752,4 +3869,4 @@ def audit_events(
         query=query.filter((AuditEvent.created_at < created_at) | ((AuditEvent.created_at == created_at) & (AuditEvent.id < row_id)))
     rows=query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(page_size+1).all()
     rows,next_cursor=page_envelope(rows, page_size=page_size, timestamp_attribute="created_at", secret=sess.csrf_hash, owner_user_id=user.id, surface="audit-events")
-    return {"events":[{"id":r.id,"type":r.event_type,"metadata":json.loads(r.metadata_json),"created_at":r.created_at.isoformat()} for r in rows], "next_cursor": next_cursor, "page_size": page_size}
+    return {"events":[{"id":r.id,"type":r.event_type,"outcome":r.outcome or "legacy_unknown","trace_id":r.trace_id if valid_trace_id(r.trace_id) else None,"metadata":json.loads(r.metadata_json),"created_at":r.created_at.isoformat()} for r in rows], "next_cursor": next_cursor, "page_size": page_size}

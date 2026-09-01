@@ -14,7 +14,14 @@ def _write_exe(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def run_backup(tmp_path: Path, tag: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def run_backup(
+    tmp_path: Path,
+    tag: str,
+    *,
+    owner_user_id: str | None = None,
+    fail_backup: bool = False,
+    fail_outcome_record: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     calls = tmp_path / "calls.log"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -48,6 +55,10 @@ case "$cmd" in
   exec)
     if [[ "$*" == *"pg_dump"* ]]; then exit 0; fi
     if [[ "$*" == *"rm -f /tmp/studio-postgres.dump"* ]]; then exit 0; fi
+    if [[ "$*" == *"record-postgres-backup-outcome"* ]]; then
+      [[ "${{FAKE_OUTCOME_RECORD_FAIL:-0}}" == "1" ]] && exit 44
+      exit 0
+    fi
     exit 41
     ;;
   cp)
@@ -66,6 +77,9 @@ printf 'restic %s\\n' "$*" >> {str(calls)!r}
 case "$*" in
   *RESTIC_PASSWORD_SECRET*|*AWS_ACCESS_SECRET*|*AWS_SECRET_SECRET*) exit 43 ;;
 esac
+if [[ "$*" == *" backup "* && "${{FAKE_RESTIC_FAIL_BACKUP:-0}}" == "1" ]]; then
+  exit 45
+fi
 """,
     )
     env = os.environ.copy()
@@ -79,8 +93,12 @@ esac
             "AWS_ACCESS_KEY_ID_FILE": str(access_key_file),
             "AWS_SECRET_ACCESS_KEY_FILE": str(secret_key_file),
             "STUDIO_DEPLOY_DIR": str(deploy_dir),
+            "FAKE_RESTIC_FAIL_BACKUP": "1" if fail_backup else "0",
+            "FAKE_OUTCOME_RECORD_FAIL": "1" if fail_outcome_record else "0",
         }
     )
+    if owner_user_id is not None:
+        env["STUDIO_ALERT_OWNER_USER_ID"] = owner_user_id
     proc = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
     return proc, calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
 
@@ -146,3 +164,49 @@ def test_backup_output_does_not_print_secret_values() -> None:
     assert "RESTIC_PASSWORD_SECRET" not in combined
     assert "AWS_ACCESS_SECRET" not in combined
     assert "AWS_SECRET_SECRET" not in combined
+
+
+def test_backup_records_success_for_configured_alert_owner() -> None:
+    import tempfile
+
+    owner_user_id = "11111111-1111-4111-8111-111111111111"
+    with tempfile.TemporaryDirectory() as d:
+        proc, calls = run_backup(
+            Path(d), "scheduled", owner_user_id=owner_user_id
+        )
+    assert proc.returncode == 0, proc.stderr
+    matches = [line for line in calls if "record-postgres-backup-outcome" in line]
+    assert len(matches) == 1
+    assert f"{owner_user_id} success" in matches[0]
+
+
+def test_backup_failure_is_recorded_without_masking_original_exit() -> None:
+    import tempfile
+
+    owner_user_id = "22222222-2222-4222-8222-222222222222"
+    with tempfile.TemporaryDirectory() as d:
+        proc, calls = run_backup(
+            Path(d),
+            "scheduled",
+            owner_user_id=owner_user_id,
+            fail_backup=True,
+        )
+    assert proc.returncode == 45
+    matches = [line for line in calls if "record-postgres-backup-outcome" in line]
+    assert len(matches) == 1
+    assert f"{owner_user_id} failed" in matches[0]
+
+
+def test_alert_recording_failure_never_changes_successful_backup_result() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        proc, calls = run_backup(
+            Path(d),
+            "scheduled",
+            owner_user_id="33333333-3333-4333-8333-333333333333",
+            fail_outcome_record=True,
+        )
+    assert proc.returncode == 0
+    assert "backup alert outcome could not be recorded" in proc.stderr
+    assert len([line for line in calls if "record-postgres-backup-outcome" in line]) == 1

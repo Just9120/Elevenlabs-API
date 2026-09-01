@@ -68,6 +68,30 @@ def test_worker_settings_defaults_and_bounds(monkeypatch):
     with pytest.raises(ValidationError): Settings(worker_lease_ttl_seconds=300, worker_lease_heartbeat_interval_seconds=101)
 
 
+def test_telegram_configuration_is_honest_and_secret_file_backed(tmp_path):
+    from studio_api.config import Settings
+
+    token_file = tmp_path / "telegram-token"
+    chat_file = tmp_path / "telegram-chat"
+    token_file.write_text("1234567890:unit-test-token-value", encoding="utf-8")
+    chat_file.write_text("-1001234567890", encoding="utf-8")
+    configured = Settings(
+        alert_telegram_enabled=True,
+        alert_telegram_bot_token_file=str(token_file),
+        alert_telegram_chat_id_file=str(chat_file),
+    )
+    assert configured.telegram_alerts_configured()
+    assert configured.telegram_alert_credentials() == (
+        "1234567890:unit-test-token-value",
+        "-1001234567890",
+    )
+
+    token_file.write_text("", encoding="utf-8")
+    assert not configured.telegram_alerts_configured()
+    with pytest.raises(RuntimeError, match="token secret is invalid"):
+        configured.telegram_alert_credentials()
+
+
 def test_main_configuration_failure_is_normalized_before_db(monkeypatch, caplog):
     from studio_api import worker
     class BadSettings:
@@ -93,7 +117,7 @@ def test_idle_closes_session_then_waits_poll_interval(caplog):
     events=[]; stop=StopEvent(); caplog.set_level(logging.WARNING)
     def sf(): events.append("session"); return Session(events)
     def iteration(db, **kw): events.append(("iteration", kw["lease_owner_id"], kw["lease_ttl"])); return None
-    assert run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=lambda db, **kw: events.append("cleanup") and False) == 0
+    assert run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=lambda db, **kw: events.append("cleanup") and False, alert_evaluator=lambda **kw: None, alert_delivery_runner=lambda **kw: None) == 0
     assert events == ["session", ("iteration", "owner", timedelta(seconds=3600)), "close", "session", "cleanup", "close"]
     assert stop.waits == [5]
     assert caplog.text == ""
@@ -113,11 +137,40 @@ def test_idle_physically_expires_realtime_drafts(caplog):
         source_cleanup_runner=lambda db, **kw: False,
         provider_checkpoint_cleanup_runner=lambda db, **kw: 0,
         realtime_draft_cleanup_runner=lambda db, **kw: 2,
+        alert_evaluator=lambda **kw: None,
+        alert_delivery_runner=lambda **kw: None,
     )
     assert events == [
         "session", "iteration", "close", "session", "commit", "close"
     ]
     assert "studio_worker_realtime_drafts_expired" in caplog.text
+
+
+def test_idle_runs_bounded_alert_evaluation_then_one_delivery():
+    from studio_api.worker import run_worker_loop
+
+    events = []
+    stop = StopEvent()
+
+    def session_factory():
+        events.append("session")
+        return Session(events)
+
+    run_worker_loop(
+        settings=FakeSettings(),
+        session_factory=session_factory,
+        stop_event=stop,
+        iteration=lambda db, **kw: None,
+        owner_id_factory=lambda: "owner",
+        source_cleanup_runner=lambda db, **kw: False,
+        provider_checkpoint_cleanup_runner=lambda db, **kw: 0,
+        realtime_draft_cleanup_runner=lambda db, **kw: 0,
+        alert_evaluator=lambda **kw: events.append("alerts_evaluated"),
+        alert_delivery_runner=lambda **kw: events.append("one_delivery_attempted"),
+    )
+
+    assert events[-2:] == ["alerts_evaluated", "one_delivery_attempted"]
+    assert stop.waits == [5]
 
 
 def test_success_logs_safe_result_and_uses_new_session(caplog):

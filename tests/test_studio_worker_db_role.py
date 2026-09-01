@@ -55,6 +55,9 @@ def test_worker_role_grants_only_current_processing_surfaces():
         "audio_preparation_jobs",
         "transcript_maintenance_runs",
         "diagnostic_events",
+        "provider_account_snapshots",
+        "operational_incidents",
+        "operational_alert_deliveries",
         "runtime_component_status",
     ):
         assert required in sql
@@ -64,9 +67,20 @@ def test_worker_role_grants_only_current_processing_surfaces():
         "login_contexts",
         "google_oauth_states",
         "output_folder_favorites",
-        "provider_account_snapshots",
     ):
         assert re.search(rf"\\b{re.escape(forbidden)}\\b", sql) is None
+
+    grants = re.findall(r"GRANT (\w+) ON TABLE(.*?)TO studio_worker;", sql, re.DOTALL)
+    for table, expected in (
+        ("provider_account_snapshots", ["SELECT"]),
+        ("audit_events", ["SELECT", "INSERT"]),
+    ):
+        operations = [
+            operation
+            for operation, tables in grants
+            if re.search(rf"\b{table}\b", tables)
+        ]
+        assert operations == expected
 
 
 def test_worker_role_operator_script_keeps_password_off_argv_and_disk():
@@ -100,3 +114,9 @@ def test_worker_verifier_enforces_immutable_checkpoint_privileges():
             f"'transcription_provider_part_checkpoints', '{operation}'"
             in script
         )
+
+
+def test_worker_verifier_enforces_append_only_audit_privileges():
+    script = ROLE_SCRIPT.read_text(encoding="utf-8")
+    for operation in ("UPDATE", "DELETE", "TRUNCATE"):
+        assert f"'audit_events', '{operation}'" in script

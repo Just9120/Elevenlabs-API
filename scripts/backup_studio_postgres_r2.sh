@@ -16,7 +16,32 @@ esac
 : "${STUDIO_DEPLOY_DIR:?set deployment checkout path}"
 export AWS_ACCESS_KEY_ID; AWS_ACCESS_KEY_ID="$(<"$AWS_ACCESS_KEY_ID_FILE")"
 export AWS_SECRET_ACCESS_KEY; AWS_SECRET_ACCESS_KEY="$(<"$AWS_SECRET_ACCESS_KEY_FILE")"
-TMPDIR="$(mktemp -d)"; trap 'rm -rf "$TMPDIR"' EXIT
+TMPDIR=""
+report_backup_outcome() {
+  local outcome="$1" owner_user_id="${STUDIO_ALERT_OWNER_USER_ID:-}"
+  [[ -n "$owner_user_id" ]] || return 0
+  if ! (
+    cd "$STUDIO_DEPLOY_DIR"
+    docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml \
+      exec -T studio-api python -m studio_api.cli record-postgres-backup-outcome \
+      "$owner_user_id" "$outcome" >/dev/null
+  ); then
+    echo "backup alert outcome could not be recorded" >&2
+  fi
+}
+finish_backup() {
+  local exit_code=$?
+  trap - EXIT
+  if [[ "$exit_code" == "0" ]]; then
+    report_backup_outcome success
+  else
+    report_backup_outcome failed
+  fi
+  [[ -z "$TMPDIR" ]] || rm -rf -- "$TMPDIR"
+  exit "$exit_code"
+}
+trap finish_backup EXIT
+TMPDIR="$(mktemp -d)"
 DUMP="$TMPDIR/studio-postgres.dump"
 RESTIC_HOST="studio-postgres"
 cd "$STUDIO_DEPLOY_DIR"

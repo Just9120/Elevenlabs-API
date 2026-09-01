@@ -273,6 +273,7 @@ class TranscriptionJob(Base):
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), index=True)
     owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), index=True)
+    trace_id: Mapped[str|None]=mapped_column(String(128), index=True)
     status: Mapped[JobStatus]=mapped_column(Enum(JobStatus), default=JobStatus.queued, index=True)
     provider: Mapped[str|None]=mapped_column(String(40))
     provider_credential_id: Mapped[str|None]=mapped_column(ForeignKey("provider_credentials.id"), index=True)
@@ -429,6 +430,7 @@ class AudioPreparationJob(Base):
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    trace_id: Mapped[str|None]=mapped_column(String(128), index=True)
     status: Mapped[AudioPreparationStatus]=mapped_column(Enum(AudioPreparationStatus, native_enum=False, length=32), default=AudioPreparationStatus.preview_queued, nullable=False, index=True)
     title: Mapped[str]=mapped_column(String(160), nullable=False)
     options_json: Mapped[str]=mapped_column(Text, nullable=False)
@@ -693,9 +695,14 @@ class AuditEvent(Base):
     actor_user_id: Mapped[str|None]=mapped_column(String(36), index=True)
     subject_user_id: Mapped[str|None]=mapped_column(String(36), index=True)
     event_type: Mapped[str]=mapped_column(String(80), index=True)
+    outcome: Mapped[str|None]=mapped_column(String(16), index=True)
+    trace_id: Mapped[str|None]=mapped_column(String(128), index=True)
     metadata_json: Mapped[str]=mapped_column(Text, default="{}")
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
-    __table_args__=(Index("ix_audit_events_subject_created_id", "subject_user_id", "created_at", "id"),)
+    __table_args__=(
+        CheckConstraint("outcome IS NULL OR outcome IN ('success','rejected','failed','partial')", name="ck_audit_events_outcome"),
+        Index("ix_audit_events_subject_created_id", "subject_user_id", "created_at", "id"),
+    )
 
 
 class DiagnosticDebugSession(Base):
@@ -720,6 +727,7 @@ class DiagnosticEvent(Base):
     level: Mapped[DiagnosticLevel]=mapped_column(Enum(DiagnosticLevel), nullable=False)
     component: Mapped[DiagnosticComponent]=mapped_column(Enum(DiagnosticComponent), nullable=False)
     event_code: Mapped[str]=mapped_column(String(80), nullable=False)
+    trace_id: Mapped[str|None]=mapped_column(String(128), index=True)
     correlation_id: Mapped[str|None]=mapped_column(String(128))
     request_id: Mapped[str|None]=mapped_column(String(128))
     metadata_json: Mapped[str]=mapped_column(Text, nullable=False, default="{}")
@@ -738,6 +746,66 @@ class DiagnosticEvent(Base):
         Index("ix_diagnostic_events_owner_job_time", "owner_user_id", "job_id", "first_occurred_at"),
         Index("ix_diagnostic_events_owner_component_level_time", "owner_user_id", "component", "level", "first_occurred_at"),
         Index("ix_diagnostic_events_expires_at", "expires_at"),
+    )
+
+
+class OperationalIncident(Base):
+    __tablename__="operational_incidents"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    incident_kind: Mapped[str]=mapped_column(String(48), nullable=False)
+    severity: Mapped[str]=mapped_column(String(16), nullable=False)
+    status: Mapped[str]=mapped_column(String(16), nullable=False, default="pending", server_default=text("'pending'"))
+    summary_code: Mapped[str]=mapped_column(String(80), nullable=False)
+    trace_id: Mapped[str|None]=mapped_column(String(128))
+    lifecycle_generation: Mapped[int]=mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    occurrence_count: Mapped[int]=mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    evidence_count: Mapped[int]=mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    first_detected_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    last_detected_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    last_transition_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    acknowledged_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    cooldown_until: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("owner_user_id", "incident_kind", name="uq_operational_incidents_owner_kind"),
+        CheckConstraint("severity IN ('warning','critical')", name="ck_operational_incidents_severity"),
+        CheckConstraint("status IN ('pending','firing','acknowledged','resolved')", name="ck_operational_incidents_status"),
+        CheckConstraint("lifecycle_generation >= 1", name="ck_operational_incidents_generation"),
+        CheckConstraint("occurrence_count >= 1", name="ck_operational_incidents_occurrence_count"),
+        CheckConstraint("evidence_count >= 0", name="ck_operational_incidents_evidence_count"),
+        Index("ix_operational_incidents_owner_status_updated", "owner_user_id", "status", "updated_at"),
+    )
+
+
+class OperationalAlertDelivery(Base):
+    __tablename__="operational_alert_deliveries"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    incident_id: Mapped[str]=mapped_column(ForeignKey("operational_incidents.id"), nullable=False, index=True)
+    lifecycle_generation: Mapped[int]=mapped_column(Integer, nullable=False)
+    notification_kind: Mapped[str]=mapped_column(String(16), nullable=False)
+    channel: Mapped[str]=mapped_column(String(24), nullable=False)
+    state: Mapped[str]=mapped_column(String(16), nullable=False, default="pending", server_default=text("'pending'"))
+    attempt_count: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    claim_token: Mapped[str|None]=mapped_column(String(64))
+    claim_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str|None]=mapped_column(String(80))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("incident_id", "lifecycle_generation", "notification_kind", "channel", name="uq_operational_alert_delivery_generation"),
+        CheckConstraint("notification_kind IN ('firing','recovery')", name="ck_operational_alert_deliveries_notification_kind"),
+        CheckConstraint("channel IN ('telegram')", name="ck_operational_alert_deliveries_channel"),
+        CheckConstraint("state IN ('pending','claimed','delivered','failed','suppressed')", name="ck_operational_alert_deliveries_state"),
+        CheckConstraint("lifecycle_generation >= 1", name="ck_operational_alert_deliveries_generation"),
+        CheckConstraint("attempt_count >= 0 AND attempt_count <= 5", name="ck_operational_alert_deliveries_attempt_count"),
+        Index("ix_operational_alert_deliveries_claim", "state", "next_attempt_at", "claim_expires_at", "created_at"),
     )
 
 

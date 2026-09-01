@@ -31,7 +31,7 @@ from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError, ProgrammingError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
@@ -60,7 +60,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["runtime_component_status", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["runtime_component_status", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -129,9 +129,39 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0032_source_multipart_authority", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0033_observability_alerts_audit", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
+
+
+def test_audit_rows_are_database_enforced_append_only():
+    db = SessionLocal()
+    row = AuditEvent(
+        event_type="test.append_only",
+        outcome="success",
+        metadata_json="{}",
+    )
+    db.add(row)
+    db.commit()
+    row_id = row.id
+    db.close()
+
+    statements = (
+        text("UPDATE audit_events SET outcome='failed' WHERE id=:row_id"),
+        text("DELETE FROM audit_events WHERE id=:row_id"),
+    )
+    for statement in statements:
+        with engine.connect() as conn:
+            transaction = conn.begin()
+            with pytest.raises(DBAPIError) as caught:
+                conn.execute(statement, {"row_id": row_id})
+            assert getattr(caught.value.orig, "sqlstate", None) == "55000"
+            transaction.rollback()
+
+    db = SessionLocal()
+    preserved = db.get(AuditEvent, row_id)
+    assert preserved is not None and preserved.outcome == "success"
+    db.close()
 
 
 def test_worker_role_operator_predicate_on_real_postgresql():
@@ -277,6 +307,9 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                     ),
                     {"checkpoint_id": checkpoint_id},
                 ).scalar_one() == checkpoint_id
+                # Operational alert evaluation reads the current provider
+                # account snapshot, but never mutates provider accounting.
+                conn.execute(text("SELECT id FROM provider_account_snapshots LIMIT 0"))
                 with pytest.raises(ProgrammingError) as failure:
                     conn.execute(
                         text(
@@ -294,7 +327,6 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                     "TRUNCATE alembic_version",
                     "CREATE TABLE public.worker_must_not_create (id integer)",
                     "SELECT * FROM sessions LIMIT 0",
-                    "SELECT * FROM provider_account_snapshots LIMIT 0",
                 ):
                     with pytest.raises(ProgrammingError) as failure:
                         conn.execute(text(statement))
@@ -1793,6 +1825,7 @@ def test_source_job_and_audit_pages_are_non_overlapping_and_scope_bound():
                 id=str(uuid.uuid4()),
                 subject_user_id=owner.id,
                 event_type=f"page.event.{index}",
+                trace_id=f"trace_{index:016d}",
                 metadata_json="{}",
                 created_at=timestamp,
             )
@@ -1827,6 +1860,11 @@ def test_source_job_and_audit_pages_are_non_overlapping_and_scope_bound():
         assert not ({row["id"] for row in first_body[key]} & set(second_ids))
         if key != "events":
             assert second.json()["next_cursor"] is None
+        else:
+            returned = [*first_body["events"], *second.json()["events"]]
+            by_id = {row["id"]: row for row in returned}
+            for event in events:
+                assert by_id[event.id]["trace_id"] == event.trace_id
 
     source_cursor = client.get(
         f"/api/projects/{project_id}/sources", params={"page_size": 2}
@@ -3695,7 +3733,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0032_source_multipart_authority"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0033_observability_alerts_audit"
 
 
 
@@ -3759,7 +3797,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0032_source_multipart_authority"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0033_observability_alerts_audit"
 
 
 
@@ -7628,7 +7666,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0032_source_multipart_authority"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0033_observability_alerts_audit"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

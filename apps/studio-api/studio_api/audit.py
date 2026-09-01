@@ -1,6 +1,7 @@
 import json
 from sqlalchemy.orm import Session
 from .models import AuditEvent
+from .trace_context import current_trace_id, valid_trace_id
 
 SAFE_KEYS={"provider","credential_id","version","session_id","reason"}
 SAFE_ENUM_VALUES={
@@ -40,6 +41,7 @@ FORBIDDEN_SUBSTRINGS=(
     "token",
     "secret",
 )
+AUDIT_OUTCOMES=frozenset({"success", "rejected", "failed", "partial"})
 
 def _safe_audit_metadata(metadata):
     safe={k:v for k,v in metadata.items() if k in SAFE_KEYS}
@@ -60,6 +62,20 @@ def _safe_audit_metadata(metadata):
         if not any(part in k.lower() for part in FORBIDDEN_SUBSTRINGS)
     }
 
-def audit(db: Session, event_type: str, actor_user_id: str|None=None, subject_user_id: str|None=None, **metadata):
+def audit(
+    db: Session,
+    event_type: str,
+    actor_user_id: str|None=None,
+    subject_user_id: str|None=None,
+    *,
+    outcome: str="success",
+    trace_id: str|None=None,
+    **metadata,
+):
+    if outcome not in AUDIT_OUTCOMES:
+        raise ValueError("unsupported audit outcome")
+    resolved_trace_id = trace_id if trace_id is not None else current_trace_id()
+    if resolved_trace_id is not None and not valid_trace_id(resolved_trace_id):
+        raise ValueError("invalid audit trace id")
     safe=_safe_audit_metadata(metadata)
-    db.add(AuditEvent(event_type=event_type, actor_user_id=actor_user_id, subject_user_id=subject_user_id, metadata_json=json.dumps(safe, sort_keys=True)))
+    db.add(AuditEvent(event_type=event_type, actor_user_id=actor_user_id, subject_user_id=subject_user_id, outcome=outcome, trace_id=resolved_trace_id, metadata_json=json.dumps(safe, sort_keys=True)))

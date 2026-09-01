@@ -66,8 +66,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0032_source_multipart_authority"]
-    assert script.get_current_head() == "0032_source_multipart_authority"
+    assert script.get_heads() == ["0033_observability_alerts_audit"]
+    assert script.get_current_head() == "0033_observability_alerts_audit"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():
