@@ -6,6 +6,7 @@ import {
   type JobOutputsResponse,
   type JobSpeakerIdentity,
   type JobSource,
+  type JobUsageCost,
   type TranscriptionJob,
 } from "./jobModel";
 import { LATEST_REQUEST_CANCEL_REASON } from "./latestRequest";
@@ -457,6 +458,7 @@ function parseJob(
   const speakerIdentities = parseOptionalSpeakerIdentities(
     candidate.speaker_identities,
   );
+  const usageCost = parseOptionalJobUsageCost(candidate.usage_cost);
   if (
     !id ||
     candidateProjectId !== projectId ||
@@ -469,6 +471,7 @@ function parseJob(
     outputFolder === false ||
     batch === false ||
     speakerIdentities === false ||
+    usageCost === false ||
     (languageMode !== undefined &&
       languageMode !== null &&
       !isTranscriptionLanguageMode(languageMode)) ||
@@ -518,6 +521,93 @@ function parseJob(
     ...(candidate.speaker_identities !== undefined
       ? { speaker_identities: speakerIdentities }
       : {}),
+    ...(candidate.usage_cost !== undefined ? { usage_cost: usageCost } : {}),
+  };
+}
+
+function parseOptionalJobUsageCost(
+  candidate: unknown,
+): JobUsageCost | false | undefined {
+  if (candidate === undefined) return undefined;
+  if (!isRecord(candidate)) return false;
+  const status = candidate.accounting_status;
+  if (
+    status !== "unavailable" &&
+    status !== "not_started" &&
+    status !== "confirmed_partial" &&
+    status !== "complete" &&
+    status !== "uncertain"
+  ) {
+    return false;
+  }
+  if (status === "unavailable" || status === "not_started") {
+    if (
+      candidate.confirmed_billed_duration_seconds !== null ||
+      candidate.confirmed_provider_cost !== null ||
+      candidate.currency !== null ||
+      candidate.cost_basis !== null ||
+      candidate.rate_snapshot !== null
+    ) {
+      return false;
+    }
+    return {
+      accounting_status: status,
+      confirmed_billed_duration_seconds: null,
+      confirmed_provider_cost: null,
+      currency: null,
+      cost_basis: null,
+      rate_snapshot: null,
+    };
+  }
+
+  const duration = candidate.confirmed_billed_duration_seconds;
+  const cost = candidate.confirmed_provider_cost;
+  const rateSnapshot = parseJobUsageRateSnapshot(candidate.rate_snapshot);
+  if (
+    typeof duration !== "number" ||
+    !Number.isFinite(duration) ||
+    duration < 0 ||
+    typeof cost !== "string" ||
+    !/^(0|[1-9][0-9]*)[.][0-9]{8}$/.test(cost) ||
+    candidate.currency !== "USD" ||
+    candidate.cost_basis !== "confirmed_audio_duration_x_rate_snapshot" ||
+    rateSnapshot === false ||
+    (rateSnapshot === null && (status !== "complete" || duration !== 0)) ||
+    (duration === 0 && cost !== "0.00000000")
+  ) {
+    return false;
+  }
+  return {
+    accounting_status: status,
+    confirmed_billed_duration_seconds: duration,
+    confirmed_provider_cost: cost,
+    currency: "USD",
+    cost_basis: "confirmed_audio_duration_x_rate_snapshot",
+    rate_snapshot: rateSnapshot,
+  };
+}
+
+function parseJobUsageRateSnapshot(
+  candidate: unknown,
+): JobUsageCost["rate_snapshot"] | false {
+  if (candidate === null) return null;
+  if (!isRecord(candidate)) return false;
+  const rate = candidate.rate_per_hour;
+  if (
+    typeof rate !== "string" ||
+    !/^(0|[1-9][0-9]*)[.][0-9]{6}$/.test(rate) ||
+    Number(rate) <= 0 ||
+    candidate.currency !== "USD" ||
+    !isIsoCalendarDate(candidate.effective_date) ||
+    candidate.source !== "elevenlabs_public_api_pricing"
+  ) {
+    return false;
+  }
+  return {
+    rate_per_hour: rate,
+    currency: "USD",
+    effective_date: candidate.effective_date,
+    source: "elevenlabs_public_api_pricing",
   };
 }
 
@@ -652,6 +742,14 @@ function isIsoDate(value: unknown): value is string {
 
 function isNullableIsoDate(value: unknown): value is string | null {
   return value === null || isIsoDate(value);
+}
+
+function isIsoCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function isApprovedGoogleUrl(value: string) {

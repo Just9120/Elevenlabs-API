@@ -1860,6 +1860,14 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
     body = r.json()
     assert body["status"] == "queued"
     assert body["source_count"] == 2
+    assert body["usage_cost"] == {
+        "accounting_status": "not_started",
+        "confirmed_billed_duration_seconds": None,
+        "confirmed_provider_cost": None,
+        "currency": None,
+        "cost_basis": None,
+        "rate_snapshot": None,
+    }
     assert body["language_mode"] == "en_us"
     assert body["diarization_enabled"] is False
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
