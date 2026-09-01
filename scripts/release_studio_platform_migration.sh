@@ -247,11 +247,13 @@ if [[ "$STUDIO_REQUESTED_MIGRATION_TARGET" == "worker_role" ]]; then
   require_worker_stopped
 
   worker_role_change_attempted="yes"
-  if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+  if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
+    env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
     bash "$WORKER_ROLE_SCRIPT" apply </dev/null; then
     blocked "worker_role_apply_failed"
   fi
-  if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+  if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
+    env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
     bash "$WORKER_ROLE_SCRIPT" verify </dev/null; then
     blocked "worker_role_verify_failed"
   fi
@@ -566,11 +568,13 @@ post_revision="$(probe_current_revision)"
 # the release gate still proves the worker is safely stopped.
 phase="worker_role"
 worker_role_change_attempted="yes"
-if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
+  env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
   bash "$WORKER_ROLE_SCRIPT" apply </dev/null; then
   blocked "worker_role_apply_failed"
 fi
-if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
+  env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
   bash "$WORKER_ROLE_SCRIPT" verify </dev/null; then
   blocked "worker_role_verify_failed"
 fi
