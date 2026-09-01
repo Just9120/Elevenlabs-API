@@ -10,10 +10,49 @@ import httpx
 from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
 
 ELEVENLABS_SPEECH_TO_TEXT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+# Only documented machine identifiers may cross the provider boundary. Messages,
+# parameters, request IDs, and unknown future codes remain untrusted and redacted.
+SAFE_PROVIDER_ERROR_CODES = frozenset(
+    {
+        "audio_too_long",
+        "audio_too_short",
+        "bad_request",
+        "concurrent_limit_exceeded",
+        "feature_not_available",
+        "forbidden",
+        "insufficient_credits",
+        "insufficient_permissions",
+        "invalid_api_key",
+        "invalid_audio",
+        "invalid_audio_format",
+        "invalid_authorization_header",
+        "invalid_content_type",
+        "invalid_file_type",
+        "invalid_parameters",
+        "internal_error",
+        "maintenance",
+        "malformed_json",
+        "missing_api_key",
+        "missing_required_field",
+        "model_access_denied",
+        "quota_exceeded",
+        "rate_limit_exceeded",
+        "request_too_large",
+        "service_unavailable",
+        "sign_in_required",
+        "subscription_required",
+        "system_busy",
+        "unauthorized",
+        "unsupported_model",
+        "workspace_access_denied",
+    }
+)
 
 
 class ElevenLabsTranscriptionReason(str, Enum):
     provider_authentication_rejected = "provider_authentication_rejected"
+    provider_payment_required = "provider_payment_required"
+    provider_scope_rejected = "provider_scope_rejected"
     provider_request_rejected = "provider_request_rejected"
     provider_rate_limited = "provider_rate_limited"
     provider_unavailable = "provider_unavailable"
@@ -23,9 +62,64 @@ class ElevenLabsTranscriptionReason(str, Enum):
 
 
 class ElevenLabsTranscriptionError(RuntimeError):
-    def __init__(self, reason: ElevenLabsTranscriptionReason):
+    def __init__(
+        self,
+        reason: ElevenLabsTranscriptionReason,
+        *,
+        provider_error_code: str | None = None,
+        http_status: int | None = None,
+    ):
         self.reason = reason
+        self.provider_error_code = (
+            provider_error_code
+            if provider_error_code in SAFE_PROVIDER_ERROR_CODES
+            else None
+        )
+        self.http_status = (
+            http_status
+            if type(http_status) is int and 100 <= http_status <= 599
+            else None
+        )
         super().__init__(reason.value)
+
+
+def _safe_provider_error_code(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    detail = payload.get("detail")
+    if not isinstance(detail, Mapping):
+        return None
+    for field_name in ("code", "status"):
+        candidate = detail.get(field_name)
+        if isinstance(candidate, str) and candidate in SAFE_PROVIDER_ERROR_CODES:
+            return candidate
+    return None
+
+
+def _raise_for_provider_error(response: httpx.Response) -> None:
+    status = response.status_code
+    reason = {
+        401: ElevenLabsTranscriptionReason.provider_authentication_rejected,
+        402: ElevenLabsTranscriptionReason.provider_payment_required,
+        403: ElevenLabsTranscriptionReason.provider_scope_rejected,
+        429: ElevenLabsTranscriptionReason.provider_rate_limited,
+    }.get(status)
+    if reason is None and status in {400, 404, 409, 422}:
+        reason = ElevenLabsTranscriptionReason.provider_request_rejected
+    if reason is None and status >= 500:
+        reason = ElevenLabsTranscriptionReason.provider_unavailable
+    if reason is None and not 200 <= status < 300:
+        reason = ElevenLabsTranscriptionReason.provider_request_rejected
+    if reason is not None:
+        raise ElevenLabsTranscriptionError(
+            reason,
+            provider_error_code=_safe_provider_error_code(response),
+            http_status=status,
+        )
 
 
 class _RevocableTranscript:
@@ -160,14 +254,7 @@ class ElevenLabsTranscriptionTransport:
             raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_timeout) from exc
         except httpx.HTTPError as exc:
             raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_unavailable) from exc
-        if response.status_code in {401, 403}:
-            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_authentication_rejected)
-        if response.status_code in {400, 404, 409, 422}:
-            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_request_rejected)
-        if response.status_code == 429:
-            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_rate_limited)
-        if response.status_code >= 500:
-            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_unavailable)
+        _raise_for_provider_error(response)
         try:
             payload = response.json()
         except Exception as exc:

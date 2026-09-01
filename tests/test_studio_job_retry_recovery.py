@@ -48,7 +48,7 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert {e.value for e in studio_model_modules["SourceAttemptRetryDisposition"]} == {
         "undetermined", "retry_safe", "provider_outcome_uncertain", "provider_result_lost", "output_reconciliation_required", "non_retryable", "completed"
     }
-    assert {"provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited"} <= studio_model_modules["SAFE_PROVIDER_FAILURES"]
+    assert {"provider_authentication_rejected", "provider_payment_required", "provider_scope_rejected", "provider_request_rejected", "provider_rate_limited"} <= studio_model_modules["SAFE_PROVIDER_FAILURES"]
     assert "provider_usage_accounting_unavailable" in studio_model_modules["SAFE_PRE_TRANSPORT_FAILURES"]
     assert "provider_usage_outcome_uncertain" not in studio_model_modules["SAFE_PRE_TRANSPORT_FAILURES"]
     assert {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "unknown"} <= studio_model_modules["UNCERTAIN_PROVIDER_FAILURES"]
@@ -212,6 +212,38 @@ def test_pre_transport_accounting_failure_is_retry_safe_but_uncertain_outcome_is
         uncertain_attempt.retry_disposition
         == m.SourceAttemptRetryDisposition.provider_outcome_uncertain
     )
+
+
+def test_safe_provider_rejection_retains_user_facing_category(sqlite_db):
+    from studio_api.job_retry_recovery import (
+        classify_source_attempt_failure,
+        compute_explicit_retry_readiness,
+    )
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=1,
+    )
+    _attempt(sqlite_db, m, job, rels[0], started=True)
+    classify_source_attempt_failure(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        failure_code="provider_scope_rejected",
+        provider_failure_code="provider_scope_rejected",
+        now=now,
+    )
+    job.status = m.JobStatus.failed
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    sqlite_db.commit()
+
+    readiness = compute_explicit_retry_readiness(sqlite_db, job, now=now)
+    assert readiness.available is True
+    assert readiness.reason.value == "available"
+    assert readiness.provider_failure_code == "provider_scope_rejected"
 
 
 def test_provider_part_progress_is_durable_monotonic_and_bounded(sqlite_db):

@@ -228,7 +228,15 @@ def test_event_registry_is_event_specific_and_redacts_values(db):
     Session=sessionmaker(bind=db.bind, expire_on_commit=False)
     assert sanitize_metadata("JOB_CREATED", {"source_count": 1, "credential_selected": False, "attempt_number": 1}) is None
     assert sanitize_metadata("PROCESSING_STARTED", {"attempt_number": 1, "source_count": 1}) is None
-    assert sanitize_metadata("PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "provider_timeout", "retryable": True, "attempt_number": 1})
+    assert sanitize_metadata("PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "provider_scope_rejected", "provider_error_code": "insufficient_permissions", "retryable": False, "attempt_number": 1, "http_status_category": "4xx", "http_status": 403}) == {
+        "attempt_number": 1,
+        "boundary": "provider_transport",
+        "error_code": "provider_scope_rejected",
+        "http_status": 403,
+        "http_status_category": "4xx",
+        "provider_error_code": "insufficient_permissions",
+        "retryable": False,
+    }
     assert sanitize_metadata("REALTIME_CAPABILITY_ISSUED", {"model": "scribe_v2_realtime", "expires_in_seconds": 300})
     assert sanitize_metadata("REALTIME_CAPABILITY_FAILED", {"reason": "provider_timeout", "retryable": True, "http_status_category": "5xx"})
     assert sanitize_metadata("API_REQUEST_FAILED", {"endpoint_group": "realtime", "http_status_category": "5xx"})
@@ -248,6 +256,14 @@ def test_event_registry_is_event_specific_and_redacts_values(db):
     for value in bad_values:
         assert sanitize_metadata("PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": value, "retryable": False, "attempt_number": 1}) is None
         assert write_diagnostic_event(owner_user_id=u.id, component="worker", event_code="PROVIDER_REQUEST_FAILED", project_id=p.id, job_id=j.id, metadata={"boundary": value, "error_code": "unknown", "retryable": False, "attempt_number": 1}, session_factory=Session).accepted is False
+    assert sanitize_metadata("PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "provider_scope_rejected", "provider_error_code": "private_dynamic_value", "retryable": False, "attempt_number": 1, "http_status": 403}) is None
+
+
+def test_provider_diagnostic_allowlists_match_transport_boundary():
+    from studio_api.diagnostics import PROVIDER_ERROR_CODES
+    from studio_api.elevenlabs_transcription import SAFE_PROVIDER_ERROR_CODES
+
+    assert PROVIDER_ERROR_CODES == SAFE_PROVIDER_ERROR_CODES
 
 def test_writer_scope_ownership_and_project_job_coherence(db):
     from studio_api import models as m

@@ -13557,6 +13557,7 @@ describe("settings diagnostics", () => {
                 metadata: {
                   boundary: "provider_transport",
                   error_code: "provider_timeout",
+                  provider_error_code: "service_unavailable",
                   retryable: true,
                   http_status_category: "5xx",
                   filename: "forbidden.mp3",
@@ -13607,6 +13608,7 @@ describe("settings diagnostics", () => {
     expect(document.body.textContent).not.toContain("JOB_FAILEDERROR");
     expect(screen.getByText("boundary")).toBeInTheDocument();
     expect(screen.getByText("error_code")).toBeInTheDocument();
+    expect(screen.getByText("provider_error_code")).toBeInTheDocument();
     expect(screen.getByText("retryable")).toBeInTheDocument();
     expect(screen.getByText("http_status_category")).toBeInTheDocument();
     expect(
@@ -13866,6 +13868,7 @@ describe("settings diagnostics", () => {
                   boundary: "provider_transport",
                   duration_ms: 1200,
                   error_code: "provider_timeout",
+                  provider_error_code: "service_unavailable",
                   retryable: true,
                   http_status_category: "5xx",
                   transcript: "forbidden transcript",
@@ -13967,6 +13970,7 @@ describe("settings diagnostics", () => {
       "boundary",
       "duration_ms",
       "error_code",
+      "provider_error_code",
       "retryable",
       "http_status_category",
       "output_count",
