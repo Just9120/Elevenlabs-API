@@ -20,21 +20,21 @@
   10. `OAA-10`: additive schema, compatibility, owner isolation, trace validation, append-only enforcement, rule thresholds, dedup/cooldown/recovery, transport failure и redaction покрыты unit/integration/frontend tests.
   11. `OAA-11`: focused/full local validation, reviewable PR и exact-head required CI завершаются success; migration/API/web/worker delivery следует protected gates.
   12. `OAA-12`: bounded production LIVE без внешнего spend/mutation подтверждает exact revision, trace continuity, incident create/dedup/resolve и owner UI; реальное Telegram сообщение не отправляется без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ⬜ | CODE ⬜ | TEST ⬜ | CI ⬜ | DEPLOY ⬜ | LIVE ⬜`.
+- **Required Evidence:** `SPEC ⬜ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ⬜ | LIVE ⬜`.
 - **Known blockers/dependencies:** optional Telegram delivery требует operator-provided bot token/chat ID и отдельного включения, но отсутствие transport не блокирует honest `not_configured` UI и внутренний incident authority. Migration class ожидается additive `MANUAL_GATED`. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохраняются untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-01T21:02:00Z`.
+- **Updated (UTC):** `2026-09-01T20:49:00Z`.
 - **Base branch/SHA:** verified exact `origin/main@c244241076f4c6b73b436b3fd2f5cfeec29590a9` после fetch.
 - **Working branch:** `codex/observability-alerts-audit` от exact verified `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
 - **Last verified revision:** implementation commit `e700c1ac8496abadb938af3b2b8bd084ab608fcf`.
 - **Completed:** реализованы additive schema `0033`, browser/API/job/worker trace continuity, explicit audit outcomes и database-enforced append-only boundary, owner-scoped incident/delivery authority с dedup/cooldown/recovery, deterministic provider/queue/maintenance/backup/storage/account rules, optional secret-file-backed Telegram transport, bounded worker evaluation/delivery, Support UI и safe suppressed-delivery canary. Transport не помещает token в URL, application logs или persisted outcome. Local Evidence: affected portable backend `224 passed`; финальный объединённый observability/schema/worker/diagnostics subset `73 passed`; frontend full `674 passed`; ESLint, TypeScript, Vite/PWA production build, Python compileall и `git diff --check` success. Owner-isolation regression также закрепляет CSRF acknowledge, trace-bearing audit и эквивалентные JSON/YAML/TOML exports с инцидентами.
-- **Current step:** exact-head Studio/PWA CI success; основной Linux/PostgreSQL CI выявил regression в stale preflight expected head и worker-grant/E2E test contracts, исправление проходит focused validation.
-- **Next exact action:** подтвердить focused regression tests, commit/push grouped CI fix и дождаться terminal CI нового exact PR head.
-- **PR / CI / deployment:** implementation commit `e700c1ac8496abadb938af3b2b8bd084ab608fcf`; PR head до grouped CI fix `1f820bc4dad48571f006774271f82710649dbdf9`; PR `#280` — https://github.com/Just9120/Elevenlabs-API/pull/280. Exact-head Studio/PWA run `33556240270` success (`studio` job `100017839384`, `browser-e2e` job `100017839203`). Main CI run `33556240263` корректно failed в pytest job `100017835218`: preflight ещё ожидал `0032`, real-PostgreSQL boundary-test всё ещё запрещал новый read-only snapshot grant, а E2E migration subprocess мог наследовать test-only SQLite URL override. Protected migration/API/web/worker delivery не начиналась.
+- **Current step:** PR `#280` mergeable; grouped CI regression fix подтверждён exact-head Linux/PostgreSQL, Studio и authenticated browser E2E.
+- **Next exact action:** опубликовать final review checkpoint, подтвердить terminal CI его exact metadata head и merge PR `#280` через protected branch gate.
+- **PR / CI / deployment:** implementation commit `e700c1ac8496abadb938af3b2b8bd084ab608fcf`; grouped CI fix `b5b6cf79e50106f406e66e68e18275db764f2ae1`; PR `#280` — https://github.com/Just9120/Elevenlabs-API/pull/280. Exact-head main CI run `33557141271`, job `100020629322`, success (`1636 passed`); Studio/PWA run `33557141274`, `studio` job `100020629675` и `browser-e2e` job `100020629807`, success. Initial failed runs сохранены как regression Evidence; protected migration/API/web/worker delivery ещё не начиналась.
 - **Blockers / unverified assumptions:** blockers для review отсутствуют. Optional Telegram credentials/configuration не проверялись и не нужны для honest `not_configured`; реальное Telegram сообщение запрещено без отдельной action-time authorization. Production canary реализован как internal create/dedup/resolve в одной transaction и заранее suppress-ит delivery rows, поэтому не вызывает внешний transport.
 
 ## Previous Goal closure — `STORAGE-LIFECYCLE-FOLLOWUP-01`
