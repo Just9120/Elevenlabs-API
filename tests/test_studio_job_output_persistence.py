@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -75,6 +75,42 @@ def test_one_active_artifact_persists_safe_row_and_completes_one_source(db):
     assert all(secret not in persisted for secret in ["Secret Title", "Привет", "token-secret", "body"])
     assert result.completed is True and job.status == m.JobStatus.completed and job.finished_at == now and job.error_code is None and job.error_message is None and job.lease_owner_id is None and job.lease_expires_at is None
     assert all(secret not in repr(result) for secret in ["doc-private", "https://docs.example", "folder-private"])
+
+
+def test_output_persistence_locks_only_worker_mutable_authority_rows(db):
+    from studio_api import models as m
+    from studio_api.job_output_persistence import persist_processing_job_source_output_and_maybe_complete
+
+    _, _, job, rels, now = make_job(db, m)
+    observed_locks: dict[type, list[bool]] = {}
+
+    def observe_orm_statement(state):
+        statement = state.statement
+        descriptions = getattr(statement, "column_descriptions", ())
+        entity = descriptions[0].get("entity") if descriptions else None
+        if entity is not None:
+            observed_locks.setdefault(entity, []).append(
+                getattr(statement, "_for_update_arg", None) is not None
+            )
+
+    event.listen(db, "do_orm_execute", observe_orm_statement)
+    try:
+        persist_processing_job_source_output_and_maybe_complete(
+            db,
+            job_id=job.id,
+            job_source_id=rels[0].id,
+            lease_owner_id="worker",
+            lease_generation=7,
+            artifact=artifact(),
+            now=now,
+        )
+    finally:
+        event.remove(db, "do_orm_execute", observe_orm_statement)
+
+    assert observed_locks[m.Project] == [False]
+    assert any(observed_locks[m.TranscriptionJob])
+    assert any(observed_locks[m.TranscriptionJobSource])
+    assert any(observed_locks[m.Source])
 
 
 def test_same_artifact_idempotent_and_different_document_conflicts(db):

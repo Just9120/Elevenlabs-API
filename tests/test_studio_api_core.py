@@ -195,6 +195,13 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                 assert conn.execute(text("SELECT current_user")).scalar_one() == role_name
                 assert check_database_readiness(conn)["schema_revision"] == repository_schema_head()
                 worker_health.check_worker_database_role(conn)
+                # Project metadata is read-only for the worker. PostgreSQL
+                # correctly rejects FOR UPDATE here, so processing code must not
+                # request that lock merely to validate project ownership/state.
+                conn.execute(text("SELECT id FROM projects LIMIT 0"))
+                with pytest.raises(ProgrammingError) as failure:
+                    conn.execute(text("SELECT id FROM projects LIMIT 0 FOR UPDATE"))
+                assert failure.value.orig.sqlstate == "42501"
                 conn.rollback()
                 for statement in (
                     "INSERT INTO alembic_version (version_num) VALUES ('forbidden')",
