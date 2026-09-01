@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .job_claim_lease import is_lease_active, invalidate_job_lease
 from .job_claim_readiness import build_claim_readiness_from_preflight
 from .job_processing_preflight import build_processing_preflight
-from .models import (JobSourceStatus, JobStatus, OutputReconciliationStatus, SourceAttemptRetryDisposition as Disp, SourceAttemptStage as Stage, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionJobSourceAttempt, TranscriptionOutputReconciliation)
+from .models import (JobSourceStatus, JobStatus, OutputReconciliationStatus, SourceAttemptRetryDisposition as Disp, SourceAttemptStage as Stage, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionJobSourceAttempt, TranscriptionOutputReconciliation, TranscriptionProviderPartCheckpoint)
 from .provider_part_checkpoints import checkpoint_resume_count, delete_provider_part_checkpoints
 
 MAX_PROCESSING_ATTEMPTS = 3
@@ -52,6 +52,33 @@ def _has_output(db, rel_id):
 
 def _has_unresolved_reconciliation(db, rel_id):
     return db.execute(select(TranscriptionOutputReconciliation.id).where(TranscriptionOutputReconciliation.job_source_id==rel_id, TranscriptionOutputReconciliation.status != OutputReconciliationStatus.resolved)).first() is not None
+
+def _confirmed_uncheckpointed_partial_result(db, attempt):
+    """Allow only an explicit, cost-confirmed restart of a known returned part.
+
+    This is the durable state left when provider usage was confirmed but the
+    first immutable part checkpoint could not be inserted. It is distinct from
+    an uncertain transport outcome: the normalized provider response returned,
+    no provider call remains pending, and no resumable checkpoint exists.
+    """
+    if (
+        attempt.provider_total_parts is None
+        or int(attempt.provider_total_parts) <= 1
+        or int(attempt.provider_completed_parts or 0) != 0
+        or attempt.provider_accounting_status != "confirmed"
+        or attempt.provider_pending_part_index is not None
+        or attempt.provider_pending_duration_ms is not None
+        or int(attempt.provider_billed_duration_ms or 0) <= 0
+    ):
+        return False
+    return db.execute(
+        select(TranscriptionProviderPartCheckpoint.id)
+        .where(
+            TranscriptionProviderPartCheckpoint.job_source_id
+            == attempt.job_source_id
+        )
+        .limit(1)
+    ).first() is None
 
 def _require_active_processing(job, owner, generation, now, *, allow_cancel=False):
     if job.status!=JobStatus.processing or job.lease_owner_id!=owner or job.lease_generation!=generation or not is_lease_active(job, now) or (job.cancel_requested_at is not None and not allow_cancel):
@@ -266,7 +293,10 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
             )
             if resumed:
                 safe+=1; resumable_parts+=resumed; provider_total_parts+=int(att.provider_total_parts or 0); provider_failure_code=att.provider_failure_code
-            elif mode == "explicit" and att.provider_failure_code in SAFE_PROVIDER_FAILURES:
+            elif mode == "explicit" and (
+                att.provider_failure_code in SAFE_PROVIDER_FAILURES
+                or _confirmed_uncheckpointed_partial_result(db, att)
+            ):
                 safe+=1; provider_total_parts+=int(att.provider_total_parts or 0); provider_failure_code=att.provider_failure_code
             else:
                 reason=reason or RetryReason.provider_outcome_uncertain

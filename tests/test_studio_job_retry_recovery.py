@@ -392,6 +392,51 @@ def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
     assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 0
 
 
+def test_confirmed_first_part_without_checkpoint_requires_explicit_full_restart(sqlite_db):
+    from studio_api.job_retry_recovery import (
+        compute_explicit_retry_readiness,
+        requires_provider_cost_confirmation,
+    )
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=1,
+        status="failed",
+    )
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    attempt = _attempt(
+        sqlite_db,
+        m,
+        job,
+        rels[0],
+        stage=m.SourceAttemptStage.failed,
+        disposition=m.SourceAttemptRetryDisposition.provider_outcome_uncertain,
+        started=True,
+    )
+    attempt.failure_code = "partial_provider_result"
+    attempt.provider_total_parts = 4
+    attempt.provider_completed_parts = 0
+    attempt.provider_accounting_status = "confirmed"
+    attempt.provider_pending_part_index = None
+    attempt.provider_pending_duration_ms = None
+    attempt.provider_billed_duration_ms = 801_689
+    sqlite_db.commit()
+
+    readiness = compute_explicit_retry_readiness(sqlite_db, job, now=now)
+    assert readiness.available is True
+    assert readiness.reason.value == "partial_provider_restart_available"
+    assert readiness.resumable_provider_part_count == 0
+    assert readiness.provider_total_part_count == 4
+    assert requires_provider_cost_confirmation(readiness) is True
+
+    attempt.provider_accounting_status = "uncertain"
+    sqlite_db.commit()
+    uncertain = compute_explicit_retry_readiness(sqlite_db, job, now=now)
+    assert uncertain.available is False
+    assert uncertain.reason.value == "provider_outcome_uncertain"
+
+
 def test_expired_partial_checkpoint_cleanup_is_bounded(sqlite_db):
     from studio_api.provider_part_checkpoints import (
         cleanup_expired_provider_part_checkpoints,

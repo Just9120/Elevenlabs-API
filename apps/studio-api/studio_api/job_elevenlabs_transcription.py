@@ -457,10 +457,28 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     now=clock(),
                                 )
                                 db.commit()
+                            except ProviderPartCheckpointError as exc:
+                                db.rollback()
+                                mapped = JobElevenLabsTranscriptionReason.partial_provider_result
+                                _emit_provider_failure(
+                                    db,
+                                    job_id,
+                                    mapped,
+                                    boundary="provider_checkpoint",
+                                    diagnostic_code=exc.reason.value,
+                                )
+                                _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                raise JobElevenLabsTranscriptionError(mapped) from exc
                             except Exception as exc:
                                 db.rollback()
                                 mapped = JobElevenLabsTranscriptionReason.partial_provider_result
-                                _emit_provider_failure(db, job_id, mapped)
+                                _emit_provider_failure(
+                                    db,
+                                    job_id,
+                                    mapped,
+                                    boundary="provider_checkpoint",
+                                    diagnostic_code="provider_part_progress_persistence_failed",
+                                )
                                 _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                                 raise JobElevenLabsTranscriptionError(mapped) from exc
                         try:
@@ -878,6 +896,7 @@ def _emit_provider_failure(
     diagnostic_code: str | None = None,
     provider_error_code: str | None = None,
     http_status: int | None = None,
+    boundary: str = "provider_transport",
 ):
     safe_codes = {
         "provider_authentication_rejected",
@@ -889,9 +908,13 @@ def _emit_provider_failure(
         "provider_timeout",
         "malformed_provider_response",
         "partial_provider_result",
+        "provider_part_checkpoint_persistence_failed",
+        "provider_part_checkpoint_scope_conflict",
+        "provider_part_checkpoint_shape_conflict",
+        "provider_part_progress_persistence_failed",
     }
     metadata = {
-        "boundary": "provider_transport",
+        "boundary": boundary,
         "error_code": (
             diagnostic_code
             if diagnostic_code in safe_codes | {"unknown"}

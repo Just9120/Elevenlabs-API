@@ -170,7 +170,10 @@ def test_worker_role_operator_predicate_on_real_postgresql():
 
 def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(monkeypatch):
     from studio_api import worker_health
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response
+    from studio_api.provider_part_checkpoints import save_provider_part_checkpoint
     from studio_api.runtime_observability import check_database_readiness, repository_schema_head
+    from sqlalchemy.orm import Session
 
     role_name = f"studio_worker_test_{uuid.uuid4().hex}"
     password = f"synthetic-{uuid.uuid4().hex}"
@@ -191,6 +194,70 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
             # A new authenticated connection is essential: admin/SET ROLE
             # substitutes cannot prove the worker credential boundary.
             worker_engine = create_engine(temp_engine.url.set(username=role_name, password=password))
+            with Session(temp_engine) as admin_session:
+                checkpoint_user = User(email=f"checkpoint-{uuid.uuid4().hex}@example.com")
+                admin_session.add(checkpoint_user)
+                admin_session.flush()
+                checkpoint_project = Project(owner_user_id=checkpoint_user.id, title="Checkpoint role probe")
+                admin_session.add(checkpoint_project)
+                admin_session.flush()
+                checkpoint_source = Source(
+                    project_id=checkpoint_project.id,
+                    source_type=SourceType.local_upload,
+                    original_filename="checkpoint.wav",
+                )
+                checkpoint_job = TranscriptionJob(
+                    project_id=checkpoint_project.id,
+                    owner_user_id=checkpoint_user.id,
+                    status=JobStatus.processing,
+                    provider="elevenlabs",
+                )
+                admin_session.add_all([checkpoint_source, checkpoint_job])
+                admin_session.flush()
+                checkpoint_relation = TranscriptionJobSource(
+                    job_id=checkpoint_job.id,
+                    source_id=checkpoint_source.id,
+                    position=0,
+                )
+                admin_session.add(checkpoint_relation)
+                admin_session.commit()
+                checkpoint_scope = (
+                    checkpoint_job.id,
+                    checkpoint_relation.id,
+                )
+
+            class CheckpointSettings:
+                credential_key_id = "worker-role-test-key"
+                provider_part_checkpoint_ttl_seconds = 3600
+
+                @staticmethod
+                def master_key_b64():
+                    return base64.b64encode(b"c" * 32).decode("ascii")
+
+            checkpoint_result = normalize_elevenlabs_transcript_response(
+                {
+                    "text": "checkpoint",
+                    "words": [
+                        {"text": "checkpoint", "start": 0, "end": 1}
+                    ],
+                }
+            )
+            with Session(worker_engine) as worker_session:
+                checkpoint = save_provider_part_checkpoint(
+                    worker_session,
+                    job_id=checkpoint_scope[0],
+                    job_source_id=checkpoint_scope[1],
+                    part_index=0,
+                    total_parts=2,
+                    timeline_offset_seconds=0,
+                    duration_seconds=1,
+                    result=checkpoint_result,
+                    settings=CheckpointSettings(),
+                    now=datetime.now(timezone.utc),
+                )
+                worker_session.commit()
+                checkpoint_id = checkpoint.id
+
             with worker_engine.connect() as conn:
                 assert conn.execute(text("SELECT current_user")).scalar_one() == role_name
                 assert check_database_readiness(conn)["schema_revision"] == repository_schema_head()
@@ -201,6 +268,23 @@ def test_worker_manifest_supports_readiness_with_restricted_postgresql_login(mon
                 conn.execute(text("SELECT id FROM projects LIMIT 0"))
                 with pytest.raises(ProgrammingError) as failure:
                     conn.execute(text("SELECT id FROM projects LIMIT 0 FOR UPDATE"))
+                assert failure.value.orig.sqlstate == "42501"
+                conn.rollback()
+                assert conn.execute(
+                    text(
+                        "SELECT id FROM transcription_provider_part_checkpoints "
+                        "WHERE id = :checkpoint_id"
+                    ),
+                    {"checkpoint_id": checkpoint_id},
+                ).scalar_one() == checkpoint_id
+                with pytest.raises(ProgrammingError) as failure:
+                    conn.execute(
+                        text(
+                            "SELECT id FROM transcription_provider_part_checkpoints "
+                            "WHERE id = :checkpoint_id FOR UPDATE"
+                        ),
+                        {"checkpoint_id": checkpoint_id},
+                    )
                 assert failure.value.orig.sqlstate == "42501"
                 conn.rollback()
                 for statement in (
