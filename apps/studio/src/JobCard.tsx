@@ -29,6 +29,7 @@ export function JobCard({
   onCheckReconciliation,
   onRetry,
   pinnedTerminal = false,
+  attentionRequired = false,
   dismissPending = false,
   onDismissTerminal,
   csrf,
@@ -47,6 +48,7 @@ export function JobCard({
   onCheckReconciliation: (jobId: string) => void | Promise<void>;
   onRetry: (jobId: string) => void | Promise<void>;
   pinnedTerminal?: boolean;
+  attentionRequired?: boolean;
   dismissPending?: boolean;
   onDismissTerminal?: (jobId: string) => void | Promise<void>;
   csrf?: string;
@@ -70,21 +72,25 @@ export function JobCard({
           aria-live={job.status === "failed" ? "assertive" : "polite"}
         >
           <strong>
-            {job.status === "completed"
+            {attentionRequired
+              ? "Эта задача требует решения и сохранена после очистки истории."
+              : job.status === "completed"
               ? "Задача завершена на 100% — результат доступен ниже."
               : job.status === "failed"
                 ? "Задача завершилась ошибкой."
                 : "Задача отменена."}
           </strong>
-          <button
-            className="secondary"
-            type="button"
-            disabled={dismissPending}
-            aria-busy={dismissPending}
-            onClick={() => onDismissTerminal?.(job.id)}
-          >
-            Убрать в историю
-          </button>
+          {!attentionRequired && (
+            <button
+              className="secondary"
+              type="button"
+              disabled={dismissPending}
+              aria-busy={dismissPending}
+              onClick={() => onDismissTerminal?.(job.id)}
+            >
+              Убрать в историю
+            </button>
+          )}
         </div>
       )}
       <JobProgressPipeline jobId={job.id} state={progress} />

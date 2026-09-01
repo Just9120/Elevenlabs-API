@@ -196,6 +196,21 @@ describe("project collection contracts", () => {
     expect(parsed?.[0]).not.toHaveProperty("sources");
   });
 
+  it("accepts only a boolean history-attention marker", () => {
+    expect(
+      parseProjectJobCollection(
+        { jobs: [{ ...job, history_attention_required: true }] },
+        "project-safe",
+      )?.[0].history_attention_required,
+    ).toBe(true);
+    expect(
+      parseProjectJobCollection(
+        { jobs: [{ ...job, history_attention_required: "private-state" }] },
+        "project-safe",
+      ),
+    ).toBeNull();
+  });
+
   it("accepts a bounded job usage projection and discards private extras", () => {
     const parsed = parseProjectJobCollection(
       {

@@ -82,6 +82,7 @@ from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
 from .transcript_catalog import (
     ExistingResultMatchStatus,
+    GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
     ProviderAttemptAuthorityStatus,
     current_effective_settings,
     elevenlabs_effective_settings,
@@ -2174,6 +2175,34 @@ def download_audio_preparation(job_id: str, pair=Depends(current_session), db: S
 
 
 
+def history_attention_required_expression():
+    accepted_output_exists = (
+        select(TranscriptionJobOutput.id)
+        .where(
+            TranscriptionJobOutput.job_source_id
+            == TranscriptionJobSourceAttempt.job_source_id,
+            TranscriptionJobOutput.output_kind
+            == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
+        )
+        .correlate(TranscriptionJobSourceAttempt)
+        .exists()
+    )
+    return (
+        select(TranscriptionJobSourceAttempt.id)
+        .where(
+            TranscriptionJobSourceAttempt.job_id == TranscriptionJob.id,
+            TranscriptionJobSourceAttempt.provider_request_started_at.is_not(
+                None
+            ),
+            TranscriptionJobSourceAttempt.retry_disposition
+            != SourceAttemptRetryDisposition.retry_safe,
+            ~accepted_output_exists,
+        )
+        .correlate(TranscriptionJob)
+        .exists()
+    )
+
+
 @app.get("/api/projects/{project_id}/jobs")
 def list_project_jobs(
     project_id: str,
@@ -2188,25 +2217,48 @@ def list_project_jobs(
         position=decode_collection_cursor(cursor, secret=sess.csrf_hash, owner_user_id=user.id, surface="jobs", scope=scope)
     except CollectionCursorError:
         raise HTTPException(422, "Invalid jobs cursor") from None
+    attention_required=history_attention_required_expression()
     query=db.query(TranscriptionJob).options(selectinload(TranscriptionJob.speakers)).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
     if p.history_reset_at is not None:
-        query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at))
+        query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at, attention_required))
     if position:
         created_at,row_id=position
         query=query.filter((TranscriptionJob.created_at < created_at) | ((TranscriptionJob.created_at == created_at) & (TranscriptionJob.id < row_id)))
     rows=query.order_by(TranscriptionJob.created_at.desc(), TranscriptionJob.id.desc()).limit(page_size+1).all()
     rows,next_cursor=page_envelope(rows, page_size=page_size, timestamp_attribute="created_at", secret=sess.csrf_hash, owner_user_id=user.id, surface="jobs", scope=scope)
-    return {"jobs":[job_payload(r) for r in rows], "next_cursor": next_cursor, "page_size": page_size}
+    attention_job_ids = {
+        row_id
+        for (row_id,) in db.query(TranscriptionJob.id)
+        .filter(
+            TranscriptionJob.id.in_([row.id for row in rows]),
+            history_attention_required_expression(),
+        )
+        .all()
+    }
+    payloads=[]
+    for row in rows:
+        payload=job_payload(row)
+        payload["history_attention_required"]=row.id in attention_job_ids
+        payloads.append(payload)
+    return {"jobs":payloads, "next_cursor": next_cursor, "page_size": page_size}
 
 @app.post("/api/projects/{project_id}/history/clear")
 def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
     reset_at=utcnow()
-    hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.completed, JobStatus.failed, JobStatus.cancelled]), or_(TranscriptionJob.finished_at.is_(None), TranscriptionJob.finished_at <= reset_at)).count()
+    terminal_scope=(
+        TranscriptionJob.project_id==p.id,
+        TranscriptionJob.owner_user_id==user.id,
+        TranscriptionJob.status.in_([JobStatus.completed, JobStatus.failed, JobStatus.cancelled]),
+        or_(TranscriptionJob.finished_at.is_(None), TranscriptionJob.finished_at <= reset_at),
+    )
+    attention_required=history_attention_required_expression()
+    hidden_job_count=db.query(TranscriptionJob).filter(*terminal_scope, ~attention_required).count()
+    preserved_job_count=db.query(TranscriptionJob).filter(*terminal_scope, attention_required).count()
     p.history_reset_at=reset_at; p.updated_at=reset_at
     audit(db,"history.cleared",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()
-    return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
+    return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count, "preserved_job_count": preserved_job_count}
 
 @app.get("/api/projects/{project_id}/jobs/progress")
 def get_project_job_progress(response: Response, project_id: str, job_id: list[str]=Query(default=[]), pair=Depends(current_session), db: Session=Depends(get_db)):

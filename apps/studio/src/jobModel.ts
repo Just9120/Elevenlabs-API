@@ -105,6 +105,7 @@ export type TranscriptionJob = {
   media_clip?: JobMediaClip | null;
   batch?: JobBatchReference | null;
   terminal_dismissed_at?: string | null;
+  history_attention_required?: boolean;
   source_count: number;
   sources?: JobSource[];
   created_at: string;

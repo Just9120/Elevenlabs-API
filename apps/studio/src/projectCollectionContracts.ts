@@ -455,6 +455,7 @@ function parseJob(
   const languageMode = candidate.language_mode;
   const diarizationEnabled = candidate.diarization_enabled;
   const terminalDismissedAt = candidate.terminal_dismissed_at;
+  const historyAttentionRequired = candidate.history_attention_required;
   const speakerIdentities = parseOptionalSpeakerIdentities(
     candidate.speaker_identities,
   );
@@ -479,6 +480,8 @@ function parseJob(
       typeof diarizationEnabled !== "boolean") ||
     (terminalDismissedAt !== undefined &&
       !isNullableIsoDate(terminalDismissedAt)) ||
+    (historyAttentionRequired !== undefined &&
+      typeof historyAttentionRequired !== "boolean") ||
     !isNonNegativeInteger(candidate.source_count) ||
     !isIsoDate(candidate.created_at) ||
     !isIsoDate(candidate.updated_at) ||
@@ -504,6 +507,9 @@ function parseJob(
     ...(candidate.batch !== undefined ? { batch } : {}),
     ...(terminalDismissedAt !== undefined
       ? { terminal_dismissed_at: terminalDismissedAt }
+      : {}),
+    ...(historyAttentionRequired !== undefined
+      ? { history_attention_required: historyAttentionRequired }
       : {}),
     source_count: candidate.source_count,
     created_at: candidate.created_at,
