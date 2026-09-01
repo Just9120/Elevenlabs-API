@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository baseline: `main@476c6492b7127d7e06e8d71fb2fca91071275a6a` (usage compatibility PR `#269`) has exact-main CI and verified API-only delivery `33429652762` / `99611664932`. Web remains `cb481be1`; worker image remains `8957e974`; schema `0031` is unchanged. One bounded canary completed a provider part and persisted usage accounting. Initial Google output confirmation failed with `output_reconciliation_required`; one owner-approved reconciliation on `2026-08-31T20:24:29Z` recovered one existing result and completed the same job. The original failure is locally diagnosed but the repair is not yet delivered. Worker remains gracefully stopped. Exact identifiers are in `docs/delivery-plan.md`.
+Verified repository baseline: `main@fe58220da1bad9e25332f62d001bdc37ed769fdb` has exact-main CI `33479803256`, Studio/browser CI `33479803115`, platform CD `33479803110`, manual worker deploy `33480733237` и subsequent worker status `33481047378` / `33481700306`. Owner diagnostic 2026-09-01 подтвердил exact runtime этой revision: короткая transcription проходит, а long-media job завершилась до provider call с `lifecycle_changed_before_provider_call` и zero provider usage. Local hotfix не засчитывается как delivered Evidence до PR/CI/deployment. Exact identifiers are in `docs/delivery-plan.md`.
 
-Current operational Goal: `PWA-WORKER-USAGE-ACCOUNTING-01`, state `IN_PROGRESS`. `USAGEC-01/02/03/04/06` have delivered and applicable LIVE Evidence. The remaining `USAGEC-05` is implemented in PR `#270`: owner job DTO/UI separates confirmed nominal duration/cost and immutable rate provenance from provider account actuals and fails closed for unavailable/inconsistent data. Worker no longer requests a project row lock that requires UPDATE; the grouped CI correction instead serializes API project archive through the same locked mutable job boundary. Corrected head `03addda` passed main PostgreSQL CI `33479042277` (`1591 passed`), Studio and browser E2E `33479042292`; deploy/LIVE remain pending. Portable Python remains `1267 passed`, with focused/compile/lightweight checks green. No new provider call or worker resume occurred. Goal авторизует `PWAWOR-02..03` и `USAGEC-01..06`; commercial contour, пользовательский billing, realtime/storage costs, pricing-page scraping и unsupported credits-to-minutes/invoice allocation remain outside scope.
+Current operational Goal: `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`, state `IN_PROGRESS`. Goal авторизует `PUX-13` и `JOBREL-17`: единый live-updating progress meter без fabricated percentage и transaction-free long-I/O boundaries worker с fresh fail-closed revalidation до provider spend. Local implementation и focused tests существуют; CI, delivery и owner-authorized long-media LIVE ещё отсутствуют. Worker isolation, `idle_in_transaction_session_timeout=60s`, provider-cost/lifecycle gates, automatic retry, realtime STT и commercial contour остаются вне разрешённых изменений.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **78,6% (`239/304`)** | Выполнены `USAGEC-01/02/03/04/06`; local `USAGEC-05` ещё не засчитан до delivery/LIVE |
-| Non-commercial scope | **80,7% (`271/336`)** | Colab `32/32` + personal PWA `239/304` |
+| Personal Studio PWA | **78,1% (`239/306`)** | Новые `PUX-13` и `JOBREL-17` не засчитаны до полного Evidence; ранее выполнены `239` AC |
+| Non-commercial scope | **80,2% (`271/338`)** | Colab `32/32` + personal PWA `239/306` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **46,9% (`271/578`)** | `271 / (336 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **46,7% (`271/580`)** | `271 / (338 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, подняв denominator до `574`; previous delivery закрыл `STORAG-17..21` и довёл exact-main numerator до `264`. Explicit owner decision о provider account reconciliation добавил `USAGEC-03..06`, поэтому current denominator равен `578`, non-commercial `336`, personal PWA `304`. Worker runtime Evidence подняло numerator до `266`; account LIVE — до `269`; одна persisted canary закрыла `USAGEC-01/02` и дала current `271/578`. Reconciliation recovery и local `USAGEC-05` implementation denominator/numerator не меняют. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, подняв denominator до `574`; previous delivery закрыл `STORAG-17..21` и довёл exact-main numerator до `264`. Explicit owner decision о provider account reconciliation добавил `USAGEC-03..06`, подняв denominator до `578`, non-commercial до `336`, personal PWA до `304`. Worker runtime Evidence подняло numerator до `266`; account LIVE — до `269`; одна persisted canary закрыла `USAGEC-01/02` и дала `271/578`. Explicit owner Goal 2026-09-01 добавила `PUX-13` и `JOBREL-17`, поэтому current denominator равен `580`, non-commercial `338`, personal PWA `306`; оба новых AC пока не увеличивают numerator. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
 
 ### Commercial scope decision
 
@@ -154,7 +154,7 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-USER-EXPERIENCE-02` — пользовательский язык и progressive disclosure
 
-Status: **🟦 IN PROGRESS — 100% (`12/12`)**. Все atomic AC реализованы и покрыты local unit/component tests; narrow browser test добавлен, но exact-head CI, deployment и authenticated production LIVE ещё не выполнены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**. Ранее реализованные AC покрыты local unit/component tests; новый `PUX-13` реализован локально, но не засчитывается до exact-head CI, deployment и authenticated production LIVE.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -170,6 +170,7 @@ Status: **🟦 IN PROGRESS — 100% (`12/12`)**. Все atomic AC реализо
 | `PUX-10` | Maintenance result сначала показывает summary и доступные действия, а длинные document lists имеют filter и bounded pagination/progressive disclosure без unbounded render всех строк. | ✅ |
 | `PUX-11` | В Settings обычные подключения и пользовательские storage preferences отделены от diagnostics, runtime identity, debug/export и maintenance access, которые явно обозначены как раздел для поддержки/расширенные настройки. | ✅ |
 | `PUX-12` | App-owned Google Drive dialog на viewport `390x844` не имеет horizontal overflow, сохраняет читаемые названия и доступные primary/close controls; modal scroll остаётся изолирован от страницы. | ✅ |
+| `PUX-13` | Running transcription отображается одним постоянно активным user-facing progress meter с текущим действием и активным файлом; owner-scoped automatic refresh обновляет state без ручного reload/tab switch, exact percentage отражает только подтверждённые checkpoints, а technical stages доступны под progressive disclosure. | — |
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
@@ -620,7 +621,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`. П�
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 
-Status: **⬜ BACKLOG — 81,3% (`13/16`)**.
+Status: **🟦 IN PROGRESS — 76,5% (`13/17`)**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -640,8 +641,9 @@ Status: **⬜ BACKLOG — 81,3% (`13/16`)**.
 | `JOBREL-14` | UI показывает текущую processing stage. | ✅ |
 | `JOBREL-15` | Source availability проверяется до provider dispatch. | ✅ |
 | `JOBREL-16` | Target write readiness проверяется до provider dispatch. | ✅ |
+| `JOBREL-17` | После immutable authoritative snapshot долгие source availability/materialization и media preparation операции не удерживают idle worker DB transaction; после I/O выполняется fresh fail-closed lifecycle/source/credential/output revalidation до любого provider call. | — |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `JOB-NOTIFICATIONS-01` — уведомления о завершении/error
 
