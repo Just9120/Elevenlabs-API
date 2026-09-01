@@ -14,6 +14,15 @@ const STAGE_LABELS: Record<JobProgressStageKey, string> = {
   google_docs_output: "Создание Google Docs",
 };
 
+const ACTIVE_STAGE_LABELS: Record<JobProgressStageKey, string> = {
+  preparation: "Подготавливаем файл",
+  audio_extraction: "Извлекаем аудио из видео",
+  splitting: "Проверяем размер и делим длинную запись",
+  provider_processing: "Транскрибируем запись",
+  part_merge: "Объединяем части транскрипта",
+  google_docs_output: "Создаём документ в Google Docs",
+};
+
 function statusLabel(stage: JobProgressStage) {
   if (stage.status === "pending") return "Ожидает";
   if (stage.status === "active") return "Выполняется";
@@ -42,56 +51,99 @@ export function JobProgressPipeline({
 
   const progress = state.data;
   const percent = confirmedProgressPercent(progress);
+  const activeSource = progress.sources.find(
+    (source) => source.position === progress.active_source_position,
+  );
+  const isActive =
+    progress.job_status === "queued" || progress.job_status === "processing";
+  let currentAction =
+    progress.job_status === "queued"
+      ? "Ждёт начала обработки"
+      : progress.job_status === "completed"
+        ? "Транскрибация завершена"
+        : progress.job_status === "failed"
+          ? "Не удалось завершить транскрибацию"
+          : progress.job_status === "cancelled"
+            ? "Транскрибация отменена"
+            : "Обрабатываем запись";
+  if (isActive && progress.current_stage) {
+    currentAction = ACTIVE_STAGE_LABELS[progress.current_stage];
+  }
+  if (
+    isActive &&
+    progress.current_stage === "provider_processing" &&
+    activeSource?.provider_parts
+  ) {
+    const { completed, total } = activeSource.provider_parts;
+    currentAction =
+      completed < total
+        ? `Транскрибируем часть ${completed + 1} из ${total}`
+        : "Завершаем транскрибацию частей";
+  }
   return (
     <section
       className="job-progress"
       aria-label={`Прогресс задачи ${jobId}`}
       aria-live="polite"
+      aria-busy={isActive}
     >
       <div className="job-progress-header">
-        <strong>Этапы обработки</strong>
-        <strong>{percent}%</strong>
+        <strong>{currentAction}</strong>
+        <strong>Подтверждено {percent}%</strong>
       </div>
-      <progress
-        className="job-progress-meter"
-        max={100}
-        value={percent}
-        aria-label="Подтверждённый прогресс"
+      <div
+        className={`job-progress-meter${isActive ? " is-active" : ""}`}
+        role="progressbar"
+        aria-label="Общий прогресс транскрибации"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={`${percent}% подтверждено. ${currentAction}`}
       >
-        {percent}%
-      </progress>
-      <span>
-        Готово файлов: {progress.completed_source_count} из{" "}
-        {progress.total_source_count}
-      </span>
-      <p className="muted">
-        Процент обновляется только после подтверждённых этапов обработки.
+        <span
+          className="job-progress-meter-fill"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="job-progress-summary">
+        <span>
+          Готово файлов: {progress.completed_source_count} из{" "}
+          {progress.total_source_count}
+        </span>
+        {activeSource && <span>Сейчас: {activeSource.name}</span>}
+      </div>
+      <p className="muted job-progress-explanation">
+        Статус обновляется автоматически. Анимация показывает, что обработка
+        продолжается; процент меняется только по подтверждённым этапам.
       </p>
-      {progress.sources.map((source) => (
-        <div className="job-progress-source" key={source.position}>
-          <b>
-            {source.position + 1}. {source.name}
-          </b>
-          {source.provider_parts && (
-            <span className="muted">
-              Части ElevenLabs: {source.provider_parts.completed} из{" "}
-              {source.provider_parts.total}
-            </span>
-          )}
-          <ol className="job-progress-steps">
-            {source.stages.map((stage) => (
-              <li
-                className={`job-progress-step progress-${stage.status}`}
-                key={stage.key}
-              >
-                <span aria-hidden="true" className="job-progress-marker" />
-                <span>{STAGE_LABELS[stage.key]}</span>
-                <small>{statusLabel(stage)}</small>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ))}
+      <details className="job-progress-details">
+        <summary>Подробности по этапам</summary>
+        {progress.sources.map((source) => (
+          <div className="job-progress-source" key={source.position}>
+            <b>
+              {source.position + 1}. {source.name}
+            </b>
+            {source.provider_parts && (
+              <span className="muted">
+                Части ElevenLabs: {source.provider_parts.completed} из{" "}
+                {source.provider_parts.total}
+              </span>
+            )}
+            <ol className="job-progress-steps">
+              {source.stages.map((stage) => (
+                <li
+                  className={`job-progress-step progress-${stage.status}`}
+                  key={stage.key}
+                >
+                  <span aria-hidden="true" className="job-progress-marker" />
+                  <span>{STAGE_LABELS[stage.key]}</span>
+                  <small>{statusLabel(stage)}</small>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </details>
       {state.error && (
         <p className="notice">
           Не удалось обновить прогресс; показан последний подтверждённый статус.

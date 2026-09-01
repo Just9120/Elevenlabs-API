@@ -46,9 +46,26 @@ const state: JobProgressState = {
 };
 
 describe("JobProgressPipeline", () => {
-  it("renders ordered checkpoint stages and conditional wording", () => {
+  it("renders one live meter with the current user-facing action", () => {
     render(<JobProgressPipeline jobId="job-1" state={state} />);
     const pipeline = screen.getByLabelText("Прогресс задачи job-1");
+    expect(pipeline).toHaveAttribute("aria-busy", "true");
+    expect(pipeline).toHaveTextContent("Транскрибируем часть 2 из 4");
+    expect(pipeline).toHaveTextContent("Подтверждено 54%");
+    expect(pipeline).toHaveTextContent("Сейчас: Interview.mp4");
+    const meter = within(pipeline).getByRole("progressbar", {
+      name: "Общий прогресс транскрибации",
+    });
+    expect(meter).toHaveAttribute("aria-valuenow", "54");
+    expect(meter).toHaveAttribute(
+      "aria-valuetext",
+      "54% подтверждено. Транскрибируем часть 2 из 4",
+    );
+    expect(meter).toHaveClass("is-active");
+
+    expect(
+      within(pipeline).getByText("Подробности по этапам"),
+    ).toBeInTheDocument();
     const steps = within(pipeline).getAllByRole("listitem");
     expect(steps).toHaveLength(6);
     expect(steps[0]).toHaveTextContent("Подготовка источника");
@@ -57,13 +74,51 @@ describe("JobProgressPipeline", () => {
     expect(steps[3]).toHaveTextContent("Транскрибация ElevenLabs");
     expect(steps[3]).toHaveTextContent("Выполняется");
     expect(steps[5]).toHaveTextContent("Создание Google Docs");
+    expect(pipeline).toHaveTextContent("Части ElevenLabs: 1 из 4");
+  });
+
+  it("keeps terminal progress still and announces the outcome", () => {
+    render(
+      <JobProgressPipeline
+        jobId="job-1"
+        state={{
+          ...state,
+          data: {
+            ...state.data!,
+            job_status: "completed",
+            completed_source_count: 1,
+            current_stage: null,
+          },
+        }}
+      />,
+    );
+
+    const pipeline = screen.getByLabelText("Прогресс задачи job-1");
+    expect(pipeline).toHaveAttribute("aria-busy", "false");
+    expect(pipeline).toHaveTextContent("Транскрибация завершена");
     expect(
       within(pipeline).getByRole("progressbar", {
-        name: "Подтверждённый прогресс",
+        name: "Общий прогресс транскрибации",
       }),
-    ).toHaveAttribute("value", "54");
-    expect(within(pipeline).getAllByText("54%", { exact: true })).toHaveLength(2);
-    expect(pipeline).toHaveTextContent("Части ElevenLabs: 1 из 4");
+    ).not.toHaveClass("is-active");
+
+    render(
+      <JobProgressPipeline
+        jobId="job-failed"
+        state={{
+          ...state,
+          data: {
+            ...state.data!,
+            job_id: "job-failed",
+            job_status: "failed",
+            current_stage: "provider_processing",
+          },
+        }}
+      />,
+    );
+    const failed = screen.getByLabelText("Прогресс задачи job-failed");
+    expect(failed).toHaveTextContent("Не удалось завершить транскрибацию");
+    expect(failed).not.toHaveTextContent("Транскрибируем часть 2 из 4");
   });
 
   it("keeps the last confirmed state visible after a refresh failure", () => {

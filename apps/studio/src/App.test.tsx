@@ -5886,6 +5886,15 @@ describe("Studio PWA", () => {
     const processingProgress = await screen.findByLabelText(
       "Прогресс задачи job-processing",
     );
+    expect(processingProgress).toHaveTextContent("Транскрибируем запись");
+    expect(
+      within(processingProgress).getByRole("progressbar", {
+        name: "Общий прогресс транскрибации",
+      }),
+    ).toHaveClass("is-active");
+    expect(processingProgress).toHaveTextContent(
+      "Статус обновляется автоматически",
+    );
     expect(processingProgress).toHaveTextContent("Подготовка источника");
     expect(processingProgress).toHaveTextContent("Извлечение аудио");
     expect(processingProgress).toHaveTextContent(

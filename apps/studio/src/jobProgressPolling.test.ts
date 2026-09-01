@@ -43,10 +43,11 @@ describe("job progress polling", () => {
   });
 
   it("uses bounded exponential backoff", () => {
-    expect(jobProgressRetryDelay(1)).toBe(5_000);
-    expect(jobProgressRetryDelay(2)).toBe(10_000);
-    expect(jobProgressRetryDelay(3)).toBe(20_000);
-    expect(jobProgressRetryDelay(4)).toBe(JOB_PROGRESS_RETRY_MAX_DELAY_MS);
+    expect(jobProgressRetryDelay(1)).toBe(JOB_PROGRESS_POLL_INTERVAL_MS);
+    expect(jobProgressRetryDelay(2)).toBe(6_000);
+    expect(jobProgressRetryDelay(3)).toBe(12_000);
+    expect(jobProgressRetryDelay(4)).toBe(24_000);
+    expect(jobProgressRetryDelay(5)).toBe(JOB_PROGRESS_RETRY_MAX_DELAY_MS);
     expect(jobProgressRetryDelay(20)).toBe(JOB_PROGRESS_RETRY_MAX_DELAY_MS);
   });
 
