@@ -63,6 +63,7 @@ export function JobCard({
       className={`source-card ${terminal ? "terminal-job" : ""}${
         pinnedTerminal ? " pinned-terminal-job" : ""
       }`}
+      data-job-id={job.id}
     >
       <JobCardSummary job={job} />
       {pinnedTerminal && (
