@@ -21,6 +21,7 @@ from .models import (
     Source,
     SourceStorageCleanupStatus,
     SourceType,
+    SourceUploadProtocol,
     SourceUploadStatus,
     TranscriptionJob,
     TranscriptionJobSource,
@@ -68,6 +69,8 @@ class SourceCleanupClaim:
     s3_object_key: str
     reference_class: str
     attempt_count: int
+    upload_protocol: str = SourceUploadProtocol.single_put.value
+    multipart_upload_id: str | None = None
 
 
 def _aware(value: datetime) -> datetime:
@@ -276,7 +279,17 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
     if owner_user_id:
         write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_STARTED", project_id=src.project_id, metadata={"source_type": src.source_type.value, "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     db.flush()
-    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_bucket or "", src.s3_object_key or "", source_reference_class(src), src.storage_cleanup_attempt_count)
+    return SourceCleanupClaim(
+        src.id,
+        owner,
+        src.storage_cleanup_generation,
+        src.s3_bucket or "",
+        src.s3_object_key or "",
+        source_reference_class(src),
+        src.storage_cleanup_attempt_count,
+        src.upload_protocol,
+        src.multipart_upload_id,
+    )
 
 
 def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: datetime, success: bool, error_code: str | None = None) -> bool:
@@ -289,6 +302,8 @@ def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: date
         or src.s3_bucket != claim.s3_bucket
         or src.s3_object_key != claim.s3_object_key
         or source_reference_class(src) != claim.reference_class
+        or src.upload_protocol != claim.upload_protocol
+        or src.multipart_upload_id != claim.multipart_upload_id
     ):
         return False
     if success:
@@ -340,9 +355,15 @@ def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetim
             ok = False
             code = "storage_identity_mismatch"
         else:
-            (storage_factory or get_source_storage)(
+            storage=(storage_factory or get_source_storage)(
                 reference_storage_settings(settings, claim.reference_class)
-            ).delete_object(claim.s3_object_key, bucket=claim.s3_bucket)
+            )
+            if claim.upload_protocol == SourceUploadProtocol.multipart.value and claim.multipart_upload_id:
+                storage.abort_multipart_upload(claim.s3_object_key,claim.multipart_upload_id)
+                if not storage.multipart_upload_absent(claim.s3_object_key,claim.multipart_upload_id):
+                    raise RuntimeError("multipart_abort_unconfirmed")
+            if not storage.delete_object_verified(claim.s3_object_key,bucket=claim.s3_bucket):
+                raise RuntimeError("storage_delete_unconfirmed")
     except Exception as exc:
         ok = False
         code = "storage_unavailable" if type(exc).__name__ in {"SourceStorageError", "EndpointConnectionError"} else "storage_delete_failed"

@@ -8,6 +8,8 @@ import type { SourceUploadPolicy } from "./sourceUploadPolicy";
 const policy: SourceUploadPolicy = {
   local_upload_enabled: true,
   max_upload_bytes: 10,
+  multipart_threshold_bytes: 16 * 1024 * 1024,
+  multipart_part_size_bytes: 8 * 1024 * 1024,
   supported_mime_prefixes: ["audio/", "video/"],
   supported_mime_types: ["application/ogg"],
 };

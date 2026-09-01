@@ -14,8 +14,15 @@ SAFE_ENUM_VALUES={
     },
     "deletion_reason": {"user_deleted", "retention_expired"},
     "cleanup_outcome": {"not_applicable", "pending", "completed", "failed"},
+    "upload_protocol": {"single_put", "multipart"},
 }
 MAX_CLEANUP_ATTEMPT=100000
+SAFE_BOUNDED_INTEGERS={
+    "planned_count": 500,
+    "deleted_count": 500,
+    "failed_count": 500,
+    "deleted_bytes": 1073741824000,
+}
 FORBIDDEN_SUBSTRINGS=(
     "source_id",
     "job_id",
@@ -43,6 +50,10 @@ def _safe_audit_metadata(metadata):
     attempt=metadata.get("cleanup_attempt")
     if isinstance(attempt, int) and not isinstance(attempt, bool) and 0 <= attempt <= MAX_CLEANUP_ATTEMPT:
         safe["cleanup_attempt"]=attempt
+    for key, maximum in SAFE_BOUNDED_INTEGERS.items():
+        value=metadata.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum:
+            safe[key]=value
     return {
         k: v
         for k, v in safe.items()

@@ -9,8 +9,33 @@ export type DirectUploadResult = {
   status: number;
 };
 
-export type DirectUploadCapability = {
+export type SingleDirectUploadCapability = {
   source_id: string;
+  upload: {
+    mode?: "single";
+    method: "PUT";
+    url: string;
+    headers: Record<string, string>;
+    expires_in: number;
+  };
+};
+
+export type MultipartDirectUploadCapability = {
+  source_id: string;
+  upload: {
+    mode: "multipart";
+    part_size_bytes: number;
+    part_count: number;
+    expires_in: number;
+  };
+};
+
+export type DirectUploadCapability =
+  | SingleDirectUploadCapability
+  | MultipartDirectUploadCapability;
+
+export type MultipartPartCapability = {
+  part_number: number;
   upload: {
     method: "PUT";
     url: string;
@@ -43,7 +68,20 @@ export function isSafeDirectUploadCapability(
   )
     return false;
   const value = upload as Record<string, unknown>;
+  if (value.mode === "multipart") {
+    return (
+      Number.isSafeInteger(value.part_size_bytes) &&
+      (value.part_size_bytes as number) >= 5 * 1024 * 1024 &&
+      Number.isSafeInteger(value.part_count) &&
+      (value.part_count as number) >= 1 &&
+      (value.part_count as number) <= 10_000 &&
+      Number.isInteger(value.expires_in) &&
+      (value.expires_in as number) >= 900 &&
+      (value.expires_in as number) <= 86_400
+    );
+  }
   if (
+    (value.mode !== undefined && value.mode !== "single") ||
     value.method !== "PUT" ||
     !Number.isInteger(value.expires_in) ||
     (value.expires_in as number) < 60 ||
@@ -74,11 +112,86 @@ export function isSafeDirectUploadCapability(
   }
 }
 
+export function isMultipartDirectUploadCapability(
+  capability: DirectUploadCapability,
+): capability is MultipartDirectUploadCapability {
+  return capability.upload.mode === "multipart";
+}
+
+export function isSafeMultipartPartCapability(
+  candidate: unknown,
+  expectedPartNumber: number,
+): candidate is MultipartPartCapability {
+  if (!candidate || typeof candidate !== "object") return false;
+  const partNumber = (candidate as { part_number?: unknown }).part_number;
+  const upload = (candidate as { upload?: unknown }).upload;
+  if (partNumber !== expectedPartNumber || !upload || typeof upload !== "object")
+    return false;
+  const value = upload as Record<string, unknown>;
+  if (
+    value.method !== "PUT" ||
+    !Number.isInteger(value.expires_in) ||
+    (value.expires_in as number) < 60 ||
+    (value.expires_in as number) > 900 ||
+    !value.headers ||
+    typeof value.headers !== "object" ||
+    Array.isArray(value.headers) ||
+    Object.values(value.headers as Record<string, unknown>).some(
+      (header) => typeof header !== "string",
+    ) ||
+    typeof value.url !== "string"
+  )
+    return false;
+  try {
+    const url = new URL(value.url);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function parseMultipartStatus(
+  candidate: unknown,
+  expectedPartCount: number,
+): { status: "active" | "completed"; uploadedParts: number[] } | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const value = candidate as {
+    status?: unknown;
+    uploaded_parts?: unknown;
+  };
+  if (
+    (value.status !== "active" && value.status !== "completed") ||
+    !Array.isArray(value.uploaded_parts)
+  )
+    return null;
+  const parts = value.uploaded_parts;
+  if (
+    parts.some(
+      (part) =>
+        !Number.isSafeInteger(part) ||
+        (part as number) < 1 ||
+        (part as number) > expectedPartCount,
+    ) ||
+    new Set(parts).size !== parts.length
+  )
+    return null;
+  return {
+    status: value.status,
+    uploadedParts: [...(parts as number[])].sort((a, b) => a - b),
+  };
+}
+
 type DirectUploadRequest = {
   url: string;
   method: "PUT";
   headers: Record<string, string>;
-  file: File;
+  file: Blob;
   timeoutMs: number;
   signal?: AbortSignal;
   onProgress?: (progress: DirectUploadProgress) => void;

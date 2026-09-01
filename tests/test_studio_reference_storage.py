@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -142,7 +143,7 @@ def test_reference_class_migration_is_additive_repository_head():
     scripts = ScriptDirectory.from_config(
         Config(str(ROOT / "apps/studio-api/alembic.ini"))
     )
-    assert scripts.get_heads() == ["0031_provider_account_snapshots"]
+    assert scripts.get_heads() == ["0032_source_multipart_authority"]
     revision = scripts.get_revision("0029_source_reference_class")
     assert revision.down_revision == "0028_transcript_maintenance_runs"
     assert revision.module.release_safety == "additive"
@@ -153,3 +154,92 @@ def test_reference_class_migration_is_additive_repository_head():
     assert "server_default=sa.text(\"'transcription'\")" in source
     assert "audio_processing" in source
     assert "create_index" in source
+
+
+def test_s3_storage_multipart_and_verified_delete_are_bounded():
+    from botocore.exceptions import ClientError
+    from studio_api.source_storage import S3SourceStorage
+
+    class Client:
+        def __init__(self):
+            self.list_calls = []
+            self.completed = None
+            self.deleted = []
+
+        def list_parts(self, **kwargs):
+            self.list_calls.append(kwargs)
+            if kwargs["PartNumberMarker"] == 0:
+                return {
+                    "Parts": [{"PartNumber": 1, "ETag": '"one"', "Size": 8}],
+                    "IsTruncated": True,
+                    "NextPartNumberMarker": 1,
+                }
+            return {
+                "Parts": [{"PartNumber": 2, "ETag": '"two"', "Size": 3}],
+                "IsTruncated": False,
+            }
+
+        def complete_multipart_upload(self, **kwargs):
+            self.completed = kwargs
+
+        def delete_object(self, **kwargs):
+            self.deleted.append(kwargs)
+
+        def head_object(self, **kwargs):
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                "HeadObject",
+            )
+
+    storage = object.__new__(S3SourceStorage)
+    storage.bucket = "private"
+    storage.client = Client()
+    parts = storage.list_multipart_parts("owner/key", "upload-id")
+    assert [(part.part_number, part.size_bytes) for part in parts] == [(1, 8), (2, 3)]
+    assert [call["PartNumberMarker"] for call in storage.client.list_calls] == [0, 1]
+    storage.complete_multipart_upload("owner/key", "upload-id", parts)
+    assert storage.client.completed["MultipartUpload"] == {
+        "Parts": [
+            {"PartNumber": 1, "ETag": '"one"'},
+            {"PartNumber": 2, "ETag": '"two"'},
+        ]
+    }
+    assert storage.delete_object_verified("owner/key", bucket="private") is True
+    assert storage.client.deleted == [{"Bucket": "private", "Key": "owner/key"}]
+
+
+def test_s3_inventory_requires_typed_owner_scoped_metadata():
+    from studio_api.source_storage import S3SourceStorage
+
+    modified = datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+    class Client:
+        def list_objects_v2(self, **kwargs):
+            assert kwargs == {
+                "Bucket": "private",
+                "Prefix": "transcription/users/owner/",
+                "MaxKeys": 25,
+            }
+            return {
+                "Contents": [
+                    {
+                        "Key": "transcription/users/owner/file",
+                        "Size": 7,
+                        "ETag": '"etag"',
+                        "LastModified": modified,
+                    }
+                ],
+                "IsTruncated": False,
+            }
+
+    storage = object.__new__(S3SourceStorage)
+    storage.bucket = "private"
+    storage.client = Client()
+    page = storage.list_objects_page(
+        "transcription/users/owner/",
+        max_keys=25,
+    )
+    assert page.next_token is None
+    assert [(item.key, item.size_bytes, item.last_modified) for item in page.objects] == [
+        ("transcription/users/owner/file", 7, modified)
+    ]

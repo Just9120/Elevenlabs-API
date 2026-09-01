@@ -3,8 +3,12 @@ import { api, mutateWithCsrfRetry } from "./apiClient";
 import {
   DirectUploadAmbiguousError,
   directUploadTimeoutMs,
+  isMultipartDirectUploadCapability,
   isSafeDirectUploadCapability,
+  isSafeMultipartPartCapability,
+  parseMultipartStatus,
   uploadFileWithProgress,
+  type DirectUploadCapability,
   type DirectUploadProgress,
 } from "./directUpload";
 import { formatBytes } from "./formatters";
@@ -359,6 +363,86 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     finally { setBusy(false); }
   }
 
+  async function readMultipartUploadStatus(sourceId: string, partCount: number) {
+    try {
+      return parseMultipartStatus(
+        await api<unknown>(`/sources/${sourceId}/local-upload/multipart/status`, { cache: "no-store" }),
+        partCount,
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  async function issueMultipartPart(sourceId: string, partNumber: number) {
+    const capability = await mutate<unknown>(
+      `/sources/${sourceId}/local-upload/multipart/parts/${partNumber}`,
+      { method: "POST" },
+    );
+    if (!isSafeMultipartPartCapability(capability, partNumber)) {
+      throw new DirectUploadAmbiguousError("multipart_part_capability_unavailable");
+    }
+    return capability;
+  }
+
+  async function uploadMultipartFile(
+    initiated: DirectUploadCapability,
+    file: File,
+    onProgress: (progress: DirectUploadProgress) => void,
+  ) {
+    if (!isMultipartDirectUploadCapability(initiated)) {
+      throw new Error("invalid_multipart_capability");
+    }
+    const { part_count: partCount, part_size_bytes: partSize } = initiated.upload;
+    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+      const start = (partNumber - 1) * partSize;
+      const end = Math.min(file.size, start + partSize);
+      const blob = file.slice(start, end, file.type || "application/octet-stream");
+      let confirmed = false;
+      for (let attempt = 0; attempt < 2 && !confirmed; attempt += 1) {
+        const capability = await issueMultipartPart(initiated.source_id, partNumber);
+        let outcome: { ok: boolean; status: number } | null = null;
+        let ambiguous = false;
+        try {
+          outcome = await uploadFileWithProgress({
+            url: capability.upload.url,
+            method: capability.upload.method,
+            headers: capability.upload.headers,
+            file: blob,
+            timeoutMs: directUploadTimeoutMs(capability.upload.expires_in),
+            onProgress: (progress) => onProgress({
+              loadedBytes: Math.min(file.size, start + progress.loadedBytes),
+              totalBytes: file.size,
+              percent: file.size > 0
+                ? Math.min(100, Math.round(((start + progress.loadedBytes) / file.size) * 100))
+                : 0,
+            }),
+          });
+        } catch (reason) {
+          if (!(reason instanceof DirectUploadAmbiguousError)) throw reason;
+          ambiguous = true;
+        }
+        if (outcome && !outcome.ok) {
+          throw new Error(`${file.name}: часть файла не загрузилась (HTTP ${outcome.status}). Повторите попытку.`);
+        }
+        const status = await readMultipartUploadStatus(initiated.source_id, partCount);
+        confirmed = status?.uploadedParts.includes(partNumber) === true;
+        if (!confirmed && !ambiguous) {
+          throw new Error(`${file.name}: Studio не подтвердила загруженную часть файла.`);
+        }
+      }
+      if (!confirmed) {
+        throw new DirectUploadAmbiguousError("multipart_part_unconfirmed");
+      }
+      onProgress({
+        loadedBytes: end,
+        totalBytes: file.size,
+        percent: file.size > 0 ? Math.min(100, Math.round((end / file.size) * 100)) : 0,
+      });
+    }
+    await mutate(`/sources/${initiated.source_id}/local-upload/multipart/complete`, { method: "POST" });
+  }
+
   async function addLocalFiles(files: File[]) {
     if (!project || files.length === 0) return;
     if (processingPath === "local") setFormat("copy");
@@ -378,15 +462,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: mime, size_bytes: file.size, reference_class: "audio_processing" }) },
         );
         if (!isSafeDirectUploadCapability(initiated, mime)) throw new Error(`${file.name}: Studio не смогла подготовить загрузку. Повторите попытку.`);
-        let put: { ok: boolean; status: number } | null = null;
-        try {
-          put = await uploadFileWithProgress({
-            url: initiated.upload.url,
-            method: initiated.upload.method,
-            headers: initiated.upload.headers,
-            file,
-            timeoutMs: directUploadTimeoutMs(initiated.upload.expires_in),
-            onProgress: (progress) => setUploadProgress({
+        const reportProgress = (progress: DirectUploadProgress) => setUploadProgress({
               ...progress,
               filename: file.name,
               fileIndex: fileIndex + 1,
@@ -394,13 +470,26 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
               aggregatePercent: aggregateTotalBytes > 0
                 ? Math.min(100, Math.round(((aggregateCompletedBytes + progress.loadedBytes) / aggregateTotalBytes) * 100))
                 : 0,
-            }),
-          });
-        } catch (reason) {
-          if (!(reason instanceof DirectUploadAmbiguousError)) throw reason;
+            });
+        if (isMultipartDirectUploadCapability(initiated)) {
+          await uploadMultipartFile(initiated, file, reportProgress);
+        } else {
+          let put: { ok: boolean; status: number } | null = null;
+          try {
+            put = await uploadFileWithProgress({
+              url: initiated.upload.url,
+              method: initiated.upload.method,
+              headers: initiated.upload.headers,
+              file,
+              timeoutMs: directUploadTimeoutMs(initiated.upload.expires_in),
+              onProgress: reportProgress,
+            });
+          } catch (reason) {
+            if (!(reason instanceof DirectUploadAmbiguousError)) throw reason;
+          }
+          if (put !== null && !put.ok) throw new Error(`${file.name}: файл не загрузился. Повторите попытку.`);
+          await mutate(`/sources/${initiated.source_id}/local-upload/complete`, { method: "POST" });
         }
-        if (put !== null && !put.ok) throw new Error(`${file.name}: файл не загрузился. Повторите попытку.`);
-        await mutate(`/sources/${initiated.source_id}/local-upload/complete`, { method: "POST" });
         uploaded.push(initiated.source_id);
       } catch (reason) {
         const message = reason instanceof Error && reason.message === "direct_upload_progress_unsupported"

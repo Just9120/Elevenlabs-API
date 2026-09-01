@@ -128,6 +128,14 @@ from .runtime_observability import (
     source_storage_runtime_status,
     stt_provider_runtime_status,
 )
+from .storage_reconciliation import (
+    StorageReconciliationError,
+    StorageReconciliationReason,
+    apply_reconciliation_plan,
+    issue_reconciliation_plan,
+    scan_owner_storage,
+    storage_lifecycle_payload,
+)
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -240,6 +248,50 @@ class LocalUploadInitiateIn(BaseModel):
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
     reference_class: SourceReferenceClass
+
+
+class StorageReconciliationApplyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan_token: str=Field(min_length=40,max_length=1600,pattern=r"^[A-Za-z0-9_-]+$")
+    confirm: StrictBool
+
+    @model_validator(mode="after")
+    def require_confirmation(self):
+        if self.confirm is not True:
+            raise ValueError("Требуется явное подтверждение")
+        return self
+
+
+def _multipart_part_count(size_bytes: int, part_size_bytes: int) -> int:
+    return (size_bytes + part_size_bytes - 1) // part_size_bytes
+
+
+def _multipart_parts_match_source(
+    *,
+    expected_size_bytes: int | None,
+    part_size_bytes: int | None,
+    part_count: int | None,
+    parts,
+) -> bool:
+    if (
+        part_count is None
+        or part_size_bytes is None
+        or expected_size_bytes is None
+        or len(parts) != part_count
+    ):
+        return False
+    expected_last_size = expected_size_bytes - (part_size_bytes * (part_count - 1))
+    if expected_last_size < 1 or expected_last_size > part_size_bytes:
+        return False
+    for index, part in enumerate(parts, start=1):
+        expected_size = (
+            expected_last_size
+            if index == part_count
+            else part_size_bytes
+        )
+        if part.part_number != index or part.size_bytes != expected_size:
+            return False
+    return True
 
 class DirectDriveUploadFileIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -921,7 +973,55 @@ def get_source_upload_policy(response: Response, pair=Depends(current_session)):
     return browser_source_upload_policy(
         settings.source_max_upload_bytes,
         local_upload_enabled=reference_storage_isolation_configured(settings),
+        multipart_threshold_bytes=settings.source_multipart_threshold_bytes,
+        multipart_part_size_bytes=settings.source_multipart_part_size_bytes,
     )
+
+
+@app.get("/api/storage/lifecycle")
+def get_storage_lifecycle(response: Response, pair=Depends(current_session)):
+    _,user=pair; _browser_capability_cache_headers(response)
+    return storage_lifecycle_payload(user,settings)
+
+
+@app.post("/api/storage/reconciliation/preview")
+def preview_storage_reconciliation(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    sess,user=pair; limiter.check("storage:reconciliation:preview:"+user.id,30,3600); _browser_capability_cache_headers(response)
+    now=utcnow()
+    try:
+        scan=scan_owner_storage(db,owner_user_id=user.id,settings=settings,now=now)
+    except StorageReconciliationError as exc:
+        raise HTTPException(503,"Проверка хранилища временно недоступна") from exc
+    except Exception as exc:
+        raise HTTPException(503,"Проверка хранилища временно недоступна") from exc
+    token,expires_at=issue_reconciliation_plan(owner_user_id=user.id,scan=scan,secret=sess.token_hash,now=now,ttl_seconds=settings.storage_reconciliation_plan_ttl_seconds)
+    return {
+        "status":"truncated" if scan.truncated else "ready",
+        "scanned_count":scan.scanned_count,
+        "protected_recent_count":scan.protected_recent_count,
+        "orphan_count":len(scan.candidates),
+        "orphan_bytes":scan.candidate_bytes,
+        "plan_token":token,
+        "plan_expires_at":expires_at.isoformat() if expires_at else None,
+        "apply_available":bool(token is not None and len(scan.candidates) <= settings.storage_reconciliation_apply_limit),
+    }
+
+
+@app.post("/api/storage/reconciliation/apply")
+def apply_storage_reconciliation(data: StorageReconciliationApplyIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    sess,user=pair; limiter.check("storage:reconciliation:apply:"+user.id,10,3600); _browser_capability_cache_headers(response)
+    now=utcnow()
+    try:
+        result=apply_reconciliation_plan(db,owner_user_id=user.id,plan_token=data.plan_token,secret=sess.token_hash,settings=settings,now=now)
+    except StorageReconciliationError as exc:
+        status_code=409 if exc.reason in {StorageReconciliationReason.plan_changed,StorageReconciliationReason.plan_invalid,StorageReconciliationReason.scan_truncated} else 503
+        raise HTTPException(status_code,"План проверки изменился; выполните dry-run заново") from exc
+    except Exception as exc:
+        raise HTTPException(503,"Очистку хранилища не удалось подтвердить") from exc
+    audit(db,"storage.reconciliation_applied",actor_user_id=user.id,subject_user_id=user.id,planned_count=result.planned_count,deleted_count=result.deleted_count,failed_count=result.failed_count,deleted_bytes=result.deleted_bytes)
+    write_diagnostic_event(owner_user_id=user.id,component="api",event_code="STORAGE_RECONCILIATION_APPLIED",request_id=getattr(request.state,"request_id",None),correlation_id=getattr(request.state,"correlation_id",None),metadata={"planned_count":result.planned_count,"deleted_count":result.deleted_count,"failed_count":result.failed_count,"deleted_bytes":result.deleted_bytes,"boundary":"storage_reconciliation"})
+    db.commit()
+    return {"status":"completed" if result.failed_count == 0 else "partial","planned_count":result.planned_count,"deleted_count":result.deleted_count,"failed_count":result.failed_count,"deleted_bytes":result.deleted_bytes}
 
 def _raise_google_picker_session_failure(
     request: Request,
@@ -1943,11 +2043,204 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response
     reference_class=data.reference_class.value
     bucket=reference_storage_bucket(settings, reference_class)
     if not bucket: raise HTTPException(503, "Хранилище Studio не настроено")
-    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, reference_class=reference_class, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
+    multipart=data.size_bytes >= settings.source_multipart_threshold_bytes
+    # The row must be flushed to obtain the source id before its object key can
+    # be derived. Keep the additive schema's valid single-put state until the
+    # provider has actually created the multipart session, then persist the
+    # complete multipart authority atomically with the response.
+    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, reference_class=reference_class, upload_protocol=SourceUploadProtocol.single_put.value, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
     db.add(src); db.flush(); src.s3_bucket=bucket; src.s3_object_key=f"{reference_class}/users/{user.id}/projects/{p.id}/sources/{src.id}/source"
-    storage=get_reference_storage(settings, reference_class); url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
-    audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id); db.commit()
-    return {"source_id": src.id, "upload": {"method":"PUT", "url": url, "headers": {"Content-Type": mime}, "expires_in": settings.source_presign_ttl_seconds}, "expires_at": src.expires_at.isoformat()}
+    storage=get_reference_storage(settings, reference_class)
+    upload_id=None
+    try:
+        if multipart:
+            part_size=settings.source_multipart_part_size_bytes
+            part_count=_multipart_part_count(data.size_bytes, part_size)
+            if part_count < 1 or part_count > 10_000:
+                raise HTTPException(422, "Файл нельзя безопасно разделить на части")
+            upload_id=storage.create_multipart_upload(src.s3_object_key, mime)
+            src.upload_protocol=SourceUploadProtocol.multipart.value
+            src.multipart_upload_id=upload_id
+            src.multipart_part_size_bytes=part_size
+            src.multipart_part_count=part_count
+            upload={"mode":"multipart", "part_size_bytes":part_size, "part_count":part_count, "expires_in":settings.source_upload_ttl_seconds}
+        else:
+            url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
+            upload={"mode":"single", "method":"PUT", "url":url, "headers":{"Content-Type":mime}, "expires_in":settings.source_presign_ttl_seconds}
+        audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id,upload_protocol=src.upload_protocol)
+        db.commit()
+    except Exception:
+        db.rollback()
+        if upload_id and src.s3_object_key:
+            try:
+                storage.abort_multipart_upload(src.s3_object_key, upload_id)
+            except Exception:
+                LOGGER.warning("source_multipart_initiation_compensation_failed", extra={"event":"source_multipart_initiation_compensation_failed"})
+        raise
+    return {"source_id":src.id, "upload":upload, "expires_at":src.expires_at.isoformat()}
+
+
+def _pending_multipart_snapshot(source: Source, user: User, *, now: datetime) -> dict[str, object]:
+    project = source.project
+    if (
+        source.source_type != SourceType.local_upload
+        or source.upload_protocol != SourceUploadProtocol.multipart.value
+        or source.upload_status != SourceUploadStatus.pending
+        or source.deleted_at is not None
+        or is_source_expired(source, now)
+        or project is None
+        or project.owner_user_id != user.id
+        or project.archived_at is not None
+        or not source.s3_bucket
+        or not source.s3_object_key
+        or not source.multipart_upload_id
+        or not source.multipart_part_size_bytes
+        or not source.multipart_part_count
+        or source.size_bytes is None
+        or not source.mime_type
+    ):
+        raise HTTPException(404, "Не найдено")
+    reference_class=source_reference_class(source)
+    if (
+        not reference_storage_isolation_configured(settings)
+        or source.s3_bucket != reference_storage_bucket(settings, reference_class)
+    ):
+        raise HTTPException(409, "Хранилище источника не совпадает с его классом")
+    return {
+        "source_id":source.id,
+        "project_id":source.project_id,
+        "bucket":source.s3_bucket,
+        "key":source.s3_object_key,
+        "reference_class":reference_class,
+        "upload_id":source.multipart_upload_id,
+        "part_size_bytes":source.multipart_part_size_bytes,
+        "part_count":source.multipart_part_count,
+        "size_bytes":source.size_bytes,
+        "mime_type":source.mime_type,
+    }
+
+
+@app.post("/api/sources/{source_id}/local-upload/multipart/parts/{part_number}")
+def issue_local_upload_part(source_id: str, part_number: int, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:multipart:part:"+user.id, 1200, 3600); _browser_capability_cache_headers(response)
+    source=owned_source_or_404(db,user,source_id)
+    snapshot=_pending_multipart_snapshot(source,user,now=utcnow())
+    if part_number < 1 or part_number > int(snapshot["part_count"]):
+        raise HTTPException(422, "Некорректный номер части")
+    db.rollback()
+    url=get_reference_storage(settings,str(snapshot["reference_class"])).presigned_upload_part_url(
+        str(snapshot["key"]),str(snapshot["upload_id"]),part_number,settings.source_presign_ttl_seconds
+    )
+    return {"part_number":part_number,"upload":{"method":"PUT","url":url,"headers":{},"expires_in":settings.source_presign_ttl_seconds}}
+
+
+@app.get("/api/sources/{source_id}/local-upload/multipart/status")
+def get_local_upload_multipart_status(source_id: str, response: Response, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:multipart:status:"+user.id, 1200, 3600); _browser_capability_cache_headers(response)
+    source=owned_source_or_404(db,user,source_id)
+    if source.upload_status == SourceUploadStatus.uploaded:
+        return {"status":"completed","uploaded_parts":[]}
+    snapshot=_pending_multipart_snapshot(source,user,now=utcnow())
+    db.rollback()
+    try:
+        parts=get_reference_storage(settings,str(snapshot["reference_class"])).list_multipart_parts(str(snapshot["key"]),str(snapshot["upload_id"]))
+    except FileNotFoundError:
+        parts=()
+    return {"status":"active","uploaded_parts":[part.part_number for part in parts]}
+
+
+@app.post("/api/sources/{source_id}/local-upload/multipart/complete")
+def complete_local_multipart_upload(source_id: str, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:multipart:complete:"+user.id, 120, 3600); _browser_capability_cache_headers(response)
+    source=owned_source_or_404(db,user,source_id)
+    if source.upload_status == SourceUploadStatus.uploaded:
+        if is_source_expired(source,utcnow()): raise HTTPException(404,"Не найдено")
+        return source_payload(source)
+    snapshot=_pending_multipart_snapshot(source,user,now=utcnow())
+    db.rollback()
+    storage=get_reference_storage(settings,str(snapshot["reference_class"]))
+    completion_error=None
+    try:
+        parts=storage.list_multipart_parts(str(snapshot["key"]),str(snapshot["upload_id"]))
+        if not _multipart_parts_match_source(
+            expected_size_bytes=int(snapshot["size_bytes"]),
+            part_size_bytes=int(snapshot["part_size_bytes"]),
+            part_count=int(snapshot["part_count"]),
+            parts=parts,
+        ):
+            raise HTTPException(409,"Загружены не все части файла")
+        storage.complete_multipart_upload(str(snapshot["key"]),str(snapshot["upload_id"]),parts)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        completion_error=exc
+    try:
+        head=storage.head_object(str(snapshot["key"]))
+    except FileNotFoundError:
+        if completion_error is not None:
+            raise HTTPException(503,"Не удалось подтвердить завершение multipart upload") from completion_error
+        raise HTTPException(409,"Загруженный объект источника не найден")
+    metadata_issue=uploaded_object_metadata_issue(
+        expected_size_bytes=int(snapshot["size_bytes"]),
+        expected_mime_type=str(snapshot["mime_type"]),
+        actual_size_bytes=head.size_bytes,
+        actual_mime_type=head.content_type,
+        max_bytes=settings.source_max_upload_bytes,
+    )
+    if metadata_issue is not None:
+        raise HTTPException(409,"Метаданные multipart object не совпадают с заявленными")
+    source=db.execute(select(Source).where(Source.id==source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    now=utcnow(); project=db.get(Project,source.project_id) if source is not None else None
+    if source is not None and source.upload_status == SourceUploadStatus.uploaded:
+        db.rollback(); return source_payload(source)
+    if (
+        source is None
+        or project is None
+        or project.owner_user_id != user.id
+        or project.archived_at is not None
+        or source.project_id != snapshot["project_id"]
+        or source.source_type != SourceType.local_upload
+        or source.upload_protocol != SourceUploadProtocol.multipart.value
+        or source.upload_status != SourceUploadStatus.pending
+        or source.deleted_at is not None
+        or is_source_expired(source,now)
+        or source.s3_bucket != snapshot["bucket"]
+        or source.s3_object_key != snapshot["key"]
+        or source_reference_class(source) != snapshot["reference_class"]
+        or source.multipart_upload_id != snapshot["upload_id"]
+        or source.multipart_part_size_bytes != snapshot["part_size_bytes"]
+        or source.multipart_part_count != snapshot["part_count"]
+        or source.size_bytes != snapshot["size_bytes"]
+        or source.mime_type != snapshot["mime_type"]
+    ):
+        raise HTTPException(404,"Не найдено")
+    source.upload_status=SourceUploadStatus.uploaded; source.uploaded_at=now; source.multipart_completed_at=now
+    source.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds); source.updated_at=now
+    audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id,upload_protocol=SourceUploadProtocol.multipart.value)
+    db.commit(); return source_payload(source)
+
+
+@app.post("/api/sources/{source_id}/local-upload/multipart/abort")
+def abort_local_multipart_upload(source_id: str, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("source:multipart:abort:"+user.id,120,3600); _browser_capability_cache_headers(response)
+    source=db.execute(select(Source).where(Source.id==source_id).with_for_update()).scalar_one_or_none()
+    project=db.get(Project,source.project_id) if source is not None else None
+    if source is None or project is None or project.owner_user_id != user.id or project.archived_at is not None:
+        raise HTTPException(404,"Не найдено")
+    if source.upload_protocol != SourceUploadProtocol.multipart.value or source.source_type != SourceType.local_upload:
+        raise HTTPException(404,"Не найдено")
+    if source.upload_status == SourceUploadStatus.uploaded:
+        raise HTTPException(409,"Загрузка уже завершена")
+    now=utcnow()
+    if source.deleted_at is None:
+        source.deleted_at=now; source.delete_reason="upload_aborted"; source.upload_status=SourceUploadStatus.deleted; source.updated_at=now
+        source.storage_cleanup_status=SourceStorageCleanupStatus.pending
+        source.storage_cleanup_requested_at=source.storage_cleanup_requested_at or now
+        source.storage_cleanup_not_before_at=now
+        source.storage_cleanup_error_code=None
+        audit(db,"source.local_upload.multipart_abort_requested",actor_user_id=user.id,subject_user_id=user.id,project_id=project.id)
+    db.commit()
+    return {"ok":True,"source_state":source.upload_status.value,"storage_cleanup":"pending"}
 
 @app.post("/api/sources/{source_id}/local-upload/complete")
 def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -1956,6 +2249,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
     if src.upload_status==SourceUploadStatus.uploaded:
         if is_source_expired(src, utcnow()): raise HTTPException(404,"Не найдено")
         return source_payload(src)
+    if src.upload_protocol != SourceUploadProtocol.single_put.value: raise HTTPException(409,"Используйте multipart completion")
     if src.upload_status!=SourceUploadStatus.pending: raise HTTPException(404,"Не найдено")
     initial_project_id=src.project_id
     initial_type=src.source_type

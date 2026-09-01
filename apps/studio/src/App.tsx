@@ -58,8 +58,12 @@ import {
 import {
   DirectUploadAmbiguousError,
   directUploadTimeoutMs,
+  isMultipartDirectUploadCapability,
   isSafeDirectUploadCapability,
+  isSafeMultipartPartCapability,
+  parseMultipartStatus,
   uploadFileWithProgress,
+  type DirectUploadCapability,
   type DirectUploadProgress,
 } from "./directUpload";
 import {
@@ -96,6 +100,7 @@ import {
 import { PlatformSidebar } from "./PlatformSidebar";
 import { AudioPreparationPage } from "./AudioPreparationPage";
 import { ElevenLabsAccountPanel } from "./ElevenLabsAccountPanel";
+import { StorageLifecyclePanel } from "./StorageLifecyclePanel";
 import { appendUniqueItems } from "./collectionPageModel";
 import {
   isApprovedOutputUrl,
@@ -2095,11 +2100,14 @@ function PreparationPanel({
     sourceId: string,
     mimeType: string,
     sizeBytes: number,
+    mode: "single" | "multipart" = "single",
   ) {
     const completeOnce = () =>
       runBoundedRequest((signal) =>
         csrfMutate<unknown>(
-          `/sources/${sourceId}/local-upload/complete`,
+          mode === "multipart"
+            ? `/sources/${sourceId}/local-upload/multipart/complete`
+            : `/sources/${sourceId}/local-upload/complete`,
           localUploadCsrfRef.current,
           (token) => {
             localUploadCsrfRef.current = token;
@@ -2168,6 +2176,121 @@ function PreparationPanel({
     onReloadSources(project.id);
     throw new Error(
       "Studio не подтвердила завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
+    );
+  }
+
+  async function readMultipartUploadStatus(
+    sourceId: string,
+    partCount: number,
+  ) {
+    const result = await runBoundedRequest((signal) =>
+      api<unknown>(`/sources/${sourceId}/local-upload/multipart/status`, {
+        signal,
+        cache: "no-store",
+      }),
+    );
+    if (result.status !== "completed") return null;
+    return parseMultipartStatus(result.value, partCount);
+  }
+
+  async function issueMultipartPart(
+    sourceId: string,
+    partNumber: number,
+  ) {
+    const result = await runBoundedRequest((signal) =>
+      csrfMutate<unknown>(
+        `/sources/${sourceId}/local-upload/multipart/parts/${partNumber}`,
+        localUploadCsrfRef.current,
+        (token) => {
+          localUploadCsrfRef.current = token;
+          onCsrf(token);
+        },
+        { method: "POST", signal },
+      ),
+    );
+    if (
+      result.status !== "completed" ||
+      !isSafeMultipartPartCapability(result.value, partNumber)
+    ) {
+      throw new DirectUploadAmbiguousError("multipart_part_capability_unavailable");
+    }
+    return result.value;
+  }
+
+  async function uploadMultipartFile(
+    initiated: DirectUploadCapability,
+    file: File,
+    onProgress: (progress: DirectUploadProgress) => void,
+  ) {
+    if (!isMultipartDirectUploadCapability(initiated)) {
+      throw new Error("invalid_multipart_capability");
+    }
+    const { part_count: partCount, part_size_bytes: partSize } = initiated.upload;
+    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+      const start = (partNumber - 1) * partSize;
+      const end = Math.min(file.size, start + partSize);
+      const blob = file.slice(start, end, file.type || "application/octet-stream");
+      let confirmed = false;
+      for (let attempt = 0; attempt < 2 && !confirmed; attempt += 1) {
+        const capability = await issueMultipartPart(
+          initiated.source_id,
+          partNumber,
+        );
+        let outcome: { ok: boolean; status: number } | null = null;
+        let ambiguous = false;
+        try {
+          outcome = await uploadFileWithProgress({
+            url: capability.upload.url,
+            method: capability.upload.method,
+            headers: capability.upload.headers,
+            file: blob,
+            timeoutMs: directUploadTimeoutMs(capability.upload.expires_in),
+            onProgress: (progress) =>
+              onProgress({
+                loadedBytes: Math.min(file.size, start + progress.loadedBytes),
+                totalBytes: file.size,
+                percent:
+                  file.size > 0
+                    ? Math.min(
+                        100,
+                        Math.round(
+                          ((start + progress.loadedBytes) / file.size) * 100,
+                        ),
+                      )
+                    : 0,
+              }),
+          });
+        } catch (reason) {
+          if (!(reason instanceof DirectUploadAmbiguousError)) throw reason;
+          ambiguous = true;
+        }
+        if (outcome && !outcome.ok) {
+          reportLocalUploadPutFailure(outcome.status);
+          throw new Error(localUploadPutFailureMessage(outcome.status));
+        }
+        const status = await readMultipartUploadStatus(
+          initiated.source_id,
+          partCount,
+        );
+        confirmed = status?.uploadedParts.includes(partNumber) === true;
+        if (!confirmed && !ambiguous) {
+          throw new Error("Studio не подтвердила загруженную часть файла.");
+        }
+      }
+      if (!confirmed) {
+        throw new DirectUploadAmbiguousError("multipart_part_unconfirmed");
+      }
+      onProgress({
+        loadedBytes: end,
+        totalBytes: file.size,
+        percent: Math.min(100, Math.round((end / file.size) * 100)),
+      });
+    }
+    return completeLocalUpload(
+      initiated.source_id,
+      file.type || "application/octet-stream",
+      file.size,
+      "multipart",
     );
   }
 
@@ -2681,6 +2804,42 @@ function PreparationPanel({
             ...current,
             [rowId]: `${queueLabel}: ${file.name} — загрузка 0%…`,
           }));
+          const reportProgress = (progress: DirectUploadProgress) => {
+            setRowIntakeStatus((current) => ({
+              ...current,
+              [rowId]: `${queueLabel}: ${file.name} — ${progress.percent}% (${formatBytes(progress.loadedBytes)} из ${formatBytes(progress.totalBytes)})`,
+            }));
+            setRowUploadProgress((current) => ({
+              ...current,
+              [rowId]: {
+                ...progress,
+                filename: file.name,
+                fileIndex: fileIndex + 1,
+                fileCount: files.length,
+                aggregatePercent:
+                  aggregateTotalBytes > 0
+                    ? Math.min(
+                        100,
+                        Math.round(
+                          ((aggregateCompletedBytes + progress.loadedBytes) /
+                            aggregateTotalBytes) *
+                            100,
+                        ),
+                      )
+                    : 0,
+              },
+            }));
+          };
+          if (isMultipartDirectUploadCapability(initiated)) {
+            const completed = await uploadMultipartFile(
+              initiated,
+              file,
+              reportProgress,
+            );
+            successful.push(completed);
+            placeSourcesInRows(rowId, [completed]);
+            continue;
+          }
           let put: { ok: boolean; status: number } | null = null;
           let putIsAmbiguous = false;
           try {
@@ -2690,32 +2849,7 @@ function PreparationPanel({
               headers: initiated.upload.headers,
               file,
               timeoutMs: directUploadTimeoutMs(initiated.upload.expires_in),
-              onProgress: (progress) => {
-                setRowIntakeStatus((current) => ({
-                  ...current,
-                  [rowId]: `${queueLabel}: ${file.name} — ${progress.percent}% (${formatBytes(progress.loadedBytes)} из ${formatBytes(progress.totalBytes)})`,
-                }));
-                setRowUploadProgress((current) => ({
-                  ...current,
-                  [rowId]: {
-                    ...progress,
-                    filename: file.name,
-                    fileIndex: fileIndex + 1,
-                    fileCount: files.length,
-                    aggregatePercent:
-                      aggregateTotalBytes > 0
-                        ? Math.min(
-                            100,
-                            Math.round(
-                              ((aggregateCompletedBytes + progress.loadedBytes) /
-                                aggregateTotalBytes) *
-                                100,
-                            ),
-                          )
-                        : 0,
-                  },
-                }));
-              },
+              onProgress: reportProgress,
             });
           } catch (reason) {
             if (!(reason instanceof DirectUploadAmbiguousError)) {
@@ -6312,6 +6446,10 @@ function auditLabel(type: string) {
     "source.google_picker.created": "Источники выбраны через Google Drive",
     "source.local_upload.initiated": "Загрузка локального источника начата",
     "source.local_upload.completed": "Локальный источник загружен",
+    "source.local_upload.multipart_abort_requested":
+      "Остановка загрузки большого файла запрошена",
+    "storage.reconciliation_applied":
+      "Очистка временного хранилища подтверждена",
     "source.deleted": "Источник удалён",
     "job.created": "Задача создана",
     "job.batch_created": "Пакет задач создан",
@@ -7543,6 +7681,11 @@ function SettingsPage({
           )}
           <div hidden={section !== "files"}>
               <SourceStorageSettings
+                csrf={csrf}
+                onCsrf={onCsrf}
+                active={section === "files"}
+              />
+              <StorageLifecyclePanel
                 csrf={csrf}
                 onCsrf={onCsrf}
                 active={section === "files"}

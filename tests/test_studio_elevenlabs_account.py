@@ -549,7 +549,7 @@ def test_provider_account_snapshot_migration_is_additive_direct_successor():
     from alembic.script import ScriptDirectory
 
     scripts = ScriptDirectory.from_config(Config("apps/studio-api/alembic.ini"))
-    assert scripts.get_heads() == ["0031_provider_account_snapshots"]
+    assert scripts.get_heads() == ["0032_source_multipart_authority"]
     revision = scripts.get_revision("0031_provider_account_snapshots")
     assert revision is not None
     assert revision.down_revision == "0030_provider_usage_accounting"

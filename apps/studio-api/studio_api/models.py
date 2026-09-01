@@ -15,6 +15,7 @@ class GoogleConnectionStatus(str, enum.Enum): active="active"; revoked="revoked"
 class GoogleProvider(str, enum.Enum): google="google"
 class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="google_drive"
 class SourceReferenceClass(str, enum.Enum): transcription="transcription"; audio_processing="audio_processing"
+class SourceUploadProtocol(str, enum.Enum): single_put="single_put"; multipart="multipart"
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
 class SourceStorageCleanupStatus(str, enum.Enum): not_requested="not_requested"; not_applicable="not_applicable"; pending="pending"; completed="completed"; failed="failed"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
@@ -240,6 +241,11 @@ class Source(Base):
     s3_bucket: Mapped[str|None]=mapped_column(String(255))
     s3_object_key: Mapped[str|None]=mapped_column(Text)
     reference_class: Mapped[str]=mapped_column(String(32), default=SourceReferenceClass.transcription.value, server_default=text("'transcription'"), nullable=False, index=True)
+    upload_protocol: Mapped[str]=mapped_column(String(20), default=SourceUploadProtocol.single_put.value, server_default=text("'single_put'"), nullable=False)
+    multipart_upload_id: Mapped[str|None]=mapped_column(Text)
+    multipart_part_size_bytes: Mapped[int|None]=mapped_column(Integer)
+    multipart_part_count: Mapped[int|None]=mapped_column(Integer)
+    multipart_completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     upload_status: Mapped[SourceUploadStatus]=mapped_column(Enum(SourceUploadStatus), default=SourceUploadStatus.pending, index=True)
     uploaded_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     source_created_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
@@ -260,7 +266,7 @@ class Source(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
-    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("reference_class IN ('transcription','audio_processing')", name="ck_sources_reference_class"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
+    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("reference_class IN ('transcription','audio_processing')", name="ck_sources_reference_class"), CheckConstraint("upload_protocol IN ('single_put','multipart')", name="ck_sources_upload_protocol"), CheckConstraint("((upload_protocol = 'single_put' AND multipart_upload_id IS NULL AND multipart_part_size_bytes IS NULL AND multipart_part_count IS NULL AND multipart_completed_at IS NULL) OR (upload_protocol = 'multipart' AND multipart_upload_id IS NOT NULL AND multipart_part_size_bytes >= 5242880 AND multipart_part_count >= 1))", name="ck_sources_multipart_authority"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
 
 class TranscriptionJob(Base):
     __tablename__="transcription_jobs"

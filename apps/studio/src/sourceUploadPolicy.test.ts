@@ -9,6 +9,8 @@ import {
 const policy: SourceUploadPolicy = {
   local_upload_enabled: true,
   max_upload_bytes: 512 * 1024 * 1024,
+  multipart_threshold_bytes: 16 * 1024 * 1024,
+  multipart_part_size_bytes: 8 * 1024 * 1024,
   supported_mime_prefixes: ["audio/", "video/"],
   supported_mime_types: ["application/ogg"],
 };
@@ -18,14 +20,18 @@ describe("source upload policy", () => {
     expect(
       normalizeSourceUploadPolicy({
         local_upload_enabled: false,
-        max_upload_bytes: 1024,
+        max_upload_bytes: 16 * 1024 * 1024,
+        multipart_threshold_bytes: 8 * 1024 * 1024,
+        multipart_part_size_bytes: 5 * 1024 * 1024,
         supported_mime_prefixes: [" Audio/ ", "audio/", "VIDEO/"],
         supported_mime_types: [" Application/OGG ", "application/ogg"],
         storage_bucket: "must-be-ignored",
       }),
     ).toEqual({
       local_upload_enabled: false,
-      max_upload_bytes: 1024,
+      max_upload_bytes: 16 * 1024 * 1024,
+      multipart_threshold_bytes: 8 * 1024 * 1024,
+      multipart_part_size_bytes: 5 * 1024 * 1024,
       supported_mime_prefixes: ["audio/", "video/"],
       supported_mime_types: ["application/ogg"],
     });
