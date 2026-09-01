@@ -154,6 +154,9 @@ printf '%s' "${{STUDIO_EXPECTED_MIGRATION_TO}}" > {str(revision_state)!r}
         f"""#!/usr/bin/env bash
 set -euo pipefail
 [[ "${{STUDIO_DEPLOY_DIR:-}}" == {_bash_path(checkout)!r} ]]
+[[ "${{GIT_CONFIG_COUNT:-}}" == "1" ]]
+[[ "${{GIT_CONFIG_KEY_0:-}}" == "safe.directory" ]]
+[[ "${{GIT_CONFIG_VALUE_0:-}}" == {_bash_path(checkout)!r} ]]
 [[ "${{1:-}}" == "apply" || "${{1:-}}" == "verify" ]]
 printf 'worker-role %s\n' "$1" >> {str(calls)!r}
 [[ {str(worker_role_ok).lower()} == true ]]
@@ -435,11 +438,6 @@ def test_worker_role_recovery_uses_protected_lane_without_migration_or_deploy(
 
     assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(calls)
     assert "operation=worker_role" in proc.stdout
-    assert any(
-        call.startswith("runuser -u studio-deploy -- env STUDIO_DEPLOY_DIR=")
-        and call.endswith("configure_studio_worker_db_role.sh apply")
-        for call in calls
-    )
     assert _index(calls, "worker-role apply") < _index(calls, "worker-role verify")
     assert not any(call == "backup" for call in calls)
     assert not any(call.startswith("restic ") for call in calls)

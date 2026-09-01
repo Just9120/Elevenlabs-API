@@ -39,6 +39,19 @@ blocked() {
   exit 2
 }
 
+run_worker_role() {
+  local operation="$1"
+  # Apply needs the root-only worker password, while Git must explicitly trust
+  # the already validated deploy-user checkout. Keep that trust process-scoped;
+  # never mutate root's global Git configuration or relax secret permissions.
+  env \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=safe.directory \
+    GIT_CONFIG_VALUE_0="$STUDIO_DEPLOY_DIR" \
+    STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+    bash "$WORKER_ROLE_SCRIPT" "$operation" </dev/null
+}
+
 unexpected_failure() {
   local rc=$?
   trap - ERR
@@ -247,14 +260,10 @@ if [[ "$STUDIO_REQUESTED_MIGRATION_TARGET" == "worker_role" ]]; then
   require_worker_stopped
 
   worker_role_change_attempted="yes"
-  if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
-    env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
-    bash "$WORKER_ROLE_SCRIPT" apply </dev/null; then
+  if ! run_worker_role apply; then
     blocked "worker_role_apply_failed"
   fi
-  if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
-    env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
-    bash "$WORKER_ROLE_SCRIPT" verify </dev/null; then
+  if ! run_worker_role verify; then
     blocked "worker_role_verify_failed"
   fi
 
@@ -568,14 +577,10 @@ post_revision="$(probe_current_revision)"
 # the release gate still proves the worker is safely stopped.
 phase="worker_role"
 worker_role_change_attempted="yes"
-if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
-  env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
-  bash "$WORKER_ROLE_SCRIPT" apply </dev/null; then
+if ! run_worker_role apply; then
   blocked "worker_role_apply_failed"
 fi
-if ! runuser -u "$STUDIO_REPOSITORY_USER" -- \
-  env STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
-  bash "$WORKER_ROLE_SCRIPT" verify </dev/null; then
+if ! run_worker_role verify; then
   blocked "worker_role_verify_failed"
 fi
 
