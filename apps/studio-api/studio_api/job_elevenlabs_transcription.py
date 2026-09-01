@@ -85,6 +85,8 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     lifecycle_changed_before_provider_call = "lifecycle_changed_before_provider_call"
     credential_or_output_identity_changed_before_provider_call = "credential_or_output_identity_changed_before_provider_call"
     provider_authentication_rejected = "provider_authentication_rejected"
+    provider_payment_required = "provider_payment_required"
+    provider_scope_rejected = "provider_scope_rejected"
     provider_request_rejected = "provider_request_rejected"
     provider_rate_limited = "provider_rate_limited"
     provider_unavailable = "provider_unavailable"
@@ -359,7 +361,14 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     if part_results
                                     else provider_failure
                                 )
-                                _emit_provider_failure(db, job_id, mapped, diagnostic_code=provider_failure.value)
+                                _emit_provider_failure(
+                                    db,
+                                    job_id,
+                                    mapped,
+                                    diagnostic_code=provider_failure.value,
+                                    provider_error_code=exc.provider_error_code,
+                                    http_status=exc.http_status,
+                                )
                                 _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock, provider_failure_code=provider_failure.value)
                                 raise JobElevenLabsTranscriptionError(mapped) from exc
                             except Exception as exc:
@@ -867,9 +876,13 @@ def _emit_provider_failure(
     reason: JobElevenLabsTranscriptionReason,
     *,
     diagnostic_code: str | None = None,
+    provider_error_code: str | None = None,
+    http_status: int | None = None,
 ):
     safe_codes = {
         "provider_authentication_rejected",
+        "provider_payment_required",
+        "provider_scope_rejected",
         "provider_request_rejected",
         "provider_rate_limited",
         "provider_unavailable",
@@ -877,21 +890,27 @@ def _emit_provider_failure(
         "malformed_provider_response",
         "partial_provider_result",
     }
+    metadata = {
+        "boundary": "provider_transport",
+        "error_code": (
+            diagnostic_code
+            if diagnostic_code in safe_codes | {"unknown"}
+            else reason.value if reason.value in safe_codes else "unknown"
+        ),
+        "retryable": reason.value
+        in {"provider_rate_limited", "provider_unavailable", "provider_timeout"},
+        "attempt_number": _attempt(db, job_id),
+    }
+    if provider_error_code is not None:
+        metadata["provider_error_code"] = provider_error_code
+    if http_status is not None:
+        metadata["http_status"] = http_status
+        metadata["http_status_category"] = f"{http_status // 100}xx"
     _emit_provider(
         db,
         job_id,
         "PROVIDER_REQUEST_FAILED",
-        {
-            "boundary": "provider_transport",
-            "error_code": (
-                diagnostic_code
-                if diagnostic_code in safe_codes | {"unknown"}
-                else reason.value if reason.value in safe_codes else "unknown"
-            ),
-            "retryable": reason.value
-            in {"provider_rate_limited", "provider_unavailable", "provider_timeout"},
-            "attempt_number": _attempt(db, job_id),
-        },
+        metadata,
     )
 
 

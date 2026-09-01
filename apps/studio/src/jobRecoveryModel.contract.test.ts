@@ -108,6 +108,25 @@ describe("job recovery DTO contracts", () => {
     });
   });
 
+  it("accepts a fixed safe provider category for an ordinary failed retry", () => {
+    expect(
+      parseJobRetryResponse(
+        {
+          ...retry,
+          reason: "available",
+          resumable_provider_part_count: 0,
+          provider_total_part_count: 0,
+          provider_failure_code: "provider_scope_rejected",
+        },
+        "job-safe",
+      ),
+    ).toMatchObject({
+      available: true,
+      reason: "available",
+      provider_failure_code: "provider_scope_rejected",
+    });
+  });
+
   it("accepts exact reconciliation authority and drops private timestamps", () => {
     const parsed = parseOutputReconciliationResponse(
       {

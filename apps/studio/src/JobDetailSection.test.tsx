@@ -213,6 +213,30 @@ describe("JobDetailSection", () => {
     expect(onRetry).toHaveBeenCalledWith("job-1");
   });
 
+  it("explains an ordinary safe provider rejection before retry", () => {
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={retry({
+          data: {
+            ...retry().data!,
+            provider_failure_code: "provider_scope_rejected",
+          },
+        })}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const action = screen.getByRole("region", {
+      name: "Действия после ошибки",
+    });
+    expect(action).toHaveTextContent(
+      "ElevenLabs запретил Speech to Text для этого ключа, тарифа или IP",
+    );
+    expect(action).toHaveTextContent("повтор будет безопасным");
+  });
+
   it("disables an available retry while its request is pending", async () => {
     const onRetry = vi.fn();
     render(

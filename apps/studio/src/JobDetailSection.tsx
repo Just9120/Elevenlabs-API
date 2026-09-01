@@ -111,6 +111,13 @@ export function JobDetailSection({
   const unavailable = retryUnavailableLabel(retry?.data?.reason);
   const partialResume = isPartialProviderResume(retry?.data);
   const partialRestart = isPartialProviderRestart(retry?.data);
+  const ordinaryProviderFailure =
+    retry?.data?.available &&
+    !partialResume &&
+    !partialRestart &&
+    retry.data.provider_failure_code
+      ? providerFailureLabel(retry.data.provider_failure_code)
+      : null;
 
   return (
     <section aria-label="Подробности транскрибации">
@@ -144,6 +151,12 @@ export function JobDetailSection({
         >
           {retry?.data?.available ? (
             <>
+              {ordinaryProviderFailure && (
+                <span className="notice">
+                  Причина остановки: {ordinaryProviderFailure}. После исправления причины
+                  повтор будет безопасным и не продублирует подтверждённый результат.
+                </span>
+              )}
               {partialResume && (
                 <span className="notice">
                   Сохранено частей: {retry.data.resumable_provider_part_count ?? 0} из{" "}

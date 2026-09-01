@@ -48,6 +48,12 @@ describe("job recovery model", () => {
   });
 
   it("maps only fixed safe provider categories", () => {
+    expect(providerFailureLabel("provider_payment_required")).toBe(
+      "ElevenLabs требует доступного API-баланса или оплаты",
+    );
+    expect(providerFailureLabel("provider_scope_rejected")).toBe(
+      "ElevenLabs запретил Speech to Text для этого ключа, тарифа или IP",
+    );
     expect(providerFailureLabel("provider_rate_limited")).toBe(
       "ElevenLabs ограничил частоту запросов",
     );

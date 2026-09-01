@@ -1336,12 +1336,24 @@ def test_diagnostics_provider_mapped_and_unexpected_failures(monkeypatch, db, mo
     monkeypatch.setattr(mod, "write_diagnostic_event", lambda **kw: events.append(kw) or SimpleNamespace(accepted=True, persisted=True))
     class MappedFailure:
         def transcribe(self, **kwargs):
-            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_timeout)
-    with pytest.raises(JobElevenLabsTranscriptionError, match="provider_timeout"):
+            raise ElevenLabsTranscriptionError(
+                ElevenLabsTranscriptionReason.provider_scope_rejected,
+                provider_error_code="insufficient_permissions",
+                http_status=403,
+            )
+    with pytest.raises(JobElevenLabsTranscriptionError, match="provider_scope_rejected"):
         with run_boundary(db, models, job, rel, MappedFailure(), now):
             pass
     assert [e["event_code"] for e in events] == ["SOURCE_VALIDATION_STARTED", "SOURCE_READY", "PROVIDER_REQUEST_STARTED", "PROVIDER_REQUEST_FAILED"]
-    assert events[-1]["metadata"] == {"boundary": "provider_transport", "error_code": "provider_timeout", "retryable": True, "attempt_number": job.attempt_count or 0}
+    assert events[-1]["metadata"] == {
+        "boundary": "provider_transport",
+        "error_code": "provider_scope_rejected",
+        "provider_error_code": "insufficient_permissions",
+        "retryable": False,
+        "attempt_number": job.attempt_count or 0,
+        "http_status": 403,
+        "http_status_category": "4xx",
+    }
     events.clear()
     *_, job, rel, now = make_job(db, models)
     class UnexpectedFailure:
@@ -1426,7 +1438,7 @@ def test_malformed_success_responses(payload):
         normalize_elevenlabs_transcript_response(payload)
 
 
-@pytest.mark.parametrize("status,reason", [(401, "provider_authentication_rejected"), (403, "provider_authentication_rejected"), (400, "provider_request_rejected"), (404, "provider_request_rejected"), (409, "provider_request_rejected"), (422, "provider_request_rejected"), (429, "provider_rate_limited"), (500, "provider_unavailable")])
+@pytest.mark.parametrize("status,reason", [(401, "provider_authentication_rejected"), (402, "provider_payment_required"), (403, "provider_scope_rejected"), (400, "provider_request_rejected"), (404, "provider_request_rejected"), (409, "provider_request_rejected"), (422, "provider_request_rejected"), (429, "provider_rate_limited"), (500, "provider_unavailable")])
 def test_http_error_mapping_redacts_body(status, reason):
     from studio_api.elevenlabs_transcription import ElevenLabsTranscriptionError, ElevenLabsTranscriptionTransport
     def post(*a, **k):
@@ -1434,6 +1446,33 @@ def test_http_error_mapping_redacts_body(status, reason):
     with pytest.raises(ElevenLabsTranscriptionError, match=reason) as exc:
         ElevenLabsTranscriptionTransport(post=post).transcribe(api_key="key", stream=BytesIO(b"a"), filename="secret.mp3", mime_type="audio/mpeg")
     assert "raw secret" not in str(exc.value) and "key" not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "detail,expected",
+    [
+        ({"code": "insufficient_permissions", "message": "private detail"}, "insufficient_permissions"),
+        ({"status": "invalid_api_key", "message": "private legacy detail"}, "invalid_api_key"),
+        ({"code": "private_dynamic_value", "message": "private detail"}, None),
+    ],
+)
+def test_http_error_exposes_only_allowlisted_provider_diagnostics(detail, expected):
+    from studio_api.elevenlabs_transcription import ElevenLabsTranscriptionError, ElevenLabsTranscriptionTransport
+
+    def post(*args, **kwargs):
+        return httpx.Response(403, json={"detail": detail})
+
+    with pytest.raises(ElevenLabsTranscriptionError) as exc:
+        ElevenLabsTranscriptionTransport(post=post).transcribe(
+            api_key="key",
+            stream=BytesIO(b"a"),
+            filename="secret.mp3",
+            mime_type="audio/mpeg",
+        )
+    assert exc.value.reason.value == "provider_scope_rejected"
+    assert exc.value.provider_error_code == expected
+    assert exc.value.http_status == 403
+    assert "private" not in str(exc.value)
 
 
 @pytest.mark.parametrize("exc_obj,reason", [(httpx.TimeoutException("url secret"), "provider_timeout"), (httpx.ConnectError("network secret"), "provider_unavailable")])

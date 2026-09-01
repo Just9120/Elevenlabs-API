@@ -137,8 +137,7 @@ export function parseJobRetryResponse(
     (reason === "available" &&
       status === "failed" &&
       ((resumableParts ?? 0) !== 0 ||
-        (totalParts ?? 0) !== 0 ||
-        (providerFailureCode !== undefined && providerFailureCode !== null))) ||
+        (totalParts ?? 0) !== 0)) ||
     (reason === "partial_provider_resume_available" &&
       (!(resumableParts && totalParts) || resumableParts > totalParts)) ||
     (reason === "partial_provider_restart_available" &&
@@ -364,6 +363,10 @@ export function isPartialProviderRestart(data: JobRetryResponse | null | undefin
 export function providerFailureLabel(code: string | null | undefined) {
   const labels: Record<string, string> = {
     provider_authentication_rejected: "ElevenLabs отклонил API-ключ",
+    provider_payment_required:
+      "ElevenLabs требует доступного API-баланса или оплаты",
+    provider_scope_rejected:
+      "ElevenLabs запретил Speech to Text для этого ключа, тарифа или IP",
     provider_request_rejected: "ElevenLabs отклонил эту часть файла",
     provider_rate_limited: "ElevenLabs ограничил частоту запросов",
     provider_timeout: "ElevenLabs не ответил вовремя",
