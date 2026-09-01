@@ -116,8 +116,6 @@ class Settings(BaseSettings):
             raise ValueError("unsupported ElevenLabs pricing source")
         if self.source_multipart_part_size_bytes > self.source_multipart_threshold_bytes:
             raise ValueError("multipart part size must not exceed multipart threshold")
-        if self.source_multipart_threshold_bytes > self.source_max_upload_bytes:
-            raise ValueError("multipart threshold must not exceed maximum upload bytes")
         if self.storage_reconciliation_apply_limit > self.storage_reconciliation_scan_limit:
             raise ValueError("reconciliation apply limit must not exceed scan limit")
         return self
