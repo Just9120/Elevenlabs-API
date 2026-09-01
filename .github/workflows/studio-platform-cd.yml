@@ -18,7 +18,7 @@ on:
           - migration
           - worker
       migration_target:
-        description: 'One direct additive Alembic target; use head for the repository head'
+        description: 'One direct additive Alembic target; head for repository head; worker_role only for reviewed stopped-worker grant recovery'
         required: true
         default: head
         type: string

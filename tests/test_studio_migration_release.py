@@ -22,6 +22,7 @@ RUNNING_API_IMAGE_ID = "sha256:" + ("f" * 64)
 POSTGRES_IMAGE_ID = "sha256:" + ("e" * 64)
 OLD_SNAPSHOT = "c" * 64
 NEW_SNAPSHOT = "d" * 64
+TEST_BASH = os.environ.get("STUDIO_TEST_BASH", "bash")
 
 
 def _write_exe(path: Path, content: str) -> None:
@@ -52,6 +53,7 @@ def run_release(
     api_health: str = "healthy",
     running_api_probe_ok: bool = True,
     api_container_changed: bool = False,
+    worker_role_ok: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     checkout = tmp_path / "checkout"
     fake_bin = tmp_path / "bin"
@@ -145,6 +147,16 @@ printf 'migrate snapshot=%s from=%s to=%s image=%s\\n' \
   "${{STUDIO_EXPECTED_API_IMAGE_ID}}" >> {str(calls)!r}
 [[ -f {str(backup_complete)!r} ]]
 printf '%s' "${{STUDIO_EXPECTED_MIGRATION_TO}}" > {str(revision_state)!r}
+""",
+    )
+    _write_exe(
+        checkout / "scripts" / "configure_studio_worker_db_role.sh",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+[[ "${{STUDIO_DEPLOY_DIR:-}}" == {_bash_path(checkout)!r} ]]
+[[ "${{1:-}}" == "apply" || "${{1:-}}" == "verify" ]]
+printf 'worker-role %s\n' "$1" >> {str(calls)!r}
+[[ {str(worker_role_ok).lower()} == true ]]
 """,
     )
     _write_exe(
@@ -346,7 +358,7 @@ fi
     }
     proc = subprocess.run(
         [
-            "bash",
+            TEST_BASH,
             "-c",
             'PATH="$TEST_FAKE_PATH:$PATH"; export PATH; exec bash "$1"',
             "_",
@@ -387,6 +399,11 @@ def test_release_orders_candidate_backup_verification_migration_and_api() -> Non
     pg_restore_index = _index(calls, "--entrypoint pg_restore")
     assert restic_indices[2] < pg_restore_index
     assert pg_restore_index < _index(calls, "migrate snapshot=")
+    assert _index(calls, "migrate snapshot=") < _index(calls, "worker-role apply")
+    assert _index(calls, "worker-role apply") < _index(calls, "worker-role verify")
+    assert _index(calls, "worker-role verify") < _index(
+        calls, "up -d --no-deps --force-recreate studio-api"
+    )
     pg_restore_call = calls[pg_restore_index]
     assert POSTGRES_IMAGE_ID in pg_restore_call
     assert "--pull never" in pg_restore_call
@@ -408,6 +425,37 @@ def test_release_orders_candidate_backup_verification_migration_and_api() -> Non
     assert f"image={IMAGE_ID}" in migrate_call
     combined = proc.stdout + proc.stderr + "\n".join(calls)
     assert "protected-test-value" not in combined
+
+
+def test_worker_role_recovery_uses_protected_lane_without_migration_or_deploy(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(tmp_path, requested_target="worker_role")
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(calls)
+    assert "operation=worker_role" in proc.stdout
+    assert _index(calls, "worker-role apply") < _index(calls, "worker-role verify")
+    assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("restic ") for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
+    assert not any("docker compose" in call and " build " in call for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
+    assert any("/api/readyz" in call for call in calls if call.startswith("curl "))
+
+
+def test_post_migration_worker_role_failure_blocks_before_api_recreation(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(tmp_path, worker_role_ok=False)
+
+    assert proc.returncode == 2
+    assert "phase=worker_role" in proc.stderr
+    assert "reason=worker_role_apply_failed" in proc.stderr
+    assert "migration_applied=yes" in proc.stderr
+    assert "worker_role_change_attempted=yes" in proc.stderr
+    assert "manual_recovery_required=yes" in proc.stderr
+    assert any(call.startswith("migrate ") for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
 
 
 def test_non_additive_candidate_blocks_before_backup_or_migration(tmp_path: Path) -> None:
@@ -632,8 +680,11 @@ def test_studio_ci_watches_migration_release_contract_files() -> None:
 
     for path in (
         "scripts/release_studio_platform_migration.sh",
+        "scripts/configure_studio_worker_db_role.sh",
         "tests/test_migrate_studio_platform.py",
         "tests/test_studio_migration_release.py",
+        "tests/test_studio_worker_db_role.py",
+        "tests/test_studio_worker_db_role_integration.py",
     ):
         assert workflow.count(f"- '{path}'") == 2
     assert "echo STUDIO_RUNNING_CONTAINER_METADATA_OK" in workflow
