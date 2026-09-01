@@ -532,19 +532,19 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `STORAGE-LIFECYCLE-02` — полный storage lifecycle
 
-Status: **🟦 IN PROGRESS — 57,1% (`12/21`)**. Persisted data-class boundary `STORAG-16` и distinct buckets/lifecycle/access `STORAG-17..21` подтверждены предыдущей Goal на `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`: protected API `33302350705`, worker `33302841078`, status `33302990622`, owner/provider evidence и bounded LIVE. Эти пять operational markers синхронизированы с уже учтённым dashboard numerator; durable requirements не меняются. Остальные незавершённые AC эпика остаются вне implementation scope текущей Goal.
+Status: **🟦 IN PROGRESS — 76,2% (`16/21`)**. Persisted data-class boundary `STORAG-16` и distinct buckets/lifecycle/access `STORAG-17..21` подтверждены предыдущей Goal на `c443de6855b02c3d0e5e0021ca76d56b52a2a9bc`. `STORAGE-LIFECYCLE-FOLLOWUP-01` на exact merge `ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e` закрыла `STORAG-01/02/04/09`: multipart reference uploads, fenced abandoned-session cleanup, periodic provider lifecycle вместе с bounded owner reconciliation и отдельную effective transcription-reference retention. Broader retention, storage versioning cleanup и cross-store deletion остаются открыты.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `STORAG-01` | Все большие S3-compatible uploads поддерживают resumable или multipart protocol. | — |
-| `STORAG-02` | Abandoned upload sessions периодически очищаются. | — |
+| `STORAG-01` | Все большие S3-compatible uploads поддерживают resumable или multipart protocol. | ✅ |
+| `STORAG-02` | Abandoned upload sessions периодически очищаются. | ✅ |
 | `STORAG-03` | Failed/request-scoped FFmpeg temporary files очищаются. | ✅ |
-| `STORAG-04` | Orphaned storage objects периодически reconciliate и очищаются. | — |
+| `STORAG-04` | Orphaned storage objects периодически reconciliate и очищаются. | ✅ |
 | `STORAG-05` | Cleanup удаляет obsolete object versions при включённом storage versioning. | — |
 | `STORAG-06` | Original transcription sources имеют явную retention policy. | ✅ |
 | `STORAG-07` | Processed audio outputs имеют явную retention policy. | ✅ |
 | `STORAG-08` | Audio-processing reference files имеют явную retention policy. | ✅ |
-| `STORAG-09` | Transcription reference files имеют отдельную явную retention policy. | — |
+| `STORAG-09` | Transcription reference files имеют отдельную явную retention policy. | ✅ |
 | `STORAG-10` | Internal transcript data имеет явную retention policy. | — |
 | `STORAG-11` | Temporary files имеют явную retention/TTL policy. | ✅ |
 | `STORAG-12` | History data имеет явную retention policy. | — |
@@ -558,7 +558,7 @@ Status: **🟦 IN PROGRESS — 57,1% (`12/21`)**. Persisted data-class boundary 
 | `STORAG-20` | Transcription-reference bucket имеет независимые lifecycle rules. | ✅ |
 | `STORAG-21` | Два reference buckets имеют независимо ограниченные access permissions. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅` для закрытых `STORAG-01/02/04/09/16..21`; эпик остаётся IN PROGRESS из-за открытых `STORAG-05/10/12/13/15`. PR `#278`; exact-head CI `33540306329`/`33540306338`; exact-main CI `33540632446`/`33540632492`; migration/API `33541331595`; worker deploy/status `33541844977`/`33542236147`. Authenticated LIVE подтвердил exact web/API/worker `ac632b5`, schema `0032_source_multipart_authority`, storage readiness, effective policies `3 дня`, threshold `16 MB` и non-destructive orphan dry-run без candidates. Production orphan apply не выполнялся.
 
 ### Эпик `STT-PROVIDER-ABSTRACTION-01` — provider-neutral STT contract
 
@@ -1152,17 +1152,17 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Verified repository/VPS baseline: exact functional web/API `main@30f21a66bcba966134b07407aa7fbad18f6a88e9`; repository CI `33521901250`, Studio/browser `33521901245` и platform CD `33521901302` завершились success. Public API/web health и exact web build identity подтверждены; schema остаётся `0031`. Worker не менялся последним UX fix и сохраняет ранее подтверждённые identity/isolation Evidence exact `cf8a459`.
-- Production schema — `0031_provider_account_snapshots`, confirmed by protected release and owner preflight. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
+- Verified repository/VPS baseline: exact functional web/API/worker `main@ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e`; exact-main repository CI `33540632446`, Studio/browser `33540632492`, web CD `33540632463`, protected migration/API release `33541331595`, worker deploy `33541844977` и worker status `33542236147` завершились success. Authenticated diagnostics подтверждают exact component identity, backend/PostgreSQL/queue/worker/object-storage readiness и `isolation_match=yes`.
+- Production schema — `0032_source_multipart_authority`, confirmed by protected release `33541331595`; rollback snapshot `93ecba2be2b1` сохранён. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
 - Distinct audio/transcription reference buckets, lifecycle rules и scoped credentials подтверждены предыдущей Goal. Existing legacy Sources сохраняют прежний routing; текущая Goal не переносит bytes и не меняет retention.
 
 ## 9. Current critical path
 
-1. Progress/transaction hotfix завершён в PR `#271`; safe provider diagnostics — в PR `#272`; immutable checkpoint-role fix — в PR `#273`; recovery visibility после очистки истории — в PR `#275`, exact functional baseline `main@30f21a66`.
+1. Storage lifecycle follow-up завершён в PR `#278`, exact functional baseline `main@ac632b5`: large local reference uploads используют multipart выше server policy, abandoned sessions очищаются worker maintenance, а owner reconciliation остаётся dry-run-first и destructive только после отдельного подтверждения.
 2. Existing failed multi-part job сохраняет confirmed usage `801.689 s` и после delivery показывает только explicit cost-confirmed full restart. Действие не выполнялось; automatic recovery запрещён.
 3. Exact-main CI, applicable web/API/worker delivery, health/identity/isolation и browser-safe retry UI подтверждены. Goal закрыта owner; дополнительный paid LIVE retry не требуется, а возможная новая regression будет отдельным hotfix.
-4. Production schema `0031` current; повторная migration не требуется. Existing worker isolation, account snapshots, lifecycle/provider-cost gates и duplicate protection не ослабляются.
-5. Commercial contour, новый STT provider, realtime/storage cost, `STORAG-01..15`, system-wide API/DB least privilege и CI/CD policy вне current Goal.
+4. Production schema `0032` current; повторная migration не требуется. Existing worker isolation, account snapshots, lifecycle/provider-cost gates и duplicate protection не ослаблены.
+5. Commercial contour, новый STT provider, realtime/storage cost, открытые `STORAG-05/10/12/13/15`, system-wide API/DB least privilege и CI/CD policy вне закрытой Goal.
 
 ## 10. Supporting documents
 

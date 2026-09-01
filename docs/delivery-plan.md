@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `STORAGE-LIFECYCLE-FOLLOWUP-01` — multipart uploads, abandoned-session cleanup и безопасная storage reconciliation.
-- **State:** `IN_PROGRESS` — owner 2026-09-01 явно согласовал bounded scope и поручил поставить Goal и приступить.
+- **State:** `DONE` — все Goal AC и required Evidence закрыты; PR `#278` merged, exact-main CI, protected migration/API/web/worker delivery и bounded non-destructive LIVE подтверждены.
 - **Authorization source:** explicit owner instructions 2026-09-01 после обсуждения `STORAGE-LIFECYCLE-FOLLOWUP-01`: «Ставь цель и приступай».
 - **Scope:** закрыть canonical `STORAG-01`, `STORAG-02`, `STORAG-04`, `STORAG-09` и безопасную подтверждаемую часть `STORAG-15`: server-authoritative threshold для multipart; owner/project/source-scoped multipart initiation, part capabilities, completion и abort; durable expiring upload-session authority; bounded idempotent abandoned-session cleanup; owner-scoped orphan inventory/reconciliation с dry-run по умолчанию и отдельным явным подтверждением apply; явная effective retention для transcription-reference; physical delete считается успешным только после подтверждения отсутствия exact object; безопасные audit/diagnostics и пользовательский storage-health UX; tests, reviewable PR, exact-head CI и применимый migration/API/web/worker delivery с bounded non-destructive LIVE verification.
 - **Non-goals:** удаление Google Drive originals или Google Docs; broad retention/delete внутренних transcript, History или Analytics данных; cleanup obsolete versions при неподтверждённом versioning; commercial/Russian S3 contour; автоматический destructive production reconciliation; logging/возврат object keys, bucket names, upload IDs, presigned URLs или raw storage errors; изменение lifecycle сроков уже существующих объектов; ослабление reference-class/bucket/credential isolation.
@@ -20,22 +20,22 @@
   10. `SLF-10`: additive schema, compatibility, owner isolation, concurrency, replay, pagination, timeout/failure и redaction покрыты unit/integration/frontend tests.
   11. `SLF-11`: focused/full local validation, reviewable PR и exact-head required CI завершаются success; required migration/API/web/worker delivery следует protected gates.
   12. `SLF-12`: bounded production LIVE подтверждает safe upload-policy/effective-retention DTO и non-destructive orphan dry-run; никакой production object не удаляется без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`; candidate working tree реализован и локально проверен, но reviewable commit, exact-head CI и delivery Evidence ещё не получены.
-- **Known blockers/dependencies:** additive schema потребует protected `MANUAL_GATED` migration; R2 lifecycle/provider configuration остаётся external operator Evidence. Destructive production orphan apply не входит в автоматически разрешённый delivery. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories должны остаться untouched.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact merge `ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e`, exact-main CI, protected schema `0032`, API/web/worker identity и authenticated storage-policy/dry-run LIVE подтверждены.
+- **Known blockers/dependencies:** отсутствуют для Goal DoD. Destructive production orphan apply не выполнялся и по-прежнему требует отдельной action-time authorization; provider lifecycle rules остаются defence in depth. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-01T17:46:35Z`.
-- **Base branch/SHA:** verified `origin/main@ff362a4ce276d6e219f18ef7995fba8a48e96804` после fetch.
-- **Working branch:** `codex/storage-lifecycle-followup` от exact `origin/main`.
+- **Updated (UTC):** `2026-09-01T18:16:16Z`.
+- **Base branch/SHA:** verified merged `origin/main@ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e` после fetch.
+- **Working branch:** closure synchronization `codex/storage-lifecycle-closure` от exact merged `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
-- **Last verified revision:** `ff362a4ce276d6e219f18ef7995fba8a48e96804`.
-- **Completed:** реализованы additive schema `0032`, durable owner-scoped multipart authority и per-part capabilities, server-side completion/status/abort, browser multipart paths для transcription/audio preparation, fenced abandoned-session cleanup с verified absence, bounded owner-scoped reconciliation preview/apply, safe lifecycle DTO/Settings UX, diagnostics/audit redaction, runtime config и operational docs. Local Evidence: backend focused suite `116 passed`, frontend full suite `670 passed`, ESLint success, TypeScript/Vite/PWA production build success, Python compileall success и `git diff --check` success.
-- **Current step:** финальный diff review и reviewable commit перед публикацией branch.
-- **Next exact action:** зафиксировать только Goal files (сохранив unrelated untracked state), push branch и открыть PR для real-PostgreSQL, bash/preflight и полного exact-head CI.
-- **PR / CI / deployment:** отсутствуют; candidate implementation локально готова, но ещё не опубликована.
-- **Blockers / unverified assumptions:** real-PostgreSQL API/migration integration и bash-based preflight недоступны в локальном Windows run и должны пройти required CI; production bucket versioning state не подтверждён и не предполагается; lifecycle rule identifiers в runtime config не доказывают provider-side status; protected production migration и subsequent API/web/worker delivery ещё не запускались.
+- **Last verified revision:** `ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e`.
+- **Completed:** реализованы additive schema `0032`, durable owner-scoped multipart authority и per-part capabilities, server-side completion/status/abort, browser multipart paths для transcription/audio preparation, fenced abandoned-session cleanup с verified absence, bounded owner-scoped reconciliation preview/apply, safe lifecycle DTO/Settings UX, diagnostics/audit redaction, runtime config и operational docs. Local Evidence: backend focused `116 passed`, compatibility regression `78 passed`, frontend full `670 passed`, ESLint, TypeScript/Vite/PWA production build, Python compileall и `git diff --check` success. PR `#278` прошёл review и exact-head required CI; exact-main CI также success.
+- **Current step:** Goal закрыта; destructive production orphan apply не выполнялся.
+- **Next exact action:** остановиться и не переходить к следующей Goal без новой owner authorization.
+- **PR / CI / deployment:** PR `#278`, commits `f00074c`/`aa4a831`, merge `ac632b5`; exact-head CI `33540306329` (`1614 passed`) и Studio/browser `33540306338` success; exact-main CI `33540632446` и Studio/browser `33540632492` success. Web CD `33540632463` success. Protected migration release `33541331595`, job `99968055062`, применила `0031 -> 0032_source_multipart_authority`, сохранила snapshot `93ecba2be2b1` и доставила API. Worker drain `33541234693`, worker deploy `33541844977` / job `99969800397` и status `33542236147` success; exact image/commit identity и `isolation_match=yes` подтверждены.
+- **Blockers / unverified assumptions:** authenticated LIVE подтвердил web/API/worker exact `ac632b5`, schema `0032`, backend/PostgreSQL/queue/worker/object-storage readiness, effective retention `3 дня`, multipart threshold `16 MB` и safe orphan dry-run `0` candidates. Read-only processing preflight `33542235820` корректно fail-closed после worker deploy, потому что этот operator preflight допускает только остановленный worker; runtime health отдельно подтверждён status/LIVE. Storage versioning не предполагается, obsolete-version cleanup не заявлен. Ни один production object не удалён.
 
 ## Previous Goal closure — `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`
 
@@ -154,26 +154,25 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; десять строк unresolved SPEC gaps/runtime risks не являются AC и исключены. Independent recount после account LIVE и единственной canary: `578` unique AC / `271` complete. Выполнены `USAGEC-01/02/03/04/06`; local implementation `USAGEC-05` ещё не добавляет numerator до exact CI/deploy/LIVE. Evidence gate-ит READY.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; десять строк unresolved SPEC gaps/runtime risks не являются AC и исключены. Independent recount после storage delivery/LIVE: `578` unique AC / `275` complete. Current Goal закрыла `STORAG-01/02/04/09`; denominator не изменён. Evidence gate-ит READY.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **46,9% (`271/578`)** | **46,0% (`266/578`)** | Пять usage/account AC подтверждены; denominator не изменён. Изменение `+0,9` п.п. |
-| **Non-commercial scope** | **80,7% (`271/336`)** | **79,2% (`266/336`)** | Colab `32/32` + personal PWA `239/304`; изменение `+1,5` п.п. |
+| **Полный canonical scope** | **47,6% (`275/578`)** | **46,9% (`271/578`)** | Четыре storage AC подтверждены; denominator не изменён. Изменение `+0,7` п.п. |
+| **Non-commercial scope** | **81,8% (`275/336`)** | **80,7% (`271/336`)** | Colab `32/32` + personal PWA `243/304`; изменение `+1,1` п.п. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **78,6% (`239/304`)** | **77,0% (`234/304`)** | Выполнены `USAGEC-01/02/03/04/06`; изменение `+1,6` п.п. |
+| **Personal Studio PWA canonical** | **79,9% (`243/304`)** | **78,6% (`239/304`)** | Выполнены `STORAG-01/02/04/09`; изменение `+1,3` п.п. |
 | `PWA-USER-EXPERIENCE-02` | **100% (`12/12`)** | **100% (`12/12`)** | PR `#259/#260`, CI, DEPLOY и bounded owner LIVE закрыли required Evidence; эпик READY. |
-| `STORAGE-LIFECYCLE-02` | **57,1% (`12/21`)** | **57,1% (`12/21`)** | Current Goal не меняет storage AC; verified closure предыдущей Goal сохранён. |
+| `STORAGE-LIFECYCLE-02` | **76,2% (`16/21`)** | **57,1% (`12/21`)** | `STORAG-01/02/04/09` закрыты exact CI/deploy/LIVE; broader retention/versioning/cross-store deletion остаются открыты. |
 | `PWA-WORKER-ISOLATION-02` | **100% AC (`3/3`), не READY** | **100% AC (`3/3`), не READY** | Worker runtime bounds подтверждены; post-fix bounded LIVE gate остаётся partial. |
 | `USAGE-COST-ACCOUNTING-01` | **83,3% (`5/6`)** | **0% (`0/6`)** | `USAGEC-01/02/03/04/06` подтверждены. `USAGEC-05` реализован локально, но не засчитан до CI/deploy/LIVE. |
 
-Usage epic изменился более чем на `10` п.п.: `+83,3` п.п. объясняются exact account API/workspace Evidence и одной persisted canary, подтвердившими пять из шести AC. Denominator `6` не менялся. Локальный код `USAGEC-05` не засчитан преждевременно. `100% AC` worker epic не означает `READY`: обязательный post-fix bounded LIVE gate остаётся partial.
+Storage epic изменился более чем на `10` п.п.: `+19,1` п.п. объясняются четырьмя новыми atomic AC при неизменном denominator `21`. Large uploads, abandoned-session cleanup, periodic provider lifecycle плюс bounded owner reconciliation и отдельная transcription-reference retention подтверждены; version cleanup, broader data retention и cross-store deletion остаются открыты. `100% AC` worker epic не означает `READY`: его отдельный post-fix bounded LIVE gate остаётся partial.
 
 ## Candidate next Goals
 
-1. `STORAGE-LIFECYCLE-FOLLOWUP-01` — только после отдельного owner decision выбрать bounded subset из `STORAG-01..15`.
-2. `DB-LEAST-PRIVILEGE-01` — после текущего worker-only role boundary отдельно ограничить API/migration roles; current Goal не закрывает system-wide DB least privilege.
+1. `DB-LEAST-PRIVILEGE-01` — после текущего worker-only role boundary отдельно ограничить API/migration roles; closed storage Goal не закрывает system-wide DB least privilege.
 
 ## Risks и boundaries
 
