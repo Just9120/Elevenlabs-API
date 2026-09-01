@@ -182,6 +182,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                         settings,
                     )
                     media_clip = initial_job_snapshot["catalog_settings"]
+                    _close_read_transaction_before_media_preparation(db)
                     prepared_cm = media_preparer(
                         stream=source.stream,
                         original_filename=safe_filename(source.original_filename),
@@ -763,6 +764,16 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
             job_existing_result_reprocess_authorized(job.options_json)
         ),
     }
+
+
+def _close_read_transaction_before_media_preparation(db) -> None:
+    """Do not leave a worker DB transaction idle during long local media I/O."""
+    try:
+        db.rollback()
+    except Exception as exc:
+        raise JobElevenLabsTranscriptionError(
+            JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call
+        ) from exc
 
 
 def _post_provider_lifecycle_revalidate(db, job_id, owner, generation, now) -> None:

@@ -156,6 +156,9 @@ def materialize_processing_job_source(
             if not availability.ready:
                 raise SourceMaterializationError(_availability_reason(availability.blocking_reasons))
             snap = _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, check_now, settings)
+            # All authority fields needed for the download are now immutable
+            # scalars. A fresh snapshot is compared after the external I/O.
+            db.rollback()
             temp = SpooledTemporaryFile(max_size=min(settings.source_max_upload_bytes, 8 * 1024 * 1024), mode="w+b")
             byte_count, response_mime, response_length = _copy_source_bytes(
                 snap,
@@ -243,6 +246,7 @@ def _copy_source_bytes(snap, temp, settings, storage_factory, drive_token_resolv
             raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
         try:
             token = drive_token_resolver(db, user_id=snap.job_owner_user_id, settings=settings)
+            db.rollback()
             stream = drive_content_fetcher(token, snap.drive_file_id)
         except GoogleConnectionAccessError as exc:
             raise SourceMaterializationError(SourceMaterializationReason.external_source_unavailable) from exc

@@ -365,6 +365,32 @@ def test_embedded_local_creation_time_is_persisted_before_provider_call(db, mode
     assert len(transport.calls) == 1
 
 
+def test_media_preparation_runs_without_an_idle_database_transaction(db, models):
+    *_, job, rel, now = make_job(db, models)
+    observed = []
+
+    @contextmanager
+    def prepare(**kwargs):
+        observed.append(db.in_transaction())
+        with fake_media_preparer(**kwargs) as prepared:
+            yield prepared
+
+    transport = CaptureTransport()
+    with run_boundary(
+        db,
+        models,
+        job,
+        rel,
+        transport,
+        now,
+        media_preparer=prepare,
+    ):
+        pass
+
+    assert observed == [False]
+    assert len(transport.calls) == 1
+
+
 def test_request_construction_language_and_redaction():
     from studio_api.elevenlabs_transcription import ElevenLabsTranscriptionTransport
     calls = []
@@ -862,7 +888,7 @@ def test_immutable_media_clip_reaches_preparation_boundary(db, models):
     *_, job, rel, now = make_job(db, models)
     job.media_clip_start_seconds = 610
     job.media_clip_end_seconds = None
-    db.flush()
+    db.commit()
     preparation_calls = []
     transport = CaptureTransport()
 
@@ -1341,7 +1367,7 @@ def test_pre_provider_revalidation_blocks_transport(db, models, mutate, reason):
         cm = fake_source(*args, **kwargs)
         class Wrapper:
             def __enter__(self):
-                handle = cm.__enter__(); mutate(models, project, cred, version, src, job, rel, now); db.flush(); return handle
+                handle = cm.__enter__(); mutate(models, project, cred, version, src, job, rel, now); db.commit(); return handle
             def __exit__(self, *exc):
                 return cm.__exit__(*exc)
         return Wrapper()

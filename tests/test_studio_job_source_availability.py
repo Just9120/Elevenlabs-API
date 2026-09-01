@@ -252,6 +252,68 @@ def test_processing_job_local_upload_head_ready_and_safe(sqlite_session, models)
     assert_safe_summary(summary)
 
 
+def test_external_availability_check_runs_without_idle_database_transaction(
+    sqlite_session,
+    models,
+):
+    job_id, *_rest, now, _user_id = make_processing_job(sqlite_session, models)
+    observed = []
+
+    summary = verify(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        storage_factory=lambda _: FakeStorage(
+            before_head=lambda: observed.append(sqlite_session.in_transaction())
+        ),
+    )
+
+    assert summary.ready is True
+    assert observed == [False]
+
+
+def test_drive_metadata_check_runs_without_idle_database_transaction(
+    sqlite_session,
+    models,
+):
+    from studio_api.google_drive import GoogleDriveMetadata
+
+    job_id, *_rest, now, _user_id = make_processing_job(
+        sqlite_session,
+        models,
+        source_type=models.SourceType.google_drive,
+    )
+    observed = []
+
+    def fetcher(token, drive_file_id):
+        observed.append(sqlite_session.in_transaction())
+        return GoogleDriveMetadata(
+            id=drive_file_id,
+            name="meeting.mp3",
+            mime_type="audio/mpeg",
+            size_bytes=100,
+            web_view_link=None,
+            created_time=None,
+            modified_time=None,
+            is_folder=False,
+        )
+
+    summary = verify(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        drive_token_resolver=lambda *_args, **_kwargs: "access-token-secret",
+        drive_metadata_fetcher=fetcher,
+    )
+
+    assert summary.ready is True
+    assert observed == [False]
+
+
 def test_processing_job_rejects_wrong_lifecycle_and_lease_boundaries(sqlite_session, models):
     cases = [
         {"status": models.JobStatus.queued, "reason": "job_not_processing"},
