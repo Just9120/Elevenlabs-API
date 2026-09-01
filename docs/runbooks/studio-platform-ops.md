@@ -752,7 +752,9 @@ default release gate and `studio-production-migration` approval apply. This
 recovery target performs only `configure_studio_worker_db_role.sh apply` plus
 `verify` and a localhost API readiness check; it does not create a backup, run a
 migration, rebuild/recreate API, start the worker, call a provider, or process a
-job. Resume the unchanged exact worker image only after the recovery run
+job. The root-only apply uses process-scoped Git trust with optional index locks
+disabled, so the deploy-user-owned checkout remains writable by the deploy
+identity. Resume the unchanged exact worker image only after the recovery run
 finishes successfully.
 
 `STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD`, `STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE` and `STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing` form one complete snapshot. The operator verifies the value and effective date against the [official ElevenAPI pricing page](https://elevenlabs.io/pricing/api?price.section=speech_to_text) before changing it. Missing/partial/unsupported pricing blocks a provider call. A job keeps the first accepted snapshot across all parts, so changing environment pricing affects only jobs that have not started provider usage. Studio shows attributable confirmed usage cost, not an ElevenLabs invoice debit after free quota or subscription credits.

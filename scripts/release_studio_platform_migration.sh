@@ -48,6 +48,7 @@ run_worker_role() {
     GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0=safe.directory \
     GIT_CONFIG_VALUE_0="$STUDIO_DEPLOY_DIR" \
+    GIT_OPTIONAL_LOCKS=0 \
     STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
     bash "$WORKER_ROLE_SCRIPT" "$operation" </dev/null
 }
