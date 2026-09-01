@@ -84,6 +84,19 @@ services:
       STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents}
       STUDIO_GOOGLE_PICKER_API_KEY: ${STUDIO_GOOGLE_PICKER_API_KEY:-}
       STUDIO_GOOGLE_PICKER_APP_ID: ${STUDIO_GOOGLE_PICKER_APP_ID:-}
+      STUDIO_ALERT_EVALUATION_INTERVAL_SECONDS: ${STUDIO_ALERT_EVALUATION_INTERVAL_SECONDS:-60}
+      STUDIO_ALERT_SIGNAL_WINDOW_SECONDS: ${STUDIO_ALERT_SIGNAL_WINDOW_SECONDS:-900}
+      STUDIO_ALERT_STUCK_QUEUE_SECONDS: ${STUDIO_ALERT_STUCK_QUEUE_SECONDS:-900}
+      STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD: ${STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD:-3}
+      STUDIO_ALERT_LIMIT_REMAINING_PERCENT: ${STUDIO_ALERT_LIMIT_REMAINING_PERCENT:-15}
+      STUDIO_ALERT_STORAGE_LIMIT_BYTES: ${STUDIO_ALERT_STORAGE_LIMIT_BYTES:-}
+      STUDIO_ALERT_INCIDENT_COOLDOWN_SECONDS: ${STUDIO_ALERT_INCIDENT_COOLDOWN_SECONDS:-1800}
+      STUDIO_ALERT_DELIVERY_RETRY_SECONDS: ${STUDIO_ALERT_DELIVERY_RETRY_SECONDS:-300}
+      STUDIO_ALERT_DELIVERY_MAX_ATTEMPTS: ${STUDIO_ALERT_DELIVERY_MAX_ATTEMPTS:-3}
+      STUDIO_ALERT_TELEGRAM_ENABLED: ${STUDIO_ALERT_TELEGRAM_ENABLED:-false}
+      STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE: /run/studio-runtime-secrets/studio_alert_telegram_bot_token
+      STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE: /run/studio-runtime-secrets/studio_alert_telegram_chat_id
+      STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS: ${STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS:-5}
     secrets:
       - studio_credential_master_key
       - studio_postgres_password
@@ -93,6 +106,8 @@ services:
       - studio_audio_reference_s3_secret_access_key
       - studio_google_oauth_client_secret
       - studio_google_maintenance_oauth_client_secret
+      - studio_alert_telegram_bot_token
+      - studio_alert_telegram_chat_id
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:
@@ -166,6 +181,19 @@ services:
       STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD: ${STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD:?ElevenLabs Scribe v2 hourly USD rate is required}
       STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE: ${STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE:?ElevenLabs pricing effective date is required}
       STUDIO_ELEVENLABS_PRICING_SOURCE: ${STUDIO_ELEVENLABS_PRICING_SOURCE:?ElevenLabs pricing source is required}
+      STUDIO_ALERT_EVALUATION_INTERVAL_SECONDS: ${STUDIO_ALERT_EVALUATION_INTERVAL_SECONDS:-60}
+      STUDIO_ALERT_SIGNAL_WINDOW_SECONDS: ${STUDIO_ALERT_SIGNAL_WINDOW_SECONDS:-900}
+      STUDIO_ALERT_STUCK_QUEUE_SECONDS: ${STUDIO_ALERT_STUCK_QUEUE_SECONDS:-900}
+      STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD: ${STUDIO_ALERT_PROVIDER_FAILURE_THRESHOLD:-3}
+      STUDIO_ALERT_LIMIT_REMAINING_PERCENT: ${STUDIO_ALERT_LIMIT_REMAINING_PERCENT:-15}
+      STUDIO_ALERT_STORAGE_LIMIT_BYTES: ${STUDIO_ALERT_STORAGE_LIMIT_BYTES:-}
+      STUDIO_ALERT_INCIDENT_COOLDOWN_SECONDS: ${STUDIO_ALERT_INCIDENT_COOLDOWN_SECONDS:-1800}
+      STUDIO_ALERT_DELIVERY_RETRY_SECONDS: ${STUDIO_ALERT_DELIVERY_RETRY_SECONDS:-300}
+      STUDIO_ALERT_DELIVERY_MAX_ATTEMPTS: ${STUDIO_ALERT_DELIVERY_MAX_ATTEMPTS:-3}
+      STUDIO_ALERT_TELEGRAM_ENABLED: ${STUDIO_ALERT_TELEGRAM_ENABLED:-false}
+      STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE: /run/studio-runtime-secrets/studio_alert_telegram_bot_token
+      STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE: /run/studio-runtime-secrets/studio_alert_telegram_chat_id
+      STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS: ${STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS:-5}
       TMPDIR: /tmp
       PYTHONDONTWRITEBYTECODE: "1"
     secrets:
@@ -178,6 +206,8 @@ services:
       - studio_audio_reference_s3_secret_access_key
       - studio_google_oauth_client_secret
       - studio_google_maintenance_oauth_client_secret
+      - studio_alert_telegram_bot_token
+      - studio_alert_telegram_chat_id
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
       - /tmp:rw,nosuid,nodev,noexec,mode=1770,uid=10001,gid=10001,size=${STUDIO_WORKER_TMPFS_SIZE:-3g}
@@ -236,6 +266,10 @@ secrets:
     file: ${STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}
   studio_google_maintenance_oauth_client_secret:
     file: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}
+  studio_alert_telegram_bot_token:
+    file: ${STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE:-./optional-empty-secret}
+  studio_alert_telegram_chat_id:
+    file: ${STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE:-./optional-empty-secret}
 volumes:
   studio-postgres-data:
 networks:

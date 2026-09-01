@@ -127,6 +127,7 @@ def _normalized_event(event: Mapping[str, Any]) -> dict[str, Any]:
         "event_code": str(event.get("event_code") or ""),
         "project_id": str(event.get("project_id") or ""),
         "job_id": str(event.get("job_id") or ""),
+        "trace_id": str(event.get("trace_id") or ""),
         "correlation_id": str(event.get("correlation_id") or ""),
         "request_id": str(event.get("request_id") or ""),
         "occurrence_count": max(0, int(event.get("occurrence_count") or 0)),
@@ -214,6 +215,7 @@ def _serialize_markdown(report: Mapping[str, Any]) -> str:
             f"{event['component']} | {_markdown_escape(event['event_code'])} | "
             f"project={_markdown_escape(event['project_id'])} "
             f"job={_markdown_escape(event['job_id'])} "
+            f"trace={_markdown_escape(event['trace_id'])} "
             f"corr={_markdown_escape(event['correlation_id'])} "
             f"req={_markdown_escape(event['request_id'])} "
             f"occurrences={event['occurrence_count']} metadata={metadata}"
@@ -343,6 +345,8 @@ def _toml_scalar(value: Any) -> str:
         return repr(value)
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, Mapping):
+        return _toml_inline_table(value)
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return "[" + ", ".join(_toml_scalar(item) for item in value) + "]"
     raise ValueError("Unsupported TOML diagnostic value")

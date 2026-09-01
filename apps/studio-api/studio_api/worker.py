@@ -95,6 +95,8 @@ def run_worker_loop(
     source_cleanup_runner: Callable | None = None,
     provider_checkpoint_cleanup_runner: Callable | None = None,
     realtime_draft_cleanup_runner: Callable | None = None,
+    alert_evaluator: Callable | None = None,
+    alert_delivery_runner: Callable | None = None,
 ) -> int:
     if iteration is None:
         from .audio_preparation_worker import claim_next_studio_work
@@ -104,6 +106,7 @@ def run_worker_loop(
     poll_interval = settings.worker_poll_interval_seconds
     error_backoff = settings.worker_error_backoff_seconds
     owner_id = owner_id_factory()
+    last_alert_evaluation_at = None
 
     while not stop_event.is_set():
         if stop_event.is_set():
@@ -199,6 +202,31 @@ def run_worker_loop(
                     cleanup_db.close()
                 except Exception:
                     logger.warning("worker_session_close_failed")
+            if stop_event.is_set():
+                break
+            alert_now = datetime.now(timezone.utc)
+            alert_interval = max(30, int(getattr(settings, "alert_evaluation_interval_seconds", 60)))
+            if (
+                last_alert_evaluation_at is None
+                or (alert_now - last_alert_evaluation_at).total_seconds() >= alert_interval
+            ):
+                try:
+                    if alert_evaluator is None:
+                        from .operational_alerts import evaluate_all_owner_incidents as evaluate_alerts
+                    else:
+                        evaluate_alerts = alert_evaluator
+                    evaluate_alerts(session_factory=session_factory, settings=settings, now=alert_now)
+                    last_alert_evaluation_at = alert_now
+                except Exception:
+                    logger.warning("studio_worker_alert_evaluation_failed", extra={"event": "studio_worker_alert_evaluation_failed"})
+            try:
+                if alert_delivery_runner is None:
+                    from .operational_alerts import process_one_delivery as deliver_alert
+                else:
+                    deliver_alert = alert_delivery_runner
+                deliver_alert(session_factory=session_factory, settings=settings, now=alert_now)
+            except Exception:
+                logger.warning("studio_worker_alert_delivery_failed", extra={"event": "studio_worker_alert_delivery_failed"})
         if stop_event.is_set():
             break
         stop_event.wait(wait_seconds if wait_seconds is not None else poll_interval)

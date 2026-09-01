@@ -176,7 +176,7 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     already_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
     reason = deletion_readiness(db, source, now=now, locked_jobs=jobs)
     if reason not in {SourceDeletionReason.available, SourceDeletionReason.source_already_deleted}:
-        audit(db, "source.deletion_blocked", actor_user_id=owner_user_id, subject_user_id=owner_user_id, project_id=project.id, blocker=reason.value)
+        audit(db, "source.deletion_blocked", actor_user_id=owner_user_id, subject_user_id=owner_user_id, outcome="rejected", project_id=project.id, blocker=reason.value)
         write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="SOURCE_DELETION_BLOCKED", project_id=project.id, metadata={"blocker": reason.value, "source_type": source.source_type.value, "boundary": "source_deletion"})
         db.flush()
         return SourceDeletionResult(False, reason, source.upload_status.value, browser_cleanup_status(source))
@@ -306,22 +306,21 @@ def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: date
         or src.multipart_upload_id != claim.multipart_upload_id
     ):
         return False
+    owner_user_id = _project_owner_id(db, src.project_id)
     if success:
         src.storage_cleanup_status = SourceStorageCleanupStatus.completed
         src.storage_cleanup_completed_at = now
         src.storage_cleanup_error_code = None
         src.s3_bucket = None
         src.s3_object_key = None
-        audit(db, "source.storage_cleanup_completed", project_id=src.project_id, cleanup_outcome="completed", cleanup_attempt=src.storage_cleanup_attempt_count)
-        owner_user_id = _project_owner_id(db, src.project_id)
+        audit(db, "source.storage_cleanup_completed", subject_user_id=owner_user_id, project_id=src.project_id, cleanup_outcome="completed", cleanup_attempt=src.storage_cleanup_attempt_count)
         if owner_user_id:
             write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_COMPLETED", project_id=src.project_id, metadata={"cleanup_outcome": "completed", "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     else:
         src.storage_cleanup_status = SourceStorageCleanupStatus.failed
         src.storage_cleanup_error_code = error_code if error_code in STORAGE_CLEANUP_ERROR_CODES else "storage_delete_failed"
         src.storage_cleanup_not_before_at = now + SOURCE_CLEANUP_RETRY_DELAY
-        audit(db, "source.storage_cleanup_failed", project_id=src.project_id, cleanup_outcome="failed", cleanup_attempt=src.storage_cleanup_attempt_count)
-        owner_user_id = _project_owner_id(db, src.project_id)
+        audit(db, "source.storage_cleanup_failed", subject_user_id=owner_user_id, outcome="failed", project_id=src.project_id, cleanup_outcome="failed", cleanup_attempt=src.storage_cleanup_attempt_count)
         if owner_user_id:
             write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_FAILED", project_id=src.project_id, metadata={"cleanup_outcome": "failed", "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     src.storage_cleanup_owner_id = None

@@ -1265,6 +1265,28 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (
+          url.endsWith("/api/diagnostics/incidents/incident-1/acknowledge") &&
+          init?.method === "POST"
+        )
+          return json({
+            id: "incident-1",
+            kind: "provider_unavailable",
+            severity: "warning",
+            status: "acknowledged",
+            summary_code: "provider_unavailable",
+            occurrence_count: 4,
+            evidence_count: 4,
+            first_detected_at: "2026-07-16T08:00:00Z",
+            last_detected_at: "2026-07-16T10:00:00Z",
+            last_transition_at: "2026-07-16T10:01:00Z",
+            delivery: {
+              channel: "telegram",
+              state: "suppressed",
+              attempt_count: 0,
+              notification_kind: "firing",
+            },
+          });
         if (url.endsWith("/api/diagnostics/system"))
           return json({
             environment: "production",
@@ -13548,9 +13570,32 @@ describe("settings diagnostics", () => {
               {
                 id: "audit-1",
                 type: "auth.login",
+                trace_id: "trace_6666666666666666",
                 created_at: "2026-07-16T10:00:00Z",
               },
             ],
+          });
+        if (
+          url.endsWith("/api/diagnostics/incidents/incident-1/acknowledge") &&
+          init?.method === "POST"
+        )
+          return json({
+            id: "incident-1",
+            kind: "provider_unavailable",
+            severity: "warning",
+            status: "acknowledged",
+            summary_code: "provider_unavailable",
+            occurrence_count: 4,
+            evidence_count: 4,
+            first_detected_at: "2026-07-16T08:00:00Z",
+            last_detected_at: "2026-07-16T10:00:00Z",
+            last_transition_at: "2026-07-16T10:01:00Z",
+            delivery: {
+              channel: "telegram",
+              state: "suppressed",
+              attempt_count: 0,
+              notification_kind: "firing",
+            },
           });
         if (url.endsWith("/api/diagnostics/system"))
           return json({
@@ -13574,6 +13619,7 @@ describe("settings diagnostics", () => {
               worker: { status: "ready" },
               object_storage: { status: "ready", probe: "read_only_head" },
               stt_provider: { status: "configured", availability: "unknown", probe: "not_run", configured_credentials: 2 },
+              email: { status: "not_configured" },
             },
             google_drive: { connected: true, scope_ready: false },
             provider_credentials: { active_count: 2, ready: true },
@@ -13584,6 +13630,52 @@ describe("settings diagnostics", () => {
               debug_retention_hours: 24,
             },
             report_limits: { max_days: 7, max_timeline_events: 5000 },
+            alerts: {
+              incident_monitoring: "enabled",
+              telegram: "not_configured",
+              email: "not_configured",
+              storage_limit: "not_configured",
+              api_limit: "configured",
+              incidents: [
+                {
+                  id: "incident-1",
+                  kind: "provider_unavailable",
+                  severity: "warning",
+                  status: "firing",
+                  summary_code: "provider_unavailable",
+                  occurrence_count: 4,
+                  evidence_count: 4,
+                  first_detected_at: "2026-07-16T08:00:00Z",
+                  last_detected_at: "2026-07-16T10:00:00Z",
+                  last_transition_at: "2026-07-16T10:00:00Z",
+                  delivery: {
+                    channel: "telegram",
+                    state: "pending",
+                    attempt_count: 0,
+                    notification_kind: "firing",
+                  },
+                },
+                {
+                  id: "incident-canary",
+                  kind: "operator_canary",
+                  severity: "warning",
+                  status: "resolved",
+                  summary_code: "operator_canary_ok",
+                  occurrence_count: 2,
+                  evidence_count: 0,
+                  first_detected_at: "2026-07-16T09:00:00Z",
+                  last_detected_at: "2026-07-16T09:00:01Z",
+                  last_transition_at: "2026-07-16T09:00:02Z",
+                  trace_id: "trace_7777777777777777",
+                  delivery: {
+                    channel: "telegram",
+                    state: "suppressed",
+                    attempt_count: 0,
+                    notification_kind: "recovery",
+                  },
+                },
+              ],
+            },
             secret_path: "/secret/path/forbidden",
           });
         if (url.includes("/api/diagnostics/events"))
@@ -13641,6 +13733,20 @@ describe("settings diagnostics", () => {
     expect(screen.getByText(/read_only_head/)).toBeInTheDocument();
     expect(screen.getByText(/probe not_run/)).toBeInTheDocument();
     expect(
+      screen.getByRole("heading", { name: "Системные предупреждения" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("STT provider временно недоступен")).toBeInTheDocument();
+    expect(screen.getByText("работает")).toBeInTheDocument();
+    expect(screen.getByText("данные доступны")).toBeInTheDocument();
+    expect(screen.getByText(/уведомление: ожидает отправки/)).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Недавние восстановления"));
+    expect(screen.getByText(/Проверка контура предупреждений завершена/)).toBeInTheDocument();
+    expect(screen.getByText("trace_7777777777777777")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Просмотрено" }));
+    expect(
+      await screen.findByText("Предупреждение отмечено как просмотренное."),
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("Разрешение Google Drive получено"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Google Drive готов")).not.toBeInTheDocument();
@@ -13662,6 +13768,7 @@ describe("settings diagnostics", () => {
       screen.getByRole("heading", { name: "Аудит безопасности" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Вход выполнен/)).toBeInTheDocument();
+    expect(screen.getByText("trace_6666666666666666")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("corr_should_not_render");
     expect(document.body.textContent).not.toContain("req_should_not_render");
     expect(document.body.textContent).not.toContain("cursor-secret");

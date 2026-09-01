@@ -2,6 +2,43 @@
 
 ## Current Goal
 
+- **ID / title:** `OBSERVABILITY-ALERTS-AUDIT-01` — сквозная трассировка, неизменяемый audit и bounded operational alerts.
+- **State:** `IN_PROGRESS` — implementation и local verification завершены; review/CI/protected delivery/LIVE ещё не заявлены выполненными.
+- **Authorization source:** explicit owner instruction 2026-09-01 после обсуждения `OBSERVABILITY-ALERTS-AUDIT-01`: «Ставь цель и приступай».
+- **Scope:** закрыть canonical `OBSERV-03`, `OBSERV-10`, `OBSERV-15`–`OBSERV-19`, `OBSERV-32`–`OBSERV-34`: безопасный `trace_id` через browser/API/job/worker и события external boundaries; явный audit outcome; database-enforced append-only audit; durable deduplicated operational incidents с bounded cooldown/recovery; правила для critical errors, stuck queue, provider unavailability, backup/cleanup failures и приближения к storage/API limits; optional Telegram operator transport; понятный owner UI в «Для поддержки»; tests, reviewable PR, exact-head CI, applicable protected delivery и non-destructive LIVE alert/recovery canary.
+- **Non-goals:** пользовательские job completion/failure notifications; automatic remediation, restart, provider retry или destructive cleanup; передача transcript/provider/storage sensitive content; commercial monitoring stack, Prometheus/Grafana/Sentry; новая retention policy; обязательная email infrastructure; paid provider call, Google Docs mutation или production object mutation в LIVE canary.
+- **Goal AC:**
+  1. `OAA-01`: canonical observability AC и readiness denominator синхронизированы без изменения unrelated scope и без преждевременного зачёта Evidence.
+  2. `OAA-02`: один безопасный `trace_id` создаётся/валидируется на browser/API boundary, возвращается клиенту и сохраняется через job, worker и allowlisted diagnostic/audit события внешних вызовов без sensitive payload.
+  3. `OAA-03`: новые audit records имеют явный bounded outcome (`success`, `rejected`, `failed`, `partial`), а legacy records остаются честно различимы без выдуманного результата.
+  4. `OAA-04`: PostgreSQL boundary запрещает ordinary application flows изменять или удалять прошлые audit records; downgrade/maintenance contract остаётся explicit и tested.
+  5. `OAA-05`: durable owner-scoped incident authority реализует bounded deduplication, pending/firing/acknowledged/resolved lifecycle, cooldown и recovery без alert storm.
+  6. `OAA-06`: deterministic rules обнаруживают critical errors, stuck queue, repeated provider unavailability, backup/cleanup failures и приближение к известным storage/API limits, ясно различая configured, unavailable и not-applicable signals.
+  7. `OAA-07`: optional Telegram operator transport fail-closed при отсутствии configuration, читает credentials только из secret files, отправляет только allowlisted incident summary и сохраняет bounded delivery outcome без raw provider response.
+  8. `OAA-08`: «Для поддержки» показывает понятные system incidents, severity/status/source, последнее безопасное изменение, delivery state и честный email/Telegram configuration status; technical detail остаётся progressive disclosure.
+  9. `OAA-09`: evaluation/notification не удерживает DB transaction во время network I/O, конкурентные evaluators не создают duplicate incidents/deliveries, а retry остаётся bounded и idempotent.
+  10. `OAA-10`: additive schema, compatibility, owner isolation, trace validation, append-only enforcement, rule thresholds, dedup/cooldown/recovery, transport failure и redaction покрыты unit/integration/frontend tests.
+  11. `OAA-11`: focused/full local validation, reviewable PR и exact-head required CI завершаются success; migration/API/web/worker delivery следует protected gates.
+  12. `OAA-12`: bounded production LIVE без внешнего spend/mutation подтверждает exact revision, trace continuity, incident create/dedup/resolve и owner UI; реальное Telegram сообщение не отправляется без отдельной action-time authorization.
+- **Required Evidence:** `SPEC ⬜ | CODE ⬜ | TEST ⬜ | CI ⬜ | DEPLOY ⬜ | LIVE ⬜`.
+- **Known blockers/dependencies:** optional Telegram delivery требует operator-provided bot token/chat ID и отдельного включения, но отсутствие transport не блокирует honest `not_configured` UI и внутренний incident authority. Migration class ожидается additive `MANUAL_GATED`. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохраняются untouched.
+- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-01T20:24:45Z`.
+- **Base branch/SHA:** verified exact `origin/main@c244241076f4c6b73b436b3fd2f5cfeec29590a9` после fetch.
+- **Working branch:** `codex/observability-alerts-audit` от exact verified `origin/main`.
+- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
+- **Last verified revision:** `c244241076f4c6b73b436b3fd2f5cfeec29590a9`.
+- **Completed:** реализованы additive schema `0033`, browser/API/job/worker trace continuity, explicit audit outcomes и database-enforced append-only boundary, owner-scoped incident/delivery authority с dedup/cooldown/recovery, deterministic provider/queue/maintenance/backup/storage/account rules, optional secret-file-backed Telegram transport, bounded worker evaluation/delivery, Support UI и safe suppressed-delivery canary. Transport не помещает token в URL, application logs или persisted outcome. Local Evidence: affected portable backend `224 passed`; финальный объединённый observability/schema/worker/diagnostics subset `73 passed`; frontend full `674 passed`; ESLint, TypeScript, Vite/PWA production build, Python compileall и `git diff --check` success. Owner-isolation regression также закрепляет CSRF acknowledge, trace-bearing audit и эквивалентные JSON/YAML/TOML exports с инцидентами.
+- **Current step:** reviewable commit и exact-head PR/CI.
+- **Next exact action:** зафиксировать intended diff без unrelated untracked files, push branch, открыть PR и дождаться exact-head required CI.
+- **PR / CI / deployment:** ещё отсутствуют. PostgreSQL/Redis integration, Linux Bash tests и protected migration/API/web/worker delivery не заявлены локально и остаются обязательными exact-head CI/DEPLOY gates.
+- **Blockers / unverified assumptions:** blockers для review отсутствуют. Optional Telegram credentials/configuration не проверялись и не нужны для honest `not_configured`; реальное Telegram сообщение запрещено без отдельной action-time authorization. Production canary реализован как internal create/dedup/resolve в одной transaction и заранее suppress-ит delivery rows, поэтому не вызывает внешний transport.
+
+## Previous Goal closure — `STORAGE-LIFECYCLE-FOLLOWUP-01`
+
 - **ID / title:** `STORAGE-LIFECYCLE-FOLLOWUP-01` — multipart uploads, abandoned-session cleanup и безопасная storage reconciliation.
 - **State:** `DONE` — все Goal AC и required Evidence закрыты; PR `#278` merged, exact-main CI, protected migration/API/web/worker delivery и bounded non-destructive LIVE подтверждены.
 - **Authorization source:** explicit owner instructions 2026-09-01 после обсуждения `STORAGE-LIFECYCLE-FOLLOWUP-01`: «Ставь цель и приступай».
@@ -24,7 +61,7 @@
 - **Known blockers/dependencies:** отсутствуют для Goal DoD. Destructive production orphan apply не выполнялся и по-прежнему требует отдельной action-time authorization; provider lifecycle rules остаются defence in depth. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `STORAGE-LIFECYCLE-FOLLOWUP-01`
 
 - **Updated (UTC):** `2026-09-01T18:16:16Z`.
 - **Base branch/SHA:** verified merged `origin/main@ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e` после fetch.

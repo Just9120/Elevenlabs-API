@@ -58,6 +58,7 @@ GRANT SELECT ON TABLE
     users,
     provider_credentials,
     provider_credential_versions,
+    provider_account_snapshots,
     google_connections,
     projects,
     sources,
@@ -77,6 +78,8 @@ GRANT SELECT ON TABLE
     audit_events,
     diagnostic_debug_sessions,
     diagnostic_events,
+    operational_incidents,
+    operational_alert_deliveries,
     runtime_component_status
 TO studio_worker;
 
@@ -91,8 +94,9 @@ GRANT UPDATE ON TABLE
     transcription_job_speakers,
     transcription_job_source_attempts,
     transcription_output_reconciliations,
-    audit_events,
     diagnostic_events,
+    operational_incidents,
+    operational_alert_deliveries,
     runtime_component_status
 TO studio_worker;
 
@@ -106,6 +110,8 @@ GRANT INSERT ON TABLE
     transcription_output_reconciliations,
     audit_events,
     diagnostic_events,
+    operational_incidents,
+    operational_alert_deliveries,
     runtime_component_status
 TO studio_worker;
 

@@ -13,6 +13,7 @@ from .config import get_settings
 from .db import SessionLocal
 from .signed_cursor import decode_signed_cursor, decode_signed_cursor_payload, encode_signed_cursor
 from .models import AudioPreparationJob, DiagnosticComponent, DiagnosticEvent, DiagnosticLevel, Project, TranscriptionJob, User
+from .trace_context import current_trace_id, valid_trace_id
 
 LOGGER = logging.getLogger("studio_api.diagnostics")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -320,7 +321,7 @@ def _upsert_event(db, row_values: dict[str, Any], fp: str):
             raise
         return db.query(DiagnosticEvent.id).filter_by(dedup_fingerprint=fp).scalar()
 
-def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: str, level: str | None = None, project_id: str | None = None, job_id: str | None = None, correlation_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None, session_factory=SessionLocal, now: datetime | None = None, allow_debug_override: bool = False) -> DiagnosticWriteResult:
+def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: str, level: str | None = None, project_id: str | None = None, job_id: str | None = None, trace_id: str | None = None, correlation_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None, session_factory=SessionLocal, now: datetime | None = None, allow_debug_override: bool = False) -> DiagnosticWriteResult:
     db = None
     try:
         definition = REGISTRY.get(event_code)
@@ -329,7 +330,8 @@ def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: st
         debug_override = bool(allow_debug_override and event_code.startswith("PWA_") and level == "DEBUG")
         if component not in definition.components or (level != definition.level and not debug_override) or level not in DiagnosticLevel.__members__:
             return DiagnosticWriteResult(False, reason="invalid_scope")
-        if not valid_uuid(owner_user_id) or not valid_db_id(project_id) or not valid_db_id(job_id) or not valid_correlation_id(correlation_id) or not valid_request_id(request_id):
+        resolved_trace_id = trace_id if trace_id is not None else current_trace_id()
+        if not valid_uuid(owner_user_id) or not valid_db_id(project_id) or not valid_db_id(job_id) or (resolved_trace_id is not None and not valid_trace_id(resolved_trace_id)) or not valid_correlation_id(correlation_id) or not valid_request_id(request_id):
             return DiagnosticWriteResult(False, reason="invalid_identifier")
         safe = sanitize_metadata(event_code, metadata)
         if safe is None: return DiagnosticWriteResult(False, reason="invalid_metadata")
@@ -339,7 +341,11 @@ def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: st
         db = session_factory()
         if not _scope_valid(db, owner_user_id, project_id, job_id):
             _rollback(db); return DiagnosticWriteResult(False, reason="invalid_scope")
-        row_values = dict(id=secrets.token_hex(16), owner_user_id=owner_user_id, project_id=project_id, job_id=job_id, level=DiagnosticLevel[level], component=DiagnosticComponent(component), event_code=event_code, correlation_id=correlation_id, request_id=request_id, metadata_json=json.dumps(safe, sort_keys=True), first_occurred_at=now_dt, last_occurred_at=now_dt, occurrence_count=1, dedup_fingerprint=fp, dedup_bucket=bucket, expires_at=expiry_for(level, now_dt, settings))
+        if resolved_trace_id is None and job_id is not None:
+            job = db.get(TranscriptionJob, job_id) or db.get(AudioPreparationJob, job_id)
+            candidate = getattr(job, "trace_id", None) if job is not None else None
+            resolved_trace_id = candidate if valid_trace_id(candidate) else None
+        row_values = dict(id=secrets.token_hex(16), owner_user_id=owner_user_id, project_id=project_id, job_id=job_id, level=DiagnosticLevel[level], component=DiagnosticComponent(component), event_code=event_code, trace_id=resolved_trace_id, correlation_id=correlation_id, request_id=request_id, metadata_json=json.dumps(safe, sort_keys=True), first_occurred_at=now_dt, last_occurred_at=now_dt, occurrence_count=1, dedup_fingerprint=fp, dedup_bucket=bucket, expires_at=expiry_for(level, now_dt, settings))
         event_id = _upsert_event(db, row_values, fp)
         db.commit()
         try:
@@ -389,6 +395,21 @@ def resolve_job_correlation_id(*, owner_user_id: str, job_id: str, session_facto
         return value if valid_correlation_id(value) else None
     except Exception:
         LOGGER.warning("diagnostic_correlation_lookup_failed")
+        return None
+    finally:
+        if db is not None: _close(db)
+
+def resolve_job_trace_id(*, owner_user_id: str, job_id: str, session_factory=SessionLocal) -> str | None:
+    db = None
+    try:
+        if not valid_uuid(owner_user_id) or not valid_uuid(job_id): return None
+        db = session_factory()
+        job = db.get(TranscriptionJob, job_id) or db.get(AudioPreparationJob, job_id)
+        if job is None or job.owner_user_id != owner_user_id:
+            return None
+        return job.trace_id if valid_trace_id(job.trace_id) else None
+    except Exception:
+        LOGGER.warning("diagnostic_trace_lookup_failed")
         return None
     finally:
         if db is not None: _close(db)

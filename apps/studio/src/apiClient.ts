@@ -1,4 +1,5 @@
 import { emitPwaDiagnostic } from "./pwaDiagnostics";
+import { traceHeaderRecord, withTraceHeader } from "./traceId";
 
 
 export type ApiRequestOptions = RequestInit & {
@@ -63,13 +64,14 @@ async function requestResponse(
   options: RequestInit = {},
   csrf?: string,
 ): Promise<Response> {
+  const tracedOptions = withTraceHeader(options);
   const res = await fetch(`/api${path}`, {
-    ...options,
+    ...tracedOptions,
     credentials: "same-origin",
     headers: {
       "content-type": "application/json",
       ...(csrf ? { "x-csrf-token": csrf } : {}),
-      ...(options.headers ?? {}),
+      ...traceHeaderRecord(tracedOptions.headers),
     },
   });
   if (!res.ok) {
@@ -105,7 +107,8 @@ export async function api<T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> {
-  const { ignoredAbortReason, ...requestOptions } = options;
+  const { ignoredAbortReason, ...plainRequestOptions } = options;
+  const requestOptions = withTraceHeader(plainRequestOptions);
   const startedAt = performance.now();
   try {
     return await requestJson<T>(path, requestOptions);
@@ -130,7 +133,8 @@ export async function apiResponse(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<Response> {
-  const { ignoredAbortReason, ...requestOptions } = options;
+  const { ignoredAbortReason, ...plainRequestOptions } = options;
+  const requestOptions = withTraceHeader(plainRequestOptions);
   const startedAt = performance.now();
   try {
     return await requestResponse(path, requestOptions);
@@ -184,6 +188,7 @@ export async function responseWithCsrfRetry(
   onCsrf: (csrf: string) => void,
   options: RequestInit,
 ): Promise<Response> {
+  options = withTraceHeader(options);
   const startedAt = performance.now();
   try {
     return await requestResponse(path, options, csrf);
@@ -226,6 +231,7 @@ export async function mutateWithCsrfRetry<T>(
   onCsrf: (csrf: string) => void,
   options: RequestInit,
 ): Promise<T> {
+  options = withTraceHeader(options);
   const startedAt = performance.now();
   try {
     return await requestJson<T>(path, options, csrf);
