@@ -55,7 +55,7 @@ class EventDef:
     level: str
     metadata: dict[str, MetaRule]
 
-BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "provider_checkpoint", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "unknown"})
+BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "provider_checkpoint", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "storage_reconciliation", "unknown"})
 ERROR_CODES = frozenset({
     "unknown", "provider_authentication_rejected", "provider_payment_required", "provider_scope_rejected", "provider_request_rejected", "provider_rate_limited",
     "provider_unavailable", "provider_timeout", "malformed_provider_response", "lifecycle_changed_after_provider_call",
@@ -79,7 +79,7 @@ PROVIDER_ERROR_CODES = frozenset({
 })
 RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
 FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
-ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "realtime", "transcript_catalog", "transcript_maintenance", "auth", "unknown"})
+ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "storage", "google", "credentials", "projects", "realtime", "transcript_catalog", "transcript_maintenance", "auth", "unknown"})
 PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
 PWA_ERROR_CODES = frozenset({"app_error", "unhandled_rejection", "api_request_failed", "route_error", "service_worker_error", "unknown"})
 PWA_REJECTION_CATEGORIES = frozenset({"abort", "type_error", "error", "other"})
@@ -121,6 +121,7 @@ REGISTRY: dict[str, EventDef] = {
     "SOURCE_STORAGE_CLEANUP_STARTED": EventDef(frozenset({"worker"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_STORAGE_CLEANUP_COMPLETED": EventDef(frozenset({"worker"}), "INFO", {"cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_STORAGE_CLEANUP_FAILED": EventDef(frozenset({"worker"}), "WARNING", {"cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "STORAGE_RECONCILIATION_APPLIED": EventDef(frozenset({"api"}), "INFO", {"planned_count": R("int", min=0, max=500, required=True), "deleted_count": R("int", min=0, max=500, required=True), "failed_count": R("int", min=0, max=500, required=True), "deleted_bytes": R("int", min=0, max=1073741824000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "JOB_CREATED": EventDef(frozenset({"api"}), "INFO", {"source_count": R("int", min=1, max=50, required=True), "batch_position": R("int", min=0, max=1000), "credential_selected": R("bool", required=True)}),
     "JOB_CLAIMED": EventDef(frozenset({"worker"}), "INFO", {}),
     "PROCESSING_STARTED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True)}),

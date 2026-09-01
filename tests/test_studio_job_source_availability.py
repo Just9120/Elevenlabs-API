@@ -185,9 +185,16 @@ def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
     assert is_supported_source_mime_type("application/ogg")
     assert not is_supported_source_mime_type("application/pdf")
     assert not is_supported_source_mime_type("application/vnd.google-apps.folder")
-    assert browser_source_upload_policy(123, local_upload_enabled=True) == {
+    assert browser_source_upload_policy(
+        123,
+        local_upload_enabled=True,
+        multipart_threshold_bytes=16 * 1024 * 1024,
+        multipart_part_size_bytes=8 * 1024 * 1024,
+    ) == {
         "local_upload_enabled": True,
         "max_upload_bytes": 123,
+        "multipart_threshold_bytes": 16 * 1024 * 1024,
+        "multipart_part_size_bytes": 8 * 1024 * 1024,
         "supported_mime_prefixes": ["audio/", "video/"],
         "supported_mime_types": ["application/ogg"],
     }

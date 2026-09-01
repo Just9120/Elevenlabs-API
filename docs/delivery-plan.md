@@ -2,6 +2,43 @@
 
 ## Current Goal
 
+- **ID / title:** `STORAGE-LIFECYCLE-FOLLOWUP-01` — multipart uploads, abandoned-session cleanup и безопасная storage reconciliation.
+- **State:** `IN_PROGRESS` — owner 2026-09-01 явно согласовал bounded scope и поручил поставить Goal и приступить.
+- **Authorization source:** explicit owner instructions 2026-09-01 после обсуждения `STORAGE-LIFECYCLE-FOLLOWUP-01`: «Ставь цель и приступай».
+- **Scope:** закрыть canonical `STORAG-01`, `STORAG-02`, `STORAG-04`, `STORAG-09` и безопасную подтверждаемую часть `STORAG-15`: server-authoritative threshold для multipart; owner/project/source-scoped multipart initiation, part capabilities, completion и abort; durable expiring upload-session authority; bounded idempotent abandoned-session cleanup; owner-scoped orphan inventory/reconciliation с dry-run по умолчанию и отдельным явным подтверждением apply; явная effective retention для transcription-reference; physical delete считается успешным только после подтверждения отсутствия exact object; безопасные audit/diagnostics и пользовательский storage-health UX; tests, reviewable PR, exact-head CI и применимый migration/API/web/worker delivery с bounded non-destructive LIVE verification.
+- **Non-goals:** удаление Google Drive originals или Google Docs; broad retention/delete внутренних transcript, History или Analytics данных; cleanup obsolete versions при неподтверждённом versioning; commercial/Russian S3 contour; автоматический destructive production reconciliation; logging/возврат object keys, bucket names, upload IDs, presigned URLs или raw storage errors; изменение lifecycle сроков уже существующих объектов; ослабление reference-class/bucket/credential isolation.
+- **Goal AC:**
+  1. `SLF-01`: canonical storage AC и readiness denominator синхронизированы без изменения unrelated scope и без преждевременного зачёта Evidence.
+  2. `SLF-02`: все browser-initiated large reference uploads выше server-authoritative threshold используют S3-compatible multipart protocol; small uploads сохраняют безопасный single-PUT path, а server-side managed uploads остаются multipart-capable.
+  3. `SLF-03`: multipart initiation, part issue, completion и abort owner/project/source scoped, fail closed при identity/lifecycle mismatch и возвращают capabilities только в `no-store` responses без browser persistence.
+  4. `SLF-04`: durable multipart session хранит только server-side exact storage identity, expected metadata, expiry и terminal state; complete/abort replay idempotent, а completion подтверждается storage metadata до перевода source в uploaded.
+  5. `SLF-05`: abandoned multipart sessions периодически выбираются bounded lease/fencing cleanup, abort-ятся idempotently и получают terminal/ retryable state без удержания DB transaction во время S3 I/O.
+  6. `SLF-06`: orphan reconciliation строит bounded paginated owner-scoped inventory, сверяет exact reference class/bucket/key с PostgreSQL authority, по умолчанию выполняет dry-run и не удаляет ambiguous, active или too-fresh objects.
+  7. `SLF-07`: destructive orphan apply требует отдельного явного подтверждения, удаляет только exact unchanged plan в bounded batch и подтверждает физическое отсутствие каждого object до terminal cleanup status.
+  8. `SLF-08`: Settings показывает понятную effective policy для transcription/audio references, состояние lifecycle/reconciliation и безопасный dry-run с counts/volume без storage identifiers; destructive action отделено от preview.
+  9. `SLF-09`: source deletion/retention cleanup считается физически завершённым только после verified absence exact object; Google Drive остаётся `not_applicable`, а broader cross-store `STORAG-15` не объявляется выполненным.
+  10. `SLF-10`: additive schema, compatibility, owner isolation, concurrency, replay, pagination, timeout/failure и redaction покрыты unit/integration/frontend tests.
+  11. `SLF-11`: focused/full local validation, reviewable PR и exact-head required CI завершаются success; required migration/API/web/worker delivery следует protected gates.
+  12. `SLF-12`: bounded production LIVE подтверждает safe upload-policy/effective-retention DTO и non-destructive orphan dry-run; никакой production object не удаляется без отдельной action-time authorization.
+- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`; candidate working tree реализован и локально проверен, но reviewable commit, exact-head CI и delivery Evidence ещё не получены.
+- **Known blockers/dependencies:** additive schema потребует protected `MANUAL_GATED` migration; R2 lifecycle/provider configuration остаётся external operator Evidence. Destructive production orphan apply не входит в автоматически разрешённый delivery. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories должны остаться untouched.
+- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-01T17:46:35Z`.
+- **Base branch/SHA:** verified `origin/main@ff362a4ce276d6e219f18ef7995fba8a48e96804` после fetch.
+- **Working branch:** `codex/storage-lifecycle-followup` от exact `origin/main`.
+- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
+- **Last verified revision:** `ff362a4ce276d6e219f18ef7995fba8a48e96804`.
+- **Completed:** реализованы additive schema `0032`, durable owner-scoped multipart authority и per-part capabilities, server-side completion/status/abort, browser multipart paths для transcription/audio preparation, fenced abandoned-session cleanup с verified absence, bounded owner-scoped reconciliation preview/apply, safe lifecycle DTO/Settings UX, diagnostics/audit redaction, runtime config и operational docs. Local Evidence: backend focused suite `116 passed`, frontend full suite `670 passed`, ESLint success, TypeScript/Vite/PWA production build success, Python compileall success и `git diff --check` success.
+- **Current step:** финальный diff review и reviewable commit перед публикацией branch.
+- **Next exact action:** зафиксировать только Goal files (сохранив unrelated untracked state), push branch и открыть PR для real-PostgreSQL, bash/preflight и полного exact-head CI.
+- **PR / CI / deployment:** отсутствуют; candidate implementation локально готова, но ещё не опубликована.
+- **Blockers / unverified assumptions:** real-PostgreSQL API/migration integration и bash-based preflight недоступны в локальном Windows run и должны пройти required CI; production bucket versioning state не подтверждён и не предполагается; lifecycle rule identifiers в runtime config не доказывают provider-side status; protected production migration и subsequent API/web/worker delivery ещё не запускались.
+
+## Previous Goal closure — `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`
+
 - **ID / title:** `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01` — непрерывный прогресс транскрибации и безопасная граница долгих worker-операций.
 - **State:** `DONE` — owner 2026-09-01 принял delivered production outcome и явно разрешил закрыть Goal без дополнительного paid LIVE retry; возможная новая regression будет отдельным hotfix.
 - **Authorization source:** explicit owner instructions 2026-09-01: устранить regression, из-за которой длинные записи перестали транскрибироваться; до hotfix улучшить UX единым активным progress bar процесса транскрибации с live-обновлением через подходящий transport; затем explicit «цель поставь еще», «разрешаю» и после повторного сбоя «ну так делай».
@@ -26,7 +63,7 @@
 - **Known blockers/dependencies:** последняя production job подтвердила provider usage `801.689 s`, затем завершилась `partial_provider_result` до первого checkpoint. Regression `SELECT ... FOR UPDATE` на immutable checkpoint table исправлена и доставлена без выдачи worker роли `UPDATE`. UX dead-end после `clear history` устранён: unresolved recovery jobs остаются в «Текущих», не могут быть повторно скрыты и показывают безопасное действие. Новый paid provider call не выполняется автоматически. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохраняются без изменений.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`
 
 - **Updated (UTC):** `2026-09-01T16:12:26Z`.
 - **Base branch/SHA:** verified `origin/main@e73697cc4f0a2d96c0ed420466a65428f5abaf2c`; exact functional production web/API identity `30f21a66`.

@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     source_upload_ttl_seconds: int = Field(default=3600, ge=900, le=86400)
     source_presign_ttl_seconds: int = Field(default=900, ge=60, le=900)
     source_max_upload_bytes: int = Field(default=536870912, ge=1, le=2147483647)
+    source_multipart_threshold_bytes: int = Field(default=16777216, ge=5242880, le=2147483647)
+    source_multipart_part_size_bytes: int = Field(default=8388608, ge=5242880, le=134217728)
+    storage_orphan_min_age_seconds: int = Field(default=86400, ge=3600, le=2592000)
+    storage_reconciliation_scan_limit: int = Field(default=500, ge=1, le=5000)
+    storage_reconciliation_page_size: int = Field(default=100, ge=1, le=1000)
+    storage_reconciliation_plan_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+    storage_reconciliation_apply_limit: int = Field(default=100, ge=1, le=500)
     audio_preparation_max_output_bytes: int = Field(default=2147483647, ge=1, le=2147483647)
     google_oauth_client_id: str | None = None
     google_oauth_client_secret_file: str | None = None
@@ -107,6 +114,10 @@ class Settings(BaseSettings):
             raise ValueError("ElevenLabs pricing snapshot must be complete")
         if self.elevenlabs_pricing_source not in {None, "elevenlabs_public_api_pricing"}:
             raise ValueError("unsupported ElevenLabs pricing source")
+        if self.source_multipart_part_size_bytes > self.source_multipart_threshold_bytes:
+            raise ValueError("multipart part size must not exceed multipart threshold")
+        if self.storage_reconciliation_apply_limit > self.storage_reconciliation_scan_limit:
+            raise ValueError("reconciliation apply limit must not exceed scan limit")
         return self
 
     def master_key_b64(self) -> str:

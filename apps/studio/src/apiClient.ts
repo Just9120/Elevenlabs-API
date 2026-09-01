@@ -22,6 +22,7 @@ function diagnosticEndpointGroup(path: string) {
   if (path.startsWith("/auth")) return "auth";
   if (path.startsWith("/projects")) return "projects";
   if (path.startsWith("/sources")) return "sources";
+  if (path.startsWith("/storage")) return "storage";
   if (path.startsWith("/jobs")) return "jobs";
   if (path.startsWith("/google")) return "google";
   if (path.startsWith("/provider-accounts")) return "provider_accounts";

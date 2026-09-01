@@ -10,11 +10,17 @@ SOURCE_RETENTION_TTL_OPTIONS_SECONDS = (3600, 86400, 259200, 604800, 2592000)
 
 
 def browser_source_upload_policy(
-    max_upload_bytes: int, *, local_upload_enabled: bool
+    max_upload_bytes: int,
+    *,
+    local_upload_enabled: bool,
+    multipart_threshold_bytes: int,
+    multipart_part_size_bytes: int,
 ) -> dict[str, object]:
     return {
         "local_upload_enabled": local_upload_enabled,
         "max_upload_bytes": max_upload_bytes,
+        "multipart_threshold_bytes": multipart_threshold_bytes,
+        "multipart_part_size_bytes": multipart_part_size_bytes,
         "supported_mime_prefixes": list(SUPPORTED_SOURCE_MIME_PREFIXES),
         "supported_mime_types": sorted(SUPPORTED_SOURCE_MIME_TYPES),
     }

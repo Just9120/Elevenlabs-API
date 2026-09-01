@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -135,6 +136,29 @@ class SourceObjectStream:
 class ObjectHead:
     size_bytes: int | None
     content_type: str | None
+    etag: str | None = None
+    last_modified: datetime | None = None
+
+
+@dataclass(frozen=True)
+class MultipartPart:
+    part_number: int
+    etag: str
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    key: str
+    size_bytes: int
+    etag: str | None
+    last_modified: datetime
+
+
+@dataclass(frozen=True)
+class StoredObjectPage:
+    objects: tuple[StoredObject, ...]
+    next_token: str | None
 
 
 class S3SourceStorage:
@@ -160,6 +184,116 @@ class S3SourceStorage:
             Params={"Bucket": self.bucket, "Key": key, "ContentType": content_type},
             ExpiresIn=expires_seconds,
         )
+
+    def create_multipart_upload(self, key: str, content_type: str) -> str:
+        result = self.client.create_multipart_upload(
+            Bucket=self.bucket,
+            Key=key,
+            ContentType=content_type,
+        )
+        upload_id = result.get("UploadId")
+        if not isinstance(upload_id, str) or not upload_id or len(upload_id) > 2048:
+            raise SourceStorageError("Object storage не вернул upload session")
+        return upload_id
+
+    def presigned_upload_part_url(
+        self,
+        key: str,
+        upload_id: str,
+        part_number: int,
+        expires_seconds: int,
+    ) -> str:
+        return self.client.generate_presigned_url(
+            "upload_part",
+            Params={
+                "Bucket": self.bucket,
+                "Key": key,
+                "UploadId": upload_id,
+                "PartNumber": part_number,
+            },
+            ExpiresIn=expires_seconds,
+        )
+
+    def list_multipart_parts(self, key: str, upload_id: str) -> tuple[MultipartPart, ...]:
+        marker = 0
+        parts: list[MultipartPart] = []
+        while True:
+            try:
+                result = self.client.list_parts(
+                    Bucket=self.bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    PartNumberMarker=marker,
+                    MaxParts=1000,
+                )
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code")
+                if code in {"404", "NoSuchKey", "NoSuchUpload", "NotFound"}:
+                    raise FileNotFoundError(upload_id) from exc
+                raise
+            for raw in result.get("Parts") or ():
+                part_number = raw.get("PartNumber")
+                etag = raw.get("ETag")
+                size = raw.get("Size")
+                if (
+                    not isinstance(part_number, int)
+                    or part_number < 1
+                    or not isinstance(etag, str)
+                    or not etag
+                    or not isinstance(size, int)
+                    or size < 0
+                ):
+                    raise SourceStorageError("Object storage вернул некорректный multipart state")
+                parts.append(MultipartPart(part_number, etag, size))
+            if not result.get("IsTruncated"):
+                break
+            next_marker = result.get("NextPartNumberMarker")
+            if not isinstance(next_marker, int) or next_marker <= marker:
+                raise SourceStorageError("Object storage не продолжил multipart listing")
+            marker = next_marker
+            if len(parts) > 10_000:
+                raise SourceStorageError("Multipart session превышает допустимое число частей")
+        return tuple(sorted(parts, key=lambda part: part.part_number))
+
+    def complete_multipart_upload(
+        self,
+        key: str,
+        upload_id: str,
+        parts: tuple[MultipartPart, ...],
+    ) -> None:
+        if not parts:
+            raise SourceStorageError("Multipart upload не содержит частей")
+        self.client.complete_multipart_upload(
+            Bucket=self.bucket,
+            Key=key,
+            UploadId=upload_id,
+            MultipartUpload={
+                "Parts": [
+                    {"PartNumber": part.part_number, "ETag": part.etag}
+                    for part in parts
+                ]
+            },
+        )
+
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        try:
+            self.client.abort_multipart_upload(
+                Bucket=self.bucket,
+                Key=key,
+                UploadId=upload_id,
+            )
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NoSuchUpload", "NotFound"}:
+                return
+            raise
+
+    def multipart_upload_absent(self, key: str, upload_id: str) -> bool:
+        try:
+            self.list_multipart_parts(key, upload_id)
+        except FileNotFoundError:
+            return True
+        return False
 
     def presigned_get_url(self, key: str, expires_seconds: int, *, download_name: str | None = None) -> str:
         params = {"Bucket": self.bucket, "Key": key}
@@ -187,7 +321,58 @@ class S3SourceStorage:
             if code in {"404", "NoSuchKey", "NotFound"}:
                 raise FileNotFoundError(key) from exc
             raise
-        return ObjectHead(size_bytes=result.get("ContentLength"), content_type=result.get("ContentType"))
+        last_modified = result.get("LastModified")
+        if isinstance(last_modified, datetime) and last_modified.tzinfo is None:
+            last_modified = last_modified.replace(tzinfo=timezone.utc)
+        return ObjectHead(
+            size_bytes=result.get("ContentLength"),
+            content_type=result.get("ContentType"),
+            etag=result.get("ETag"),
+            last_modified=last_modified if isinstance(last_modified, datetime) else None,
+        )
+
+    def list_objects_page(
+        self,
+        prefix: str,
+        *,
+        continuation_token: str | None = None,
+        max_keys: int = 100,
+    ) -> StoredObjectPage:
+        params = {
+            "Bucket": self.bucket,
+            "Prefix": prefix,
+            "MaxKeys": max(1, min(1000, max_keys)),
+        }
+        if continuation_token:
+            params["ContinuationToken"] = continuation_token
+        result = self.client.list_objects_v2(**params)
+        objects: list[StoredObject] = []
+        for raw in result.get("Contents") or ():
+            key = raw.get("Key")
+            size = raw.get("Size")
+            modified = raw.get("LastModified")
+            if (
+                not isinstance(key, str)
+                or not key
+                or not isinstance(size, int)
+                or size < 0
+                or not isinstance(modified, datetime)
+            ):
+                raise SourceStorageError("Object storage вернул некорректный inventory")
+            if modified.tzinfo is None:
+                modified = modified.replace(tzinfo=timezone.utc)
+            objects.append(
+                StoredObject(
+                    key=key,
+                    size_bytes=size,
+                    etag=raw.get("ETag") if isinstance(raw.get("ETag"), str) else None,
+                    last_modified=modified,
+                )
+            )
+        token = result.get("NextContinuationToken")
+        if result.get("IsTruncated") and (not isinstance(token, str) or not token):
+            raise SourceStorageError("Object storage не продолжил inventory listing")
+        return StoredObjectPage(tuple(objects), token if result.get("IsTruncated") else None)
 
     def open_read(self, key: str) -> SourceObjectStream:
         try:
@@ -209,6 +394,18 @@ class S3SourceStorage:
             if code in {"404", "NoSuchKey", "NotFound"}:
                 return
             raise
+
+    def delete_object_verified(self, key: str, *, bucket: str | None = None) -> bool:
+        selected_bucket = bucket or self.bucket
+        self.delete_object(key, bucket=selected_bucket)
+        try:
+            self.client.head_object(Bucket=selected_bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return True
+            raise
+        return False
 
 
 def get_source_storage(settings: Settings) -> S3SourceStorage:

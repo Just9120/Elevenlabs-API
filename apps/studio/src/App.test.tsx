@@ -918,6 +918,8 @@ describe("Studio PWA", () => {
           return json({
             local_upload_enabled: true,
             max_upload_bytes: 536870912,
+            multipart_threshold_bytes: 16777216,
+            multipart_part_size_bytes: 8388608,
             supported_mime_prefixes: ["audio/", "video/"],
             supported_mime_types: ["application/ogg"],
           });
@@ -3159,14 +3161,19 @@ describe("Studio PWA", () => {
     try {
       renderApp();
       await openSettingsSection("Файлы и хранилище");
-      expect(
-        await screen.findByText(
-          "Не удалось загрузить настройку хранения. Повторите попытку.",
-        ),
-      ).toBeInTheDocument();
+      const retentionError = await screen.findByText(
+        "Не удалось загрузить настройку хранения. Повторите попытку.",
+      );
+      expect(retentionError).toBeInTheDocument();
       expect(retentionSignals).toHaveLength(1);
       expect(retentionSignals[0]?.aborted).toBe(true);
-      expect(screen.getByRole("button", { name: "Повторить" })).toBeEnabled();
+      const retentionPanel = retentionError.closest(".retention-preferences");
+      expect(retentionPanel).not.toBeNull();
+      expect(
+        within(retentionPanel as HTMLElement).getByRole("button", {
+          name: "Повторить",
+        }),
+      ).toBeEnabled();
     } finally {
       timeoutSpy.mockRestore();
     }
@@ -12462,6 +12469,8 @@ describe("Studio PWA", () => {
         await json({
           local_upload_enabled: false,
           max_upload_bytes: 1,
+          multipart_threshold_bytes: 16777216,
+          multipart_part_size_bytes: 8388608,
           supported_mime_prefixes: ["audio/"],
           supported_mime_types: [],
         }),
@@ -12489,6 +12498,8 @@ describe("Studio PWA", () => {
         return json({
           local_upload_enabled: true,
           max_upload_bytes: 3,
+          multipart_threshold_bytes: 16777216,
+          multipart_part_size_bytes: 8388608,
           supported_mime_prefixes: ["audio/", "video/"],
           supported_mime_types: ["application/ogg"],
         });

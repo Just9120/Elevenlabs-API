@@ -1,7 +1,10 @@
 import {
   DirectUploadAmbiguousError,
   directUploadTimeoutMs,
+  isMultipartDirectUploadCapability,
   isSafeDirectUploadCapability,
+  isSafeMultipartPartCapability,
+  parseMultipartStatus,
   uploadFileWithProgress,
 } from "./directUpload";
 
@@ -171,5 +174,55 @@ describe("direct upload transport", () => {
         "audio/ogg",
       ),
     ).toBe(false);
+  });
+
+  it("accepts a bounded multipart capability without exposing storage identity", () => {
+    const capability = {
+      source_id: "source-id",
+      upload: {
+        mode: "multipart" as const,
+        part_size_bytes: 8 * 1024 * 1024,
+        part_count: 3,
+        expires_in: 3600,
+      },
+    };
+    expect(isSafeDirectUploadCapability(capability, "video/mp4")).toBe(true);
+    expect(isMultipartDirectUploadCapability(capability)).toBe(true);
+    expect(JSON.stringify(capability)).not.toMatch(/bucket|object_key|upload_id/i);
+    expect(
+      isSafeDirectUploadCapability(
+        { ...capability, upload: { ...capability.upload, part_count: 10_001 } },
+        "video/mp4",
+      ),
+    ).toBe(false);
+  });
+
+  it("validates one short-lived part capability and normalized upload status", () => {
+    expect(
+      isSafeMultipartPartCapability(
+        {
+          part_number: 2,
+          upload: {
+            method: "PUT",
+            url: "https://storage.example/part?signature=safe",
+            headers: {},
+            expires_in: 300,
+          },
+        },
+        2,
+      ),
+    ).toBe(true);
+    expect(
+      parseMultipartStatus(
+        { status: "active", uploaded_parts: [3, 1, 2] },
+        3,
+      ),
+    ).toEqual({ status: "active", uploadedParts: [1, 2, 3] });
+    expect(
+      parseMultipartStatus(
+        { status: "active", uploaded_parts: [1, 1] },
+        3,
+      ),
+    ).toBeNull();
   });
 });

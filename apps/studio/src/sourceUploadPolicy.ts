@@ -1,6 +1,8 @@
 export type SourceUploadPolicy = {
   local_upload_enabled: boolean;
   max_upload_bytes: number;
+  multipart_threshold_bytes: number;
+  multipart_part_size_bytes: number;
   supported_mime_prefixes: string[];
   supported_mime_types: string[];
 };
@@ -14,6 +16,11 @@ export function normalizeSourceUploadPolicy(
     typeof candidate.local_upload_enabled !== "boolean" ||
     !Number.isSafeInteger(candidate.max_upload_bytes) ||
     Number(candidate.max_upload_bytes) <= 0 ||
+    !Number.isSafeInteger(candidate.multipart_threshold_bytes) ||
+    Number(candidate.multipart_threshold_bytes) < 5 * 1024 * 1024 ||
+    !Number.isSafeInteger(candidate.multipart_part_size_bytes) ||
+    Number(candidate.multipart_part_size_bytes) < 5 * 1024 * 1024 ||
+    Number(candidate.multipart_part_size_bytes) > Number(candidate.multipart_threshold_bytes) ||
     !Array.isArray(candidate.supported_mime_prefixes) ||
     !Array.isArray(candidate.supported_mime_types)
   )
@@ -35,6 +42,8 @@ export function normalizeSourceUploadPolicy(
   return {
     local_upload_enabled: candidate.local_upload_enabled,
     max_upload_bytes: Number(candidate.max_upload_bytes),
+    multipart_threshold_bytes: Number(candidate.multipart_threshold_bytes),
+    multipart_part_size_bytes: Number(candidate.multipart_part_size_bytes),
     supported_mime_prefixes: [...new Set(prefixes)],
     supported_mime_types: [...new Set(types)],
   };

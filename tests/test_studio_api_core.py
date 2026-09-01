@@ -129,7 +129,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0031_provider_account_snapshots", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0032_source_multipart_authority", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -811,6 +811,8 @@ def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
 
     from studio_api import main as main_mod
     monkeypatch.setattr(main_mod.settings, "source_max_upload_bytes", 123456)
+    monkeypatch.setattr(main_mod.settings, "source_multipart_threshold_bytes", 16 * 1024 * 1024)
+    monkeypatch.setattr(main_mod.settings, "source_multipart_part_size_bytes", 8 * 1024 * 1024)
     monkeypatch.setattr(
         type(main_mod.settings),
         "reference_storage_isolation_configured",
@@ -825,11 +827,98 @@ def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
     assert response.json() == {
         "local_upload_enabled": True,
         "max_upload_bytes": 123456,
+        "multipart_threshold_bytes": 16 * 1024 * 1024,
+        "multipart_part_size_bytes": 8 * 1024 * 1024,
         "supported_mime_prefixes": ["audio/", "video/"],
         "supported_mime_types": ["application/ogg"],
     }
     forbidden = ["bucket", "object", "presigned", "endpoint", "access_key", "secret"]
     assert all(value not in response.text.lower() for value in forbidden)
+
+
+def test_storage_lifecycle_and_reconciliation_endpoints_are_safe_and_confirmed(monkeypatch):
+    from studio_api import main as main_mod
+    from studio_api.source_storage import StoredObject
+    from studio_api.storage_reconciliation import (
+        OrphanCandidate,
+        StorageReconciliationApplyResult,
+        StorageReconciliationScan,
+    )
+
+    email = "storage-lifecycle-api@example.com"
+    pw = admin(email)
+    monkeypatch.setattr(
+        type(main_mod.settings),
+        "reference_storage_isolation_configured",
+        lambda self: True,
+    )
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/storage/lifecycle").status_code == 401
+    c = TestClient(app)
+    csrf = login(c, pw, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    lifecycle = c.get("/api/storage/lifecycle")
+    assert lifecycle.status_code == 200
+    assert lifecycle.headers["cache-control"] == "no-store"
+    assert lifecycle.json()["reconciliation"] == {
+        "available": True,
+        "dry_run_default": True,
+        "apply_requires_confirmation": True,
+        "minimum_orphan_age_seconds": main_mod.settings.storage_orphan_min_age_seconds,
+        "scan_limit": main_mod.settings.storage_reconciliation_scan_limit,
+        "apply_limit": main_mod.settings.storage_reconciliation_apply_limit,
+    }
+    assert all(
+        forbidden not in lifecycle.text.lower()
+        for forbidden in ("bucket", "access_key", "object_key")
+    )
+
+    private_key = "transcription/users/private-owner/orphan/source"
+    candidate = OrphanCandidate(
+        "transcription",
+        "private-bucket",
+        StoredObject(
+            private_key,
+            123,
+            '"etag"',
+            datetime(2026, 8, 1, tzinfo=timezone.utc),
+        ),
+    )
+    scan = StorageReconciliationScan(3, 1, (candidate,), 123, False)
+    monkeypatch.setattr(main_mod, "scan_owner_storage", lambda *args, **kwargs: scan)
+    assert c.post("/api/storage/reconciliation/preview").status_code == 403
+    preview = c.post("/api/storage/reconciliation/preview", headers=headers)
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["orphan_count"] == 1
+    assert preview_body["orphan_bytes"] == 123
+    assert preview_body["apply_available"] is True
+    assert private_key not in preview.text and "private-bucket" not in preview.text
+    assert c.post(
+        "/api/storage/reconciliation/apply",
+        json={"plan_token": preview_body["plan_token"], "confirm": False},
+        headers=headers,
+    ).status_code == 422
+
+    monkeypatch.setattr(
+        main_mod,
+        "apply_reconciliation_plan",
+        lambda *args, **kwargs: StorageReconciliationApplyResult(1, 1, 0, 123),
+    )
+    applied = c.post(
+        "/api/storage/reconciliation/apply",
+        json={"plan_token": preview_body["plan_token"], "confirm": True},
+        headers=headers,
+    )
+    assert applied.status_code == 200
+    assert applied.json() == {
+        "status": "completed",
+        "planned_count": 1,
+        "deleted_count": 1,
+        "failed_count": 0,
+        "deleted_bytes": 123,
+    }
+    assert private_key not in applied.text and "private-bucket" not in applied.text
 
 
 def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
@@ -1754,6 +1843,9 @@ class FakeStorage:
         self.head_size = 10
         self.head_type = "audio/mpeg"
         self.missing = False
+        self.multipart_parts = []
+        self.multipart_completed = []
+        self.multipart_aborted = []
     def presigned_put_url(self, key, content_type, expires_seconds):
         return f"https://upload.test/{key}?signature=fake"
     def head_object(self, key):
@@ -1762,8 +1854,23 @@ class FakeStorage:
             raise FileNotFoundError(key)
         from studio_api.source_storage import ObjectHead
         return ObjectHead(size_bytes=self.head_size, content_type=self.head_type)
+    def create_multipart_upload(self, key, content_type):
+        return "multipart-session"
+    def presigned_upload_part_url(self, key, upload_id, part_number, expires_seconds):
+        return f"https://upload.test/part/{part_number}?signature=fake"
+    def list_multipart_parts(self, key, upload_id):
+        return tuple(self.multipart_parts)
+    def complete_multipart_upload(self, key, upload_id, parts):
+        self.multipart_completed.append((key, upload_id, tuple(parts)))
+    def abort_multipart_upload(self, key, upload_id):
+        self.multipart_aborted.append((key, upload_id))
+    def multipart_upload_absent(self, key, upload_id):
+        return (key, upload_id) in self.multipart_aborted
     def delete_object(self, key, *, bucket=None):
         self.deleted.append((bucket, key))
+    def delete_object_verified(self, key, *, bucket=None):
+        self.delete_object(key, bucket=bucket)
+        return True
 
 
 def enable_fake_storage(monkeypatch):
@@ -2270,6 +2377,138 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert src.original_filename == unicode_name
     assert src.reference_class == "audio_processing"
     assert src.s3_bucket == "studio-audio"
+
+
+def test_large_local_upload_uses_owner_scoped_multipart_authority(monkeypatch):
+    from studio_api import main as main_mod
+    from studio_api.source_storage import MultipartPart
+
+    fake = enable_fake_storage(monkeypatch)
+    part_size = 5 * 1024 * 1024
+    total_size = part_size + 3
+    monkeypatch.setattr(main_mod.settings, "source_max_upload_bytes", 20 * 1024 * 1024)
+    monkeypatch.setattr(main_mod.settings, "source_multipart_threshold_bytes", part_size)
+    monkeypatch.setattr(main_mod.settings, "source_multipart_part_size_bytes", part_size)
+    c, headers, pid = create_logged_in_project("multipart-local@example.com")
+
+    initiated = c.post(
+        f"/api/projects/{pid}/sources/local-upload/initiate",
+        json={
+            "original_filename": "long recording.mp4",
+            "mime_type": "video/mp4",
+            "size_bytes": total_size,
+            "reference_class": "transcription",
+        },
+        headers=headers,
+    )
+    assert initiated.status_code == 200
+    body = initiated.json()
+    assert body["upload"] == {
+        "mode": "multipart",
+        "part_size_bytes": part_size,
+        "part_count": 2,
+        "expires_in": 3600,
+    }
+    assert all(
+        forbidden not in initiated.text.lower()
+        for forbidden in ("bucket", "object_key", "upload_id", "multipart-session")
+    )
+    source_id = body["source_id"]
+    db = SessionLocal()
+    try:
+        source = db.get(Source, source_id)
+        assert source.upload_protocol == "multipart"
+        assert source.multipart_upload_id == "multipart-session"
+        assert source.multipart_part_count == 2
+    finally:
+        db.close()
+
+    issued = c.post(
+        f"/api/sources/{source_id}/local-upload/multipart/parts/2",
+        headers=headers,
+    )
+    assert issued.status_code == 200
+    assert issued.json()["part_number"] == 2
+    assert "multipart-session" not in issued.text
+    assert c.post(
+        f"/api/sources/{source_id}/local-upload/multipart/parts/3",
+        headers=headers,
+    ).status_code == 422
+    assert c.post(
+        f"/api/sources/{source_id}/local-upload/complete",
+        headers=headers,
+    ).status_code == 409
+
+    fake.multipart_parts = [
+        MultipartPart(1, '"one"', part_size),
+        MultipartPart(2, '"two"', 3),
+    ]
+    status = c.get(f"/api/sources/{source_id}/local-upload/multipart/status")
+    assert status.status_code == 200
+    assert status.json() == {"status": "active", "uploaded_parts": [1, 2]}
+    fake.head_size = total_size
+    fake.head_type = "video/mp4"
+    completed = c.post(
+        f"/api/sources/{source_id}/local-upload/multipart/complete",
+        headers=headers,
+    )
+    assert completed.status_code == 200
+    assert completed.json()["upload_status"] == "uploaded"
+    assert len(fake.multipart_completed) == 1
+    db = SessionLocal()
+    try:
+        source = db.get(Source, source_id)
+        assert source.multipart_completed_at is not None
+        assert source.uploaded_at is not None
+    finally:
+        db.close()
+
+
+def test_multipart_abort_is_durable_and_queues_verified_cleanup(monkeypatch):
+    from studio_api import main as main_mod
+
+    enable_fake_storage(monkeypatch)
+    part_size = 5 * 1024 * 1024
+    monkeypatch.setattr(main_mod.settings, "source_max_upload_bytes", 20 * 1024 * 1024)
+    monkeypatch.setattr(main_mod.settings, "source_multipart_threshold_bytes", part_size)
+    monkeypatch.setattr(main_mod.settings, "source_multipart_part_size_bytes", part_size)
+    c, headers, pid = create_logged_in_project("multipart-abort@example.com")
+    initiated = c.post(
+        f"/api/projects/{pid}/sources/local-upload/initiate",
+        json={
+            "original_filename": "abandoned.mp4",
+            "mime_type": "video/mp4",
+            "size_bytes": part_size + 1,
+            "reference_class": "audio_processing",
+        },
+        headers=headers,
+    )
+    source_id = initiated.json()["source_id"]
+    aborted = c.post(
+        f"/api/sources/{source_id}/local-upload/multipart/abort",
+        headers=headers,
+    )
+    assert aborted.status_code == 200
+    assert aborted.json() == {
+        "ok": True,
+        "source_state": "deleted",
+        "storage_cleanup": "pending",
+    }
+    replay = c.post(
+        f"/api/sources/{source_id}/local-upload/multipart/abort",
+        headers=headers,
+    )
+    assert replay.status_code == 200
+    db = SessionLocal()
+    try:
+        source = db.get(Source, source_id)
+        assert source.delete_reason == "upload_aborted"
+        assert source.storage_cleanup_status == SourceStorageCleanupStatus.pending
+        assert source.storage_cleanup_not_before_at is not None
+        assert source.s3_bucket == "studio-audio"
+        assert source.multipart_upload_id == "multipart-session"
+    finally:
+        db.close()
 
 
 def test_expired_local_source_is_hidden_from_active_collection_but_history_is_preserved():
@@ -3456,7 +3695,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0031_provider_account_snapshots"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0032_source_multipart_authority"
 
 
 
@@ -3520,7 +3759,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0031_provider_account_snapshots"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0032_source_multipart_authority"
 
 
 
@@ -7389,7 +7628,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0031_provider_account_snapshots"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0032_source_multipart_authority"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

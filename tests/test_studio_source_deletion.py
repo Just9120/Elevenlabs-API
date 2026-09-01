@@ -216,10 +216,11 @@ def test_cleanup_lease_fencing_reclaim_failure_and_missing_identity(sqlite_db):
             self.calls = []
             self.fail = fail
 
-        def delete_object(self, key, *, bucket=None):
+        def delete_object_verified(self, key, *, bucket=None):
             self.calls.append((bucket, key))
             if self.fail:
                 raise RuntimeError("boom")
+            return True
 
     m, user, project = _owner_project(sqlite_db)
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -265,8 +266,9 @@ def test_run_one_cleanup_uses_persisted_reference_boundary(sqlite_db, reference_
         def __init__(self):
             self.calls = []
 
-        def delete_object(self, key, *, bucket=None):
+        def delete_object_verified(self, key, *, bucket=None):
             self.calls.append((bucket, key))
+            return True
 
     m, user, project = _owner_project(sqlite_db)
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -288,6 +290,61 @@ def test_run_one_cleanup_uses_persisted_reference_boundary(sqlite_db, reference_
     assert src.s3_bucket is None and src.s3_object_key is None
 
 
+def test_multipart_cleanup_confirms_session_and_object_absence_before_finalizing(sqlite_db):
+    from studio_api.source_deletion import run_one_source_cleanup
+
+    class Storage:
+        def __init__(self):
+            self.calls = []
+
+        def abort_multipart_upload(self, key, upload_id):
+            self.calls.append(("abort", key, upload_id))
+
+        def multipart_upload_absent(self, key, upload_id):
+            self.calls.append(("confirm-abort", key, upload_id))
+            return True
+
+        def delete_object_verified(self, key, *, bucket=None):
+            self.calls.append(("delete-confirmed", bucket, key))
+            return True
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    src = _local_source(
+        sqlite_db,
+        m,
+        project,
+        now,
+        key="multipart-key",
+        bucket="persisted-bucket",
+        status=m.SourceUploadStatus.pending,
+        expires_delta=timedelta(seconds=0),
+        cleanup_status=m.SourceStorageCleanupStatus.pending,
+    )
+    src.upload_protocol = m.SourceUploadProtocol.multipart.value
+    src.multipart_upload_id = "upload-session"
+    src.multipart_part_size_bytes = 8 * 1024 * 1024
+    src.multipart_part_count = 2
+    src.storage_cleanup_not_before_at = now
+    sqlite_db.commit()
+    storage = Storage()
+
+    assert run_one_source_cleanup(
+        sqlite_db,
+        settings=FakeStorageSettings(),
+        owner_id="worker",
+        now=now,
+        storage_factory=lambda _: storage,
+    )
+    assert storage.calls == [
+        ("abort", "multipart-key", "upload-session"),
+        ("confirm-abort", "multipart-key", "upload-session"),
+        ("delete-confirmed", "persisted-bucket", "multipart-key"),
+    ]
+    assert src.storage_cleanup_status == m.SourceStorageCleanupStatus.completed
+    assert src.s3_bucket is None and src.s3_object_key is None
+
+
 
 def test_cleanup_bucket_mismatch_fails_without_delete_and_missing_identity_is_unclaimed(sqlite_db):
     from studio_api.source_deletion import claim_next_source_cleanup, run_one_source_cleanup
@@ -296,8 +353,9 @@ def test_cleanup_bucket_mismatch_fails_without_delete_and_missing_identity_is_un
         def __init__(self):
             self.calls = []
 
-        def delete_object(self, key, *, bucket=None):
+        def delete_object_verified(self, key, *, bucket=None):
             self.calls.append((bucket, key))
+            return True
 
     m, user, project = _owner_project(sqlite_db)
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -521,6 +579,16 @@ def test_audit_source_lifecycle_metadata_contract(sqlite_db):
     )
     audit(sqlite_db, "source.storage_cleanup_failed", cleanup_attempt=100001)
     audit(sqlite_db, "source.storage_cleanup_failed", cleanup_attempt=True)
+    audit(
+        sqlite_db,
+        "storage.reconciliation_applied",
+        planned_count=3,
+        deleted_count=2,
+        failed_count=1,
+        deleted_bytes=4096,
+        upload_protocol="multipart",
+        object_key="private/object",
+    )
     # Existing legacy safe keys still persist.
     audit(sqlite_db, "credential.updated", provider="openai", credential_id="cred-safe", session_id="sess-safe", reason="rotation")
     sqlite_db.commit()
@@ -529,11 +597,13 @@ def test_audit_source_lifecycle_metadata_contract(sqlite_db):
     blocked = [row for row in rows if row.event_type == "source.deletion_blocked"]
     cleanup_failures = [row for row in rows if row.event_type == "source.storage_cleanup_failed"]
     credential_updates = [row for row in rows if row.event_type == "credential.updated"]
+    reconciliation = [row for row in rows if row.event_type == "storage.reconciliation_applied"]
 
-    assert len(rows) == 5
+    assert len(rows) == 6
     assert len(blocked) == 1
     assert len(cleanup_failures) == 3
     assert len(credential_updates) == 1
+    assert len(reconciliation) == 1
     persisted = json.loads(blocked[0].metadata_json)
     assert persisted == {
         "blocker": "queued_job_uses_source",
@@ -543,6 +613,13 @@ def test_audit_source_lifecycle_metadata_contract(sqlite_db):
     }
     assert all(json.loads(row.metadata_json) == {} for row in cleanup_failures)
     assert json.loads(credential_updates[0].metadata_json) == {"credential_id": "cred-safe", "provider": "openai", "reason": "rotation", "session_id": "sess-safe"}
+    assert json.loads(reconciliation[0].metadata_json) == {
+        "deleted_bytes": 4096,
+        "deleted_count": 2,
+        "failed_count": 1,
+        "planned_count": 3,
+        "upload_protocol": "multipart",
+    }
 
 
 def test_cleanup_sql_selection_skips_more_than_100_processing_blocked_sources(sqlite_db):
