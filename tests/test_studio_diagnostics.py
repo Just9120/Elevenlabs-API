@@ -237,6 +237,20 @@ def test_event_registry_is_event_specific_and_redacts_values(db):
         "provider_error_code": "insufficient_permissions",
         "retryable": False,
     }
+    assert sanitize_metadata(
+        "PROVIDER_REQUEST_FAILED",
+        {
+            "boundary": "provider_checkpoint",
+            "error_code": "provider_part_checkpoint_persistence_failed",
+            "retryable": False,
+            "attempt_number": 1,
+        },
+    ) == {
+        "attempt_number": 1,
+        "boundary": "provider_checkpoint",
+        "error_code": "provider_part_checkpoint_persistence_failed",
+        "retryable": False,
+    }
     assert sanitize_metadata("REALTIME_CAPABILITY_ISSUED", {"model": "scribe_v2_realtime", "expires_in_seconds": 300})
     assert sanitize_metadata("REALTIME_CAPABILITY_FAILED", {"reason": "provider_timeout", "retryable": True, "http_status_category": "5xx"})
     assert sanitize_metadata("API_REQUEST_FAILED", {"endpoint_group": "realtime", "http_status_category": "5xx"})

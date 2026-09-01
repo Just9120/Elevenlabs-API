@@ -55,7 +55,7 @@ class EventDef:
     level: str
     metadata: dict[str, MetaRule]
 
-BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "unknown"})
+BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "provider_checkpoint", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "unknown"})
 ERROR_CODES = frozenset({
     "unknown", "provider_authentication_rejected", "provider_payment_required", "provider_scope_rejected", "provider_request_rejected", "provider_rate_limited",
     "provider_unavailable", "provider_timeout", "malformed_provider_response", "lifecycle_changed_after_provider_call",
@@ -63,6 +63,7 @@ ERROR_CODES = frozenset({
     "source_materialization_unavailable", "prerequisites_unavailable", "provider_mismatch", "existing_result_conflict", "pipeline_transcription_failed",
     "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large",
     "media_duration_unavailable", "media_split_failed", "media_part_too_large", "media_clip_out_of_bounds", "partial_provider_result",
+    "provider_part_checkpoint_persistence_failed", "provider_part_checkpoint_scope_conflict", "provider_part_checkpoint_shape_conflict", "provider_part_progress_persistence_failed",
     "pipeline_google_docs_failed", "output_reconciliation_required", "incomplete_output_coverage", "commit_failed",
     "no_required_sources", "cancellation_requested", "google_docs_failed", "transcription_failed", "lease_heartbeat_failed", "lease_heartbeat_not_owned",
     "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_attempt_limit_reached", "retry_recovery_state_unknown", "provider_pricing_unavailable", "provider_usage_accounting_unavailable", "provider_usage_outcome_uncertain",

@@ -55,13 +55,16 @@ def save_provider_part_checkpoint(
     payload = _serialize(result)
     key = master_key_from_b64(settings.master_key_b64())
     payload_hmac = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    # Checkpoints are immutable and the worker deliberately has no UPDATE
+    # privilege on this table. PostgreSQL treats SELECT ... FOR UPDATE as an
+    # UPDATE-capable operation even when no row exists, so the active job lease
+    # is the concurrency boundary and this idempotency read must stay unlocked.
     existing = db.execute(
         select(TranscriptionProviderPartCheckpoint)
         .where(
             TranscriptionProviderPartCheckpoint.job_source_id == relation.id,
             TranscriptionProviderPartCheckpoint.part_index == part_index,
         )
-        .with_for_update()
     ).scalar_one_or_none()
     if existing is not None:
         if not _row_shape_matches(

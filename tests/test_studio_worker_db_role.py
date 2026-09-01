@@ -39,6 +39,13 @@ def test_worker_role_grants_only_current_processing_surfaces():
     )
     assert delete_block is not None
     assert "diagnostic_events" in delete_block.group("body")
+    update_block = re.search(
+        r"GRANT UPDATE ON TABLE(?P<body>.*?)TO studio_worker;",
+        sql,
+        flags=re.DOTALL,
+    )
+    assert update_block is not None
+    assert "transcription_provider_part_checkpoints" not in update_block.group("body")
     for required in (
         "transcription_jobs",
         "transcription_job_outputs",
@@ -84,3 +91,12 @@ def test_schema_revision_table_has_select_only_in_privilege_manifest():
     script = ROLE_SCRIPT.read_text(encoding="utf-8")
     for operation in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"):
         assert f"'alembic_version', '{operation}'" in script
+
+
+def test_worker_verifier_enforces_immutable_checkpoint_privileges():
+    script = ROLE_SCRIPT.read_text(encoding="utf-8")
+    for operation in ("SELECT", "INSERT", "DELETE", "UPDATE", "TRUNCATE"):
+        assert (
+            f"'transcription_provider_part_checkpoints', '{operation}'"
+            in script
+        )
