@@ -4394,7 +4394,7 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
 
 
 def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
-    c1, headers1, pid1, jid1, _source_ids1 = create_job_with_sources(
+    c1, headers1, pid1, jid1, source_ids1 = create_job_with_sources(
         "clear-owner@example.com",
         ("clear-owner-source.mp4",),
     )
@@ -4406,7 +4406,45 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
         job = db.get(TranscriptionJob, jid1)
         job.status = JobStatus.completed
         job.finished_at = utcnow() - timedelta(seconds=1)
+        recovery_job = TranscriptionJob(
+            project_id=job.project_id,
+            owner_user_id=job.owner_user_id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Задача, требующая решения",
+            attempt_count=1,
+            started_at=utcnow() - timedelta(minutes=2),
+            finished_at=utcnow() - timedelta(seconds=1),
+            error_code="partial_provider_result",
+        )
+        db.add(recovery_job)
+        db.flush()
+        recovery_source = TranscriptionJobSource(
+            job_id=recovery_job.id,
+            source_id=source_ids1[0],
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(recovery_source)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=job.owner_user_id,
+                project_id=job.project_id,
+                job_id=recovery_job.id,
+                job_source_id=recovery_source.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.failed,
+                retry_disposition=(
+                    SourceAttemptRetryDisposition.provider_outcome_uncertain
+                ),
+                failure_code="partial_provider_result",
+                provider_request_started_at=utcnow() - timedelta(minutes=1),
+                failed_at=utcnow() - timedelta(seconds=1),
+            )
+        )
         db.commit()
+        recovery_job_id = recovery_job.id
 
     for path in (
         f"/api/projects/{pid1}/history/clear",
@@ -4430,8 +4468,12 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
     )
     assert history.status_code == 200
     assert history.json()["hidden_job_count"] == 1
-    hidden_jobs = c1.get(f"/api/projects/{pid1}/jobs").json()
-    assert hidden_jobs == {"jobs": [], "next_cursor": None, "page_size": 50}
+    assert history.json()["preserved_job_count"] == 1
+    visible_jobs = c1.get(f"/api/projects/{pid1}/jobs").json()
+    assert visible_jobs["next_cursor"] is None
+    assert visible_jobs["page_size"] == 50
+    assert [row["id"] for row in visible_jobs["jobs"]] == [recovery_job_id]
+    assert visible_jobs["jobs"][0]["history_attention_required"] is True
 
     analytics = c1.post(
         f"/api/projects/{pid1}/transcription-analytics/clear",
@@ -4439,7 +4481,7 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
         headers=headers1,
     )
     assert analytics.status_code == 200
-    assert analytics.json()["hidden_job_count"] == 1
+    assert analytics.json()["hidden_job_count"] == 2
     reset_payload = c1.get(
         f"/api/projects/{pid1}/transcription-analytics"
     ).json()
@@ -4448,6 +4490,10 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
 
     with SessionLocal() as db:
         assert db.query(TranscriptionJob).filter_by(id=jid1).count() == 1
+        assert (
+            db.query(TranscriptionJob).filter_by(id=recovery_job_id).count()
+            == 1
+        )
         project = db.get(Project, pid1)
         assert project.history_reset_at is not None
         assert project.analytics_reset_at is not None

@@ -440,6 +440,7 @@ type OutputFixtureOptions = {
   retryResponse?: unknown;
   reconciliationResponse?: unknown;
   terminalDismissedAt?: string | null;
+  historyAttentionRequired?: boolean;
   includeSecondProject?: boolean;
 };
 
@@ -572,6 +573,8 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               language_mode: options.languageMode ?? "ru",
               provider_credential_id: "cred-active",
               terminal_dismissed_at: options.terminalDismissedAt ?? null,
+              history_attention_required:
+                options.historyAttentionRequired ?? false,
               source_count: 1,
               created_at: "2026-07-02T00:00:00Z",
               updated_at: "2026-07-02T00:01:00Z",
@@ -633,6 +636,8 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               language_mode: options.languageMode ?? "ru",
               provider_credential_id: "cred-active",
               terminal_dismissed_at: options.terminalDismissedAt ?? null,
+              history_attention_required:
+                options.historyAttentionRequired ?? false,
               source_count: 1,
               created_at: "2026-07-02T00:00:00Z",
               updated_at: "2026-07-02T00:01:00Z",
@@ -5060,7 +5065,7 @@ describe("Studio PWA", () => {
     ],
     [
       "equivalent_provider_outcome_unresolved",
-      "Предыдущая транскрибация имеет неопределённый результат. Сначала проверьте её статус; повторная обработка заблокирована.",
+      "Предыдущая транскрибация имеет неопределённый результат. Перейдите к сохранённой задаче ниже и выберите доступное безопасное действие.",
     ],
   ] as const)(
     "keeps provider authority %s blocked even when accepted-output reprocessing is available",
@@ -5128,8 +5133,11 @@ describe("Studio PWA", () => {
       expect(blocked).toHaveTextContent("План временно заблокирован");
       expect(blocked).toHaveTextContent(expectedCopy);
       expect(
+        screen.getByRole("link", { name: "Перейти к предыдущей задаче" }),
+      ).toHaveAttribute("href", "#current-transcriptions");
+      expect(
         screen.getByText(
-          "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса.",
+          "Найдена активная или неразрешённая предыдущая транскрибация. Перейдите к сохранённой задаче ниже и выберите доступное действие.",
         ),
       ).toBeInTheDocument();
       expect(
@@ -9086,6 +9094,7 @@ describe("Studio PWA", () => {
           ok: true,
           reset_at: "2026-08-21T12:00:00Z",
           hidden_job_count: 1,
+          preserved_job_count: 0,
         });
       }
       return defaultFetch?.(url, init) ?? json({});
@@ -9105,7 +9114,7 @@ describe("Studio PWA", () => {
     await userEvent.click(screen.getByRole("button", { name: "Да" }));
     expect(
       await screen.findByText(
-        "История очищена. Задачи в очереди и обработке сохранены.",
+        "История очищена. Незавершённые задачи и задачи, требующие решения, сохранены.",
       ),
     ).toBeInTheDocument();
     expect(clearCalls).toHaveLength(1);
@@ -9115,6 +9124,29 @@ describe("Studio PWA", () => {
         body: JSON.stringify({ confirm_clear: true }),
       }),
     );
+  });
+
+  it("keeps a dismissed recovery task visible after history clear", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      terminalDismissedAt: "2026-07-02T00:04:00Z",
+      historyAttentionRequired: true,
+    });
+
+    await openFocusedJobsList();
+
+    const current = screen.getByLabelText("Текущие транскрибации");
+    expect(current).toHaveTextContent("Focused output job");
+    expect(current).toHaveTextContent(
+      "Эта задача требует решения и сохранена после очистки истории.",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Убрать в историю" }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText(/Недавние транскрибации/));
+    expect(
+      screen.queryByRole("button", { name: "Очистить историю" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps source deletion ownership across Settings section switches", async () => {

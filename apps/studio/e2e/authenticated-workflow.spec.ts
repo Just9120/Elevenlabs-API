@@ -104,16 +104,21 @@ test('authenticated user opens transcriptions and reads a completed job result',
   const navigation = await login(page);
   await openResultTranscriptions(page, navigation);
 
-  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
+  await page
+    .locator('details.recent-jobs')
+    .getByText(/^Недавние транскрибации · \d+$/)
+    .click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Завершена')).toBeVisible();
+  const resultJobId = await jobCard.getAttribute('data-job-id');
+  expect(resultJobId).toMatch(/^[0-9a-f-]{36}$/);
   const reconciliationResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().includes('/output-reconciliation'),
+      response.url().endsWith(`/api/jobs/${resultJobId}/output-reconciliation`),
   );
   await jobCard.getByRole('button', { name: 'Открыть' }).click();
   const reconciliationResponse = await reconciliationResponsePromise;
@@ -128,10 +133,7 @@ test('authenticated user opens transcriptions and reads a completed job result',
       conflict: 0,
     },
   });
-  const resultJobId = String(
-    (reconciliation as { job_id?: unknown }).job_id ?? '',
-  );
-  expect(resultJobId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(reconciliation).toMatchObject({ job_id: resultJobId });
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
   await expect(jobCard.getByRole('link', { name: 'Открыть документ' })).toHaveAttribute(
@@ -769,24 +771,34 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
 }) => {
   const navigation = await login(page);
   await openResultTranscriptions(page, navigation);
-  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
-  const jobCard = page
+  const currentJobs = page.getByLabel('Текущие транскрибации');
+  const jobCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: UNCERTAIN_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Ошибка')).toBeVisible();
+  await expect(jobCard).toContainText(
+    'Эта задача требует решения и сохранена после очистки истории.',
+  );
+  await expect(
+    jobCard.getByRole('button', { name: 'Убрать в историю' }),
+  ).toHaveCount(0);
+  const uncertainJobId = await jobCard.getAttribute('data-job-id');
+  expect(uncertainJobId).toMatch(/^[0-9a-f-]{36}$/);
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/retry'),
+      response.url().endsWith(`/api/jobs/${uncertainJobId}/retry`),
   );
   const reconciliationResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/output-reconciliation'),
+      response.url().endsWith(
+        `/api/jobs/${uncertainJobId}/output-reconciliation`,
+      ),
   );
   await jobCard.getByRole('button', { name: 'Открыть' }).click();
 
@@ -846,24 +858,34 @@ test('unresolved output reconciliation waits for an explicit safe action', async
 }) => {
   const navigation = await login(page);
   await openResultTranscriptions(page, navigation);
-  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
-  const jobCard = page
+  const currentJobs = page.getByLabel('Текущие транскрибации');
+  const jobCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: RECONCILIATION_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Ошибка')).toBeVisible();
+  await expect(jobCard).toContainText(
+    'Эта задача требует решения и сохранена после очистки истории.',
+  );
+  await expect(
+    jobCard.getByRole('button', { name: 'Убрать в историю' }),
+  ).toHaveCount(0);
+  const reconciliationJobId = await jobCard.getAttribute('data-job-id');
+  expect(reconciliationJobId).toMatch(/^[0-9a-f-]{36}$/);
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/retry'),
+      response.url().endsWith(`/api/jobs/${reconciliationJobId}/retry`),
   );
   const reconciliationResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/output-reconciliation'),
+      response.url().endsWith(
+        `/api/jobs/${reconciliationJobId}/output-reconciliation`,
+      ),
   );
   await jobCard.getByRole('button', { name: 'Открыть' }).click();
 
@@ -1300,7 +1322,10 @@ test('queued cancellation performs one bounded API mutation', async ({
       .filter({ hasText: QUEUED_CANCELLATION_JOB }),
   ).toHaveCount(0);
 
-  await page.getByText('Недавние транскрибации · 5', { exact: true }).click();
+  await page
+    .locator('details.recent-jobs')
+    .getByText(/^Недавние транскрибации · \d+$/)
+    .click();
   const cancelledCard = page
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })

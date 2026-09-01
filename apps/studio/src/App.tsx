@@ -3254,7 +3254,7 @@ function PreparationPanel({
         setMessage(
           response.summary.blocked_count > 0
             ? providerAuthorityBlocked
-              ? "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса."
+              ? "Найдена активная или неразрешённая предыдущая транскрибация. Перейдите к сохранённой задаче ниже и выберите доступное действие."
               : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной задачи."
             : "Проверка готова. Сверьте план и подтвердите создание задач.",
         );
@@ -3729,7 +3729,7 @@ function PreparationPanel({
       }
       setHistoryClearOpen(false);
       setHistoryClearMessage(
-        "История очищена. Задачи в очереди и обработке сохранены.",
+        "История очищена. Незавершённые задачи и задачи, требующие решения, сохранены.",
       );
       onReloadJobs(project.id);
     } catch {
@@ -3745,11 +3745,19 @@ function PreparationPanel({
     pinnedTerminal: pinnedTerminalTranscriptions,
     recent: recentTranscriptions,
   } = groupTranscriptionPresentations(displayJobs);
+  const hasClearableHistory =
+    recentTranscriptions.length > 0 ||
+    pinnedTerminalTranscriptions.some((presentation) =>
+      presentation.jobs.some(
+        (job) => job.history_attention_required !== true,
+      ),
+    );
   useEffect(() => {
     for (const job of displayJobs) {
       if (
         !["completed", "failed", "cancelled"].includes(job.status) ||
-        job.terminal_dismissed_at !== null
+        job.terminal_dismissed_at !== null &&
+        job.history_attention_required !== true
       ) {
         continue;
       }
@@ -3928,6 +3936,7 @@ function PreparationPanel({
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
         pinnedTerminal={pinnedTerminal}
+        attentionRequired={job.history_attention_required === true}
         dismissPending={pendingJobMutations.has(
           jobMutationKey("dismiss", job.id),
         )}
@@ -3949,7 +3958,8 @@ function PreparationPanel({
       return renderJobCard(
         job,
         ["completed", "failed", "cancelled"].includes(job.status) &&
-          job.terminal_dismissed_at === null,
+          (job.history_attention_required === true ||
+            job.terminal_dismissed_at === null),
       );
     }
     return (
@@ -4815,7 +4825,7 @@ function PreparationPanel({
                     ? "Для этого источника уже выполняется транскрибация. Дождитесь её завершения и повторите проверку."
                     : item.provider_attempt_authority.reason_code ===
                         "equivalent_provider_outcome_unresolved"
-                      ? "Предыдущая транскрибация имеет неопределённый результат. Сначала проверьте её статус; повторная обработка заблокирована."
+                      ? "Предыдущая транскрибация имеет неопределённый результат. Перейдите к сохранённой задаче ниже и выберите доступное безопасное действие."
                       : null;
                 const expandedItem = expandedComposerItems[item.position];
                 const row = rows.find(
@@ -4906,6 +4916,14 @@ function PreparationPanel({
                 подтверждённой связи с исходником не считаются совпадениями.
               </p>
             )}
+            {activeProviderAuthorityBlocked && (
+              <a
+                className="button-like secondary"
+                href="#current-transcriptions"
+              >
+                Перейти к предыдущей задаче
+              </a>
+            )}
           </section>
         )}
         <div className="composer-footer">
@@ -4973,7 +4991,11 @@ function PreparationPanel({
         csrf={csrf}
         onCsrf={onCsrf}
       />
-      <section className="sources" aria-label="Текущие транскрибации">
+      <section
+        id="current-transcriptions"
+        className="sources"
+        aria-label="Текущие транскрибации"
+      >
         <h2>Текущие транскрибации</h2>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
         {jobs.error && <p className="error">{jobs.error}</p>}
@@ -4988,8 +5010,7 @@ function PreparationPanel({
       </section>
       <details className="recent-jobs">
         <summary>Недавние транскрибации · {recentTranscriptions.length}</summary>
-        {(recentTranscriptions.length > 0 ||
-          pinnedTerminalTranscriptions.length > 0) && (
+        {hasClearableHistory && (
           <button
             type="button"
             className="danger"
@@ -5021,7 +5042,7 @@ function PreparationPanel({
       {historyClearOpen && (
         <ConfirmClearDialog
           title="Очистить историю?"
-          description="Завершённые, отменённые и неуспешные задачи исчезнут из списка. Задачи в очереди и обработке, результаты, Google Docs и журнал аудита не удаляются."
+          description="Завершённые, отменённые и обычные неуспешные задачи исчезнут из списка. Незавершённые задачи и задачи, которые ещё требуют решения, останутся доступны. Результаты, Google Docs и журнал аудита не удаляются."
           pending={historyClearPending}
           onConfirm={() => void clearHistory()}
           onCancel={() => setHistoryClearOpen(false)}
@@ -5086,6 +5107,7 @@ function isProjectClearResponse(value: unknown): value is {
   ok: true;
   reset_at: string;
   hidden_job_count: number;
+  preserved_job_count?: number;
 } {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Record<string, unknown>;
@@ -5095,7 +5117,11 @@ function isProjectClearResponse(value: unknown): value is {
     Number.isFinite(Date.parse(candidate.reset_at)) &&
     typeof candidate.hidden_job_count === "number" &&
     Number.isInteger(candidate.hidden_job_count) &&
-    candidate.hidden_job_count >= 0
+    candidate.hidden_job_count >= 0 &&
+    (candidate.preserved_job_count === undefined ||
+      (typeof candidate.preserved_job_count === "number" &&
+        Number.isInteger(candidate.preserved_job_count) &&
+        candidate.preserved_job_count >= 0))
   );
 }
 

@@ -70,4 +70,19 @@ describe("multi-transcription presentation", () => {
     expect(pinned.pinnedTerminal).toHaveLength(1);
     expect(pinned.recent).toHaveLength(0);
   });
+
+  it("pins a dismissed terminal task that still requires attention", () => {
+    const recovery = job(
+      "recovery",
+      "failed",
+      undefined,
+      "2026-08-22T11:00:00Z",
+    );
+    recovery.history_attention_required = true;
+
+    const groups = groupTranscriptionPresentations([recovery]);
+
+    expect(groups.pinnedTerminal).toHaveLength(1);
+    expect(groups.recent).toHaveLength(0);
+  });
 });

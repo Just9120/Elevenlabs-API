@@ -61,7 +61,8 @@ export function MultiTranscriptionCard({
               {renderJob(
                 job,
                 TERMINAL_STATUSES.has(job.status) &&
-                  job.terminal_dismissed_at === null,
+                  (job.history_attention_required === true ||
+                    job.terminal_dismissed_at === null),
               )}
             </li>
           ))}
@@ -70,7 +71,8 @@ export function MultiTranscriptionCard({
         renderJob(
           jobs[0],
           TERMINAL_STATUSES.has(jobs[0].status) &&
-            jobs[0].terminal_dismissed_at === null,
+            (jobs[0].history_attention_required === true ||
+              jobs[0].terminal_dismissed_at === null),
         )
       )}
     </article>

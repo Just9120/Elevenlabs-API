@@ -62,7 +62,11 @@ export function groupTranscriptionPresentations(
     if (presentation.jobs.some((job) => ACTIVE_STATUSES.has(job.status))) {
       groups.current.push(presentation);
     } else if (
-      presentation.jobs.some((job) => job.terminal_dismissed_at === null)
+      presentation.jobs.some(
+        (job) =>
+          job.history_attention_required === true ||
+          job.terminal_dismissed_at === null,
+      )
     ) {
       groups.pinnedTerminal.push(presentation);
     } else {

@@ -80,4 +80,20 @@ describe("job visibility", () => {
     ]);
     expect(grouped.recent).toEqual([]);
   });
+
+  it("keeps a dismissed job pinned while its provider outcome needs attention", () => {
+    const recovery = job(
+      "recovery",
+      "failed",
+      "2026-08-02T12:02:00Z",
+    );
+    recovery.history_attention_required = true;
+
+    const grouped = groupVisibleJobs([recovery]);
+
+    expect(grouped.pinnedTerminal.map((item) => item.id)).toEqual([
+      "recovery",
+    ]);
+    expect(grouped.recent).toEqual([]);
+  });
 });
