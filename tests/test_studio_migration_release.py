@@ -59,6 +59,7 @@ def run_release(
     running_api_probe_ok: bool = True,
     api_container_changed: bool = False,
     worker_role_ok: bool = True,
+    migration_script_ok: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     checkout = tmp_path / "checkout"
     fake_bin = tmp_path / "bin"
@@ -155,6 +156,7 @@ printf 'migrate snapshot=%s from=%s to=%s image=%s\\n' \
   "${{STUDIO_EXPECTED_API_IMAGE_ID}}" >> {str(calls)!r}
 [[ -f {str(backup_complete)!r} ]]
 printf '%s' "${{STUDIO_EXPECTED_MIGRATION_TO}}" > {str(revision_state)!r}
+[[ {str(migration_script_ok).lower()} == true ]]
 """,
     )
     _write_exe(
@@ -162,10 +164,8 @@ printf '%s' "${{STUDIO_EXPECTED_MIGRATION_TO}}" > {str(revision_state)!r}
         f"""#!/usr/bin/env bash
 set -euo pipefail
 [[ "${{STUDIO_DEPLOY_DIR:-}}" == {_bash_path(checkout)!r} ]]
-[[ "${{GIT_CONFIG_COUNT:-}}" == "1" ]]
-[[ "${{GIT_CONFIG_KEY_0:-}}" == "safe.directory" ]]
-[[ "${{GIT_CONFIG_VALUE_0:-}}" == {_bash_path(checkout)!r} ]]
 [[ "${{GIT_OPTIONAL_LOCKS:-}}" == "0" ]]
+[[ "${{STUDIO_REPOSITORY_USER:-}}" == "studio-deploy" ]]
 [[ "${{1:-}}" == "apply" || "${{1:-}}" == "verify" ]]
 printf 'worker-role %s\n' "$1" >> {str(calls)!r}
 [[ {str(worker_role_ok).lower()} == true ]]
@@ -173,7 +173,11 @@ printf 'worker-role %s\n' "$1" >> {str(calls)!r}
     )
     _write_exe(
         checkout / "scripts" / "configure_studio_database_roles.sh",
-        "#!/usr/bin/env bash\nexit 0\n",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+[[ "${{1:-}}" == "apply" ]]
+printf 'database-role %s\n' "$1" >> {str(calls)!r}
+""",
     )
     _write_exe(
         fake_bin / "id",
@@ -477,6 +481,57 @@ def test_post_migration_worker_role_failure_blocks_before_api_recreation(
     assert "worker_role_change_attempted=yes" in proc.stderr
     assert "manual_recovery_required=yes" in proc.stderr
     assert any(call.startswith("migrate ") for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
+
+
+def test_migration_script_failure_after_commit_reports_applied_revision(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(tmp_path, migration_script_ok=False)
+
+    assert proc.returncode == 2
+    assert "phase=migration" in proc.stderr
+    assert "reason=migration_failed" in proc.stderr
+    assert "migration_applied=yes" in proc.stderr
+    assert "manual_recovery_required=yes" in proc.stderr
+    assert any(call.startswith("migrate ") for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
+
+
+def test_exact_post_migration_state_is_finalized_without_second_alembic_run(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        current_revision=NEW_REVISION,
+        running_api_head=OLD_REVISION,
+    )
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(calls)
+    assert "mode=post_migration_recovery" in proc.stdout
+    assert "api_deployed=yes" in proc.stdout
+    assert any(call == "backup" for call in calls)
+    assert any(call == "database-role apply" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
+    assert _index(calls, "database-role apply") < _index(calls, "worker-role apply")
+    assert _index(calls, "worker-role verify") < _index(
+        calls, "up -d --no-deps --force-recreate studio-api"
+    )
+
+
+def test_post_migration_recovery_requires_exact_previous_api_revision(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        current_revision=NEW_REVISION,
+        running_api_head=UNRELATED_REVISION,
+    )
+
+    assert proc.returncode == 2
+    assert "reason=post_migration_recovery_api_revision_mismatch" in proc.stderr
+    assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
     assert not any("force-recreate studio-api" in call for call in calls)
 
 

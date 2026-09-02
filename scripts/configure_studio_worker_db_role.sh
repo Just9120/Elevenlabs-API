@@ -11,11 +11,39 @@ log() { printf '[studio-worker-db-role] %s\n' "$*"; }
 fail() { printf '[studio-worker-db-role] ERROR: %s\n' "$*" >&2; exit 1; }
 compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
+tracked_checkout_status() {
+  local repository_user="${STUDIO_REPOSITORY_USER:-}" current_uid repository_uid
+
+  if [[ -z "$repository_user" ]]; then
+    env GIT_OPTIONAL_LOCKS=0 \
+      git -c core.hooksPath=/dev/null -C "$EXPECTED_DIR" \
+      status --porcelain --untracked-files=no
+    return
+  fi
+
+  [[ "$repository_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 1
+  repository_uid="$(id -u "$repository_user" 2>/dev/null)" || return 1
+  current_uid="$(id -u)" || return 1
+  if [[ "$current_uid" == "$repository_uid" ]]; then
+    env GIT_OPTIONAL_LOCKS=0 \
+      git -c core.hooksPath=/dev/null -C "$EXPECTED_DIR" \
+      status --porcelain --untracked-files=no
+    return
+  fi
+
+  [[ "$current_uid" == "0" ]] || return 1
+  command -v runuser >/dev/null || return 1
+  runuser -u "$repository_user" -- \
+    env GIT_OPTIONAL_LOCKS=0 \
+    git -c core.hooksPath=/dev/null -C "$EXPECTED_DIR" \
+    status --porcelain --untracked-files=no
+}
+
 require_runtime() {
   local tracked_status
   cd "$EXPECTED_DIR"
   [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -f "$ROLE_SQL" ]] || fail "missing runtime contract"
-  tracked_status="$(git status --porcelain --untracked-files=no)" || fail "cannot inspect tracked checkout"
+  tracked_status="$(tracked_checkout_status)" || fail "cannot inspect tracked checkout"
   [[ -z "$tracked_status" ]] || fail "tracked checkout is dirty"
 }
 
