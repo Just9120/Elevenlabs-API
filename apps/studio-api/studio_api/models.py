@@ -62,7 +62,37 @@ class Session(Base):
     expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), index=True)
     last_seen_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     rotated_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    reauthenticated_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+
+class UserTotpFactor(Base):
+    __tablename__="user_totp_factors"
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), primary_key=True)
+    secret_ciphertext: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    secret_nonce: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    key_id: Mapped[str]=mapped_column(String(80), nullable=False)
+    confirmed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+
+class UserTotpRecoveryCode(Base):
+    __tablename__="user_totp_recovery_codes"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    code_hash: Mapped[str]=mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+
+class PasswordResetChallenge(Base):
+    __tablename__="password_reset_challenges"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    token_hash: Mapped[str]=mapped_column(String(64), nullable=False, unique=True, index=True)
+    request_fingerprint: Mapped[str]=mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
 
 class LoginContext(Base):
     __tablename__="login_contexts"
@@ -288,6 +318,7 @@ class TranscriptionJob(Base):
     batch_position: Mapped[int|None]=mapped_column(Integer)
     media_clip_start_seconds: Mapped[int|None]=mapped_column(Integer)
     media_clip_end_seconds: Mapped[int|None]=mapped_column(Integer)
+    long_duration_cost_confirmed: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     terminal_dismissed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)

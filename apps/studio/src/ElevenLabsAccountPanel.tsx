@@ -121,7 +121,7 @@ function AccountCard({
               <small>Осталось: {formatCount(subscription.period_remaining)}</small>
             </article>
             <article>
-              <span>Текущий overage</span>
+              <span>Дополнительные расходы</span>
               <strong>
                 {formatMoneyAmount(
                   subscription.current_overage.amount,
@@ -129,11 +129,11 @@ function AccountCard({
                 )}
               </strong>
               <small>
-                Usage-based billing {subscription.usage_based_billing.enabled ? "включён" : "выключен"}
+                Почасовая оплата сверх плана {subscription.usage_based_billing.enabled ? "включена" : "выключена"}
               </small>
             </article>
             <article>
-              <span>Следующий invoice</span>
+              <span>Следующий счёт</span>
               <strong>
                 {subscription.next_invoice
                   ? formatMoneyCents(
@@ -150,9 +150,9 @@ function AccountCard({
             </article>
           </div>
           <p className="muted">
-            Сброс периода: {formatTime(subscription.reset_at)}. ElevenLabs
-            возвращает period usage как <code>character_count</code>; Studio не
-            переводит эти единицы в минуты Scribe без прямого provider Evidence.
+            Новый расчётный период: {formatTime(subscription.reset_at)}. Единицы
+            использования показаны без пересчёта в минуты, потому что ElevenLabs
+            не передаёт для этого подтверждённый коэффициент.
           </p>
           {subscription.pending_change_present && (
             <p className="notice" role="status">
@@ -278,10 +278,9 @@ export function ElevenLabsAccountPanel({
     <section className="provider-account-panel" aria-labelledby="elevenlabs-account-title">
       <h3 id="elevenlabs-account-title">Подписка и расходы ElevenLabs</h3>
       <p className="muted">
-        Studio обновляет данные через ElevenLabs не реже чем раз в пять минут,
-        пока этот экран открыт. Overage и invoices — фактические account-level
-        данные provider-а; стоимость конкретных транскрипций ниже в аналитике
-        проекта остаётся отдельной nominal оценкой.
+        Здесь показаны текущий план, оставшиеся кредиты и дополнительные
+        расходы, которые сообщает ElevenLabs. Пока этот экран открыт, Studio
+        автоматически проверяет обновления примерно раз в пять минут.
       </p>
       {state === "loading" && <p role="status">Получаем данные ElevenLabs…</p>}
       {state === "error" && accounts.length === 0 && (

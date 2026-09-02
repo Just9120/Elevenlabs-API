@@ -314,4 +314,89 @@ describe("Login auth boundary", () => {
     await Promise.resolve();
     expect(onLogin).not.toHaveBeenCalled();
   });
+
+  it("requests optional second-factor material only after the server requires it", async () => {
+    const loginBodies: Array<Record<string, unknown>> = [];
+    let loginAttempts = 0;
+    const onLogin = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/bootstrap-status")) {
+          return json({ bootstrap_required: false });
+        }
+        if (url.endsWith("/api/auth/login-context")) {
+          return json({ login_csrf_token: `context-${loginAttempts + 1}` });
+        }
+        if (url.endsWith("/api/auth/login")) {
+          loginAttempts += 1;
+          loginBodies.push(JSON.parse(String(init?.body)));
+          if (loginAttempts === 1) {
+            return json(
+              { detail: { reason: "second_factor_required" } },
+              false,
+              409,
+            );
+          }
+          if (loginAttempts === 2) {
+            return json({ detail: "safe failure" }, false, 401);
+          }
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+            csrf_token: "csrf-authenticated",
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    render(<Login onLogin={onLogin} />);
+    await screen.findByRole("heading", { name: "Вход" });
+    await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
+    await userEvent.type(screen.getByLabelText("Пароль"), "password-long");
+    await userEvent.click(screen.getByRole("button", { name: "Войти" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Введите код из приложения-аутентификатора или резервный код",
+    );
+    expect(screen.getByLabelText("Одноразовый код")).toHaveAttribute(
+      "autocomplete",
+      "one-time-code",
+    );
+    await userEvent.type(screen.getByLabelText("Одноразовый код"), "000000");
+    await userEvent.click(screen.getByRole("button", { name: "Войти" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Неверный одноразовый или резервный код",
+    );
+
+    await userEvent.clear(screen.getByLabelText("Одноразовый код"));
+    await userEvent.type(screen.getByLabelText("Одноразовый код"), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Войти" }));
+    await waitFor(() =>
+      expect(onLogin).toHaveBeenCalledWith(
+        { email: "user@example.com", role: "admin", accent_color: "blue" },
+        "csrf-authenticated",
+      ),
+    );
+    expect(loginBodies).toEqual([
+      {
+        email: "user@example.com",
+        password: "password-long",
+        login_csrf_token: "context-1",
+      },
+      {
+        email: "user@example.com",
+        password: "password-long",
+        login_csrf_token: "context-2",
+        verification_code: "000000",
+      },
+      {
+        email: "user@example.com",
+        password: "password-long",
+        login_csrf_token: "context-3",
+        verification_code: "123456",
+      },
+    ]);
+  });
 });

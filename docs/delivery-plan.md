@@ -2,6 +2,46 @@
 
 ## Current Goal
 
+- **ID / title:** `PERSONAL-SECURITY-UX-01` — least-privilege PostgreSQL, полный personal security lifecycle и понятный owner UX.
+- **State:** `IN_PROGRESS` — owner объединил `DB-LEAST-PRIVILEGE-01`, remaining `PWA-SECURITY-HARDENING-02` и восемь browser-annotated UX/UI corrections в одну Goal.
+- **Authorization source:** explicit owner instructions 2026-09-02: «В целом ок, тогда я бы взял эти два эпика как Goal. Плюс UX/UI правки, которые я сейчас дам в аннотациях» и последующие восемь browser comments.
+- **Scope:** отделить PostgreSQL bootstrap/owner, protected migrator, API и worker roles/secrets с fail-closed grant verification и совместимым rollout/rollback; закрыть `PWASEC-06`, `PWASEC-10`, `PWASEC-12`–`PWASEC-18`: configurable total transcription duration policy с обычной обработкой до 4 часов, явным предупреждением до 12 часов и hard stop выше 12 часов, recent re-authentication для critical actions, bounded password-reset/TOTP verification, optional RFC 6238 TOTP enrollment, recovery и disable lifecycle; сделать owner dashboard содержательным; переименовать «Готовые документы» в «Подготовка документов»; дать пользователю свернуть/сбросить завершённый план стандартизации; свернуть подробное system state и diagnostic events; оставить в UI diagnostic bundle JSON для модели и Markdown для человека; заменить неясную case-sensitive operation reference понятным optional case-insensitive выбором/поиском; переписать ElevenLabs account/cost explanation человеческим языком. Изменения проходят tests, reviewable PR, exact CI, applicable protected migration/API/web/worker delivery и bounded authenticated LIVE.
+- **Non-goals:** commercial contour, RLS/multi-tenant model, новый STT provider, mandatory TOTP, привязка к одному authenticator app, автоматический provider spend/retry, DOCX/YAML/TOML как новые рекомендуемые UI formats, удаление production data, реальная password/TOTP recovery без owner-controlled подтверждения, ослабление worker isolation или audit append-only boundary.
+- **Goal AC:**
+  1. `PSUX-01`: canonical personal DB/security/UX AC и readiness denominator синхронизированы только по explicit owner scope; pre-existing Evidence не теряется и новые AC не считаются выполненными раньше required gates.
+  2. `PSUX-02`: running API подключается отдельной non-superuser/non-owner login role без DDL/role/database privileges; worker сохраняет отдельный `studio_worker`, а bootstrap credential не монтируется в ordinary API/worker runtime.
+  3. `PSUX-03`: schema owner остаётся `NOLOGIN`, protected migrator получает только bounded database-local DDL/ownership boundary, reviewed direct grants/default privileges дают API/worker только необходимые table/sequence operations, а новые migrations fail closed до re-apply/verify allowlists.
+  4. `PSUX-04`: clean initialization, upgrade, role rotation/switch, API readiness, backup/rollback и negative privilege matrix покрыты tests/runbook/preflight; production switch выполняется после verified backup и допускает explicit recovery без возврата superuser в runtime.
+  5. `PSUX-05`: server-authoritative media duration определяется до provider spend; до 4 часов обрабатывается обычно, 4–12 часов требует явного cost warning/confirmation, выше configurable 12-hour hard limit блокируется с переходом в подготовку/разделение, а 22-minute provider part splitting не обходит total limit.
+  6. `PSUX-06`: критические account/credential/connection/destructive/security actions требуют bounded recent password re-authentication; proof owner/session scoped, short-lived, one-purpose where required, no-store и audit-safe.
+  7. `PSUX-07`: password-reset и TOTP verification имеют независимые bounded rate limits, uniform safe failures и не раскрывают наличие account, secrets или verification material.
+  8. `PSUX-08`: optional TOTP использует RFC 6238, encrypted secret, QR/manual setup и становится active только после подтверждения первого code; до enrollment обычный personal login не меняется.
+  9. `PSUX-09`: одноразовые recovery codes хранятся только как hashes, показываются один раз, consume/replace audited; TOTP disable требует recent owner verification, а tested operator break-glass не раскрывает secret и не создаёт silent bypass.
+  10. `PSUX-10`: dashboard показывает полезные owner actions/status: незавершённые и последние транскрибации, последние документы, connection/system attention и быстрые действия, с корректными empty/loading/error states и без технического шума.
+  11. `PSUX-11`: transcription maintenance называется «Подготовка документов»; completed scan/apply summary можно свернуть и явно убрать/reset без отмены durable history или running operation.
+  12. `PSUX-12`: diagnostics использует progressive disclosure для system details и event rows, поддерживает bounded pagination; UI рекомендует JSON «для анализа моделью» и Markdown «для человека», а связанная операция выбирается/ищется понятно и case-insensitively без требования угадать точный регистр/ID.
+  13. `PSUX-13`: ElevenLabs subscription/cost panel объясняет plan usage, remaining units, overage, invoice и provenance простым русским языком; technical units/evidence остаются в optional disclosure.
+  14. `PSUX-14`: backend/frontend/security/migration compatibility покрыты focused/full tests; reviewable PR и exact-head CI success; protected delivery подтверждает exact schema/component/role identity, а bounded LIVE не выполняет paid STT, Google mutation, storage deletion или external notification.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ⬜ | DEPLOY ⬜ | LIVE ⬜`.
+- **Known blockers/dependencies:** production DB role switch потребует новые root-owned secret files и protected operator setup; TOTP recovery contract должен исключить owner lockout. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохраняются untouched.
+- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-02T18:17:38Z`.
+- **Base branch/SHA:** verified `origin/main@37d0818a78f496e089de051f32b009bc99157727` после fetch.
+- **Working branch:** `codex/personal-security-ux-01` от exact `origin/main`.
+- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories existed before branch and remain untouched.
+- **Last verified revision:** pushed compatibility head `9711eb9d16d94ed0123744d702135da6e3d952be` on implementation `922751f4567e0d1a86becc3333bb0e9211ca9506` and base `37d0818a78f496e089de051f32b009bc99157727`. Exact main CI `33665882456` and Studio job `100367387892` pass. Browser job passed the first six scenarios, then found one stale pre-rename tab label in E2E; the local selector now uses the shipped «Подготовка документов» label.
+- **Completed:** canonical `PWA-UX-POLISH-03` and `PWA-DATABASE-LEAST-PRIVILEGE-03` AC plus the missing personal security requirements were added without counting completion early; the matching Google Drive requirements document was edited pointwise in its existing style. Additive schema `0034_personal_security`, recent re-authentication, optional RFC 6238 TOTP/recovery/break-glass, bounded password-reset boundary, server-authoritative 4h/12h duration policy, separate owner/migrator/API database roles, protected role switch/recovery flow and all eight annotated UX corrections are implemented. Production role/secrets/data remain unchanged.
+- **Current step:** publish the final stale-label E2E correction and wait for a fully green PR head; do not merge before production DB credentials are staged.
+- **Next exact action:** commit/push the one-line E2E label correction, then obtain exact-head CI success for PR `#286`.
+- **Validation / Evidence:** production preflight `46 passed`; focused security/DB/media/migration/worker/retry suite `79 passed`; final duration/retry/migration/diagnostics suite `88 passed`; frontend full suite `683 passed` in `63` files; ESLint and production TypeScript/Vite/PWA build pass. The corrected portable security/migration suite passes `31/31`; the exact failed dependency/transcription suites now pass `66/66`; Playwright discovery lists all `13` scenarios and targeted E2E ESLint passes. A separate broader API attempt could not connect to local PostgreSQL at `127.0.0.1:5432`; this is an environment limitation, not passing Evidence. Protected migration release suite was previously included in the final `88`; build has only the pre-existing non-fatal >500 kB chunk warning. Exact corrected-head CI remains mandatory.
+- **PR / CI / deployment:** PR `#286` exists at `https://github.com/Just9120/Elevenlabs-API/pull/286`. Initial migration failure run `33664238393` is corrected. At head `9711eb9`, main CI `33665882456` passed all `1658` tests, Studio job `100367387892` passed, and browser job `100367387606` passed six scenarios before failing only on the old «Готовые документы» test label. The exact stale label is corrected locally and awaits push. DEPLOY/LIVE not run for this Goal.
+- **Blockers / unverified assumptions:** production requires two distinct root-owned password files and `.env` paths for `studio_api`/`studio_migrator`, a verified pre-change backup and the protected migration lane. Actual role identity and negative privilege matrix remain unverified LIVE; no production role, secret, service or data change has occurred in this Goal.
+
+## Previous Goal closure — `OBSERVABILITY-ALERTS-AUDIT-01`
+
 - **ID / title:** `OBSERVABILITY-ALERTS-AUDIT-01` — сквозная трассировка, неизменяемый audit и bounded operational alerts.
 - **State:** `DONE` — все Goal AC и required Evidence закрыты; implementation/recovery PR `#280`–`#284`, exact-main CI, protected schema/API/web/worker delivery и suppressed production alert/recovery canary подтверждены.
 - **Authorization source:** explicit owner instruction 2026-09-01 после обсуждения `OBSERVABILITY-ALERTS-AUDIT-01`: «Ставь цель и приступай».
@@ -24,7 +64,7 @@
 - **Known blockers/dependencies:** отсутствуют для Goal DoD. Telegram остаётся optional и честно `not_configured`; реальное сообщение не отправлялось и по-прежнему требует отдельной action-time authorization и operator-provided secret files. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `OBSERVABILITY-ALERTS-AUDIT-01`
 
 - **Updated (UTC):** `2026-09-02T10:23:57Z`.
 - **Base branch/SHA:** verified merged `origin/main@368983035a7ae87302ad22a3b4b4945668b956f8` после fetch и exact-main CI.
@@ -210,7 +250,7 @@ Observability epic изменился более чем на `10` п.п.: `+28,6
 
 ## Candidate next Goals
 
-1. `DB-LEAST-PRIVILEGE-01` — после текущего worker-only role boundary отдельно ограничить API/migration roles; closed storage Goal не закрывает system-wide DB least privilege.
+Текущая Goal уже включает DB least privilege, security hardening и согласованные UX corrections. Следующая Goal не выбирается до её terminal state.
 
 ## Risks и boundaries
 

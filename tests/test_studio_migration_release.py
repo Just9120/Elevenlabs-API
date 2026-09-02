@@ -22,7 +22,12 @@ RUNNING_API_IMAGE_ID = "sha256:" + ("f" * 64)
 POSTGRES_IMAGE_ID = "sha256:" + ("e" * 64)
 OLD_SNAPSHOT = "c" * 64
 NEW_SNAPSHOT = "d" * 64
-TEST_BASH = os.environ.get("STUDIO_TEST_BASH", "bash")
+TEST_BASH = os.environ.get(
+    "STUDIO_TEST_BASH",
+    str(Path("C:/Program Files/Git/bin/bash.exe"))
+    if Path("C:/Program Files/Git/bin/bash.exe").exists()
+    else "bash",
+)
 
 
 def _write_exe(path: Path, content: str) -> None:
@@ -106,6 +111,9 @@ def run_release(
     (checkout / "deploy" / "studio" / "compose.platform.yml").write_text(
         "services: {}\n", encoding="utf-8"
     )
+    (checkout / "deploy" / "studio" / "database-roles.sql").write_text(
+        "-- fake application roles\n", encoding="utf-8"
+    )
     (checkout / "apps" / "studio-api" / "Dockerfile").write_text(
         "FROM scratch\n", encoding="utf-8"
     )
@@ -162,6 +170,10 @@ set -euo pipefail
 printf 'worker-role %s\n' "$1" >> {str(calls)!r}
 [[ {str(worker_role_ok).lower()} == true ]]
 """,
+    )
+    _write_exe(
+        checkout / "scripts" / "configure_studio_database_roles.sh",
+        "#!/usr/bin/env bash\nexit 0\n",
     )
     _write_exe(
         fake_bin / "id",
@@ -259,6 +271,10 @@ if [[ "$1" == "compose" ]]; then
       ;;
     run)
       [[ "${{@: -1}}" == "current" ]] || exit 45
+      cat {str(revision_state)!r}
+      ;;
+    exec)
+      [[ "$*" == *"-T postgres psql -X -Atq -U studio -d studio -c SELECT version_num FROM alembic_version"* ]] || exit 45
       cat {str(revision_state)!r}
       ;;
     up)
@@ -367,7 +383,7 @@ fi
             "-c",
             'PATH="$TEST_FAKE_PATH:$PATH"; export PATH; exec bash "$1"',
             "_",
-            str(RELEASE_SCRIPT),
+            RELEASE_SCRIPT.as_posix(),
         ],
         cwd=ROOT,
         env=env,
@@ -457,6 +473,7 @@ def test_post_migration_worker_role_failure_blocks_before_api_recreation(
     assert "phase=worker_role" in proc.stderr
     assert "reason=worker_role_apply_failed" in proc.stderr
     assert "migration_applied=yes" in proc.stderr
+    assert "database_role_change_attempted=yes" in proc.stderr
     assert "worker_role_change_attempted=yes" in proc.stderr
     assert "manual_recovery_required=yes" in proc.stderr
     assert any(call.startswith("migrate ") for call in calls)

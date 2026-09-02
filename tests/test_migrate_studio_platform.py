@@ -10,6 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "migrate_studio_platform.sh"
 SNAPSHOT_ID = "a" * 64
 IMAGE_ID = "sha256:" + ("b" * 64)
+BASH = (
+    str(Path("C:/Program Files/Git/bin/bash.exe"))
+    if Path("C:/Program Files/Git/bin/bash.exe").exists()
+    else "bash"
+)
 
 
 def _write_exe(path: Path, content: str) -> None:
@@ -40,6 +45,16 @@ def run_migration(
     runtime_dir.mkdir(parents=True)
     (runtime_dir / ".env").write_text("# fake runtime\n", encoding="utf-8")
     (runtime_dir / "compose.platform.yml").write_text("services: {}\n", encoding="utf-8")
+    scripts_dir = deploy_dir / "scripts"
+    scripts_dir.mkdir()
+    _write_exe(
+        scripts_dir / "configure_studio_database_roles.sh",
+        f"#!/usr/bin/env bash\nprintf 'database-roles %s\\n' \"$*\" >> {str(calls)!r}\n",
+    )
+    _write_exe(
+        scripts_dir / "configure_studio_worker_db_role.sh",
+        f"#!/usr/bin/env bash\nprintf 'worker-role %s\\n' \"$*\" >> {str(calls)!r}\n",
+    )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
 
@@ -82,7 +97,6 @@ esac
 
     env = {
         **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "STUDIO_DEPLOY_DIR": str(deploy_dir),
         "STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED": "yes",
         "STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT": snapshot,
@@ -92,7 +106,14 @@ esac
         "STUDIO_EXPECTED_API_IMAGE_ID": expected_image_id,
     }
     proc = subprocess.run(
-        ["bash", str(SCRIPT)],
+        [
+            BASH,
+            "-c",
+            'export PATH="$(cd "$1" && pwd):$PATH"; exec bash "$2"',
+            "migration-test",
+            bin_dir.as_posix(),
+            SCRIPT.as_posix(),
+        ],
         cwd=ROOT,
         env=env,
         text=True,
@@ -124,7 +145,9 @@ def test_migration_checks_exact_candidate_and_revisions_then_runs_once(
     assert proc.stdout.count("[studio-platform-migration] OK") == 1
     assert f"snapshot={SNAPSHOT_ID[:12]}" in proc.stdout
     assert len(_upgrade_calls(calls)) == 1
-    assert calls[0].startswith("docker image inspect")
+    assert calls.count("database-roles apply") == 2
+    assert calls.count("worker-role apply") == 1
+    assert next(line for line in calls if line.startswith("docker image inspect"))
     assert next(i for i, line in enumerate(calls) if line.endswith(" current")) < next(
         i for i, line in enumerate(calls) if line.endswith(" heads")
     )
@@ -152,6 +175,18 @@ def test_migration_can_apply_one_explicit_target_before_repository_head(
     assert len(_upgrade_calls(calls)) == 1
     assert " upgrade middle_revision" in _upgrade_calls(calls)[0]
     assert "to=middle_revision" in proc.stdout
+
+
+def test_clean_database_is_explicitly_represented_as_base(tmp_path: Path) -> None:
+    proc, calls = run_migration(
+        tmp_path,
+        current="",
+        expected_from="base",
+    )
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert "from=base" in proc.stdout
+    assert len(_upgrade_calls(calls)) == 1
 
 
 def test_candidate_image_mismatch_blocks_before_revision_probe(tmp_path: Path) -> None:

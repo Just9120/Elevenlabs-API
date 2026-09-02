@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     cookie_name: str = "__Host-studio_session"
     cookie_secure: bool = True
     session_days: int = 14
+    recent_auth_seconds: int = Field(default=600, ge=60, le=3600)
     session_last_seen_write_interval_seconds: int = Field(default=300, ge=60, le=3600)
     auth_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86400)
     auth_cleanup_batch_size: int = Field(default=500, ge=1, le=1000)
@@ -44,6 +45,8 @@ class Settings(BaseSettings):
     source_upload_ttl_seconds: int = Field(default=3600, ge=900, le=86400)
     source_presign_ttl_seconds: int = Field(default=900, ge=60, le=900)
     source_max_upload_bytes: int = Field(default=536870912, ge=1, le=2147483647)
+    media_duration_warning_seconds: int = Field(default=14400, ge=60, le=604800)
+    media_max_duration_seconds: int = Field(default=43200, ge=60, le=604800)
     source_multipart_threshold_bytes: int = Field(default=16777216, ge=5242880, le=2147483647)
     source_multipart_part_size_bytes: int = Field(default=8388608, ge=5242880, le=134217728)
     storage_orphan_min_age_seconds: int = Field(default=86400, ge=3600, le=2592000)
@@ -138,6 +141,8 @@ class Settings(BaseSettings):
             raise ValueError("multipart part size must not exceed multipart threshold")
         if self.storage_reconciliation_apply_limit > self.storage_reconciliation_scan_limit:
             raise ValueError("reconciliation apply limit must not exceed scan limit")
+        if self.media_duration_warning_seconds >= self.media_max_duration_seconds:
+            raise ValueError("media duration warning must be below the hard limit")
         telegram_files = (
             self.alert_telegram_bot_token_file,
             self.alert_telegram_chat_id_file,

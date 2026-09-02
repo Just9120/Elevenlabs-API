@@ -1200,6 +1200,10 @@ code {
 .catalog-migration-result h4 {
   margin: 0;
 }
+.catalog-migration-result > summary {
+  cursor: pointer;
+  font-size: 1.05rem;
+}
 .maintenance-result-list {
   display: grid;
   gap: 0.75rem;
@@ -1698,6 +1702,88 @@ code {
 .dashboard-summary {
   margin-bottom: 0;
 }
+@media (max-width: 720px) {
+  .dashboard-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+  .recovery-codes {
+    columns: 1;
+  }
+}
+.dashboard-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 1rem;
+}
+.dashboard-next-step,
+.dashboard-recent {
+  min-width: 0;
+}
+.dashboard-recent-list {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0;
+  list-style: none;
+}
+.dashboard-recent-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  border-top: 1px solid var(--studio-border);
+  padding-top: 0.65rem;
+}
+.dashboard-recent-list li > span:first-child {
+  display: grid;
+  min-width: 0;
+}
+.dashboard-recent-list strong,
+.dashboard-recent-list small {
+  overflow-wrap: anywhere;
+}
+.account-security,
+.security-form,
+.security-enrollment {
+  display: grid;
+  gap: 0.75rem;
+}
+.security-form {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  align-items: end;
+}
+.security-code-fields {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+.recovery-codes {
+  columns: 2;
+  padding-left: 1.25rem;
+}
+
+.totp-qr {
+  display: block;
+  width: min(240px, 100%);
+  height: auto;
+  padding: 0.5rem;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.operation-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.operation-suggestion {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.82rem;
+  text-align: left;
+}
 
 .attention-card ul {
   margin: 0;
@@ -2148,6 +2234,11 @@ code {
   gap: 0.25rem 0.45rem;
   align-items: baseline;
   overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.diagnostics-event > details,
+.diagnostics-system-details {
+  min-width: 0;
 }
 .diagnostics-metadata {
   display: grid;

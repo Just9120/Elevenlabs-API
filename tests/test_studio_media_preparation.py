@@ -458,6 +458,93 @@ def test_long_media_is_split_in_deterministic_overlapping_order_and_cleaned(tmp_
     assert second.stream.closed is True
 
 
+def test_duration_warning_requires_explicit_confirmation_before_splitting(tmp_path):
+    from studio_api.media_preparation import (
+        MediaPreparationError,
+        prepare_elevenlabs_media_parts,
+    )
+
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        assert command[0] == "ffprobe"
+        return subprocess.CompletedProcess(command, 0, stdout="150")
+
+    with pytest.raises(
+        MediaPreparationError,
+        match="media_duration_confirmation_required",
+    ):
+        with prepare_elevenlabs_media_parts(
+            stream=BytesIO(b"audio"),
+            original_filename="private.mp3",
+            mime_type="audio/mpeg",
+            byte_count=5,
+            max_output_bytes=100,
+            duration_warning_seconds=100,
+            max_duration_seconds=200,
+            runner=runner,
+            temporary_directory=str(tmp_path),
+        ):
+            pass
+
+    assert [command[0] for command in calls] == ["ffprobe"]
+
+
+def test_confirmed_duration_between_warning_and_limit_is_processed(tmp_path):
+    from studio_api.media_preparation import prepare_elevenlabs_media_parts
+
+    def runner(command, **kwargs):
+        assert command[0] == "ffprobe"
+        return subprocess.CompletedProcess(command, 0, stdout="150")
+
+    with prepare_elevenlabs_media_parts(
+        stream=BytesIO(b"audio"),
+        original_filename="private.mp3",
+        mime_type="audio/mpeg",
+        byte_count=5,
+        max_output_bytes=100,
+        duration_warning_seconds=100,
+        max_duration_seconds=200,
+        long_duration_confirmed=True,
+        runner=runner,
+        temporary_directory=str(tmp_path),
+    ) as batch:
+        assert batch.duration_seconds == 150
+        assert len(batch.parts) == 1
+
+
+def test_hard_duration_limit_stops_before_part_creation_even_if_confirmed(tmp_path):
+    from studio_api.media_preparation import (
+        MediaPreparationError,
+        prepare_elevenlabs_media_parts,
+    )
+
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        assert command[0] == "ffprobe"
+        return subprocess.CompletedProcess(command, 0, stdout="201")
+
+    with pytest.raises(MediaPreparationError, match="media_duration_too_long"):
+        with prepare_elevenlabs_media_parts(
+            stream=BytesIO(b"audio"),
+            original_filename="private.mp3",
+            mime_type="audio/mpeg",
+            byte_count=5,
+            max_output_bytes=100,
+            duration_warning_seconds=100,
+            max_duration_seconds=200,
+            long_duration_confirmed=True,
+            runner=runner,
+            temporary_directory=str(tmp_path),
+        ):
+            pass
+
+    assert [command[0] for command in calls] == ["ffprobe"]
+
+
 @pytest.mark.parametrize(
     "probe_result, expected_reason",
     [

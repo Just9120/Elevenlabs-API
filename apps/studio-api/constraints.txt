@@ -94,6 +94,8 @@ python-dotenv==1.2.2
     #   uvicorn
 pyyaml==6.0.3
     # via uvicorn
+qrcode==8.2
+    # via -r apps/studio-api/requirements.txt
 redis==5.2.1
     # via -r apps/studio-api/requirements.txt
 s3transfer==0.10.4

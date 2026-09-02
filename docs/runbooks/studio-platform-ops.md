@@ -268,7 +268,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0033_observability_alerts_audit`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0034_personal_security`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -414,7 +414,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0033_observability_alerts_audit`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0034_personal_security`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -422,7 +422,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 
 ### Dry-run and authorization
 
-1. Open `Транскрибации → Обслуживание`, select the separate **Стандартизация Google Docs** or **Манифест Studio** operation, choose the intended mode, and select exactly one approved root folder or Google Doc through the app-owned Drive dialog.
+1. Open `Транскрибации → Подготовка документов`, select the separate **Стандартизация Google Docs** or **Манифест Studio** operation, choose the intended mode, and select exactly one approved root folder or Google Doc through the app-owned Drive dialog.
 2. Run that operation's `dry-run` only. Enqueue must return promptly, after which the owner-scoped UI restores persisted stage/progress to a terminal preview. The preview is non-mutating, browser-safe, rate-limited and bound to that workflow/target; apply still performs fresh server revalidation.
 3. In folder mode review selected, action, unchanged, blocked, skipped-file, and descendant-folder counts. In document mode verify exactly one document was checked. Current documents must be skipped by standardization; already-cataloged current documents must be skipped by **Манифест Studio**. Stop on an unexpected target boundary, global scan failure, or unexplained blocked candidate.
 4. Record only the non-private mode, safe aggregate counts, and the operation-specific decision. Do not record folder IDs, document IDs, document names, document bodies, Google payloads, access tokens, subjects, emails, or URLs.
@@ -715,6 +715,93 @@ STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh status
 
 The status command reports only safe container state, exit code, drain state, Docker health, running/stopped container image ID, current commit tag presence, commit tag image ID, identity match, rollback-candidate presence and effective Docker CPU/memory/swap/PID/read-only/capability/security/network values. `isolation_match=yes` requires the reviewed two-CPU, 4-GiB/no-swap, 256-PID, read-only-root, capability and two-network contract; any other effective state is `no`, not success. Any worker lifecycle operation, including status, drain, pause, resume, deploy, and rollback, blocks fail-closed with `STUDIO_WORKER_OP_BLOCKED reason=multiple_worker_containers` (or the deploy equivalent) if more than one `studio-worker` container is discovered; multiple containers are an invalid topology, not a supported mode. Only `container_state=exited` with `exit_code=0` is `drain_state=gracefully-drained`; non-zero exits, including `137` and `143`, are `abnormal-exit` and are not paused/drained. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes, even when the worker state itself requires operator review.
 
+### Application database roles and credential rotation
+
+The ordinary API must connect as `studio_api`; protected Alembic execution uses
+`studio_migrator`; `studio_owner` owns the `public` schema and application
+objects but cannot log in. The PostgreSQL bootstrap login `studio` remains only
+on the PostgreSQL service and explicit operator path. It must never be mounted
+into the API or worker as a rollback shortcut.
+
+Before the first switch, create two different root-owned `0400` or `0600`
+password files outside the checkout and set their paths in
+`deploy/studio/.env`:
+
+```text
+STUDIO_API_POSTGRES_PASSWORD_FILE=/opt/elevenlabs-studio-secrets/studio_api_postgres_password
+STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE=/opt/elevenlabs-studio-secrets/studio_migrator_postgres_password
+```
+
+Do not paste either value into `.env`, a command argument, Git, logs or a
+diagnostic bundle. `scripts/configure_studio_database_roles.sh apply` accepts
+only distinct nonempty root-owned regular files and sends password changes to
+`psql` through stdin. On an empty database it prints
+`STUDIO_DATABASE_ROLES_BOOTSTRAP_OK`; after schema creation it must print
+`STUDIO_DATABASE_ROLES_OK`. Read-only verification is:
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio \
+  scripts/configure_studio_database_roles.sh verify
+```
+
+For a clean installation, apply the roles before Alembic, identify the empty
+revision explicitly as `base`, run the reviewed `base -> head` migration through
+the backup-gated migration script, then re-apply/verify both application and
+worker grant manifests before starting application services. For an upgrade,
+the protected migration lane already applies the application roles before the
+migration and both grant manifests after it. A missing new-table grant is a
+blocked release, not authority to broaden the role.
+
+Credential rotation is a bounded maintenance window: keep the worker drained,
+stage one new protected file atomically, run application-role `apply`, recreate
+only the affected API or migrator tool with the same reviewed Compose contract,
+then run `verify` and API readiness. Rotate `studio_api` and
+`studio_migrator` separately. Keep the immediately previous protected file only
+for the bounded recovery window. If readiness fails before the new credential
+is verified, restore that one previous file, run `apply` again, recreate the
+same component and re-run `verify`; do not change `STUDIO_DATABASE_USER` to
+`studio`. After success, destroy the superseded credential through the approved
+secret-owner procedure.
+
+`verify` checks non-superuser/non-owner login attributes, the sole migrator-to-
+owner membership, absence of API memberships, object ownership, positive CRUD
+allowlist and negative DDL/TRUNCATE/audit/Alembic/provider-checkpoint writes.
+`disable-logins` is an incident stop action that disables both application
+logins; it causes downtime and is not a normal rollback.
+
+### Personal TOTP break-glass
+
+Normal TOTP enrollment, recovery-code replacement and disablement happen only
+in the authenticated Account screen after recent password verification.
+Recovery codes are displayed once, stored only as hashes and consumed once.
+Password-reset delivery is intentionally not configured; do not imply that the
+request endpoint sends mail.
+
+If the single owner has lost both the authenticator and every recovery code, an
+operator may use the no-HTTP-route break-glass command after independently
+confirming the exact owner email:
+
+```bash
+cd /opt/elevenlabs-studio
+docker compose --env-file deploy/studio/.env \
+  -f deploy/studio/compose.platform.yml \
+  exec -T studio-api \
+  python -m studio_api.container_entrypoint --drop-only \
+  python -m studio_api.totp_break_glass \
+  --owner-email '__EXACT_OWNER_EMAIL__' \
+  --confirm-owner-email '__EXACT_OWNER_EMAIL__' \
+  --reason recovery-codes-unavailable \
+  --confirm-revoke-all-sessions
+```
+
+Allowed reasons are `lost-authenticator` and `recovery-codes-unavailable`.
+Success disables only that active owner factor, removes unused recovery codes,
+revokes every session and writes `auth.totp_break_glass_disabled`; it prints no
+email, TOTP secret or recovery code. The owner must sign in again and perform a
+fresh enrollment. Any identity mismatch, inactive/non-admin account, absent
+active factor or transaction failure blocks without a silent bypass.
+
 ### Dedicated worker database role and tariff snapshot
 
 Before the first isolated worker deploy, stage a separate root-owned password file outside the checkout, set `STUDIO_WORKER_POSTGRES_PASSWORD_FILE` in `deploy/studio/.env`, and configure the three non-secret tariff fields shown in `.env.example`. Do not reuse the PostgreSQL bootstrap password. With the worker absent or gracefully drained and the trusted checkout clean, apply and verify the reviewed direct-grant role:
@@ -861,4 +948,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0033_observability_alerts_audit`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0034_personal_security`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

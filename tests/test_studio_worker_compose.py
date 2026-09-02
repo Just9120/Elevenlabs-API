@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import yaml
 
@@ -131,11 +132,28 @@ def test_worker_uses_dedicated_database_login_and_secret_source():
     worker = service_block("studio-worker")
     api = service_block("studio-api")
     assert "STUDIO_DATABASE_USER: studio_worker" in worker
-    assert "STUDIO_DATABASE_USER: studio" in api
+    assert "STUDIO_DATABASE_USER: studio_api" in api
+    assert "source: studio_api_postgres_password" in api
     assert "source: studio_worker_postgres_password" in worker
     assert "target: studio_postgres_password" in worker
     assert "studio_worker_postgres_password:" in text
     assert "STUDIO_WORKER_POSTGRES_PASSWORD_FILE:?worker database secret file required" in text
+
+
+def test_api_and_migrations_have_distinct_least_privilege_logins():
+    text = COMPOSE.read_text()
+    api = service_block("studio-api")
+    migrator = service_block("studio-migrator")
+    postgres = service_block("postgres")
+    assert "STUDIO_DATABASE_USER: studio_api" in api
+    assert "source: studio_api_postgres_password" in api
+    assert "STUDIO_DATABASE_USER: studio_migrator" in migrator
+    assert "source: studio_migrator_postgres_password" in migrator
+    assert "profiles: [tools]" in migrator
+    assert not re.search(r"^\s+STUDIO_DATABASE_USER: studio\s*$", api, re.MULTILINE)
+    assert "studio_api_postgres_password" not in postgres
+    assert "studio_migrator_postgres_password" not in postgres
+    assert "studio_postgres_password" in postgres
 
 
 def test_env_example_worker_defaults_once():

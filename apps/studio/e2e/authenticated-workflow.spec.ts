@@ -189,9 +189,15 @@ test('authenticated user opens transcriptions and reads a completed job result',
   const diagnosticEvents = page.getByRole('region', {
     name: 'События диагностики',
   });
-  await expect(diagnosticEvents.getByText('JOB_COMPLETED')).toBeVisible();
-  await expect(diagnosticEvents.getByText('OUTPUT_PERSISTED')).toBeVisible();
-  await expect(diagnosticEvents.getByText('JOB_CREATED')).toBeVisible();
+  await expect(
+    diagnosticEvents.getByText('JOB_COMPLETED', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    diagnosticEvents.getByText('OUTPUT_PERSISTED', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    diagnosticEvents.getByText('JOB_CREATED', { exact: true }),
+  ).toBeVisible();
   await expect(diagnosticEvents).toContainText('final_job_status');
   await expect(diagnosticEvents).toContainText('completed');
   await expect(diagnosticEvents).toContainText('output_count');
@@ -721,7 +727,9 @@ test('transcript maintenance stays fail-closed without Google authority', async 
     .getByRole('button', { name: 'Транскрибации', exact: true })
     .click();
   await expect(page).toHaveURL(/\/transcriptions$/);
-  await page.getByRole('tab', { name: 'Готовые документы' }).click();
+  await page
+    .getByRole('tab', { name: 'Подготовка документов', exact: true })
+    .click();
 
   const maintenance = page.getByRole('region', {
     name: 'Проверка и обновление Google Docs',

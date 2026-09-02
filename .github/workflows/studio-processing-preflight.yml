@@ -80,6 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           mktemp_output="$(ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" 'mktemp /tmp/studio-processing-preflight.XXXXXX')"
+          if [[ "$mktemp_output" == *$'\n'* || "$mktemp_output" == *$'\r'* ]]; then
+            echo "remote temporary script path contained a line break" >&2
+            exit 1
+          fi
           mapfile -t mktemp_lines <<<"$mktemp_output"
           if [[ "${#mktemp_lines[@]}" -ne 1 || -z "${mktemp_lines[0]}" ]]; then
             echo "remote temporary script path was not exactly one non-empty line" >&2

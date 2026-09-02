@@ -1,5 +1,6 @@
 import {
   formatBytes,
+  formatDurationLimit,
   formatTime,
   formatUploadLimit,
   retentionOptionLabel,
@@ -41,5 +42,13 @@ describe("Studio formatters", () => {
     [1.5 * 1024 * 1024, "1.5 МБ"],
   ] as const)("formats upload limit %s", (value, expected) => {
     expect(formatUploadLimit(value)).toBe(expected);
+  });
+
+  it.each([
+    [14400, "4 ч"],
+    [5400, "90 мин"],
+    [59, "59 сек"],
+  ] as const)("formats duration policy %s", (value, expected) => {
+    expect(formatDurationLimit(value)).toBe(expected);
   });
 });

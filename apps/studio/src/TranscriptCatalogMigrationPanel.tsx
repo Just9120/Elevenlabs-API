@@ -758,11 +758,12 @@ function DryRunResult({
 }) {
   const title = OPERATION_COPY[result.workflow].title;
   return (
-    <div
+    <details
       className="catalog-migration-result"
       aria-label={`Результат проверки: ${title}`}
+      open
     >
-      <h4>План операции</h4>
+      <summary><strong>План операции</strong></summary>
       {result.workflow === "standardization" ? (
         <StandardizationDryRunResult
           result={result}
@@ -774,7 +775,7 @@ function DryRunResult({
           selectionMode={selectionMode}
         />
       )}
-    </div>
+    </details>
   );
 }
 
@@ -863,17 +864,18 @@ function CatalogApplyResult({
 
 function ApplyResult({ result }: { result: TranscriptMaintenanceApply }) {
   return (
-    <div
+    <details
       className="catalog-migration-result"
       aria-label={`Результат применения: ${OPERATION_COPY[result.workflow].title}`}
+      open
     >
-      <h4>{OPERATION_COPY[result.workflow].resultTitle}</h4>
+      <summary><strong>{OPERATION_COPY[result.workflow].resultTitle}</strong></summary>
       {result.workflow === "standardization" ? (
         <StandardizationApplyResult result={result} />
       ) : (
         <CatalogApplyResult result={result} />
       )}
-    </div>
+    </details>
   );
 }
 
@@ -1282,6 +1284,11 @@ function MaintenanceOperationCard({
       {applyResult && applyResult.workflow === workflow && (
         <ApplyResult result={applyResult} />
       )}
+      {(dryRun || applyResult) && !runInProgress && (
+        <button type="button" className="secondary" onClick={resetResult}>
+          Закрыть результат
+        </button>
+      )}
     </section>
   );
 }
@@ -1466,7 +1473,7 @@ export function TranscriptCatalogMigrationPanel({
         <p>
           Подключите отдельный доступ, чтобы проверять и приводить готовые
           документы к текущему формату. Сами действия находятся в разделе
-          «Транскрибации → Готовые документы».
+          «Транскрибации → Подготовка документов».
         </p>
         <details className="technical-details">
           <summary>Почему нужен отдельный доступ</summary>
@@ -1552,7 +1559,7 @@ export function TranscriptCatalogMigrationPanel({
       className="transcript-maintenance-panel"
       aria-labelledby="transcript-maintenance-title"
     >
-      <span className="tag">ГОТОВЫЕ ДОКУМЕНТЫ</span>
+      <span className="tag">ПОДГОТОВКА ДОКУМЕНТОВ</span>
       <h2 id="transcript-maintenance-title">
         Проверка и обновление Google Docs
       </h2>

@@ -30,6 +30,8 @@ async function requestBootstrapStatus(signal?: AbortSignal): Promise<boolean> {
 async function requestLogin(
   email: string,
   password: string,
+  verificationCode: string,
+  recoveryCode: string,
   signal?: AbortSignal,
 ): Promise<{ user: User; csrf: string }> {
   const contextCandidate = await api<unknown>("/auth/login-context", {
@@ -47,6 +49,8 @@ async function requestLogin(
       email,
       password,
       login_csrf_token: loginCsrf,
+      verification_code: verificationCode.trim() || undefined,
+      recovery_code: recoveryCode.trim() || undefined,
     }),
   });
   const response = parseAuthenticatedLoginResponse(responseCandidate);
@@ -64,6 +68,7 @@ export function Login({
   const [bootstrap, setBootstrap] = useState<BootstrapState>("checking");
   const [error, setError] = useState("");
   const [loginPending, setLoginPending] = useState(false);
+  const [secondFactorRequired, setSecondFactorRequired] = useState(false);
   const loginPendingRef = useRef(false);
   const requestEpochsRef = useRef(new Map<string, number>());
   const requestControllersRef = useRef(new Map<string, AbortController>());
@@ -104,12 +109,14 @@ export function Login({
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("email") ?? "");
     const password = String(formData.get("password") ?? "");
+    const verificationCode = String(formData.get("verificationCode") ?? "");
+    const recoveryCode = String(formData.get("recoveryCode") ?? "");
     loginPendingRef.current = true;
     setLoginPending(true);
     await settleLatestRequest(
       requestEpochsRef.current,
       "login:submit",
-      (signal) => requestLogin(email, password, signal),
+      (signal) => requestLogin(email, password, verificationCode, recoveryCode, signal),
       (response) => {
         loginPendingRef.current = false;
         setLoginPending(false);
@@ -118,6 +125,27 @@ export function Login({
       (failure) => {
         loginPendingRef.current = false;
         setLoginPending(false);
+        const detail =
+          failure instanceof ApiError && failure.data && typeof failure.data === "object"
+            ? (failure.data as { detail?: { reason?: unknown } }).detail
+            : undefined;
+        if (
+          failure instanceof ApiError &&
+          failure.status === 409 &&
+          detail?.reason === "second_factor_required"
+        ) {
+          setSecondFactorRequired(true);
+          setError("Введите код из приложения-аутентификатора или резервный код.");
+          return;
+        }
+        if (
+          failure instanceof ApiError &&
+          failure.status === 401 &&
+          secondFactorRequired
+        ) {
+          setError("Неверный одноразовый или резервный код.");
+          return;
+        }
         setError(
           failure instanceof ApiError && failure.status === 401
             ? "Неверная почта или пароль."
@@ -176,6 +204,24 @@ export function Login({
           Email
           <input name="email" type="email" autoComplete="username" required />
         </label>
+        {secondFactorRequired && (
+          <fieldset className="security-code-fields">
+            <legend>Дополнительная защита</legend>
+            <label>
+              Одноразовый код
+              <input
+                name="verificationCode"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9 ]{6,12}"
+              />
+            </label>
+            <label>
+              Или резервный код
+              <input name="recoveryCode" autoComplete="off" />
+            </label>
+          </fieldset>
+        )}
         <label>
           Пароль
           <input

@@ -442,6 +442,7 @@ type OutputFixtureOptions = {
   terminalDismissedAt?: string | null;
   historyAttentionRequired?: boolean;
   includeSecondProject?: boolean;
+  errorCode?: string | null;
 };
 
 const focusedJobDetailSource = {
@@ -588,7 +589,10 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               )
                 ? "2026-07-02T00:03:00Z"
                 : null,
-              error_code: jobStatus === "failed" ? "SAFE_FAILED" : null,
+              error_code:
+                jobStatus === "failed"
+                  ? (options.errorCode ?? "SAFE_FAILED")
+                  : null,
               error_message: jobStatus === "failed" ? "Safe failure" : null,
             },
           ],
@@ -651,7 +655,10 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               )
                 ? "2026-07-02T00:03:00Z"
                 : null,
-              error_code: jobStatus === "failed" ? "SAFE_FAILED" : null,
+              error_code:
+                jobStatus === "failed"
+                  ? (options.errorCode ?? "SAFE_FAILED")
+                  : null,
               error_message: jobStatus === "failed" ? "Safe failure" : null,
               sources: [focusedJobDetailSource],
             });
@@ -2144,6 +2151,9 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Готовность к работе")).toHaveTextContent(
       "Можно начинать",
     );
+    expect(
+      screen.getByRole("heading", { name: "Последние документы" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Newer")).not.toBeInTheDocument();
     expect(screen.queryByText("Older")).not.toBeInTheDocument();
     expect(
@@ -3076,7 +3086,7 @@ describe("Studio PWA", () => {
         name: "Привести документы к текущему формату",
       }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/Транскрибации → Готовые документы/)).toBeInTheDocument();
+    expect(screen.getByText(/Транскрибации → Подготовка документов/)).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -3095,7 +3105,7 @@ describe("Studio PWA", () => {
     await openProjectsPage();
 
     await userEvent.click(
-      screen.getByRole("tab", { name: "Готовые документы" }),
+      screen.getByRole("tab", { name: "Подготовка документов" }),
     );
 
     expect(
@@ -3110,7 +3120,7 @@ describe("Studio PWA", () => {
       screen.getByRole("heading", { name: "Учесть готовые документы в Studio" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Готовые документы" }),
+      screen.getByRole("tab", { name: "Подготовка документов" }),
     ).toHaveAttribute("aria-selected", "true");
   });
 
@@ -8427,7 +8437,10 @@ describe("Studio PWA", () => {
       expect(
         await screen.findByText("Не удалось загрузить задачи проекта."),
       ).toBeInTheDocument();
-      expect(requestSignals).toHaveLength(2);
+      // Overview loads recent jobs once; the transcription workspace then
+      // loads its own source and job collections. Every stalled read remains
+      // bounded and is aborted by the shared request timeout.
+      expect(requestSignals).toHaveLength(3);
       expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
       expect(screen.queryByText("Загрузка файлов…")).not.toBeInTheDocument();
       expect(screen.queryByText("Загрузка задач…")).not.toBeInTheDocument();
@@ -9752,11 +9765,81 @@ describe("Studio PWA", () => {
     expect(
       retryPosts.map(([, init]) => JSON.parse(String(init?.body))),
     ).toEqual([
-      { confirm_remaining_provider_cost: true },
-      { confirm_remaining_provider_cost: true },
+      {
+        confirm_remaining_provider_cost: true,
+        confirm_long_duration_cost: false,
+      },
+      {
+        confirm_remaining_provider_cost: true,
+        confirm_long_duration_cost: false,
+      },
     ]);
     expect(document.body.textContent).not.toContain(
       "raw provider retry failure",
+    );
+  });
+
+  it("uses the server duration policy for the long-recording confirmation", async () => {
+    const retryResponse = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      reason: "available",
+      attempt_count: 1,
+      max_attempts: 3,
+      missing_output_count: 1,
+      retry_safe_source_count: 1,
+      resumable_provider_part_count: 0,
+      provider_total_part_count: 0,
+      provider_failure_code: null,
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      errorCode: "media_duration_confirmation_required",
+      retryResponse,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/api/sources/upload-policy") && !init?.method)
+        return json({
+          local_upload_enabled: true,
+          max_upload_bytes: 536870912,
+          multipart_threshold_bytes: 16777216,
+          multipart_part_size_bytes: 8388608,
+          media_duration_warning_seconds: 7200,
+          media_max_duration_seconds: 21600,
+          supported_mime_prefixes: ["audio/", "video/"],
+          supported_mime_types: ["application/ogg"],
+        });
+      if (
+        String(url).endsWith("/api/jobs/job-focused/retry") &&
+        init?.method === "POST"
+      )
+        return json({ ...retryResponse, job_status: "queued" });
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Повторить безопасную обработку",
+      }),
+    );
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Запись длится больше 2 ч. Обработка может заметно увеличить расход ElevenLabs. Продолжить? Максимально допустимая длительность — 6 ч.",
+    );
+    await waitFor(() =>
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/jobs/job-focused/retry" &&
+            init?.method === "POST" &&
+            JSON.parse(String(init.body)).confirm_long_duration_cost === true,
+        ),
+      ).toBe(true),
     );
   });
   it("confirms timed-out cancellation with an authoritative job read and no second POST", async () => {
@@ -13141,7 +13224,7 @@ describe("settings diagnostics", () => {
         name: "Диагностический пакет для анализа",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/sanitized bundle/)).toBeInTheDocument();
+    expect(screen.getByText(/безопасный пакет/)).toBeInTheDocument();
     expect(screen.getByText(/Не вводите пароли/)).toBeInTheDocument();
     expect(screen.getByText(/Аудит безопасности в пакет не входит/)).toBeInTheDocument();
 
@@ -13150,7 +13233,7 @@ describe("settings diagnostics", () => {
       "Тестовый сбой при создании задачи",
     );
     await userEvent.type(
-      screen.getByLabelText("Связанная операция или задача"),
+      screen.getByLabelText(/Какая операция связана с проблемой/),
       "Задача 42",
     );
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
@@ -13164,10 +13247,8 @@ describe("settings diagnostics", () => {
       "api.request_failed",
     );
     for (const [label, format] of [
-      ["Markdown", "md"],
       ["JSON", "json"],
-      ["YAML", "yaml"],
-      ["TOML", "toml"],
+      ["Markdown", "md"],
     ]) {
       await userEvent.selectOptions(
         screen.getByLabelText("Формат пакета"),
@@ -13185,12 +13266,10 @@ describe("settings diagnostics", () => {
     ).mock.calls.filter(([url]) =>
       /\/api\/diagnostics\/report\.(md|json|yaml|toml)$/.test(String(url)),
     );
-    expect(reportCalls).toHaveLength(4);
+    expect(reportCalls).toHaveLength(2);
     expect(reportCalls.map(([url]) => String(url).split(".").at(-1))).toEqual([
-      "md",
       "json",
-      "yaml",
-      "toml",
+      "md",
     ]);
     for (const [, init] of reportCalls) {
       expect(init?.body).toContain('"level":"INFO"');
@@ -13210,9 +13289,9 @@ describe("settings diagnostics", () => {
     ).toBe(false);
     expect(
       clickSpy.mock.instances.map((instance) => instance.download.split(".").at(-1)),
-    ).toEqual(["md", "json", "yaml", "toml"]);
-    expect(createObjectURL).toHaveBeenCalledTimes(4);
-    expect(revokeObjectURL).toHaveBeenCalledTimes(4);
+    ).toEqual(["json", "md"]);
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(2);
     clickSpy.mockRestore();
     cleanup();
     window.history.replaceState({}, "", "/");
@@ -13257,6 +13336,7 @@ describe("settings diagnostics", () => {
     renderApp();
     await openDiagnosticsSettings();
     await screen.findByText("За выбранный период событий нет.");
+    await userEvent.selectOptions(screen.getByLabelText("Формат пакета"), "md");
     const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
     const timeoutSpy = vi
       .spyOn(globalThis, "setTimeout")
@@ -13358,6 +13438,7 @@ describe("settings diagnostics", () => {
 
     renderApp();
     await openDiagnosticsSettings();
+    await userEvent.selectOptions(screen.getByLabelText("Формат пакета"), "md");
     const exportButton = screen.getByRole("button", {
       name: "Скачать диагностический пакет",
     });
@@ -13415,6 +13496,7 @@ describe("settings diagnostics", () => {
 
     renderApp();
     await openDiagnosticsSettings();
+    await userEvent.selectOptions(screen.getByLabelText("Формат пакета"), "md");
     await userEvent.click(
       screen.getByRole("button", {
         name: "Скачать диагностический пакет",
@@ -13876,6 +13958,15 @@ describe("settings diagnostics", () => {
     expect(screen.getAllByText("Информация").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Фоновая обработка").length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toContain("JOB_CREATEDINFO");
+    const operationSearch = screen.getByLabelText(
+      /Какая операция связана с проблемой/,
+    );
+    await userEvent.type(operationSearch, "job_cre");
+    const matchingOperation = within(
+      screen.getByRole("group", { name: "Подходящие недавние операции" }),
+    ).getByRole("button", { name: /JOB_CREATED/ });
+    await userEvent.click(matchingOperation);
+    expect((operationSearch as HTMLInputElement).value).toMatch(/JOB_CREATED/);
     diagnosticsEventUrls.length = 0;
 
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
@@ -13918,6 +14009,7 @@ describe("settings diagnostics", () => {
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
 
+    await userEvent.selectOptions(screen.getByLabelText("Формат пакета"), "md");
     await userEvent.click(
       screen.getByRole("button", {
         name: "Скачать диагностический пакет",
