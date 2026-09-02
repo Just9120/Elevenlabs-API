@@ -15,19 +15,23 @@ def _write_exe(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def git_bash_path(path: Path) -> str:
+    value = path.resolve().as_posix()
+    if os.name == "nt" and len(value) >= 3 and value[1:3] == ":/":
+        return f"/{value[0].lower()}{value[2:]}"
+    return value
+
+
 def bash_test_command(bin_dir: Path, *args: str) -> list[str]:
     if os.name != "nt":
         return ["bash", *args]
 
-    posix_bin_dir = bin_dir.resolve().as_posix()
-    if len(posix_bin_dir) >= 3 and posix_bin_dir[1:3] == ":/":
-        posix_bin_dir = f"/{posix_bin_dir[0].lower()}{posix_bin_dir[2:]}"
     return [
         "bash",
         "-c",
         'export PATH="$1:$PATH"; shift; exec "$@"',
         "studio-deploy-test",
-        posix_bin_dir,
+        git_bash_path(bin_dir),
         "bash",
         *args,
     ]
@@ -41,6 +45,7 @@ def run_deploy(
     checkout_dir: Path | None = None,
     merge_target_tree: Path | None = None,
     merge_updates_head: bool = True,
+    fetch_bundle: bool = False,
     **env_overrides: str,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     log = tmp_path / "calls.log"
@@ -95,6 +100,7 @@ case "$*" in
     [[ "${{GIT_CONFIG_NOSYSTEM:-}}" == "1" ]]
     [[ "${{GIT_TERMINAL_PROMPT:-}}" == "0" ]]
     ;;
+  "fetch --no-tags "*".bundle HEAD:refs/remotes/origin/main") ;;
   "merge --ff-only origin/main") {merge_command} ;;
   *) echo "unexpected git $*" >&2; exit 44 ;;
 esac
@@ -196,6 +202,10 @@ fi
             "STUDIO_DEPLOY_DIR": str(checkout),
         }
     )
+    if fetch_bundle:
+        bundle_file = tmp_path / "studio-deploy.bundle"
+        bundle_file.write_text("test bundle payload\n", encoding="utf-8")
+        env["STUDIO_DEPLOY_FETCH_BUNDLE"] = git_bash_path(bundle_file)
     env_file = checkout / "deploy/studio/.env"
     created_env_file = not env_file.exists()
     if created_env_file:
@@ -271,28 +281,49 @@ def test_api_deploy_via_stdin_still_reaches_success_boundary(tmp_path: Path) -> 
     assert_no_forbidden_mutation(calls)
 
 
-def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> None:
+def test_studio_platform_cd_uses_exact_bundle_transport_for_components() -> None:
     workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(encoding="utf-8")
-    assert "git show origin/main:scripts/deploy_studio_platform_component.sh |" not in workflow
-    assert "bash -s -- web" not in workflow
-    assert "bash -s -- api" not in workflow
-    assert workflow.count("GIT_CONFIG_GLOBAL=/dev/null") == 3
-    assert workflow.count("GIT_CONFIG_SYSTEM=/dev/null") == 3
-    assert workflow.count("GIT_CONFIG_NOSYSTEM=1") == 3
-    assert workflow.count("GIT_TERMINAL_PROMPT=0") == 3
-    assert workflow.count("git config --local --get-regexp") == 3
-    assert workflow.count("git -c 'http.https://github.com/.extraheader=' fetch") == 3
-    for component in ("web", "api"):
-        pattern = re.compile(
-            rf"git -c 'http\.https://github\.com/\.extraheader=' fetch --prune origin main.*?"
-            rf"deploy_script=\"\$\(mktemp\)\".*?"
-            rf"trap 'rm -f \"\$deploy_script\"' EXIT.*?"
-            rf"git show origin/main:scripts/deploy_studio_platform_component.sh >\"\$deploy_script\".*?"
-            rf"\[\[ -s \"\$deploy_script\" \]\].*?"
-            rf"STUDIO_DEPLOY_DIR=\"\$STUDIO_DEPLOY_DIR\" bash \"\$deploy_script\" {component}",
-            re.DOTALL,
+    transport = (
+        ROOT / "scripts/deploy_studio_platform_component_bundle_transport.sh"
+    ).read_text(encoding="utf-8")
+    component_script = SCRIPT.read_text(encoding="utf-8")
+
+    assert workflow.count("Checkout exact trusted revision") == 3
+    assert workflow.count("persist-credentials: false") == 3
+    for component in ("web", "api", "worker"):
+        assert (
+            workflow.count(
+                f"bash scripts/deploy_studio_platform_component_bundle_transport.sh {component}"
+            )
+            == 1
         )
-        assert pattern.search(workflow), f"{component} deploy does not execute a materialized temporary script"
+    for fragment in (
+        'git bundle create "$LOCAL_BUNDLE" HEAD',
+        '[[ "$bundle_head" == "$EXPECTED_COMMIT" ]]',
+        '[[ "$(sha256sum "$BUNDLE_FILE" | awk \'{print $1}\')" == "$EXPECTED_BUNDLE_SHA" ]]',
+        'git fetch --no-tags "$BUNDLE_FILE" "HEAD:refs/remotes/origin/$EXPECTED_BRANCH"',
+        'STUDIO_DEPLOY_FETCH_BUNDLE="$BUNDLE_FILE"',
+        'bash "$temporary_script" "$COMPONENT"',
+    ):
+        assert fragment in transport
+    assert 'fetch_bundle="${STUDIO_DEPLOY_FETCH_BUNDLE:-}"' in component_script
+    assert 'git fetch --no-tags "$fetch_bundle"' in component_script
+
+
+def test_component_deploy_fetches_from_verified_bundle_without_origin_network(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_deploy(tmp_path, "web", fetch_bundle=True)
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert any(
+        line.startswith("git fetch --no-tags ")
+        and line.endswith(".bundle HEAD:refs/remotes/origin/main")
+        for line in calls
+    )
+    assert not any(
+        "http.https://github.com/.extraheader= fetch" in line for line in calls
+    )
 
 
 def test_studio_ci_path_filters_reference_existing_files() -> None:
@@ -303,6 +334,12 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
 
     assert missing == []
     assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
+    assert (
+        workflow.count(
+            "- 'scripts/deploy_studio_platform_component_bundle_transport.sh'"
+        )
+        == 2
+    )
 
 
 def test_repository_local_git_auth_or_rewrite_config_blocks_before_fetch(
@@ -449,12 +486,15 @@ def test_successful_worker_deployment_is_worker_only_and_manual_identity(tmp_pat
     assert_no_forbidden_mutation(calls)
 
 
-def test_workflow_worker_is_manual_only_and_materialized() -> None:
+def test_workflow_worker_is_manual_only_and_bundle_transported() -> None:
     workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(encoding="utf-8")
     assert "- worker" in workflow
     assert "deploy-worker:" in workflow
     assert "github.event_name == 'workflow_dispatch'" in workflow
-    assert 'bash "$deploy_script" worker' in workflow
+    assert (
+        "bash scripts/deploy_studio_platform_component_bundle_transport.sh worker"
+        in workflow
+    )
     assert "worker=true" not in workflow.split('elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]', 1)[1].split('echo "web=$web"',1)[0]
     assert "manage_studio_worker.sh drain" not in workflow
     assert "alembic upgrade" not in workflow
