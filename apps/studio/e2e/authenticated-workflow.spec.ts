@@ -727,7 +727,9 @@ test('transcript maintenance stays fail-closed without Google authority', async 
     .getByRole('button', { name: 'Транскрибации', exact: true })
     .click();
   await expect(page).toHaveURL(/\/transcriptions$/);
-  await page.getByRole('tab', { name: 'Готовые документы' }).click();
+  await page
+    .getByRole('tab', { name: 'Подготовка документов', exact: true })
+    .click();
 
   const maintenance = page.getByRole('region', {
     name: 'Проверка и обновление Google Docs',
