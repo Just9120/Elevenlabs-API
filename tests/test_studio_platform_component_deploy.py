@@ -288,8 +288,8 @@ def test_studio_platform_cd_uses_exact_bundle_transport_for_components() -> None
     ).read_text(encoding="utf-8")
     component_script = SCRIPT.read_text(encoding="utf-8")
 
-    assert workflow.count("Checkout exact trusted revision") == 3
-    assert workflow.count("persist-credentials: false") == 3
+    assert workflow.count("Checkout exact trusted revision") == 4
+    assert workflow.count("persist-credentials: false") == 4
     for component in ("web", "api", "worker"):
         assert (
             workflow.count(

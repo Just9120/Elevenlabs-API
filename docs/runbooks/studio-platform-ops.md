@@ -156,14 +156,19 @@ lane disabled unless repository variable
 environment `studio-production-migration`. When that environment is correctly
 protected, GitHub pauses the job for its required reviewer before environment
 secrets or VPS steps become available. Environment binding or a green job alone
-is not evidence that the pause and approval occurred. The job sends exactly
-`release <main-sha> <target>` to a dedicated root SSH key whose forced command is
+is not evidence that the pause and approval occurred. The job creates a Git
+bundle from its exact trusted checkout, verifies the advertised `HEAD` and
+SHA-256 checksum, then streams it over stdin while sending exactly
+`release-bundle <main-sha> <target> <bundle-sha256>` to a dedicated root SSH key whose forced command is
 `/usr/local/sbin/studio-migration-release-wrapper`.
 
-The root-owned wrapper accepts only that command, where target is `head` or one
-bounded Alembic revision identifier. It locks the release,
-fast-forwards the clean `studio-deploy` checkout to the exact current remote
-`main`, materializes the versioned runner from that SHA, clears the SSH
+The root-owned wrapper accepts only that command (plus the retained legacy
+network form for rollback compatibility), where target is `head` or one bounded
+Alembic revision identifier. It locks the release, receives at most 128 MiB,
+verifies the bundle checksum, structure and exact advertised `HEAD`, then
+fast-forwards the clean `studio-deploy` checkout from that local bundle without
+VPS-to-GitHub network access. It materializes the versioned runner from that
+SHA, clears the SSH
 environment, and executes the runner. The runner requires root-owned protected
 backup/OAuth secret files, the health/schema conditions below, and a stopped worker.
 It requires healthy PostgreSQL/Redis, a running API process and local API
@@ -201,28 +206,26 @@ One-time setup must be completed in this order:
    key out of band before storing the known-hosts entry.
 4. On the VPS, require a clean `main` checkout owned by `studio-deploy`.
    Because the lane is still disabled, the merge-triggered workflow may select
-   no VPS deploy job and therefore may not update this checkout. Fast-forward it
-   explicitly as `studio-deploy`, verify `HEAD` equals the reviewed merge SHA,
-   then install the wrapper as a root-owned regular file:
+   no VPS deploy job and therefore may not update this checkout. Deliver one
+   ordinary component from the reviewed merge through the checksum-verified
+   bundle transport, verify `HEAD` equals the reviewed merge SHA, then install
+   the wrapper as a root-owned regular file:
 
    ```bash
-   sudo -u studio-deploy \
-     git -C /opt/elevenlabs-studio fetch --prune origin main
-   sudo -u studio-deploy \
-     git -C /opt/elevenlabs-studio merge --ff-only origin/main
    sudo -u studio-deploy \
      git -C /opt/elevenlabs-studio status --short
    sudo -u studio-deploy \
      git -C /opt/elevenlabs-studio rev-parse HEAD
 
    sudo install \
-     -o root -g root -m 0755 \
+     -o root -g root -m 0500 \
      /opt/elevenlabs-studio/deploy/studio/studio-migration-release-wrapper.sh \
      /usr/local/sbin/studio-migration-release-wrapper
    ```
 
    Stop if status is non-empty or the printed SHA is not the reviewed merge
-   SHA. Do not fetch/merge this checkout as root.
+   SHA. Do not fetch/merge this checkout as root and do not add a GitHub
+   credential to the VPS.
 
 5. Add only the dedicated public key to root's `authorized_keys` with this
    forced-command shape; replace the placeholder with the public key, never the
@@ -263,7 +266,7 @@ the reviewed exact-main wrapper before enabling the lane:
 
 ```bash
 sudo install \
-  -o root -g root -m 0755 \
+  -o root -g root -m 0500 \
   /opt/elevenlabs-studio/deploy/studio/studio-migration-release-wrapper.sh \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
