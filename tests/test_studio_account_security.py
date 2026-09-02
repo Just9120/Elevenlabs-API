@@ -5,6 +5,8 @@ import re
 import sys
 from pathlib import Path
 
+import sqlalchemy as sa
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
@@ -65,3 +67,42 @@ def test_personal_security_migration_is_one_additive_successor():
     assert script.get_heads() == ["0034_personal_security"]
     assert revision.down_revision == "0033_observability_alerts_audit"
     assert revision.module.release_safety == "additive"
+
+
+def test_personal_security_migration_accepts_current_metadata_clean_install(monkeypatch):
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    engine = sa.create_engine("sqlite://")
+    script = ScriptDirectory.from_config(Config(str(ROOT / "apps/studio-api/alembic.ini")))
+    migration = script.get_revision("0034_personal_security").module
+    metadata = sa.MetaData()
+    sa.Table(
+        "sessions",
+        metadata,
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column(migration.SESSION_COLUMN, sa.DateTime(timezone=True)),
+    )
+    sa.Table(
+        "transcription_jobs",
+        metadata,
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column(migration.TRANSCRIPTION_JOB_COLUMN, sa.Boolean(), nullable=False),
+    )
+    for table, columns in migration.TABLE_COLUMNS.items():
+        sa.Table(
+            table,
+            metadata,
+            *(sa.Column(column, sa.String()) for column in sorted(columns)),
+        )
+    metadata.create_all(engine)
+
+    def unexpected_operation(*_args, **_kwargs):
+        raise AssertionError("clean metadata schema must not be recreated by 0034")
+
+    with engine.connect() as connection:
+        monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+        monkeypatch.setattr(migration.op, "add_column", unexpected_operation)
+        monkeypatch.setattr(migration.op, "create_table", unexpected_operation)
+        monkeypatch.setattr(migration.op, "create_index", unexpected_operation)
+        migration.upgrade()
