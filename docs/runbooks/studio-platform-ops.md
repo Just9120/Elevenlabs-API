@@ -550,6 +550,7 @@ Web and API are separate deployable components.
 - Web deployment rebuilds/recreates only the web component, verifies image identity, then checks localhost health.
 - API deployment rebuilds/recreates only the API component, verifies image identity, then checks dependency/schema-aware localhost `/api/readyz`; legacy `/api/healthz` remains a readiness alias.
 - A migration mismatch blocks API deploy success/readiness.
+- Component CD fetches only the allowlisted repository-local `origin`, rejects repository-local credential helpers, URL rewrites and config includes, ignores user/system Git configuration during the network fetch, and disables interactive prompts. The public repository does not require a stored GitHub credential; never put a PAT, password or username-bearing capability URL into the production remote to recover a failed fetch.
 - Ordinary component CD does not deploy/start/recreate `studio-worker` and does not maintain PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime secrets, or stateful services. The distinct protected migration lane is limited to the sequence documented above.
 - Failed component health checks fail loudly and must not trigger unreviewed destructive rollback.
 
