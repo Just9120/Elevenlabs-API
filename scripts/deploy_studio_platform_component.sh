@@ -44,10 +44,19 @@ require_file() {
 }
 
 fetch_expected_branch() {
-  local forbidden_local_git_config
+  local forbidden_local_git_config fetch_bundle
   forbidden_local_git_config='^(credential\.|url\..*\.insteadof$|include(if\..*)?\.path$)'
   if git config --local --get-regexp "$forbidden_local_git_config" >/dev/null 2>&1; then
     fail "repository-local credential, URL rewrite, or include configuration is not allowed"
+  fi
+
+  fetch_bundle="${STUDIO_DEPLOY_FETCH_BUNDLE:-}"
+  if [[ -n "$fetch_bundle" ]]; then
+    [[ "$fetch_bundle" == /* && -f "$fetch_bundle" && ! -L "$fetch_bundle" ]] \
+      || fail "deployment fetch bundle is invalid"
+    git fetch --no-tags "$fetch_bundle" \
+      "HEAD:refs/remotes/origin/$EXPECTED_BRANCH"
+    return
   fi
 
   GIT_CONFIG_GLOBAL=/dev/null \
