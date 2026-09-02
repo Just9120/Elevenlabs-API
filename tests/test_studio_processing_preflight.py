@@ -15,12 +15,13 @@ WORKFLOW = ROOT / ".github/workflows/studio-processing-preflight.yml"
 SHA = "a" * 40
 SECRET_MARKERS = ["SUPERSECRET", "TOKEN123", "container-alpha", "private@example.com", "https://secret.example"]
 IMAGE_ID = "sha256:" + "c" * 64
+BASH = str(Path("C:/Program Files/Git/bin/bash.exe")) if Path("C:/Program Files/Git/bin/bash.exe").exists() else "bash"
 
 
 def invoke_preflight(repo: Path, bin_dir: Path, *, cwd: Path | None = None):
     # Resolve paths inside Bash, including native Windows Python + Git Bash.
     return subprocess.run(
-        ["bash", "-c", 'export PREFLIGHT_TEST_PYTHON="$(command -v python)"; '
+        [BASH, "-c", 'export PREFLIGHT_TEST_PYTHON="$(command -v python)"; '
          'export PATH="$(cd "$1" && pwd):$PATH"; '
          'target="$(cd "$3" && pwd)"; exec bash "$2" "$target" main '
          'Just9120/Elevenlabs-API "$4"', "preflight-test",
@@ -44,6 +45,7 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     (repo / "deploy/studio").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "deploy/studio/compose.platform.yml", repo / "deploy/studio/compose.platform.yml")
     shutil.copy2(ROOT / "deploy/studio/worker-db-role.sql", repo / "deploy/studio/worker-db-role.sql")
+    shutil.copy2(ROOT / "deploy/studio/database-roles.sql", repo / "deploy/studio/database-roles.sql")
     (repo / "scripts").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "scripts/check_studio_worker_secret.py", repo / "scripts/check_studio_worker_secret.py")
     secret_dir = tmp_path / "secrets"
@@ -51,6 +53,8 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     secrets = {}
     for name in [
         "pg",
+        "api_pg",
+        "migrator_pg",
         "worker_pg",
         "master",
         "s3id",
@@ -72,6 +76,8 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
         secrets[name] = f"/protected-studio-secrets/{name}"
     env_text = f"""APP_PUBLIC_URL=https://secret.example
 STUDIO_POSTGRES_PASSWORD_FILE={secrets['pg']}
+STUDIO_API_POSTGRES_PASSWORD_FILE={secrets['api_pg']}
+STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE={secrets['migrator_pg']}
 STUDIO_WORKER_POSTGRES_PASSWORD_FILE={secrets['worker_pg']}
 STUDIO_CREDENTIAL_MASTER_KEY_FILE={secrets['master']}
 STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
@@ -89,6 +95,9 @@ STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID=audio-reference-retention
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
+STUDIO_RECENT_AUTH_SECONDS=600
+STUDIO_MEDIA_DURATION_WARNING_SECONDS=14400
+STUDIO_MEDIA_MAX_DURATION_SECONDS=43200
 STUDIO_GOOGLE_OAUTH_CLIENT_ID=client-private@example.com
 STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE={secrets['google']}
 STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
@@ -125,6 +134,11 @@ STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing
         f"#!/usr/bin/env bash\nprintf 'worker-role %s\\n' \"$*\" >> {log.as_posix()!r}\n"
         f"[[ {state.get('worker_role', 'ready')!r} == ready ]]\n",
     )
+    _write_exe(
+        repo / "scripts/configure_studio_database_roles.sh",
+        f"#!/usr/bin/env bash\nprintf 'database-roles %s\\n' \"$*\" >> {log.as_posix()!r}\n"
+        f"[[ {state.get('application_role', 'ready')!r} == ready ]]\n",
+    )
     branch = state.get("branch", "main")
     remote = state.get("remote", "git@github.com:Just9120/Elevenlabs-API.git")
     commit = state.get("commit", SHA)
@@ -148,7 +162,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0033_observability_alerts_audit")
+    current = state.get("current", "0034_personal_security")
     invalid_storage_kind = state.get("invalid_storage_kind", "")
     invalid_mounted_key = state.get("invalid_mounted_key", "")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
@@ -192,7 +206,7 @@ elif [[ "$1" == "image" ]]; then
   [[ {state.get('image_missing', '')!r} != yes ]] || exit 1
   echo {IMAGE_ID}; exit 0
 elif [[ "$1" == "run" ]]; then
-  [[ "$*" == 'run --rm --pull never --network none --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges --pids-limit 32 --memory 64m --memory-swap 64m --cpus 0.25 --log-driver none --mount type=bind,src=/protected-studio-secrets,dst=/run/studio-worker-secret-probe,readonly,bind-recursive=disabled --entrypoint python -i {IMAGE_ID} -I -S - worker_pg' ]] || exit 50
+  [[ "$*" =~ ^run\ --rm\ --pull\ never\ --network\ none\ --read-only\ --user\ 0:0\ --cap-drop\ ALL\ --security-opt\ no-new-privileges\ --pids-limit\ 32\ --memory\ 64m\ --memory-swap\ 64m\ --cpus\ 0.25\ --log-driver\ none\ --mount\ type=bind,src=/protected-studio-secrets,dst=/run/studio-worker-secret-probe,readonly,bind-recursive=disabled\ --entrypoint\ python\ -i\ {IMAGE_ID}\ -I\ -S\ -\ (worker_pg|pg|migrator_pg)$ ]] || exit 50
   input="$(cat)"
   [[ "$input" == *'def validate_metadata('* ]] || exit 51
   touch {(tmp_path / 'probe-ran').as_posix()!r}
@@ -238,9 +252,9 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_OK") == 1
     assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" not in proc.stdout
     assert "authenticated smoke-account login | not-run" in proc.stdout
-    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0033_observability_alerts_audit" in proc.stdout
-    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0033_observability_alerts_audit" in proc.stdout
-    assert "revision equality | pass | production database revision 0033_observability_alerts_audit equals repository head 0033_observability_alerts_audit" in proc.stdout
+    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0034_personal_security" in proc.stdout
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0034_personal_security" in proc.stdout
+    assert "revision equality | pass | production database revision 0034_personal_security equals repository head 0034_personal_security" in proc.stdout
     assert any(
         "exec -T studio-api python -m studio_api.container_entrypoint "
         "--drop-only alembic current" in c
@@ -287,15 +301,16 @@ def test_identity_failures_block_before_docker(tmp_path: Path) -> None:
         assert_no_secret_output(proc)
 
 
-def test_root_only_worker_secret_uses_metadata_probe_not_host_reads(tmp_path):
+def test_root_only_database_secrets_use_metadata_probe_not_host_reads(tmp_path):
     proc, calls, _ = run_preflight(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "protected metadata probe confirmed" in proc.stdout
     probes = [call for call in calls if call.startswith("docker run ")]
-    assert len(probes) == 1
-    assert "--network none --read-only --user 0:0" in probes[0]
-    assert "readonly,bind-recursive=disabled" in probes[0]
-    assert IMAGE_ID in probes[0]
+    assert len(probes) == 3
+    assert all("--network none --read-only --user 0:0" in probe for probe in probes)
+    assert all("readonly,bind-recursive=disabled" in probe for probe in probes)
+    assert all(IMAGE_ID in probe for probe in probes)
+    assert {probe.rsplit(" ", 1)[-1] for probe in probes} == {"worker_pg", "pg", "migrator_pg"}
     assert not any("worker_pg" in call for call in calls if "exec -T studio-api" in call)
     assert_no_secret_output(proc)
     assert_no_forbidden(calls)
@@ -408,14 +423,24 @@ def test_worker_database_role_is_a_read_only_preflight_gate(tmp_path: Path) -> N
     assert_no_forbidden(calls)
 
 
+def test_application_database_roles_are_a_read_only_preflight_gate(tmp_path: Path) -> None:
+    proc, calls, _ = run_preflight(tmp_path, application_role="missing")
+    assert proc.returncode != 0
+    assert row_statuses(proc.stdout)["application database roles"] == "blocked"
+    assert calls.count("database-roles verify") == 1
+    assert not any("database-roles apply" in call or "database-roles disable" in call for call in calls)
+    assert_no_secret_output(proc)
+    assert_no_forbidden(calls)
+
+
 def test_revision_safety_cases(tmp_path: Path) -> None:
     # no/multiple repository heads by changing down_revision graph in copied files
     proc, _, repo = run_preflight(tmp_path / "ok")
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0033_observability_alerts_audit.py"
-    f.write_text(f.read_text().replace('revision = "0033_observability_alerts_audit"', 'revision = "0033_wrong_head"'), encoding="utf-8", newline="\n")
+    f = repo / "apps/studio-api/alembic/versions/0034_personal_security.py"
+    f.write_text(f.read_text().replace('revision = "0034_personal_security"', 'revision = "0034_wrong_head"'), encoding="utf-8", newline="\n")
     proc = invoke_preflight(repo, case / "bin")
     assert proc.returncode != 0
 
@@ -449,7 +474,7 @@ def test_revision_output_is_known_normalized_metadata_only(tmp_path: Path) -> No
     )
     assert mismatch.returncode != 0
     assert "production Alembic revision | pass | exactly one known production database revision was reported: 0011_diagnostic_debug_sessions" in mismatch.stdout
-    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0033_observability_alerts_audit" in mismatch.stdout
+    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0034_personal_security" in mismatch.stdout
     assert_no_secret_output(mismatch)
     assert_no_forbidden(calls)
 
@@ -481,9 +506,9 @@ def test_workflow_contract() -> None:
 REQUIRED_ROWS = [
     "deploy directory identity", "repository remote identity", "branch identity", "commit identity", "tracked working tree",
     "runtime env presence", "runtime setting completeness",
-    "POSTGRES_PASSWORD secret-file presence", "WORKER_POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence", "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
+    "POSTGRES_PASSWORD secret-file presence", "API_POSTGRES_PASSWORD secret-file presence", "MIGRATOR_POSTGRES_PASSWORD secret-file presence", "WORKER_POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence", "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
     "postgres service count/status", "redis service count/status", "studio-api service count/status", "studio-web service count/status", "studio-worker service count/status",
-    "PostgreSQL health", "worker database role", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
+    "PostgreSQL health", "application database roles", "worker database role", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
     "repository Alembic head", "production Alembic revision", "revision equality",
     "authenticated smoke-account login", "active Google connection", "exactly one active ElevenLabs BYOK credential", "writable output folder selected", "one small supported source available",
 ]
@@ -701,13 +726,16 @@ def test_service_aggregation_fail_closed(tmp_path: Path) -> None:
 def validate_remote_path_candidate(value: str) -> bool:
     script = r'''
 set -euo pipefail
-mktemp_output="$1"
+mktemp_output="$PREFLIGHT_MKTEMP_OUTPUT"
+if [[ "$mktemp_output" == *$'\n'* || "$mktemp_output" == *$'\r'* ]]; then exit 1; fi
 mapfile -t mktemp_lines <<<"$mktemp_output"
 if [[ "${#mktemp_lines[@]}" -ne 1 || -z "${mktemp_lines[0]}" ]]; then exit 1; fi
 remote_script="${mktemp_lines[0]}"
 [[ "$remote_script" =~ ^/tmp/studio-processing-preflight\.[A-Za-z0-9]{6,32}$ ]]
 '''
-    return subprocess.run(["bash", "-c", script, "_", value], text=True).returncode == 0
+    env = os.environ.copy()
+    env["PREFLIGHT_MKTEMP_OUTPUT"] = value
+    return subprocess.run([BASH, "-c", script], env=env, text=True).returncode == 0
 
 
 def test_remote_temp_path_validation_cases() -> None:
@@ -753,12 +781,18 @@ def run_workflow_transport(tmp_path: Path, *, scp_fail: bool = False, exec_fail:
     bin_dir.mkdir(parents=True)
     log = tmp_path / "transport.log"
     remote_path = "/tmp/studio-processing-preflight.Abc123"
+    remote_storage = tmp_path / "remote-uploaded-script"
+    _write_exe(
+        bin_dir / "python3",
+        '#!/usr/bin/env bash\nexec "$PREFLIGHT_TRANSPORT_PYTHON" "$@"\n',
+    )
     _write_exe(
         bin_dir / "ssh",
         f'''#!/usr/bin/env python3
 import os, shlex, subprocess, sys
 log={log.as_posix()!r}
 remote={remote_path!r}
+storage={remote_storage.as_posix()!r}
 args=sys.argv[1:]
 cmd=args[-1]
 with open(log, 'a', encoding='utf-8') as f: f.write('ssh-argc %d\\n' % len(args)); f.write('ssh-cmd '+cmd+'\\n')
@@ -768,14 +802,14 @@ parts=shlex.split(cmd)
 with open(log, 'a', encoding='utf-8') as f: f.write('ssh-parts '+repr(parts)+'\\n')
 if parts[:3] == ['rm', '-f', '--']:
     with open(log, 'a', encoding='utf-8') as f: f.write('cleanup-path '+parts[3]+'\\n')
-    if parts[3] == remote and os.path.exists(parts[3]): os.remove(parts[3])
+    if parts[3] == remote and os.path.exists(storage): os.remove(storage)
     sys.exit(0)
 if {str(exec_fail)}: sys.exit(23)
 expected=['chmod','700','--',remote,'&&','cd','/opt/elevenlabs-studio','&&',remote,'/opt/elevenlabs-studio','main','Just9120/Elevenlabs-API',os.environ['EXPECTED_COMMIT']]
 if parts != expected:
     with open(log, 'a', encoding='utf-8') as f: f.write('unexpected-parts '+repr(parts)+'\\n')
     sys.exit(24)
-subprocess.run([remote, '/opt/elevenlabs-studio', 'main', 'Just9120/Elevenlabs-API', os.environ['EXPECTED_COMMIT']], check=True)
+subprocess.run([os.environ['PREFLIGHT_TRANSPORT_BASH'], storage, '/opt/elevenlabs-studio', 'main', 'Just9120/Elevenlabs-API', os.environ['EXPECTED_COMMIT']], check=True)
 sys.exit(0)
 ''',
     )
@@ -788,8 +822,8 @@ with open(log, 'a', encoding='utf-8') as f: f.write('scp-args '+repr(sys.argv[1:
 if {str(scp_fail)}: sys.exit(22)
 target=sys.argv[-1]
 assert target == 'deployer@example.invalid:{remote_path}'
-shutil.copyfile(sys.argv[-2], {remote_path!r})
-os.chmod({remote_path!r}, 0o700)
+shutil.copyfile(sys.argv[-2], {remote_storage.as_posix()!r})
+os.chmod({remote_storage.as_posix()!r}, 0o700)
 ''',
     )
     script_dir = tmp_path / "scripts"
@@ -800,8 +834,27 @@ os.chmod({remote_path!r}, 0o700)
     )
     (script_dir / "studio_processing_preflight.sh").chmod(0o700)
     env = os.environ.copy()
-    env.update({"PATH": f"{bin_dir}:{env['PATH']}", "DEPLOY_HOST": "example.invalid", "DEPLOY_USER": "deployer", "EXPECTED_COMMIT": SHA})
-    proc = subprocess.run(["bash", "-c", workflow_step_run("Run read-only Studio processing host preflight")], cwd=tmp_path, env=env, text=True, capture_output=True, timeout=10)
+    env.update(
+        {
+            "DEPLOY_HOST": "example.invalid",
+            "DEPLOY_USER": "deployer",
+            "EXPECTED_COMMIT": SHA,
+            "PREFLIGHT_TRANSPORT_BASH": BASH,
+            "PREFLIGHT_TRANSPORT_PYTHON": os.sys.executable,
+        }
+    )
+    run = (
+        'export PATH="$(cd "$1" && pwd):$PATH"\n'
+        + workflow_step_run("Run read-only Studio processing host preflight")
+    )
+    proc = subprocess.run(
+        [BASH, "-c", run, "workflow-transport-test", bin_dir.as_posix()],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
     lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     return proc, lines
 
@@ -830,22 +883,36 @@ def test_workflow_cleanup_runs_after_upload_or_execution_failure(tmp_path: Path)
 
 def test_missing_worker_lease_heartbeat_setting_uses_safe_default(tmp_path: Path) -> None:
     proc, _, _ = run_preflight(tmp_path, env_text="""APP_PUBLIC_URL=https://secret.example
+STUDIO_POSTGRES_PASSWORD_FILE=/tmp/nonexistent-bootstrap
+STUDIO_API_POSTGRES_PASSWORD_FILE=/tmp/nonexistent-api
+STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE=/tmp/nonexistent-migrator
+STUDIO_WORKER_POSTGRES_PASSWORD_FILE=/tmp/nonexistent-worker
+STUDIO_CREDENTIAL_MASTER_KEY_FILE=/tmp/nonexistent-master
 STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_SOURCE_S3_REGION=auto
 STUDIO_SOURCE_S3_BUCKET=bucket
+STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE=/tmp/nonexistent-source-id
+STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE=/tmp/nonexistent-source-secret
 STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID=transcription-reference-retention
 STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_AUDIO_REFERENCE_S3_REGION=auto
 STUDIO_AUDIO_REFERENCE_S3_BUCKET=audio-bucket
+STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE=/tmp/nonexistent-audio-id
+STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE=/tmp/nonexistent-audio-secret
 STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID=audio-reference-retention
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
+STUDIO_RECENT_AUTH_SECONDS=600
+STUDIO_MEDIA_DURATION_WARNING_SECONDS=14400
+STUDIO_MEDIA_MAX_DURATION_SECONDS=43200
 STUDIO_GOOGLE_OAUTH_CLIENT_ID=client
+STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent-google
 STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
 STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly
 STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600
 STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID=maintenance-client
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent-google-maintenance
 STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
 STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents
 STUDIO_GOOGLE_PICKER_API_KEY=picker

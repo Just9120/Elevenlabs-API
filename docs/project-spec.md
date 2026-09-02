@@ -174,6 +174,23 @@ Status: **🟩 READY — 100% (`13/13`)**. Все product AC, exact-main CI/depl
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact `main@295033c8b4481528ffcb739bf9c017e22a05e9c9`, repository CI `33495743363`, Studio/browser `33495743357` и platform/worker delivery `33495743305` / `33496421647` подтверждены. Owner-authorized long-media job `66e70976-2f26-4ed0-93d6-8436784b9fdd` обновляла единый meter без reload/tab switch на протяжении source preparation за прежней 60-second границей; provider rejection произошёл уже после подтверждённого dispatch boundary и не отменяет progress Evidence.
 
+### Эпик `PWA-UX-POLISH-03` — содержательный dashboard и сворачиваемые support/maintenance details
+
+Status: **🟦 IN PROGRESS — 0% (`0/8`)**. Atomic scope добавлен explicit owner browser annotations 2026-09-02; implementation/Evidence ещё не засчитаны.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `UXPOL-01` | Owner dashboard показывает полезные незавершённые/последние транскрибации, последние документы, connection/system attention и быстрые действия; корректные loading/empty/error states не подменяются техническими counters. | — |
+| `UXPOL-02` | Maintenance-вкладка называется `Подготовка документов` и объясняет проверку/стандартизацию текущего формата без двусмысленного обещания, что все документы уже готовы. | — |
+| `UXPOL-03` | Завершённый scan/apply plan сначала показывает summary; document list сворачивается, а весь завершённый результат можно явно убрать/reset без удаления durable run/history или влияния на running operation. | — |
+| `UXPOL-04` | System state в `Для поддержки` по умолчанию показывает понятный readiness summary, а component identities, commits, schema и technical probes находятся под доступным disclosure. | — |
+| `UXPOL-05` | Diagnostic events отображаются bounded страницами; каждая строка имеет понятный human label/summary и раскрывает technical code/metadata только по запросу пользователя. | — |
+| `UXPOL-06` | Diagnostic bundle UI предлагает `JSON — для анализа моделью` и `Markdown — для человека`, ясно объясняет выбор и не требует DOCX/YAML/TOML для обычного flow; backend compatibility может сохраняться. | — |
+| `UXPOL-07` | Связанная операция/задача выбирается или ищется по понятному названию/ID case-insensitively; поле остаётся optional, объясняет назначение и не требует угадать exact register/internal identifier. | — |
+| `UXPOL-08` | ElevenLabs account/cost panel объясняет план, использовано/осталось, overage и invoice простым русским языком; raw provider units/provenance находятся под optional disclosure. | — |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Local implementation covers all eight annotated UX corrections; product completion remains uncounted until exact-head CI and applicable delivery/LIVE.
+
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
 Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC, exact-main CI и web deployment подтверждены; authenticated production LIVE для source-cache/navigation behavior ещё не выполнен, поэтому эпик не `READY`.
@@ -389,7 +406,7 @@ Status: **🟩 READY — 100% (`9/9`)**. Exact-main CI, protected API/web/worker
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PTM-01` | Стандартизация Google Docs и `Манифест Studio` находятся в отдельном workspace `Транскрибации → Обслуживание`; `Настройки → Подключения` содержит только connection/consent controls и ссылку в workspace. | ✅ |
+| `PTM-01` | Стандартизация Google Docs и `Манифест Studio` находятся в отдельном workspace `Транскрибации → Подготовка документов`; `Настройки → Подключения` содержит только connection/consent controls и ссылку в workspace. | ✅ |
 | `PTM-02` | Выбор root folder и одного native Google Doc использует app-owned Google Drive dialog с навигацией, bounded search, выбором текущей папки и блокировкой фонового scroll. | ✅ |
 | `PTM-03` | Dry-run и apply выполняются как durable owner-scoped background runs и восстанавливают состояние после navigation/reload, worker restart или истечения lease; длительный Google traversal не удерживает browser HTTP request. | ✅ |
 | `PTM-04` | UI показывает persisted stage, bounded progress и terminal result; Drive/document IDs, OAuth tokens, document contents и raw Google errors не возвращаются в browser DTO и не попадают в operational logs. | ✅ |
@@ -513,7 +530,7 @@ Status: **🟦 IN PROGRESS — 50,0% (`9/18`)**. `PWASEC-07..PWASEC-09` реал
 | `PWASEC-17` | TOTP recovery определён и протестирован. | — |
 | `PWASEC-18` | TOTP disable требует безопасной owner verification. | — |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`. New duration, recent-auth, TOTP/recovery and password-reset boundary tests pass locally; existing CI evidence does not cover the current uncommitted revision.
 
 ### Эпик `GOOGLE-DRIVE-RELIABILITY-02` — Drive upload/token/preflight reliability
 
@@ -618,6 +635,23 @@ Status: **🟩 READY — 100% (`3/3`)**. Resource/privilege isolation, exact wor
 | `PWAWOR-03` | Media/FFmpeg worker имеет минимально необходимые filesystem/network/database privileges. | ✅ |
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. После operator master-key ownership correction worker deployment `33388441193`/job `99476297938` и status `33388535135` подтвердили 2 CPU, 4 GiB memory, 256 PID, read-only rootfs, no-new-privileges, две разрешённые сети, restricted DB role и UID/GID `10001`. PR `#270` перенёс archive serialization на допустимую API boundary, а PR `#271` устранил idle transaction во время long source/media I/O. Exact `main@295033c8` repository CI `33495743363`, worker deploy `33496421647` и final status `33496797208` прошли. Owner-authorized production job `66e70976-2f26-4ed0-93d6-8436784b9fdd` реально выполняла длительную source preparation в изолированном worker и достигла provider dispatch; subsequent zero-usage provider rejection не отменяет runtime isolation Evidence. Изменение `+66,7` п.п. — выполнение двух runtime AC, denominator не изменён.
+
+### Эпик `PWA-DATABASE-LEAST-PRIVILEGE-03` — отдельные PostgreSQL owner, migrator и runtime roles
+
+Status: **🟦 IN PROGRESS — 0% (`0/8`)**. Existing `studio_worker` закрывает только worker boundary; ordinary API и protected migration всё ещё используют bootstrap `studio`, поэтому system-wide personal least privilege не подтверждён.
+
+| AC | Requirement | Выполнено |
+|---|---|:---:|
+| `DBLP-01` | Running API использует отдельную login role без `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION`, `BYPASSRLS`, schema ownership или DDL privileges. | — |
+| `DBLP-02` | Protected migrations используют отдельную migrator login role, не доступную API/worker и ограниченную одной Studio database/schema ownership boundary. | — |
+| `DBLP-03` | Schema/tables/sequences принадлежат отдельной `NOLOGIN` owner role; bootstrap/admin login не является ordinary runtime owner. | — |
+| `DBLP-04` | API, worker, migrator и bootstrap credentials хранятся в разных root-owned secret files; bootstrap credential не монтируется в API/worker containers. | — |
+| `DBLP-05` | Reviewed API/worker direct-grant manifests сначала revoke broad access/memberships, затем выдают минимальные table/sequence grants; public schema CREATE и implicit grants запрещены. | — |
+| `DBLP-06` | Default privileges и protected migration flow fail closed re-apply/verify API/worker grants после additive schema change до component recreation. | — |
+| `DBLP-07` | Clean initialization и upgrade проверяют positive/negative role matrix, schema ownership, Alembic current/head, API/worker readiness и отсутствие privilege escalation. | — |
+| `DBLP-08` | Production switch имеет verified pre-change backup, staged credential/role preflight, bounded API smoke и explicit compatible rollback/recovery без возврата bootstrap/superuser credential в runtime. | — |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Role manifests, protected migration/recovery scripts, preflight and negative contract tests pass locally; production role identity is intentionally not claimed before protected delivery.
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 

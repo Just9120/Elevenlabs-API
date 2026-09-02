@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -33,10 +34,12 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError, ProgrammingError
 from studio_api.config import Settings
+from studio_api.account_security import RECOVERY_CODE_COUNT, _totp, recovery_code_hash
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus, UserTotpFactor, UserTotpRecoveryCode
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
+from studio_api.totp_break_glass import TotpBreakGlassError, disable_owner_totp
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
@@ -60,7 +63,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["runtime_component_status", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["runtime_component_status", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -125,11 +128,258 @@ def test_password_hashing_argon2id():
     assert not verify_password(h, "bad")
 
 
+def test_operator_totp_break_glass_disables_factor_revokes_sessions_and_audits():
+    admin(email="owner@example.com")
+    db = SessionLocal()
+    user = db.query(User).filter_by(email="owner@example.com").one()
+    factor = UserTotpFactor(
+        user_id=user.id,
+        secret_ciphertext=b"encrypted-secret-is-never-read",
+        secret_nonce=b"nonce-is-never-read",
+        key_id="test-key",
+        confirmed_at=utcnow(),
+        created_at=utcnow(),
+        updated_at=utcnow(),
+    )
+    session = DbSession(
+        user_id=user.id,
+        token_hash="a" * 64,
+        csrf_hash="b" * 64,
+        expires_at=utcnow() + timedelta(days=1),
+    )
+    recovery = UserTotpRecoveryCode(
+        user_id=user.id,
+        code_hash="c" * 64,
+        created_at=utcnow(),
+    )
+    db.add_all([factor, session, recovery])
+    db.commit()
+
+    result = disable_owner_totp(
+        db,
+        owner_email=" OWNER@example.com ",
+        reason="lost-authenticator",
+        now=utcnow(),
+    )
+    db.expire_all()
+
+    assert result.revoked_sessions == 1
+    assert db.get(UserTotpFactor, user.id).disabled_at is not None
+    assert db.get(DbSession, session.id).revoked_at is not None
+    assert db.query(UserTotpRecoveryCode).filter_by(user_id=user.id, used_at=None).count() == 0
+    event = db.query(AuditEvent).filter_by(
+        event_type="auth.totp_break_glass_disabled",
+        subject_user_id=user.id,
+    ).one()
+    assert event.actor_user_id is None
+    assert json.loads(event.metadata_json) == {"reason": "lost-authenticator"}
+    db.close()
+
+
+def test_operator_totp_break_glass_fails_closed_for_unknown_owner():
+    admin(email="owner@example.com")
+    db = SessionLocal()
+    with pytest.raises(TotpBreakGlassError, match="eligible owner not found"):
+        disable_owner_totp(
+            db,
+            owner_email="unknown@example.com",
+            reason="recovery-codes-unavailable",
+        )
+    assert db.query(AuditEvent).filter_by(
+        event_type="auth.totp_break_glass_disabled",
+    ).count() == 0
+    db.close()
+
+
+def test_optional_totp_enrollment_login_recovery_and_disable_lifecycle():
+    password = admin(email="owner@example.com")
+    owner = TestClient(app)
+    csrf = login(owner, password, email="owner@example.com")
+
+    enrolled = owner.post(
+        "/api/auth/totp/enroll",
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert enrolled.status_code == 200
+    assert enrolled.headers["cache-control"] == "no-store"
+    material = enrolled.json()
+    assert material["otpauth_uri"].startswith("otpauth://totp/")
+    assert material["qr_svg_data_uri"].startswith("data:image/svg+xml;base64,")
+    code = _totp(material["secret"], int(time.time()) // 30)
+
+    confirmed = owner.post(
+        "/api/auth/totp/confirm",
+        json={"verification_code": code},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert confirmed.status_code == 200
+    recovery_codes = confirmed.json()["recovery_codes"]
+    assert len(recovery_codes) == RECOVERY_CODE_COUNT
+
+    db = SessionLocal()
+    user = db.query(User).filter_by(email="owner@example.com").one()
+    factor = db.get(UserTotpFactor, user.id)
+    assert factor.confirmed_at is not None
+    hashes = {
+        row.code_hash
+        for row in db.query(UserTotpRecoveryCode).filter_by(user_id=user.id).all()
+    }
+    assert hashes == {recovery_code_hash(value) for value in recovery_codes}
+    assert all(value not in hashes for value in recovery_codes)
+    db.close()
+
+    without_factor = TestClient(app)
+    login_context = without_factor.post(
+        "/api/auth/login-context",
+        headers={"origin": "https://studio.test"},
+    ).json()["login_csrf_token"]
+    rejected = without_factor.post(
+        "/api/auth/login",
+        json={
+            "email": "owner@example.com",
+            "password": password,
+            "login_csrf_token": login_context,
+        },
+        headers={"origin": "https://studio.test"},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json() == {"detail": {"reason": "second_factor_required"}}
+
+    with_factor = TestClient(app)
+    login_context = with_factor.post(
+        "/api/auth/login-context",
+        headers={"origin": "https://studio.test"},
+    ).json()["login_csrf_token"]
+    accepted = with_factor.post(
+        "/api/auth/login",
+        json={
+            "email": "owner@example.com",
+            "password": password,
+            "login_csrf_token": login_context,
+            "verification_code": code,
+        },
+        headers={"origin": "https://studio.test"},
+    )
+    assert accepted.status_code == 200
+
+    with_recovery = TestClient(app)
+    login_context = with_recovery.post(
+        "/api/auth/login-context",
+        headers={"origin": "https://studio.test"},
+    ).json()["login_csrf_token"]
+    recovered = with_recovery.post(
+        "/api/auth/login",
+        json={
+            "email": "owner@example.com",
+            "password": password,
+            "login_csrf_token": login_context,
+            "recovery_code": recovery_codes[0],
+        },
+        headers={"origin": "https://studio.test"},
+    )
+    assert recovered.status_code == 200
+    db = SessionLocal()
+    assert db.query(UserTotpRecoveryCode).filter_by(
+        user_id=user.id,
+        code_hash=recovery_code_hash(recovery_codes[0]),
+    ).one().used_at is not None
+    assert db.query(AuditEvent).filter_by(
+        event_type="auth.totp_recovery_consumed",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+    ).count() == 1
+    db.close()
+
+    disabled = owner.request(
+        "DELETE",
+        "/api/auth/totp",
+        json={"verification_code": code},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json() == {"enabled": False}
+
+
+def test_recent_auth_and_totp_verification_limits_are_independent():
+    password = admin(email="owner@example.com")
+    client = TestClient(app)
+    csrf = login(client, password, email="owner@example.com")
+    db = SessionLocal()
+    user = db.query(User).filter_by(email="owner@example.com").one()
+    current = db.query(DbSession).filter_by(user_id=user.id, revoked_at=None).one()
+    current.reauthenticated_at = utcnow() - timedelta(hours=1)
+    db.commit()
+    db.close()
+
+    stale = client.post(
+        "/api/auth/totp/enroll",
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["reason"] == "recent_reauthentication_required"
+    assert stale.headers["cache-control"] == "no-store"
+
+    refreshed = client.post(
+        "/api/auth/reauth",
+        json={"password": password},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert refreshed.status_code == 200
+    enrolled = client.post(
+        "/api/auth/totp/enroll",
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert enrolled.status_code == 200
+
+    for _ in range(5):
+        invalid = client.post(
+            "/api/auth/totp/confirm",
+            json={"verification_code": "000000"},
+            headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+        )
+        assert invalid.status_code == 422
+    limited = client.post(
+        "/api/auth/totp/confirm",
+        json={"verification_code": "000000"},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert limited.status_code == 429
+
+    password_reset = client.post(
+        "/api/auth/password-reset/request",
+        json={"email": "owner@example.com"},
+        headers={"origin": "https://studio.test"},
+    )
+    assert password_reset.status_code == 200
+    assert password_reset.json() == {"accepted": True, "delivery": "not_configured"}
+
+
+def test_password_reset_request_is_uniform_for_known_and_unknown_accounts():
+    admin(email="owner@example.com")
+    client = TestClient(app)
+    known = client.post(
+        "/api/auth/password-reset/request",
+        json={"email": "owner@example.com"},
+        headers={"origin": "https://studio.test"},
+    )
+    unknown = client.post(
+        "/api/auth/password-reset/request",
+        json={"email": "unknown@example.com"},
+        headers={"origin": "https://studio.test"},
+    )
+    assert known.status_code == unknown.status_code == 200
+    assert known.headers["cache-control"] == unknown.headers["cache-control"] == "no-store"
+    assert known.json() == unknown.json() == {
+        "accepted": True,
+        "delivery": "not_configured",
+    }
+
+
 def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0033_observability_alerts_audit", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0034_personal_security", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -845,6 +1095,8 @@ def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
     monkeypatch.setattr(main_mod.settings, "source_max_upload_bytes", 123456)
     monkeypatch.setattr(main_mod.settings, "source_multipart_threshold_bytes", 16 * 1024 * 1024)
     monkeypatch.setattr(main_mod.settings, "source_multipart_part_size_bytes", 8 * 1024 * 1024)
+    monkeypatch.setattr(main_mod.settings, "media_duration_warning_seconds", 7200)
+    monkeypatch.setattr(main_mod.settings, "media_max_duration_seconds", 21600)
     monkeypatch.setattr(
         type(main_mod.settings),
         "reference_storage_isolation_configured",
@@ -861,6 +1113,8 @@ def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
         "max_upload_bytes": 123456,
         "multipart_threshold_bytes": 16 * 1024 * 1024,
         "multipart_part_size_bytes": 8 * 1024 * 1024,
+        "media_duration_warning_seconds": 7200,
+        "media_max_duration_seconds": 21600,
         "supported_mime_prefixes": ["audio/", "video/"],
         "supported_mime_types": ["application/ogg"],
     }
@@ -3733,7 +3987,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0033_observability_alerts_audit"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0034_personal_security"
 
 
 
@@ -3797,7 +4051,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0033_observability_alerts_audit"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0034_personal_security"
 
 
 
@@ -7666,7 +7920,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0033_observability_alerts_audit"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0034_personal_security"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

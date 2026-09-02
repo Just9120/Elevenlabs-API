@@ -27,3 +27,9 @@ export function formatUploadLimit(value: number) {
     return `${Number.isInteger(kibibytes) ? kibibytes : kibibytes.toFixed(1)} КБ`;
   return `${value} байт`;
 }
+
+export function formatDurationLimit(seconds: number) {
+  if (seconds % 3600 === 0) return `${seconds / 3600} ч`;
+  if (seconds % 60 === 0) return `${seconds / 60} мин`;
+  return `${seconds} сек`;
+}

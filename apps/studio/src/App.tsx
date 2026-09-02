@@ -46,6 +46,7 @@ import {
   formatTime,
   formatBytes,
   formatUploadLimit,
+  formatDurationLimit,
   retentionOptionLabel,
 } from "./formatters";
 import {
@@ -110,6 +111,8 @@ import {
   type JobState,
   type TranscriptionJob,
   type TranscriptionLanguageMode,
+  jobTitle,
+  jobСтатусLabel,
   transcriptionLanguageModeLabel,
 } from "./jobModel";
 import {
@@ -170,6 +173,7 @@ import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import { FolderImportDialog } from "./FolderImportDialog";
 import { AccountSessionsPanel } from "./AccountSessionsPanel";
+import { AccountSecurityPanel } from "./AccountSecurityPanel";
 import {
   buildLocalFolderPreview,
   localFolderRejectedReasonLabel,
@@ -3728,6 +3732,18 @@ function PreparationPanel({
   }
 
   async function retryJob(jobId: string) {
+    const selectedJob=jobs.items.find((item) => item.id === jobId) ?? null;
+    const longDurationMode=selectedJob?.error_code === "media_duration_confirmation_required";
+    const durationWarningSeconds=
+      sourceUploadPolicy?.media_duration_warning_seconds ?? 14400;
+    const durationMaxSeconds=
+      sourceUploadPolicy?.media_max_duration_seconds ?? 43200;
+    if (
+      longDurationMode &&
+      !safeConfirm(
+        `Запись длится больше ${formatDurationLimit(durationWarningSeconds)}. Обработка может заметно увеличить расход ElevenLabs. Продолжить? Максимально допустимая длительность — ${formatDurationLimit(durationMaxSeconds)}.`,
+      )
+    ) return;
     if (!beginJobMutation("retry", jobId)) return;
     let notice: JobMutationNotice | undefined;
     const beforeRetry = retries[jobId]?.data ?? null;
@@ -3758,9 +3774,13 @@ function PreparationPanel({
           {
             method: "POST",
             signal,
-            body: partialMode
-              ? JSON.stringify({ confirm_remaining_provider_cost: true })
-              : undefined,
+            body:
+              partialMode || longDurationMode
+                ? JSON.stringify({
+                    confirm_remaining_provider_cost: partialMode,
+                    confirm_long_duration_cost: longDurationMode,
+                  })
+                : undefined,
           },
         );
         const parsed = parseJobRetryResponse(candidate, jobId);
@@ -5351,6 +5371,9 @@ function OverviewPage({
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState(false);
+  const [recentJobs, setRecentJobs] = useState<TranscriptionJob[]>([]);
+  const [recentJobsLoading, setRecentJobsLoading] = useState(false);
+  const [recentJobsError, setRecentJobsError] = useState(false);
   const loadProjects = () => {
     setProjectsLoading(true);
     setProjectsError(false);
@@ -5359,9 +5382,27 @@ function OverviewPage({
       "overview:projects",
       requestProjectCollection,
       (page) => {
-        setProjects(page.items.filter((project) => !project.archived_at));
+        const activeProjects=page.items.filter((project) => !project.archived_at);
+        setProjects(activeProjects);
         setProjectsError(false);
         setProjectsLoading(false);
+        const workspace=activeProjects[0];
+        if (!workspace) {
+          setRecentJobs([]); setRecentJobsLoading(false); setRecentJobsError(false);
+          return;
+        }
+        setRecentJobsLoading(true); setRecentJobsError(false);
+        void settleLatestRequest(
+          requestEpochsRef.current,
+          "overview:recent-jobs",
+          (signal) => requestProjectJobPage(workspace.id,null,signal),
+          (jobsPage) => {
+            setRecentJobs(jobsPage.items.slice(0,3));
+            setRecentJobsLoading(false); setRecentJobsError(false);
+          },
+          () => { setRecentJobsLoading(false); setRecentJobsError(true); },
+          { controllers: requestControllersRef.current, timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS },
+        );
       },
       () => {
         setProjectsError(true);
@@ -5458,6 +5499,9 @@ function OverviewPage({
     !credentialsLoading &&
     !credentialsError &&
     activeCredentials.length > 0;
+  const recentDocuments = recentJobs
+    .filter((job) => job.status === "completed")
+    .slice(0, 3);
   return (
     <section className="page dashboard-page">
       <header className="page-header split">
@@ -5489,6 +5533,12 @@ function OverviewPage({
                   ? "Открыть рабочую область"
                   : "Начните с первой записи"}
           </strong>
+          {!projectsLoading && !projectsError && projects.length > 0 && (
+            <>
+              <small className="muted">Рабочих областей: {projects.length}</small>
+              <button type="button" onClick={onOpenTranscriptions}>Открыть</button>
+            </>
+          )}
           {projectsError && (
             <button type="button" onClick={loadProjects}>
               Повторить
@@ -5538,6 +5588,60 @@ function OverviewPage({
           </ul>
         </article>
       )}
+      <div className="dashboard-workspace-grid">
+        <article className="card dashboard-next-step">
+          <h2>Следующий шаг</h2>
+          <p>
+            {readyToTranscribe
+              ? "Подключения готовы — можно выбрать запись и запустить транскрибацию."
+              : "Завершите отмеченные настройки, затем Studio проведёт по созданию результата."}
+          </p>
+          <div className="actions">
+            <button className="primary" onClick={onOpenTranscriptions}>Создать транскрибацию</button>
+            <button onClick={() => onNavigate("audio")}>Подготовить аудио</button>
+          </div>
+        </article>
+        <article className="card dashboard-recent" aria-labelledby="dashboard-recent-title">
+          <div className="split">
+            <h2 id="dashboard-recent-title">Недавние транскрибации</h2>
+            <button type="button" onClick={onOpenTranscriptions}>Все</button>
+          </div>
+          {recentJobsLoading && <p role="status">Загружаем последние задачи…</p>}
+          {recentJobsError && <p className="muted">Последние задачи сейчас недоступны.</p>}
+          {!recentJobsLoading && !recentJobsError && recentJobs.length === 0 && <p className="muted">Здесь появятся последние задачи и результаты.</p>}
+          {recentJobs.length > 0 && (
+            <ul className="dashboard-recent-list">
+              {recentJobs.map((job) => (
+                <li key={job.id}>
+                  <span><strong>{jobTitle(job)}</strong><small>{formatTime(job.updated_at)}</small></span>
+                  <span className={`tag job-${job.status}`}>{jobСтатусLabel(job.status)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+        <article className="card dashboard-recent" aria-labelledby="dashboard-documents-title">
+          <div className="split">
+            <h2 id="dashboard-documents-title">Последние документы</h2>
+            <button type="button" onClick={onOpenTranscriptions}>Открыть</button>
+          </div>
+          {recentJobsLoading && <p role="status">Проверяем готовые документы…</p>}
+          {recentJobsError && <p className="muted">Список документов сейчас недоступен.</p>}
+          {!recentJobsLoading && !recentJobsError && recentDocuments.length === 0 && (
+            <p className="muted">Здесь появятся документы завершённых транскрибаций.</p>
+          )}
+          {recentDocuments.length > 0 && (
+            <ul className="dashboard-recent-list">
+              {recentDocuments.map((job) => (
+                <li key={job.id}>
+                  <span><strong>{jobTitle(job)}</strong><small>{formatTime(job.finished_at ?? job.updated_at)}</small></span>
+                  <span className="tag job-completed">Готов</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+      </div>
       {!projectsLoading && !projectsError && projects.length === 0 && (
         <article className="card">
           <h2>Начать работу</h2>
@@ -6205,7 +6309,7 @@ function ProjectsPage({
                     )
                   }
                 >
-                  Готовые документы
+                  Подготовка документов
                 </button>
               </div>
               <div
@@ -6354,10 +6458,16 @@ function diagnosticsComponentLabel(component: string) {
   return labels[component] ?? safeText(component);
 }
 const DIAGNOSTICS_REPORT_FORMATS = {
-  md: { label: "Markdown", mediaType: "text/markdown" },
-  json: { label: "JSON", mediaType: "application/json" },
-  yaml: { label: "YAML", mediaType: "application/yaml" },
-  toml: { label: "TOML", mediaType: "application/toml" },
+  json: {
+    label: "JSON",
+    optionLabel: "JSON — для анализа моделью",
+    mediaType: "application/json",
+  },
+  md: {
+    label: "Markdown",
+    optionLabel: "Markdown — для человека",
+    mediaType: "text/markdown",
+  },
 } as const;
 type DiagnosticsReportFormat = keyof typeof DIAGNOSTICS_REPORT_FORMATS;
 function reportFileName(reportFormat: DiagnosticsReportFormat) {
@@ -7755,6 +7865,7 @@ function SettingsPage({
                 </p>
               )}
               <AccountSessionsPanel csrf={csrf} onCsrf={onCsrf} />
+              <AccountSecurityPanel csrf={csrf} onCsrf={onCsrf} />
             </>
           )}
           {section === "appearance" && (
@@ -8315,7 +8426,7 @@ function DiagnosticsSettings({
     operationReference: "",
   });
   const [reportFormat, setReportFormat] =
-    useState<DiagnosticsReportFormat>("md");
+    useState<DiagnosticsReportFormat>("json");
   const [timeline, setTimeline] = useState<DiagnosticsEvent[]>([]);
   const [period, setPeriod] = useState<{ start: string; end: string } | null>(
     null,
@@ -8728,6 +8839,23 @@ function DiagnosticsSettings({
   const visibleAuditEvents = auditEvents.filter(
     (event) => event.type !== "auth.csrf_refreshed",
   );
+  const operationSearch = reportContext.operationReference
+    .trim()
+    .toLocaleLowerCase("ru-RU");
+  const operationSuggestions = Array.from(
+    new Set(
+      timeline.map(
+        (event) =>
+          `${diagnosticsComponentLabel(event.component)} · ${event.event_code} · ${formatTime(event.occurred_at)}`,
+      ),
+    ),
+  )
+    .filter(
+      (label) =>
+        !operationSearch ||
+        label.toLocaleLowerCase("ru-RU").includes(operationSearch),
+    )
+    .slice(0, 5);
   return (
     <div className="diagnostics-page">
       <h2>Для поддержки</h2>
@@ -8737,6 +8865,10 @@ function DiagnosticsSettings({
       </p>
       <section className="card" aria-labelledby="system-diagnostics-title">
         <h3 id="system-diagnostics-title">Состояние системы</h3>
+        <p className="muted">
+          Краткий итог показан в предупреждениях ниже. Технические версии и
+          проверки можно раскрыть при разборе проблемы.
+        </p>
         {systemState === "loading" && <p role="status">Загружаем состояние…</p>}
         {systemState === "error" && (
           <div className="error">
@@ -8747,6 +8879,8 @@ function DiagnosticsSettings({
           </div>
         )}
         {systemState === "ready" && system && (
+          <details className="technical-details diagnostics-system-details">
+            <summary>Показать техническое состояние</summary>
           <dl className="meta">
             <dt>Сборка веб-приложения</dt>
             <dd>{buildIdentityText(system.build?.web)}</dd>
@@ -8801,6 +8935,7 @@ function DiagnosticsSettings({
             <dt>Максимум событий в отчёте</dt>
             <dd>{safeText(system.report_limits?.max_timeline_events)}</dd>
           </dl>
+          </details>
         )}
       </section>
       <section className="card" aria-labelledby="operational-incidents-title">
@@ -8871,9 +9006,10 @@ function DiagnosticsSettings({
             Диагностический пакет для анализа
           </h4>
           <p className="muted">
-            Опишите проблему и скачайте sanitized bundle для анализа reasoning
-            model или специалистом. Не вводите пароли, API keys, token values и
-            содержимое транскрипций. Аудит безопасности в пакет не входит.
+            Опишите проблему и скачайте безопасный пакет: JSON удобнее передать
+            модели для анализа, Markdown — открыть и прочитать самостоятельно.
+            Не вводите пароли или API-ключи: они и содержимое транскрипций в
+            пакет не входят. Аудит безопасности в пакет не входит.
           </p>
           <div className="diagnostics-bundle-fields">
             <label>
@@ -8892,11 +9028,11 @@ function DiagnosticsSettings({
               />
             </label>
             <label>
-              Связанная операция или задача
+              Какая операция связана с проблемой? (необязательно)
               <input
                 value={reportContext.operationReference}
                 maxLength={160}
-                placeholder="Необязательно: название, время или ID"
+                placeholder="Например: транскрибация созвона 1 сентября"
                 onChange={(event) =>
                   setReportContext((current) => ({
                     ...current,
@@ -8904,7 +9040,34 @@ function DiagnosticsSettings({
                   }))
                 }
               />
+              <small className="muted">
+                Напишите название или примерное время как помните — точный ID и
+                регистр не нужны.
+              </small>
             </label>
+            {operationSuggestions.length > 0 && (
+              <span
+                className="operation-suggestions"
+                role="group"
+                aria-label="Подходящие недавние операции"
+              >
+                {operationSuggestions.map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="operation-suggestion"
+                    onClick={() =>
+                      setReportContext((current) => ({
+                        ...current,
+                        operationReference: label,
+                      }))
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            )}
             <label>
               Период
               <select value={filters.days} onChange={updateFilter("days")}>
@@ -8924,7 +9087,7 @@ function DiagnosticsSettings({
                 {Object.entries(DIAGNOSTICS_REPORT_FORMATS).map(
                   ([value, config]) => (
                     <option key={value} value={value}>
-                      {config.label}
+                      {config.optionLabel}
                     </option>
                   ),
                 )}
@@ -9034,7 +9197,8 @@ function DiagnosticsSettings({
         <ul className="diagnostics-events">
           {timeline.map((event) => (
             <li key={event.id} className="diagnostics-event">
-              <div className="diagnostics-event-header">
+              <details>
+              <summary className="diagnostics-event-header">
                 <strong>{event.event_code}</strong>
                 {pwaEventLabel(event.event_code) && (
                   <span className="pwa-event-label">
@@ -9051,7 +9215,7 @@ function DiagnosticsSettings({
                 </time>
                 <span>·</span>
                 <span>повторов: {event.occurrence_count ?? 1}</span>
-              </div>
+              </summary>
               {event.metadata && (
                 <dl className="diagnostics-metadata">
                   {Object.entries(event.metadata)
@@ -9073,6 +9237,7 @@ function DiagnosticsSettings({
                     ))}
                 </dl>
               )}
+              </details>
             </li>
           ))}
         </ul>

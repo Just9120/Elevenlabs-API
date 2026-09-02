@@ -568,10 +568,18 @@ describe("TranscriptCatalogMigrationPanel", () => {
       }),
     );
     expect(
-      await within(standardization).findByRole("heading", {
-        name: "Документы обновлены",
-      }),
-    ).toBeInTheDocument();
+      await within(standardization).findByLabelText(
+        "Результат применения: Привести документы к текущему формату",
+      ),
+    ).toHaveTextContent("Документы обновлены");
+    await userEvent.click(
+      within(standardization).getByRole("button", { name: "Закрыть результат" }),
+    );
+    expect(
+      within(standardization).queryByLabelText(
+        "Результат применения: Привести документы к текущему формату",
+      ),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(
       within(catalog).getByRole("button", { name: "Выбрать папку" }),
@@ -601,10 +609,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
       }),
     );
     expect(
-      await within(catalog).findByRole("heading", {
-        name: "Готовые документы учтены",
-      }),
-    ).toBeInTheDocument();
+      await within(catalog).findByLabelText(
+        "Результат применения: Учесть готовые документы в Studio",
+      ),
+    ).toHaveTextContent("Готовые документы учтены");
     expect(catalog).toHaveTextContent(
       "Результат сохранён в Studio",
     );
@@ -890,10 +898,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
       }),
     );
     expect(
-      await within(catalog).findByRole("heading", {
-        name: "Готовые документы учтены",
-      }),
-    ).toBeInTheDocument();
+      await within(catalog).findByLabelText(
+        "Результат применения: Учесть готовые документы в Studio",
+      ),
+    ).toHaveTextContent("Готовые документы учтены");
     expect(catalog).toHaveTextContent(
       "Новая проверка покажет документы как уже учтённые",
     );

@@ -23,6 +23,8 @@ describe("source upload policy", () => {
         max_upload_bytes: 16 * 1024 * 1024,
         multipart_threshold_bytes: 8 * 1024 * 1024,
         multipart_part_size_bytes: 5 * 1024 * 1024,
+        media_duration_warning_seconds: 7200,
+        media_max_duration_seconds: 21600,
         supported_mime_prefixes: [" Audio/ ", "audio/", "VIDEO/"],
         supported_mime_types: [" Application/OGG ", "application/ogg"],
         storage_bucket: "must-be-ignored",
@@ -32,6 +34,8 @@ describe("source upload policy", () => {
       max_upload_bytes: 16 * 1024 * 1024,
       multipart_threshold_bytes: 8 * 1024 * 1024,
       multipart_part_size_bytes: 5 * 1024 * 1024,
+      media_duration_warning_seconds: 7200,
+      media_max_duration_seconds: 21600,
       supported_mime_prefixes: ["audio/", "video/"],
       supported_mime_types: ["application/ogg"],
     });
@@ -85,6 +89,20 @@ describe("source upload policy", () => {
     },
   ])("rejects malformed policy %#", (value) => {
     expect(normalizeSourceUploadPolicy(value)).toBeNull();
+  });
+
+  it("rejects a partial or inverted duration policy", () => {
+    const base = {
+      ...policy,
+      media_duration_warning_seconds: 7200,
+    };
+    expect(normalizeSourceUploadPolicy(base)).toBeNull();
+    expect(
+      normalizeSourceUploadPolicy({
+        ...base,
+        media_max_duration_seconds: 3600,
+      }),
+    ).toBeNull();
   });
 
   it.each([

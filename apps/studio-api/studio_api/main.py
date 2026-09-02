@@ -138,6 +138,15 @@ from .storage_reconciliation import (
     scan_owner_storage,
     storage_lifecycle_payload,
 )
+from .account_security import (
+    generate_recovery_codes,
+    generate_totp_secret,
+    recovery_code_hash,
+    totp_factor_aad,
+    totp_qr_data_uri,
+    totp_uri,
+    verify_totp,
+)
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -208,7 +217,37 @@ async def request_correlation_middleware(request: Request, call_next):
         reset_current_trace_id(trace_token)
 
 
-class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
+class LoginIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    password: str
+    login_csrf_token: str
+    verification_code: str|None=Field(default=None, max_length=32)
+    recovery_code: str|None=Field(default=None, max_length=64)
+
+class ReauthenticateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str=Field(min_length=1,max_length=1024)
+    verification_code: str|None=Field(default=None,max_length=32)
+    recovery_code: str|None=Field(default=None,max_length=64)
+
+class TotpConfirmIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    verification_code: str=Field(min_length=6,max_length=32)
+
+class TotpDisableIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    verification_code: str|None=Field(default=None,max_length=32)
+    recovery_code: str|None=Field(default=None,max_length=64)
+
+class PasswordResetRequestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+
+class PasswordResetConfirmIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str=Field(min_length=32,max_length=256)
+    new_password: str=Field(min_length=12,max_length=1024)
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
 class ProjectIn(BaseModel): title: str=Field(min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
 class ProjectPatch(BaseModel):
@@ -428,6 +467,7 @@ class TranscriptionJobOptionsIn(BaseModel):
 class JobRetryIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm_remaining_provider_cost: StrictBool=False
+    confirm_long_duration_cost: StrictBool=False
 
 class RealtimeCapabilityIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -504,6 +544,80 @@ def clear_cookie(resp: Response): resp.delete_cookie(settings.cookie_name, path=
 
 def session_payload(sess, user): return {"authenticated": True, "csrf_token": getattr(sess,"_raw_csrf", None), "user": {"id": user.id, "email": user.email, "role": user.role.value, "accent_color": user.accent_color}}
 
+def _active_totp_factor(db: Session, user_id: str) -> UserTotpFactor|None:
+    factor=db.get(UserTotpFactor,user_id)
+    if not factor or factor.confirmed_at is None or factor.disabled_at is not None:
+        return None
+    return factor
+
+def _totp_secret(factor: UserTotpFactor) -> str:
+    if factor.key_id != settings.credential_key_id:
+        raise HTTPException(503,"Защита аккаунта временно недоступна")
+    try:
+        return decrypt(
+            factor.secret_ciphertext,
+            factor.secret_nonce,
+            key(),
+            totp_factor_aad(factor.user_id),
+        )
+    except Exception:
+        raise HTTPException(503,"Защита аккаунта временно недоступна") from None
+
+def _verify_second_factor(
+    db: Session,
+    *,
+    user: User,
+    verification_code: str|None,
+    recovery_code: str|None,
+    now: datetime,
+) -> bool:
+    factor=_active_totp_factor(db,user.id)
+    if factor is None:
+        return True
+    if verification_code and verify_totp(_totp_secret(factor),verification_code):
+        return True
+    if recovery_code:
+        row=(
+            db.query(UserTotpRecoveryCode)
+            .filter_by(
+                user_id=user.id,
+                code_hash=recovery_code_hash(recovery_code),
+                used_at=None,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row:
+            row.used_at=now
+            audit(
+                db,
+                "auth.totp_recovery_consumed",
+                actor_user_id=user.id,
+                subject_user_id=user.id,
+            )
+            db.flush()
+            return True
+    return False
+
+def _recent_auth_deadline(sess: Session) -> datetime|None:
+    if sess.reauthenticated_at is None:
+        return None
+    return sess.reauthenticated_at+timedelta(seconds=settings.recent_auth_seconds)
+
+def require_recent_auth(pair) -> tuple[Session,User]:
+    sess,user=pair
+    deadline=_recent_auth_deadline(sess)
+    if deadline is None or deadline <= utcnow():
+        raise HTTPException(
+            409,
+            detail={
+                "reason":"recent_reauthentication_required",
+                "valid_for_seconds":settings.recent_auth_seconds,
+            },
+            headers={"Cache-Control":"no-store","Pragma":"no-cache"},
+        )
+    return sess,user
+
 @app.get("/api/livez")
 def livez():
     return {"ok": True, "status": "alive"}
@@ -545,12 +659,20 @@ def login(data: LoginIn, request: Request, response: Response, db: Session=Depen
     email=normalize_email(data.email); limiter.check("login:"+rate_key_part(client_id(request))+":"+rate_key_part(email), 5, 300)
     ctx=db.query(LoginContext).filter_by(csrf_hash=token_hash(data.login_csrf_token), used_at=None).first()
     if not ctx or ctx.expires_at <= utcnow(): raise HTTPException(403, "Не удалось выполнить вход")
-    ctx.used_at=utcnow()
     user=db.query(User).filter_by(email=email, status=UserStatus.active).first(); ident=db.get(LocalIdentity, user.id) if user else None
     if not user or not ident or not verify_password(ident.password_hash, data.password):
         audit(db,"auth.login_failed",outcome="rejected"); db.commit(); raise HTTPException(401, "Неверная почта или пароль")
+    now=utcnow()
+    if _active_totp_factor(db,user.id) is not None:
+        limiter.check("totp:login:"+rate_key_part(client_id(request))+":"+rate_key_part(user.id),5,300)
+        if not data.verification_code and not data.recovery_code:
+            raise HTTPException(409,detail={"reason":"second_factor_required"})
+        if not _verify_second_factor(db,user=user,verification_code=data.verification_code,recovery_code=data.recovery_code,now=now):
+            audit(db,"auth.login_failed",outcome="rejected",reason="second_factor_invalid"); db.commit()
+            raise HTTPException(401,"Не удалось подтвердить вход")
+    ctx.used_at=now
     raw_session, raw_csrf = new_token(), new_token()
-    sess=Session(user_id=user.id, token_hash=token_hash(raw_session), csrf_hash=token_hash(raw_csrf), expires_at=expires(settings.session_days), rotated_at=utcnow())
+    sess=Session(user_id=user.id, token_hash=token_hash(raw_session), csrf_hash=token_hash(raw_csrf), expires_at=expires(settings.session_days), rotated_at=now, reauthenticated_at=now)
     db.add(sess); audit(db,"auth.login", actor_user_id=user.id, subject_user_id=user.id); db.commit(); sess._raw_csrf=raw_csrf; set_cookie(response, raw_session); return session_payload(sess,user)
 
 @app.post("/api/auth/logout")
@@ -559,7 +681,7 @@ def logout(response: Response, pair=Depends(require_csrf), db: Session=Depends(g
 
 @app.get("/api/auth/session")
 def session(pair=Depends(current_session)):
-    sess,user=pair; return {"authenticated": True, "user": {"id": user.id,"email": user.email,"role": user.role.value,"accent_color": user.accent_color}, "session": {"expires_at": sess.expires_at.isoformat()}}
+    sess,user=pair; deadline=_recent_auth_deadline(sess); return {"authenticated": True, "user": {"id": user.id,"email": user.email,"role": user.role.value,"accent_color": user.accent_color}, "session": {"expires_at": sess.expires_at.isoformat(),"recent_auth_expires_at":deadline.isoformat() if deadline and deadline > utcnow() else None}}
 
 @app.post("/api/auth/csrf")
 def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=Depends(require_same_origin)):
@@ -567,6 +689,126 @@ def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=D
 
 @app.get("/api/account")
 def account(pair=Depends(current_session)): return session(pair)
+
+@app.get("/api/auth/security")
+def account_security_status(response: Response,pair=Depends(current_session),db: Session=Depends(get_db),_=Depends(require_same_origin)):
+    sess,user=pair; limiter.check("auth:security:get:"+user.id,120,3600); _browser_capability_cache_headers(response)
+    factor=db.get(UserTotpFactor,user.id); deadline=_recent_auth_deadline(sess)
+    return {
+        "totp_enabled":bool(factor and factor.confirmed_at is not None and factor.disabled_at is None),
+        "totp_enrollment_pending":bool(factor and factor.confirmed_at is None and factor.disabled_at is None),
+        "recent_auth_expires_at":deadline.isoformat() if deadline and deadline > utcnow() else None,
+        "password_reset_delivery":"not_configured",
+    }
+
+@app.post("/api/auth/reauth")
+def reauthenticate(data: ReauthenticateIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+    sess,user=pair
+    limiter.check("auth:reauth:"+rate_key_part(client_id(request))+":"+rate_key_part(user.id),5,300)
+    ident=db.get(LocalIdentity,user.id); now=utcnow()
+    valid=bool(ident and verify_password(ident.password_hash,data.password))
+    if valid and _active_totp_factor(db,user.id) is not None:
+        valid=_verify_second_factor(db,user=user,verification_code=data.verification_code,recovery_code=data.recovery_code,now=now)
+    if not valid:
+        audit(db,"auth.reauthentication_failed",actor_user_id=user.id,subject_user_id=user.id,outcome="rejected")
+        db.commit(); raise HTTPException(401,"Не удалось подтвердить личность")
+    sess.reauthenticated_at=now
+    audit(db,"auth.reauthenticated",actor_user_id=user.id,subject_user_id=user.id,session_id=sess.id)
+    db.commit(); _browser_capability_cache_headers(response)
+    return {"ok":True,"recent_auth_expires_at":_recent_auth_deadline(sess).isoformat()}
+
+@app.post("/api/auth/totp/enroll")
+def enroll_totp(response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+    sess,user=require_recent_auth(pair); limiter.check("totp:enroll:"+user.id,5,3600)
+    current=_active_totp_factor(db,user.id)
+    if current is not None:
+        raise HTTPException(409,"Двухфакторная защита уже включена")
+    secret=generate_totp_secret(); ciphertext,nonce=encrypt(secret,key(),totp_factor_aad(user.id)); now=utcnow()
+    factor=db.get(UserTotpFactor,user.id)
+    if factor is None:
+        factor=UserTotpFactor(user_id=user.id,secret_ciphertext=ciphertext,secret_nonce=nonce,key_id=settings.credential_key_id,created_at=now,updated_at=now)
+        db.add(factor)
+    else:
+        factor.secret_ciphertext=ciphertext; factor.secret_nonce=nonce; factor.key_id=settings.credential_key_id; factor.confirmed_at=None; factor.disabled_at=None; factor.updated_at=now
+    db.query(UserTotpRecoveryCode).filter_by(user_id=user.id,used_at=None).delete(synchronize_session=False)
+    audit(db,"auth.totp_enrollment_started",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); _browser_capability_cache_headers(response)
+    uri=totp_uri(secret=secret,email=user.email)
+    return {"secret":secret,"otpauth_uri":uri,"qr_svg_data_uri":totp_qr_data_uri(uri),"algorithm":"SHA1","digits":6,"period_seconds":30}
+
+@app.post("/api/auth/totp/confirm")
+def confirm_totp(data: TotpConfirmIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+    sess,user=require_recent_auth(pair)
+    limiter.check("totp:confirm:"+rate_key_part(client_id(request))+":"+rate_key_part(user.id),5,300)
+    factor=db.get(UserTotpFactor,user.id)
+    if not factor or factor.disabled_at is not None or factor.confirmed_at is not None:
+        raise HTTPException(409,"Нет ожидающей настройки TOTP")
+    if not verify_totp(_totp_secret(factor),data.verification_code):
+        raise HTTPException(422,"Неверный одноразовый код")
+    now=utcnow(); factor.confirmed_at=now; factor.updated_at=now
+    recovery_codes=generate_recovery_codes()
+    db.query(UserTotpRecoveryCode).filter_by(user_id=user.id).delete(synchronize_session=False)
+    db.add_all([UserTotpRecoveryCode(user_id=user.id,code_hash=recovery_code_hash(code),created_at=now) for code in recovery_codes])
+    sess.reauthenticated_at=now
+    audit(db,"auth.totp_enabled",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); _browser_capability_cache_headers(response)
+    return {"enabled":True,"recovery_codes":recovery_codes}
+
+@app.post("/api/auth/totp/recovery-codes")
+def rotate_totp_recovery_codes(response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair); limiter.check("totp:recovery:rotate:"+user.id,3,3600)
+    if _active_totp_factor(db,user.id) is None:
+        raise HTTPException(409,"Двухфакторная защита не включена")
+    now=utcnow(); codes=generate_recovery_codes()
+    db.query(UserTotpRecoveryCode).filter_by(user_id=user.id).delete(synchronize_session=False)
+    db.add_all([UserTotpRecoveryCode(user_id=user.id,code_hash=recovery_code_hash(code),created_at=now) for code in codes])
+    audit(db,"auth.totp_recovery_rotated",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); _browser_capability_cache_headers(response)
+    return {"recovery_codes":codes}
+
+@app.delete("/api/auth/totp")
+def disable_totp(data: TotpDisableIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+    sess,user=require_recent_auth(pair)
+    limiter.check("totp:disable:"+rate_key_part(client_id(request))+":"+rate_key_part(user.id),5,300)
+    factor=_active_totp_factor(db,user.id)
+    if factor is None:
+        return {"enabled":False}
+    now=utcnow()
+    if not _verify_second_factor(db,user=user,verification_code=data.verification_code,recovery_code=data.recovery_code,now=now):
+        raise HTTPException(422,"Неверный одноразовый или резервный код")
+    factor.disabled_at=now; factor.updated_at=now
+    db.query(UserTotpRecoveryCode).filter_by(user_id=user.id,used_at=None).delete(synchronize_session=False)
+    revoke_all_owned_other_sessions(db,owner_user_id=user.id,current_session_id=sess.id,now=now)
+    audit(db,"auth.totp_disabled",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); _browser_capability_cache_headers(response)
+    return {"enabled":False}
+
+@app.post("/api/auth/password-reset/request")
+def request_password_reset(data: PasswordResetRequestIn,request: Request,response: Response,db: Session=Depends(get_db),_=Depends(require_same_origin)):
+    _browser_capability_cache_headers(response)
+    email=normalize_email(data.email); ip_key=rate_key_part(client_id(request)); account_key=rate_key_part(email)
+    limiter.check("password-reset:request:ip:"+ip_key,5,3600)
+    limiter.check("password-reset:request:account:"+account_key,3,3600)
+    user=db.query(User).filter_by(email=email,status=UserStatus.active).first()
+    audit(db,"auth.password_reset_requested",subject_user_id=user.id if user else None,outcome="success")
+    db.commit()
+    return {"accepted":True,"delivery":"not_configured"}
+
+@app.post("/api/auth/password-reset/confirm")
+def confirm_password_reset(data: PasswordResetConfirmIn,request: Request,response: Response,db: Session=Depends(get_db),_=Depends(require_same_origin)):
+    _browser_capability_cache_headers(response)
+    limiter.check("password-reset:confirm:ip:"+rate_key_part(client_id(request)),10,3600)
+    hashed=token_hash(data.token); limiter.check("password-reset:confirm:token:"+hashed[:24],5,3600); now=utcnow()
+    challenge=db.query(PasswordResetChallenge).filter_by(token_hash=hashed,used_at=None).with_for_update().first()
+    if not challenge or challenge.expires_at <= now:
+        raise HTTPException(422,"Ссылка сброса недействительна или устарела")
+    user=db.get(User,challenge.user_id); ident=db.get(LocalIdentity,challenge.user_id)
+    if not user or user.status != UserStatus.active or not ident:
+        raise HTTPException(422,"Ссылка сброса недействительна или устарела")
+    ident.password_hash=hash_password(data.new_password); challenge.used_at=now
+    db.query(Session).filter(Session.user_id==user.id,Session.revoked_at.is_(None)).update({Session.revoked_at:now},synchronize_session=False)
+    audit(db,"auth.password_reset_completed",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); return {"ok":True}
 
 def account_preferences_payload(user: User):
     return {
@@ -623,7 +865,7 @@ def revoke_active_session(
     pair=Depends(require_csrf),
     db: Session=Depends(get_db),
 ):
-    sess,user=pair
+    sess,user=require_recent_auth(pair)
     limiter.check("auth:sessions:revoke:"+user.id, 30, 3600)
     _browser_capability_cache_headers(response)
     if session_id == sess.id:
@@ -658,7 +900,7 @@ def revoke_other(
     pair=Depends(require_csrf),
     db: Session=Depends(get_db),
 ):
-    sess,user=pair
+    sess,user=require_recent_auth(pair)
     limiter.check("auth:sessions:revoke-other:"+user.id, 10, 3600)
     _browser_capability_cache_headers(response)
     now=utcnow()
@@ -979,12 +1221,17 @@ def _browser_capability_cache_headers(response: Response):
 @app.get("/api/sources/upload-policy")
 def get_source_upload_policy(response: Response, pair=Depends(current_session)):
     _browser_capability_cache_headers(response)
-    return browser_source_upload_policy(
+    policy=browser_source_upload_policy(
         settings.source_max_upload_bytes,
         local_upload_enabled=reference_storage_isolation_configured(settings),
         multipart_threshold_bytes=settings.source_multipart_threshold_bytes,
         multipart_part_size_bytes=settings.source_multipart_part_size_bytes,
     )
+    return {
+        **policy,
+        "media_duration_warning_seconds":settings.media_duration_warning_seconds,
+        "media_max_duration_seconds":settings.media_max_duration_seconds,
+    }
 
 
 @app.get("/api/storage/lifecycle")
@@ -2549,7 +2796,7 @@ def list_project_jobs(
 
 @app.post("/api/projects/{project_id}/history/clear")
 def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+    _,user=require_recent_auth(pair); limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
     reset_at=utcnow()
     terminal_scope=(
         TranscriptionJob.project_id==p.id,
@@ -2592,7 +2839,7 @@ def get_project_transcription_analytics(response: Response, project_id: str, pai
 
 @app.post("/api/projects/{project_id}/transcription-analytics/clear")
 def clear_project_transcription_analytics(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("analytics:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+    _,user=require_recent_auth(pair); limiter.check("analytics:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
     reset_at=utcnow()
     hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.created_at <= reset_at).count()
     p.analytics_reset_at=reset_at; p.updated_at=reset_at
@@ -2666,6 +2913,26 @@ def post_job_retry(job_id: str, request: Request, data: JobRetryIn | None = None
     _,user=pair; limiter.check("job:retry:post:"+user.id, 10, 3600)
     job=owned_job_or_404(db,user,job_id)
     initial_readiness = compute_explicit_retry_readiness(db, job, now=utcnow().replace(tzinfo=None))
+    if job.error_code == "media_duration_too_long":
+        raise HTTPException(
+            409,
+            detail={
+                "reason": "media_duration_too_long",
+                "max_seconds": settings.media_max_duration_seconds,
+            },
+        )
+    if job.error_code == "media_duration_confirmation_required":
+        if not (data and data.confirm_long_duration_cost):
+            raise HTTPException(
+                409,
+                detail={
+                    "reason": "long_duration_confirmation_required",
+                    "warning_seconds": settings.media_duration_warning_seconds,
+                    "max_seconds": settings.media_max_duration_seconds,
+                },
+            )
+        job.long_duration_cost_confirmed=True
+        db.flush()
     if requires_provider_cost_confirmation(initial_readiness) and not (data and data.confirm_remaining_provider_cost):
         raise HTTPException(409, "Требуется подтверждение стоимости оставшихся частей")
     write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_REQUESTED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"attempt_number": job.attempt_count or 0, "retry_available": False, "boundary":"retry_api"})
@@ -3327,7 +3594,7 @@ def _start_google_oauth(
 
 @app.post("/api/google/oauth/start")
 def start_google_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
+    sess,user=require_recent_auth(pair); limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cleanup_expired_auth_state()
     cfg=google_config_or_503()
     from .google_oauth import PRIMARY_OAUTH_PURPOSE
@@ -3342,7 +3609,7 @@ def start_google_oauth(request: Request, response: Response, pair=Depends(requir
 
 @app.post("/api/google/maintenance/oauth/start")
 def start_google_maintenance_oauth(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=pair; limiter.check("google:maintenance:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
+    sess,user=require_recent_auth(pair); limiter.check("google:maintenance:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cleanup_expired_auth_state()
     conn=current_google_connection(db, user)
     if (
@@ -3574,7 +3841,7 @@ def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|
 
 @app.delete("/api/google/maintenance/connection")
 def delete_google_maintenance_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("google:maintenance:disconnect:"+user.id, 20, 3600)
+    _,user=require_recent_auth(pair); limiter.check("google:maintenance:disconnect:"+user.id, 20, 3600)
     conn=current_google_connection(db, user)
     if not conn:
         return google_maintenance_connection_payload(None)
@@ -3590,7 +3857,7 @@ def delete_google_maintenance_connection(pair=Depends(require_csrf), db: Session
 
 @app.delete("/api/google/connection")
 def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("google:disconnect:"+user.id, 20, 3600)
+    _,user=require_recent_auth(pair); limiter.check("google:disconnect:"+user.id, 20, 3600)
     conn=current_google_connection(db, user)
     if not conn: return google_connection_payload(None)
     already_disconnected = (
@@ -3825,26 +4092,26 @@ def add_version(db,user,c,raw):
 
 @app.post("/api/credentials")
 def create_credential(data: CredentialIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=pair; limiter.check("cred:create:"+user.id, 20, 3600)
+    sess,user=require_recent_auth(pair); limiter.check("cred:create:"+user.id, 20, 3600)
     c=ProviderCredential(user_id=user.id, provider=data.provider, label=data.label.strip()); db.add(c); db.flush(); v=add_version(db,user,c,data.raw_value)
     audit(db,"credential.created",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"id": c.id, "provider": c.provider.value, "label": c.label, "status": c.status.value, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/replace")
 def replace_credential(credential_id: str, data: CredentialIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("cred:replace:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
+    _,user=require_recent_auth(pair); limiter.check("cred:replace:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id or c.provider!=data.provider or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
     v=add_version(db,user,c,data.raw_value); audit(db,"credential.replaced",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"ok": True, "active_version": v.version, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/revoke")
 def revoke_credential(credential_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("cred:revoke:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
+    _,user=require_recent_auth(pair); limiter.check("cred:revoke:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
     if c.status==CredentialStatus.revoked: return {"ok": True}
     c.status=CredentialStatus.revoked; audit(db,"credential.revoked",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id); db.commit(); return {"ok": True}
 
 @app.delete("/api/credentials/{credential_id}")
 def delete_credential(credential_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("cred:delete:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
+    _,user=require_recent_auth(pair); limiter.check("cred:delete:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id: raise HTTPException(404,"Не найдено")
     if c.status==CredentialStatus.deleted and c.deleted_at is not None: return {"ok": True}
     now=utcnow(); c.status=CredentialStatus.deleted; c.deleted_at=now

@@ -10,11 +10,13 @@ API_IMAGE="elevenlabs-studio-api:local"
 BACKUP_SCRIPT="scripts/backup_studio_postgres_r2.sh"
 MIGRATION_SCRIPT="scripts/migrate_studio_platform.sh"
 WORKER_ROLE_SCRIPT="scripts/configure_studio_worker_db_role.sh"
+DATABASE_ROLE_SCRIPT="scripts/configure_studio_database_roles.sh"
 BACKUP_ENV_FILE="${STUDIO_BACKUP_ENV_FILE:-/etc/elevenlabs-studio/backup.env}"
 PYTHON_BIN="${STUDIO_RELEASE_PYTHON_BIN:-python3}"
 phase="preflight"
 snapshot_id=""
 migration_applied="no"
+database_role_change_attempted="no"
 worker_role_change_attempted="no"
 release_workspace=""
 
@@ -26,14 +28,15 @@ trap cleanup EXIT
 blocked() {
   local reason="$1"
   local recovery="no"
-  [[ "$migration_applied" == "yes" || "$worker_role_change_attempted" == "yes" ]] \
+  [[ "$migration_applied" == "yes" || "$database_role_change_attempted" == "yes" || "$worker_role_change_attempted" == "yes" ]] \
     && recovery="yes"
-  printf '%s BLOCKED phase=%s reason=%s snapshot=%s migration_applied=%s worker_role_change_attempted=%s manual_recovery_required=%s\n' \
+  printf '%s BLOCKED phase=%s reason=%s snapshot=%s migration_applied=%s database_role_change_attempted=%s worker_role_change_attempted=%s manual_recovery_required=%s\n' \
     "$PREFIX" \
     "$phase" \
     "$reason" \
     "${snapshot_id:0:12}" \
     "$migration_applied" \
+    "$database_role_change_attempted" \
     "$worker_role_change_attempted" \
     "$recovery" >&2
   exit 2
@@ -132,8 +135,9 @@ capture_revision_ids() {
 probe_current_revision() {
   local raw
   if ! raw="$(
-    compose run --rm --no-deps -T studio-api \
-      alembic -c /app/alembic.ini current </dev/null 2>/dev/null
+    compose exec -T postgres \
+      psql -X -Atq -U studio -d studio \
+      -c 'SELECT version_num FROM alembic_version' </dev/null 2>/dev/null
   )"; then
     blocked "current_revision_probe_failed"
   fi
@@ -241,6 +245,8 @@ for required in \
   "$BACKUP_SCRIPT" \
   "$MIGRATION_SCRIPT" \
   "$WORKER_ROLE_SCRIPT" \
+  "$DATABASE_ROLE_SCRIPT" \
+  deploy/studio/database-roles.sql \
   apps/studio-api/Dockerfile \
   apps/studio-api/alembic.ini; do
   [[ -f "$required" ]] || blocked "release_file_missing"
@@ -558,6 +564,7 @@ if ! docker run --rm \
 fi
 
 phase="migration"
+database_role_change_attempted="yes"
 if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
   STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
   STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT="$snapshot_id" \

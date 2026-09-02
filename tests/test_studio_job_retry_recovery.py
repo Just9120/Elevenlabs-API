@@ -52,7 +52,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert "provider_usage_accounting_unavailable" in studio_model_modules["SAFE_PRE_TRANSPORT_FAILURES"]
     assert "provider_usage_outcome_uncertain" not in studio_model_modules["SAFE_PRE_TRANSPORT_FAILURES"]
     assert {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "unknown"} <= studio_model_modules["UNCERTAIN_PROVIDER_FAILURES"]
-    assert {"ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large"} <= studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
+    assert {"ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_duration_confirmation_required", "media_split_failed", "media_part_too_large"} <= studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
+    assert "media_duration_too_long" not in studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
     assert "media_clip_out_of_bounds" not in studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
     assert {"owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition"} <= set(table.c.keys())
     assert {tuple(c.name for c in constraint.columns) for constraint in table.constraints if getattr(constraint, "columns", None)} >= {("job_source_id", "attempt_number")}
@@ -66,8 +67,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0033_observability_alerts_audit"]
-    assert script.get_current_head() == "0033_observability_alerts_audit"
+    assert script.get_heads() == ["0034_personal_security"]
+    assert script.get_current_head() == "0034_personal_security"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():

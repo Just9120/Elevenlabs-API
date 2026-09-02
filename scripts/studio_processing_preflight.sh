@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0033_observability_alerts_audit"
+EXPECTED_HEAD="0034_personal_security"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"
@@ -18,9 +18,9 @@ RUNTIME_VALIDATION_ERROR=""
 ROWS=(
   "deploy directory identity" "repository remote identity" "branch identity" "commit identity" "tracked working tree"
   "runtime env presence" "runtime setting completeness"
-  "POSTGRES_PASSWORD secret-file presence" "WORKER_POSTGRES_PASSWORD secret-file presence" "CREDENTIAL_MASTER_KEY secret-file presence" "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence" "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence" "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence" "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence"
+  "POSTGRES_PASSWORD secret-file presence" "API_POSTGRES_PASSWORD secret-file presence" "MIGRATOR_POSTGRES_PASSWORD secret-file presence" "WORKER_POSTGRES_PASSWORD secret-file presence" "CREDENTIAL_MASTER_KEY secret-file presence" "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "AUDIO_REFERENCE_S3_ACCESS_KEY_ID secret-file presence" "AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY secret-file presence" "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence" "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence"
   "postgres service count/status" "redis service count/status" "studio-api service count/status" "studio-web service count/status" "studio-worker service count/status"
-  "PostgreSQL health" "worker database role" "Redis health" "localhost API health" "localhost web health" "public API health" "public web health"
+  "PostgreSQL health" "application database roles" "worker database role" "Redis health" "localhost API health" "localhost web health" "public API health" "public web health"
   "repository Alembic head" "production Alembic revision" "revision equality"
   "authenticated smoke-account login" "active Google connection" "exactly one active ElevenLabs BYOK credential" "writable output folder selected" "one small supported source available"
 )
@@ -55,16 +55,16 @@ validate_container_secret() {
     --validate-mounted-secret "$env_key" >/dev/null 2>&1
 }
 
-validate_worker_secret_metadata() {
-  local api_container api_image inspected_image parent name
+validate_protected_secret_metadata() {
+  local secret_file="$1" api_container api_image inspected_image parent name
   api_container="$("${compose[@]}" ps -q studio-api 2>/dev/null)" || return 1
   [[ "$api_container" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
   api_image="$(docker inspect --format '{{.Image}}' "$api_container" 2>/dev/null)" || return 1
   [[ "$api_image" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
   inspected_image="$(docker image inspect --format '{{.Id}}' "$api_image" 2>/dev/null)" || return 1
   [[ "$inspected_image" == "$api_image" ]] || return 1
-  parent="${worker_password_file%/*}"
-  name="${worker_password_file##*/}"
+  parent="${secret_file%/*}"
+  name="${secret_file##*/}"
   # The Docker daemon can mount a root-only directory. Only lstat metadata is
   # inspected; no secret is read or added to the running API/worker container.
   # Mount the parent so a symlink leaf is rejected rather than dereferenced.
@@ -91,7 +91,7 @@ parse_env() {
 
 validate_runtime_values() {
   local required k v
-  required=(APP_PUBLIC_URL STUDIO_SOURCE_S3_ENDPOINT_URL STUDIO_SOURCE_S3_REGION STUDIO_SOURCE_S3_BUCKET STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL STUDIO_AUDIO_REFERENCE_S3_REGION STUDIO_AUDIO_REFERENCE_S3_BUCKET STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID STUDIO_SOURCE_UPLOAD_TTL_SECONDS STUDIO_SOURCE_PRESIGN_TTL_SECONDS STUDIO_SOURCE_MAX_UPLOAD_BYTES STUDIO_GOOGLE_OAUTH_CLIENT_ID STUDIO_GOOGLE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_OAUTH_SCOPES STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES STUDIO_GOOGLE_PICKER_API_KEY STUDIO_GOOGLE_PICKER_APP_ID STUDIO_WORKER_CPU_LIMIT STUDIO_WORKER_MEMORY_LIMIT STUDIO_WORKER_MEMORY_SWAP_LIMIT STUDIO_WORKER_PIDS_LIMIT STUDIO_WORKER_TMPFS_SIZE STUDIO_WORKER_POLL_INTERVAL_SECONDS STUDIO_WORKER_ERROR_BACKOFF_SECONDS STUDIO_WORKER_LEASE_TTL_SECONDS STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE STUDIO_ELEVENLABS_PRICING_SOURCE)
+  required=(APP_PUBLIC_URL STUDIO_RECENT_AUTH_SECONDS STUDIO_SOURCE_S3_ENDPOINT_URL STUDIO_SOURCE_S3_REGION STUDIO_SOURCE_S3_BUCKET STUDIO_SOURCE_S3_LIFECYCLE_RULE_ID STUDIO_AUDIO_REFERENCE_S3_ENDPOINT_URL STUDIO_AUDIO_REFERENCE_S3_REGION STUDIO_AUDIO_REFERENCE_S3_BUCKET STUDIO_AUDIO_REFERENCE_S3_LIFECYCLE_RULE_ID STUDIO_SOURCE_UPLOAD_TTL_SECONDS STUDIO_SOURCE_PRESIGN_TTL_SECONDS STUDIO_SOURCE_MAX_UPLOAD_BYTES STUDIO_MEDIA_DURATION_WARNING_SECONDS STUDIO_MEDIA_MAX_DURATION_SECONDS STUDIO_GOOGLE_OAUTH_CLIENT_ID STUDIO_GOOGLE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_OAUTH_SCOPES STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES STUDIO_GOOGLE_PICKER_API_KEY STUDIO_GOOGLE_PICKER_APP_ID STUDIO_WORKER_CPU_LIMIT STUDIO_WORKER_MEMORY_LIMIT STUDIO_WORKER_MEMORY_SWAP_LIMIT STUDIO_WORKER_PIDS_LIMIT STUDIO_WORKER_TMPFS_SIZE STUDIO_WORKER_POLL_INTERVAL_SECONDS STUDIO_WORKER_ERROR_BACKOFF_SECONDS STUDIO_WORKER_LEASE_TTL_SECONDS STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE STUDIO_ELEVENLABS_PRICING_SOURCE)
   for k in "${required[@]}"; do
     v="${ENV_VALUES[$k]-}"
     if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]][[:space:]]* ]]; then
@@ -112,6 +112,10 @@ validate_runtime_values() {
   in_range "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" 900 86400 || { invalid_runtime_setting "STUDIO_SOURCE_UPLOAD_TTL_SECONDS" "outside_approved_range"; return 1; }
   in_range "${ENV_VALUES[STUDIO_SOURCE_PRESIGN_TTL_SECONDS]}" 60 900 || { invalid_runtime_setting "STUDIO_SOURCE_PRESIGN_TTL_SECONDS" "outside_approved_range"; return 1; }
   in_range "${ENV_VALUES[STUDIO_SOURCE_MAX_UPLOAD_BYTES]}" 1 2147483647 || { invalid_runtime_setting "STUDIO_SOURCE_MAX_UPLOAD_BYTES" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_RECENT_AUTH_SECONDS]}" 60 3600 || { invalid_runtime_setting "STUDIO_RECENT_AUTH_SECONDS" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_MEDIA_DURATION_WARNING_SECONDS]}" 60 604799 || { invalid_runtime_setting "STUDIO_MEDIA_DURATION_WARNING_SECONDS" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_MEDIA_MAX_DURATION_SECONDS]}" 61 604800 || { invalid_runtime_setting "STUDIO_MEDIA_MAX_DURATION_SECONDS" "outside_approved_range"; return 1; }
+  (( ENV_VALUES[STUDIO_MEDIA_DURATION_WARNING_SECONDS] < ENV_VALUES[STUDIO_MEDIA_MAX_DURATION_SECONDS] )) || { invalid_runtime_setting "STUDIO_MEDIA_MAX_DURATION_SECONDS" "must_exceed_warning_threshold"; return 1; }
   positive_int "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS]}" || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS" "invalid_positive_integer"; return 1; }
   in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || { invalid_runtime_setting "STUDIO_WORKER_POLL_INTERVAL_SECONDS" "outside_approved_range"; return 1; }
   in_range "${ENV_VALUES[STUDIO_WORKER_ERROR_BACKOFF_SECONDS]}" 1 300 || { invalid_runtime_setting "STUDIO_WORKER_ERROR_BACKOFF_SECONDS" "outside_approved_range"; return 1; }
@@ -159,12 +163,12 @@ case "$remote" in git@github.com:${EXPECTED_REPO}.git|git@github.com:${EXPECTED_
 status="$(git status --porcelain --untracked-files=no 2>/dev/null)" || { set_row "tracked working tree" "blocked" "cannot inspect tracked working tree"; block_exit; }
 [[ -z "$status" ]] && set_row "tracked working tree" "pass" "tracked working tree is clean" || { set_row "tracked working tree" "blocked" "tracked working tree is not clean"; block_exit; }
 
-[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" && -x "scripts/configure_studio_worker_db_role.sh" && -f "scripts/check_studio_worker_secret.py" && -f "deploy/studio/worker-db-role.sql" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
+[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" && -x "scripts/configure_studio_worker_db_role.sh" && -x "scripts/configure_studio_database_roles.sh" && -f "scripts/check_studio_worker_secret.py" && -f "deploy/studio/worker-db-role.sql" && -f "deploy/studio/database-roles.sql" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
 set_row "runtime env presence" "pass" "required runtime and inspection files are present"
 parse_env || { set_row "runtime setting completeness" "blocked" "runtime env contains malformed or duplicate required syntax"; block_exit; }
 validate_runtime_values || { set_row "runtime setting completeness" "blocked" "invalid non-secret runtime setting: ${RUNTIME_VALIDATION_ERROR:-unknown}"; block_exit; }
 set_row "runtime setting completeness" "pass" "required non-secret runtime settings are present and valid"
-for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
+for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_API_POSTGRES_PASSWORD_FILE STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
   v="${ENV_VALUES[$k]-}"; label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"
   if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]]* || "$v" != /* ]]; then
     set_row "$label" "blocked" "required secret-file path is missing, placeholder, or unsafe"
@@ -179,6 +183,18 @@ if [[ ! "$worker_password_file" =~ ^/[^,\\[:space:]]+/[^,\\[:space:]]+$ || "$wor
 fi
 set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "pass" "dedicated absolute worker secret-file path is configured; protected metadata validation pending"
 [[ "${ENV_VALUES[STUDIO_WORKER_POSTGRES_PASSWORD_FILE]}" != "${ENV_VALUES[STUDIO_POSTGRES_PASSWORD_FILE]}" ]] || { set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "worker database secret must differ from PostgreSQL bootstrap secret"; block_exit; }
+api_password_file="${ENV_VALUES[STUDIO_API_POSTGRES_PASSWORD_FILE]-}"
+migrator_password_file="${ENV_VALUES[STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE]-}"
+for role_key in STUDIO_API_POSTGRES_PASSWORD_FILE STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE; do
+  role_path="${ENV_VALUES[$role_key]-}"
+  role_label="${role_key#STUDIO_}"; role_label="${role_label%_FILE} secret-file presence"
+  if [[ ! "$role_path" =~ ^/[^,\\[:space:]]+/[^,\\[:space:]]+$ || "$role_path" == *REQUIRED* || "$role_path" == *//* || "$role_path" == */../* || "$role_path" == */./* || "$role_path" == */.. || "$role_path" == */. ]]; then
+    set_row "$role_label" "blocked" "database secret-file path is missing, placeholder, or unsafe"
+    block_exit
+  fi
+  set_row "$role_label" "pass" "dedicated absolute database secret-file path is configured; container mount validation pending"
+done
+[[ "$api_password_file" != "$migrator_password_file" && "$api_password_file" != "$worker_password_file" && "$api_password_file" != "${ENV_VALUES[STUDIO_POSTGRES_PASSWORD_FILE]}" && "$migrator_password_file" != "$worker_password_file" && "$migrator_password_file" != "${ENV_VALUES[STUDIO_POSTGRES_PASSWORD_FILE]}" ]] || { set_row "API_POSTGRES_PASSWORD secret-file presence" "blocked" "database role secret files must all be distinct"; block_exit; }
 if [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE]}" == "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE]}" ]]; then
   set_row "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence" "blocked" "maintenance OAuth requires a separate client secret file"
   block_exit
@@ -199,21 +215,43 @@ else
   set_row "worker database role" "blocked" "dedicated worker database role or allowlisted grants are unavailable"
   block_exit
 fi
+if STUDIO_DEPLOY_DIR="$expected_dir" scripts/configure_studio_database_roles.sh verify >/dev/null 2>&1; then
+  set_row "application database roles" "pass" "owner, protected migrator, and direct-grant API roles are active"
+else
+  set_row "application database roles" "blocked" "application database role boundary is unavailable"
+  block_exit
+fi
 [[ "${SSTATUS[redis]}" == "healthy" ]] && set_row "Redis health" "pass" "redis service is healthy" || { set_row "Redis health" "blocked" "redis service is not healthy"; block_exit; }
 [[ "${SSTATUS[studio-api]}" == "healthy" ]] || { set_row "localhost API health" "blocked" "studio-api is not healthy before localhost check"; block_exit; }
 [[ "${SSTATUS[studio-web]}" == "healthy" ]] || { set_row "localhost web health" "blocked" "studio-web is not healthy before localhost check"; block_exit; }
-if validate_worker_secret_metadata; then
+if validate_protected_secret_metadata "$worker_password_file"; then
   set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "pass" "protected metadata probe confirmed a nonempty root-owned regular file with mode 0600 or 0400"
 else
   set_row "WORKER_POSTGRES_PASSWORD secret-file presence" "blocked" "protected worker secret metadata probe failed; file, permissions or immutable helper image unavailable"
   block_exit
 fi
-for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
+if validate_container_secret STUDIO_POSTGRES_PASSWORD_FILE; then
+  set_row "API_POSTGRES_PASSWORD secret-file presence" "pass" "dedicated API database secret is mounted and valid in the API runtime"
+else
+  set_row "API_POSTGRES_PASSWORD secret-file presence" "blocked" "dedicated API database secret is missing, unreadable, invalid, or placeholder content"
+  block_exit
+fi
+for k in STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_AUDIO_REFERENCE_S3_ACCESS_KEY_ID_FILE STUDIO_AUDIO_REFERENCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
   label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"
   if validate_container_secret "$k"; then
     set_row "$label" "pass" "current allowlisted runtime mount is present and valid for this check"
   else
     set_row "$label" "blocked" "current allowlisted runtime mount is missing, unreadable, invalid, or placeholder content"
+    block_exit
+  fi
+done
+for protected_key in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_MIGRATOR_POSTGRES_PASSWORD_FILE; do
+  protected_path="${ENV_VALUES[$protected_key]}"
+  label="${protected_key#STUDIO_}"; label="${label%_FILE} secret-file presence"
+  if validate_protected_secret_metadata "$protected_path"; then
+    set_row "$label" "pass" "protected metadata probe confirmed a nonempty root-owned regular file with mode 0600 or 0400"
+  else
+    set_row "$label" "blocked" "protected secret metadata probe failed"
     block_exit
   fi
 done

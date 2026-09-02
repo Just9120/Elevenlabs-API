@@ -20,7 +20,7 @@ probe_revision() {
   local raw
   if ! raw="$(
     docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-      run --rm --no-deps -T studio-api \
+      run --rm --no-deps -T studio-migrator \
       alembic -c /app/alembic.ini "$command" </dev/null 2>/dev/null
   )"; then
     fail "${command}_probe_failed"
@@ -28,6 +28,10 @@ probe_revision() {
 
   local -a revisions
   mapfile -t revisions < <(printf '%s\n' "$raw" | capture_revision_ids)
+  if [[ "$command" == "current" && "${#revisions[@]}" -eq 0 && -z "${raw//[[:space:]]/}" ]]; then
+    printf 'base\n'
+    return 0
+  fi
   [[ "${#revisions[@]}" -eq 1 ]] || fail "${command}_revision_count"
   [[ -n "${revisions[0]}" ]] || fail "${command}_revision_empty"
   printf '%s\n' "${revisions[0]}"
@@ -66,6 +70,8 @@ candidate_image_id="$(
 [[ "$candidate_image_id" == "$STUDIO_EXPECTED_API_IMAGE_ID" ]] \
   || fail "candidate_image_mismatch"
 
+STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" scripts/configure_studio_database_roles.sh apply
+
 current_revision="$(probe_revision current)"
 head_revision="$(probe_revision heads)"
 [[ "$current_revision" == "$STUDIO_EXPECTED_MIGRATION_FROM" ]] \
@@ -74,7 +80,7 @@ head_revision="$(probe_revision heads)"
   || fail "head_revision_mismatch"
 
 if ! docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-  run --rm --no-deps -T studio-api \
+  run --rm --no-deps -T studio-migrator \
   alembic -c /app/alembic.ini upgrade \
   "$STUDIO_EXPECTED_MIGRATION_TO" </dev/null; then
   fail "upgrade_failed"
@@ -83,6 +89,9 @@ fi
 post_revision="$(probe_revision current)"
 [[ "$post_revision" == "$STUDIO_EXPECTED_MIGRATION_TO" ]] \
   || fail "post_revision_mismatch"
+
+STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" scripts/configure_studio_database_roles.sh apply
+STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" scripts/configure_studio_worker_db_role.sh apply
 
 printf '%s OK from=%s to=%s snapshot=%s\n' \
   "$PREFIX" \

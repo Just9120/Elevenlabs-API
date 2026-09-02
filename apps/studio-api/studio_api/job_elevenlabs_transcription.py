@@ -81,6 +81,8 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     media_split_failed = "media_split_failed"
     media_part_too_large = "media_part_too_large"
     media_clip_out_of_bounds = "media_clip_out_of_bounds"
+    media_duration_confirmation_required = "media_duration_confirmation_required"
+    media_duration_too_long = "media_duration_too_long"
     existing_result_conflict = "existing_result_conflict"
     lifecycle_changed_before_provider_call = "lifecycle_changed_before_provider_call"
     credential_or_output_identity_changed_before_provider_call = "credential_or_output_identity_changed_before_provider_call"
@@ -193,6 +195,11 @@ def transcribe_processing_job_source_with_elevenlabs(
                         max_output_bytes=settings.source_max_upload_bytes,
                         media_clip_start_seconds=media_clip.media_clip_start_seconds,
                         media_clip_end_seconds=media_clip.media_clip_end_seconds,
+                        duration_warning_seconds=settings.media_duration_warning_seconds,
+                        max_duration_seconds=settings.media_max_duration_seconds,
+                        long_duration_confirmed=initial_job_snapshot[
+                            "long_duration_cost_confirmed"
+                        ],
                         **(
                             {"probe_source_creation_time": True}
                             if source.source_type == "local_upload"
@@ -790,6 +797,7 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         "existing_result_reprocess_authorized": (
             job_existing_result_reprocess_authorized(job.options_json)
         ),
+        "long_duration_cost_confirmed": bool(job.long_duration_cost_confirmed),
     }
 
 

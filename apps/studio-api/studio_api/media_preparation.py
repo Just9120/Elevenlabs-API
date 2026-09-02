@@ -39,6 +39,8 @@ class MediaPreparationReason(str, Enum):
     media_split_failed = "media_split_failed"
     media_part_too_large = "media_part_too_large"
     media_clip_out_of_bounds = "media_clip_out_of_bounds"
+    media_duration_confirmation_required = "media_duration_confirmation_required"
+    media_duration_too_long = "media_duration_too_long"
 
 
 class MediaPreparationError(RuntimeError):
@@ -180,6 +182,9 @@ def prepare_elevenlabs_media_parts(
     runner: Callable[..., object] = subprocess.run,
     temporary_directory: str | None = None,
     probe_source_creation_time: bool = False,
+    duration_warning_seconds: int = 14400,
+    max_duration_seconds: int = 43200,
+    long_duration_confirmed: bool = False,
 ) -> Iterator[PreparedMediaBatch]:
     with prepare_elevenlabs_media_input(
         stream=stream,
@@ -223,6 +228,14 @@ def prepare_elevenlabs_media_parts(
                     )
                     prepared_path = clip_path
                     duration = _probe_duration_seconds(runner, prepared_path)
+                if duration > max_duration_seconds:
+                    raise MediaPreparationError(
+                        MediaPreparationReason.media_duration_too_long,
+                    )
+                if duration > duration_warning_seconds and not long_duration_confirmed:
+                    raise MediaPreparationError(
+                        MediaPreparationReason.media_duration_confirmation_required,
+                    )
                 split_reason = _split_reason(prepared_size, duration)
                 if split_reason is None:
                     if clip_requested:

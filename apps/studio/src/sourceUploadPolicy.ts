@@ -3,6 +3,8 @@ export type SourceUploadPolicy = {
   max_upload_bytes: number;
   multipart_threshold_bytes: number;
   multipart_part_size_bytes: number;
+  media_duration_warning_seconds?: number;
+  media_max_duration_seconds?: number;
   supported_mime_prefixes: string[];
   supported_mime_types: string[];
 };
@@ -12,6 +14,9 @@ export function normalizeSourceUploadPolicy(
 ): SourceUploadPolicy | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<SourceUploadPolicy>;
+  const durationPolicyPresent =
+    candidate.media_duration_warning_seconds !== undefined ||
+    candidate.media_max_duration_seconds !== undefined;
   if (
     typeof candidate.local_upload_enabled !== "boolean" ||
     !Number.isSafeInteger(candidate.max_upload_bytes) ||
@@ -21,6 +26,12 @@ export function normalizeSourceUploadPolicy(
     !Number.isSafeInteger(candidate.multipart_part_size_bytes) ||
     Number(candidate.multipart_part_size_bytes) < 5 * 1024 * 1024 ||
     Number(candidate.multipart_part_size_bytes) > Number(candidate.multipart_threshold_bytes) ||
+    (durationPolicyPresent &&
+      (!Number.isSafeInteger(candidate.media_duration_warning_seconds) ||
+        Number(candidate.media_duration_warning_seconds) <= 0 ||
+        !Number.isSafeInteger(candidate.media_max_duration_seconds) ||
+        Number(candidate.media_max_duration_seconds) <=
+          Number(candidate.media_duration_warning_seconds))) ||
     !Array.isArray(candidate.supported_mime_prefixes) ||
     !Array.isArray(candidate.supported_mime_types)
   )
@@ -44,6 +55,14 @@ export function normalizeSourceUploadPolicy(
     max_upload_bytes: Number(candidate.max_upload_bytes),
     multipart_threshold_bytes: Number(candidate.multipart_threshold_bytes),
     multipart_part_size_bytes: Number(candidate.multipart_part_size_bytes),
+    ...(durationPolicyPresent
+      ? {
+          media_duration_warning_seconds: Number(
+            candidate.media_duration_warning_seconds,
+          ),
+          media_max_duration_seconds: Number(candidate.media_max_duration_seconds),
+        }
+      : {}),
     supported_mime_prefixes: [...new Set(prefixes)],
     supported_mime_types: [...new Set(types)],
   };

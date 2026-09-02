@@ -52,10 +52,14 @@ const validAccount = {
 const api = vi.fn();
 const mutateWithCsrfRetry = vi.fn();
 
-vi.mock("./apiClient", () => ({
-  api: (...args: unknown[]) => api(...args),
-  mutateWithCsrfRetry: (...args: unknown[]) => mutateWithCsrfRetry(...args),
-}));
+vi.mock("./apiClient", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./apiClient")>();
+  return {
+    ...original,
+    api: (...args: unknown[]) => api(...args),
+    mutateWithCsrfRetry: (...args: unknown[]) => mutateWithCsrfRetry(...args),
+  };
+});
 
 describe("ElevenLabs account panel", () => {
   beforeEach(() => {
@@ -81,8 +85,8 @@ describe("ElevenLabs account panel", () => {
 
     expect(await screen.findByText("creator")).toBeInTheDocument();
     expect(screen.getByText(/2 500 из 10 000/)).toBeInTheDocument();
-    expect(screen.getByText(/фактические account-level/)).toBeInTheDocument();
-    expect(screen.getByText(/не переводит эти единицы в минуты Scribe/)).toBeInTheDocument();
+    expect(screen.getByText(/оставшиеся кредиты и дополнительные расходы/)).toBeInTheDocument();
+    expect(screen.getByText(/без пересчёта в минуты/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("api_key");
 
     await userEvent.click(screen.getByRole("button", { name: "Обновить" }));
