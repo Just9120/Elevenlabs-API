@@ -54,7 +54,7 @@ fetch_expected_branch() {
   GIT_CONFIG_SYSTEM=/dev/null \
   GIT_CONFIG_NOSYSTEM=1 \
   GIT_TERMINAL_PROMPT=0 \
-    git fetch --prune origin "$EXPECTED_BRANCH"
+    git -c 'http.https://github.com/.extraheader=' fetch --prune origin "$EXPECTED_BRANCH"
 }
 
 require_service_healthy() {
