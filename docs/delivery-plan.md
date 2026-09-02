@@ -28,14 +28,14 @@
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-02T17:51:31Z`.
+- **Updated (UTC):** `2026-09-02T17:55:47Z`.
 - **Base branch/SHA:** verified `origin/main@37d0818a78f496e089de051f32b009bc99157727` после fetch.
 - **Working branch:** `codex/personal-security-ux-01` от exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories existed before branch and remain untouched.
-- **Last verified revision:** base `37d0818a78f496e089de051f32b009bc99157727`; current implementation is locally verified but not yet committed/checked by exact-head CI. Latest fetch 2026-09-02 confirms `origin/main` remains at the same base.
+- **Last verified revision:** local implementation commit `922751f4567e0d1a86becc3333bb0e9211ca9506` on base `37d0818a78f496e089de051f32b009bc99157727`; latest fetch confirms `origin/main` remains at that base. The implementation commit is covered by the local validation below; exact-head CI is pending.
 - **Completed:** canonical `PWA-UX-POLISH-03` and `PWA-DATABASE-LEAST-PRIVILEGE-03` AC plus the missing personal security requirements were added without counting completion early; the matching Google Drive requirements document was edited pointwise in its existing style. Additive schema `0034_personal_security`, recent re-authentication, optional RFC 6238 TOTP/recovery/break-glass, bounded password-reset boundary, server-authoritative 4h/12h duration policy, separate owner/migrator/API database roles, protected role switch/recovery flow and all eight annotated UX corrections are implemented. Production role/secrets/data remain unchanged.
-- **Current step:** final diff review, reviewable commit and PR preparation.
-- **Next exact action:** stage only Goal files (excluding unrelated pnpm/cache artifacts), create the implementation commit, push the branch and obtain exact-head CI Evidence.
+- **Current step:** implementation commit complete; prepare remote branch and reviewable PR without merging before production DB credentials are staged.
+- **Next exact action:** push `codex/personal-security-ux-01`, create the Goal PR and obtain exact-head CI Evidence.
 - **Validation / Evidence:** production preflight `46 passed`; focused security/DB/media/migration/worker/retry suite `79 passed`; final duration/retry/migration/diagnostics suite `88 passed`; frontend full suite `683 passed` in `63` files; ESLint and production TypeScript/Vite/PWA build pass. Protected migration release suite is included in the final `88`; build has only the pre-existing non-fatal >500 kB chunk warning. Full local Python suite is not claimed because its integration slice requires PostgreSQL/Redis; exact CI remains mandatory.
 - **PR / CI / deployment:** PR not created; CI/DEPLOY/LIVE not run for this Goal.
 - **Blockers / unverified assumptions:** production requires two distinct root-owned password files and `.env` paths for `studio_api`/`studio_migrator`, a verified pre-change backup and the protected migration lane. Actual role identity and negative privilege matrix remain unverified LIVE; no production role, secret, service or data change has occurred in this Goal.
