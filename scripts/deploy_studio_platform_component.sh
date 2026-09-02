@@ -43,6 +43,20 @@ require_file() {
   [[ -f "$1" ]] || fail "missing required file: $1"
 }
 
+fetch_expected_branch() {
+  local forbidden_local_git_config
+  forbidden_local_git_config='^(credential\.|url\..*\.insteadof$|include(if\..*)?\.path$)'
+  if git config --local --get-regexp "$forbidden_local_git_config" >/dev/null 2>&1; then
+    fail "repository-local credential, URL rewrite, or include configuration is not allowed"
+  fi
+
+  GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_CONFIG_SYSTEM=/dev/null \
+  GIT_CONFIG_NOSYSTEM=1 \
+  GIT_TERMINAL_PROMPT=0 \
+    git fetch --prune origin "$EXPECTED_BRANCH"
+}
+
 require_service_healthy() {
   local service="$1"
   local container_id health
@@ -154,7 +168,7 @@ remote_url="$(git config --get remote.origin.url)"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree is not clean"
 require_file "$ENV_FILE"
 
-git fetch --prune origin "$EXPECTED_BRANCH"
+fetch_expected_branch
 target_revision="$(git rev-parse "origin/$EXPECTED_BRANCH")"
 [[ -n "$target_revision" ]] || fail "fetched target revision is empty"
 git merge --ff-only "origin/$EXPECTED_BRANCH"

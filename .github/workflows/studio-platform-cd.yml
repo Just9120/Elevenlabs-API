@@ -203,7 +203,16 @@ jobs:
           set -euo pipefail
           STUDIO_DEPLOY_DIR="$1"
           cd "$STUDIO_DEPLOY_DIR"
-          git fetch --prune origin main
+          forbidden_local_git_config='^(credential\.|url\..*\.insteadof$|include(if\..*)?\.path$)'
+          if git config --local --get-regexp "$forbidden_local_git_config" >/dev/null 2>&1; then
+            echo "repository-local credential, URL rewrite, or include configuration is not allowed" >&2
+            exit 1
+          fi
+          GIT_CONFIG_GLOBAL=/dev/null \
+          GIT_CONFIG_SYSTEM=/dev/null \
+          GIT_CONFIG_NOSYSTEM=1 \
+          GIT_TERMINAL_PROMPT=0 \
+            git fetch --prune origin main
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
           git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
@@ -260,7 +269,16 @@ jobs:
           set -euo pipefail
           STUDIO_DEPLOY_DIR="$1"
           cd "$STUDIO_DEPLOY_DIR"
-          git fetch --prune origin main
+          forbidden_local_git_config='^(credential\.|url\..*\.insteadof$|include(if\..*)?\.path$)'
+          if git config --local --get-regexp "$forbidden_local_git_config" >/dev/null 2>&1; then
+            echo "repository-local credential, URL rewrite, or include configuration is not allowed" >&2
+            exit 1
+          fi
+          GIT_CONFIG_GLOBAL=/dev/null \
+          GIT_CONFIG_SYSTEM=/dev/null \
+          GIT_CONFIG_NOSYSTEM=1 \
+          GIT_TERMINAL_PROMPT=0 \
+            git fetch --prune origin main
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
           git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
@@ -396,7 +414,16 @@ jobs:
           set -euo pipefail
           STUDIO_DEPLOY_DIR="$1"
           cd "$STUDIO_DEPLOY_DIR"
-          git fetch --prune origin main
+          forbidden_local_git_config='^(credential\.|url\..*\.insteadof$|include(if\..*)?\.path$)'
+          if git config --local --get-regexp "$forbidden_local_git_config" >/dev/null 2>&1; then
+            echo "repository-local credential, URL rewrite, or include configuration is not allowed" >&2
+            exit 1
+          fi
+          GIT_CONFIG_GLOBAL=/dev/null \
+          GIT_CONFIG_SYSTEM=/dev/null \
+          GIT_CONFIG_NOSYSTEM=1 \
+          GIT_TERMINAL_PROMPT=0 \
+            git fetch --prune origin main
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
           git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"

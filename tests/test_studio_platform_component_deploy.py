@@ -15,6 +15,24 @@ def _write_exe(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def bash_test_command(bin_dir: Path, *args: str) -> list[str]:
+    if os.name != "nt":
+        return ["bash", *args]
+
+    posix_bin_dir = bin_dir.resolve().as_posix()
+    if len(posix_bin_dir) >= 3 and posix_bin_dir[1:3] == ":/":
+        posix_bin_dir = f"/{posix_bin_dir[0].lower()}{posix_bin_dir[2:]}"
+    return [
+        "bash",
+        "-c",
+        'export PATH="$1:$PATH"; shift; exec "$@"',
+        "studio-deploy-test",
+        posix_bin_dir,
+        "bash",
+        *args,
+    ]
+
+
 def run_deploy(
     tmp_path: Path,
     component: str,
@@ -55,6 +73,7 @@ def run_deploy(
         "running_inspect_empty": "0",
         "local_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "target_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "local_config_exit": "1",
     }
     state.update(env_overrides)
 
@@ -68,8 +87,14 @@ case "$*" in
   "rev-parse HEAD") if [[ -f {str(merge_marker)!r} ]]; then echo {state['target_head']!r}; else echo {state['local_head']!r}; fi ;;
   "rev-parse origin/main") echo {state['target_head']!r} ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
+  "config --local --get-regexp "*) exit {state['local_config_exit']} ;;
   "status --porcelain --untracked-files=no") ;;
-  "fetch --prune origin main") ;;
+  "fetch --prune origin main")
+    [[ "${{GIT_CONFIG_GLOBAL:-}}" == "/dev/null" ]]
+    [[ "${{GIT_CONFIG_SYSTEM:-}}" == "/dev/null" ]]
+    [[ "${{GIT_CONFIG_NOSYSTEM:-}}" == "1" ]]
+    [[ "${{GIT_TERMINAL_PROMPT:-}}" == "0" ]]
+    ;;
   "merge --ff-only origin/main") {merge_command} ;;
   *) echo "unexpected git $*" >&2; exit 44 ;;
 esac
@@ -165,7 +190,12 @@ fi
 """,
     )
     env = os.environ.copy()
-    env.update({"PATH": f"{bin_dir}:{env['PATH']}", "STUDIO_DEPLOY_DIR": str(checkout)})
+    env.update(
+        {
+            "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+            "STUDIO_DEPLOY_DIR": str(checkout),
+        }
+    )
     env_file = checkout / "deploy/studio/.env"
     created_env_file = not env_file.exists()
     if created_env_file:
@@ -173,9 +203,24 @@ fi
     try:
         if via_stdin:
             with SCRIPT.open("r", encoding="utf-8") as stdin:
-                proc = subprocess.run(["bash", "-s", "--", component], cwd=checkout, env=env, text=True, stdin=stdin, capture_output=True, timeout=10)
+                proc = subprocess.run(
+                    bash_test_command(bin_dir, "-s", "--", component),
+                    cwd=checkout,
+                    env=env,
+                    text=True,
+                    stdin=stdin,
+                    capture_output=True,
+                    timeout=10,
+                )
         else:
-            proc = subprocess.run(["bash", str(SCRIPT), component], cwd=checkout, env=env, text=True, capture_output=True, timeout=10)
+            proc = subprocess.run(
+                bash_test_command(bin_dir, str(SCRIPT), component),
+                cwd=checkout,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
     finally:
         if created_env_file:
             env_file.unlink()
@@ -231,6 +276,11 @@ def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> 
     assert "git show origin/main:scripts/deploy_studio_platform_component.sh |" not in workflow
     assert "bash -s -- web" not in workflow
     assert "bash -s -- api" not in workflow
+    assert workflow.count("GIT_CONFIG_GLOBAL=/dev/null") == 3
+    assert workflow.count("GIT_CONFIG_SYSTEM=/dev/null") == 3
+    assert workflow.count("GIT_CONFIG_NOSYSTEM=1") == 3
+    assert workflow.count("GIT_TERMINAL_PROMPT=0") == 3
+    assert workflow.count("git config --local --get-regexp") == 3
     for component in ("web", "api"):
         pattern = re.compile(
             rf"git fetch --prune origin main.*?"
@@ -252,6 +302,20 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
 
     assert missing == []
     assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
+
+
+def test_repository_local_git_auth_or_rewrite_config_blocks_before_fetch(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_deploy(tmp_path, "web", local_config_exit="0")
+
+    assert proc.returncode != 0
+    assert (
+        "repository-local credential, URL rewrite, or include configuration is not allowed"
+        in proc.stderr
+    )
+    assert not any("fetch --prune origin main" in line for line in calls)
+    assert not any("build studio-web" in line for line in calls)
 
 
 def test_studio_ci_runs_protected_secret_bootstrap_smoke_after_image_build() -> None:
@@ -603,8 +667,14 @@ case "$*" in
   "rev-parse HEAD") echo {('b'*40)!r} ;;
   "rev-parse origin/main") echo {('b'*40)!r} ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
+  "config --local --get-regexp "*) exit 1 ;;
   "status --porcelain --untracked-files=no") ;;
-  "fetch --prune origin main") ;;
+  "fetch --prune origin main")
+    [[ "${{GIT_CONFIG_GLOBAL:-}}" == "/dev/null" ]]
+    [[ "${{GIT_CONFIG_SYSTEM:-}}" == "/dev/null" ]]
+    [[ "${{GIT_CONFIG_NOSYSTEM:-}}" == "1" ]]
+    [[ "${{GIT_TERMINAL_PROMPT:-}}" == "0" ]]
+    ;;
   "merge --ff-only origin/main") ;;
   *) exit 44 ;;
 esac
@@ -649,9 +719,20 @@ else exit 52; fi
 """)
     env_file = ROOT / "deploy/studio/.env"; created = not env_file.exists()
     if created: env_file.write_text("# fake\n", encoding="utf-8")
-    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT)}
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "STUDIO_DEPLOY_DIR": str(ROOT),
+    }
     try:
-        proc = subprocess.run(["bash", str(SCRIPT), "worker"], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
+        proc = subprocess.run(
+            bash_test_command(bin_dir, str(SCRIPT), "worker"),
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
     finally:
         if created: env_file.unlink()
     return proc, log.read_text(encoding="utf-8").splitlines() if log.exists() else []
