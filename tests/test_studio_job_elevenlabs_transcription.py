@@ -25,6 +25,8 @@ class Settings:
     credential_key_id: str = "credential-key-v1"
     source_max_upload_bytes: int = 1000
     source_s3_bucket: str = "bucket"
+    media_duration_warning_seconds: int = 14400
+    media_max_duration_seconds: int = 43200
     provider_part_checkpoint_ttl_seconds: int = 86400
     elevenlabs_scribe_v2_rate_per_hour_usd: str = "0.22"
     elevenlabs_pricing_effective_date: date = date(2026, 8, 30)

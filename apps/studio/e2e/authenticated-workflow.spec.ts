@@ -189,9 +189,15 @@ test('authenticated user opens transcriptions and reads a completed job result',
   const diagnosticEvents = page.getByRole('region', {
     name: 'События диагностики',
   });
-  await expect(diagnosticEvents.getByText('JOB_COMPLETED')).toBeVisible();
-  await expect(diagnosticEvents.getByText('OUTPUT_PERSISTED')).toBeVisible();
-  await expect(diagnosticEvents.getByText('JOB_CREATED')).toBeVisible();
+  await expect(
+    diagnosticEvents.getByText('JOB_COMPLETED', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    diagnosticEvents.getByText('OUTPUT_PERSISTED', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    diagnosticEvents.getByText('JOB_CREATED', { exact: true }),
+  ).toBeVisible();
   await expect(diagnosticEvents).toContainText('final_job_status');
   await expect(diagnosticEvents).toContainText('completed');
   await expect(diagnosticEvents).toContainText('output_count');
