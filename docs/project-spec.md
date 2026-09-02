@@ -703,29 +703,29 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`. Del
 
 ### Эпик `OBSERVABILITY-AUDIT-02` — health, tracing, alerts и protected audit
 
-Status: **🟦 IN PROGRESS — 71,4% (`25/35`)**.
+Status: **🟩 READY — 100% (`35/35`)**. `OBSERVABILITY-ALERTS-AUDIT-01` закрыла remaining trace, alert и protected-audit AC на exact functional merge `cbbc968096d210425df02dc7bd073dbb610fd1e2` и recovery baseline `368983035a7ae87302ad22a3b4b4945668b956f8`.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
 | `OBSERV-01` | `job_id` проходит через весь batch pipeline. | ✅ |
 | `OBSERV-02` | `request_id` проходит через request-to-job boundary. | ✅ |
-| `OBSERV-03` | `trace_id` проходит через весь cross-service pipeline. | — |
+| `OBSERV-03` | `trace_id` проходит через весь cross-service pipeline. | ✅ |
 | `OBSERV-04` | Admin health показывает backend status. | ✅ |
 | `OBSERV-05` | Admin health показывает PostgreSQL status. | ✅ |
 | `OBSERV-06` | Admin health показывает queue status. | ✅ |
 | `OBSERV-07` | Admin health показывает worker status. | ✅ |
 | `OBSERV-08` | Admin health показывает S3 status. | ✅ |
 | `OBSERV-09` | Admin health показывает STT provider status. | ✅ |
-| `OBSERV-10` | Admin health показывает email status. | — |
+| `OBSERV-10` | Admin health показывает email status. | ✅ |
 | `OBSERV-11` | Backend предоставляет отдельный liveness probe. | ✅ |
 | `OBSERV-12` | Backend предоставляет отдельный readiness probe. | ✅ |
 | `OBSERV-13` | Worker предоставляет отдельный liveness probe. | ✅ |
 | `OBSERV-14` | Worker предоставляет отдельный readiness probe. | ✅ |
-| `OBSERV-15` | Critical-error alerts отправляются. | — |
-| `OBSERV-16` | Stuck-queue alerts отправляются. | — |
-| `OBSERV-17` | Provider-unavailability alerts отправляются. | — |
-| `OBSERV-18` | Backup/cleanup failure alerts отправляются. | — |
-| `OBSERV-19` | Alerts отправляются при приближении к storage/API limits. | — |
+| `OBSERV-15` | Critical-error alerts отправляются. | ✅ |
+| `OBSERV-16` | Stuck-queue alerts отправляются. | ✅ |
+| `OBSERV-17` | Provider-unavailability alerts отправляются. | ✅ |
+| `OBSERV-18` | Backup/cleanup failure alerts отправляются. | ✅ |
+| `OBSERV-19` | Alerts отправляются при приближении к storage/API limits. | ✅ |
 | `OBSERV-20` | Secrets исключены из logs и diagnostics. | ✅ |
 | `OBSERV-21` | User data по умолчанию минимизированы в logs и diagnostics. | ✅ |
 | `OBSERV-22` | Diagnostics показывают release version. | ✅ |
@@ -738,12 +738,12 @@ Status: **🟦 IN PROGRESS — 71,4% (`25/35`)**.
 | `OBSERV-29` | Audit record идентифицирует actor. | ✅ |
 | `OBSERV-30` | Audit record идентифицирует время действия. | ✅ |
 | `OBSERV-31` | Audit record идентифицирует action. | ✅ |
-| `OBSERV-32` | Audit record идентифицирует operation outcome. | — |
-| `OBSERV-33` | Ordinary application flows не могут изменять прошлые audit records. | — |
-| `OBSERV-34` | Ordinary application flows не могут удалять audit records. | — |
+| `OBSERV-32` | Audit record идентифицирует operation outcome. | ✅ |
+| `OBSERV-33` | Ordinary application flows не могут изменять прошлые audit records. | ✅ |
+| `OBSERV-34` | Ordinary application flows не могут удалять audit records. | ✅ |
 | `OBSERV-35` | Очистка History/Analytics не удаляет audit records. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. PR `#280` реализовал safe browser/API/job/worker/external-boundary `trace_id`, explicit audit outcome, PostgreSQL append-only enforcement, owner-scoped deduplicated incidents/deliveries, deterministic critical/queue/provider/maintenance/backup/storage/account rules, optional secret-file Telegram и Support UI. Recovery PR `#281`–`#284` закрепили worker grant recovery без secret-permission или Git-index regression. Final exact-main CI `33564505271` и Studio/browser `33564505316` success; schema/API `33558511585`, worker deploy `33610692396` и status `33610999099` success. Authenticated production canary достиг `resolved`, generation `1`, occurrences `2`, suppress-ил firing/recovery delivery до commit и отобразился owner как recent recovery с тем же safe trace в audit; external message, provider/Google call и storage mutation не выполнялись.
 
 ### Эпик `RELEASE-SAFETY-02` — personal release safety
 
@@ -1152,16 +1152,16 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
 
 ## 8. Runtime и delivery baseline
 
-- Verified repository/VPS baseline: exact functional web/API/worker `main@ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e`; exact-main repository CI `33540632446`, Studio/browser `33540632492`, web CD `33540632463`, protected migration/API release `33541331595`, worker deploy `33541844977` и worker status `33542236147` завершились success. Authenticated diagnostics подтверждают exact component identity, backend/PostgreSQL/queue/worker/object-storage readiness и `isolation_match=yes`.
-- Production schema — `0032_source_multipart_authority`, confirmed by protected release `33541331595`; rollback snapshot `93ecba2be2b1` сохранён. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
+- Verified repository/VPS baseline: exact functional web/API `cbbc968096d210425df02dc7bd073dbb610fd1e2`, exact operational worker `368983035a7ae87302ad22a3b4b4945668b956f8`; final exact-main repository CI `33564505271`, Studio/browser `33564505316`, web CD `33557900132`, protected migration/API release `33558511585`, worker deploy `33610692396` и worker status `33610999099` завершились success. Post-functional commits изменяют только reviewed workflow/recovery scripts, tests, runbook и delivery metadata; application web/API source после `cbbc968` не менялся. Authenticated diagnostics подтверждают component identity, backend/PostgreSQL/queue/worker/object-storage readiness, `0` queued/processing и `isolation_match=yes`.
+- Production schema — `0033_observability_alerts_audit`, confirmed by protected release `33558511585`; rollback snapshot `58d4cf20e77d` сохранён. Existing picker/server verification и OAuth boundary — identity + `drive.file` + `drive.readonly`; maintenance grant остаётся отдельным server-only consent.
 - Distinct audio/transcription reference buckets, lifecycle rules и scoped credentials подтверждены предыдущей Goal. Existing legacy Sources сохраняют прежний routing; текущая Goal не переносит bytes и не меняет retention.
 
 ## 9. Current critical path
 
-1. Storage lifecycle follow-up завершён в PR `#278`, exact functional baseline `main@ac632b5`: large local reference uploads используют multipart выше server policy, abandoned sessions очищаются worker maintenance, а owner reconciliation остаётся dry-run-first и destructive только после отдельного подтверждения.
+1. Observability/audit Goal завершена PR `#280`–`#284`: safe cross-boundary trace, explicit/append-only audit, bounded owner incidents и optional operator transport доставлены; suppressed canary подтвердил create/dedup/resolve и owner UI без внешнего сообщения или spend.
 2. Existing failed multi-part job сохраняет confirmed usage `801.689 s` и после delivery показывает только explicit cost-confirmed full restart. Действие не выполнялось; automatic recovery запрещён.
 3. Exact-main CI, applicable web/API/worker delivery, health/identity/isolation и browser-safe retry UI подтверждены. Goal закрыта owner; дополнительный paid LIVE retry не требуется, а возможная новая regression будет отдельным hotfix.
-4. Production schema `0032` current; повторная migration не требуется. Existing worker isolation, account snapshots, lifecycle/provider-cost gates и duplicate protection не ослаблены.
+4. Production schema `0033` current; повторная migration не требуется. Existing worker isolation, account snapshots, lifecycle/provider-cost gates и duplicate protection не ослаблены.
 5. Commercial contour, новый STT provider, realtime/storage cost, открытые `STORAG-05/10/12/13/15`, system-wide API/DB least privilege и CI/CD policy вне закрытой Goal.
 
 ## 10. Supporting documents
