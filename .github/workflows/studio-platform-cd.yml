@@ -212,7 +212,7 @@ jobs:
           GIT_CONFIG_SYSTEM=/dev/null \
           GIT_CONFIG_NOSYSTEM=1 \
           GIT_TERMINAL_PROMPT=0 \
-            git fetch --prune origin main
+            git -c 'http.https://github.com/.extraheader=' fetch --prune origin main
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
           git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
@@ -278,7 +278,7 @@ jobs:
           GIT_CONFIG_SYSTEM=/dev/null \
           GIT_CONFIG_NOSYSTEM=1 \
           GIT_TERMINAL_PROMPT=0 \
-            git fetch --prune origin main
+            git -c 'http.https://github.com/.extraheader=' fetch --prune origin main
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
           git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
@@ -423,7 +423,7 @@ jobs:
           GIT_CONFIG_SYSTEM=/dev/null \
           GIT_CONFIG_NOSYSTEM=1 \
           GIT_TERMINAL_PROMPT=0 \
-            git fetch --prune origin main
+            git -c 'http.https://github.com/.extraheader=' fetch --prune origin main
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
           git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"

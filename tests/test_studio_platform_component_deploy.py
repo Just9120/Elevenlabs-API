@@ -89,7 +89,7 @@ case "$*" in
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "config --local --get-regexp "*) exit {state['local_config_exit']} ;;
   "status --porcelain --untracked-files=no") ;;
-  "fetch --prune origin main")
+  "-c http.https://github.com/.extraheader= fetch --prune origin main")
     [[ "${{GIT_CONFIG_GLOBAL:-}}" == "/dev/null" ]]
     [[ "${{GIT_CONFIG_SYSTEM:-}}" == "/dev/null" ]]
     [[ "${{GIT_CONFIG_NOSYSTEM:-}}" == "1" ]]
@@ -281,9 +281,10 @@ def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> 
     assert workflow.count("GIT_CONFIG_NOSYSTEM=1") == 3
     assert workflow.count("GIT_TERMINAL_PROMPT=0") == 3
     assert workflow.count("git config --local --get-regexp") == 3
+    assert workflow.count("git -c 'http.https://github.com/.extraheader=' fetch") == 3
     for component in ("web", "api"):
         pattern = re.compile(
-            rf"git fetch --prune origin main.*?"
+            rf"git -c 'http\.https://github\.com/\.extraheader=' fetch --prune origin main.*?"
             rf"deploy_script=\"\$\(mktemp\)\".*?"
             rf"trap 'rm -f \"\$deploy_script\"' EXIT.*?"
             rf"git show origin/main:scripts/deploy_studio_platform_component.sh >\"\$deploy_script\".*?"
@@ -669,7 +670,7 @@ case "$*" in
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "config --local --get-regexp "*) exit 1 ;;
   "status --porcelain --untracked-files=no") ;;
-  "fetch --prune origin main")
+  "-c http.https://github.com/.extraheader= fetch --prune origin main")
     [[ "${{GIT_CONFIG_GLOBAL:-}}" == "/dev/null" ]]
     [[ "${{GIT_CONFIG_SYSTEM:-}}" == "/dev/null" ]]
     [[ "${{GIT_CONFIG_NOSYSTEM:-}}" == "1" ]]
