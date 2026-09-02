@@ -1365,12 +1365,14 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
     .filter({ hasText: RETRY_SAFE_JOB })
     .first();
   await expect(retryCard.getByText('Статус: Ошибка')).toBeVisible();
+  const retryJobId = await retryCard.getAttribute('data-job-id');
+  expect(retryJobId).toMatch(/^[0-9a-f-]{36}$/);
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryReadinessResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
-      response.url().endsWith('/retry'),
+      response.url().endsWith(`/api/jobs/${retryJobId}/retry`),
   );
   await retryCard.getByRole('button', { name: 'Открыть' }).click();
 
@@ -1399,7 +1401,7 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
   const retryMutationResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
-      response.url().endsWith('/retry'),
+      response.url().endsWith(`/api/jobs/${retryJobId}/retry`),
   );
   await retryButton.click();
 
