@@ -269,6 +269,12 @@ jobs:
     timeout-minutes: 35
     environment: studio-production-migration
     steps:
+      - name: Checkout exact trusted revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Validate guarded migration release inputs
         shell: bash
         env:
@@ -320,15 +326,32 @@ jobs:
           RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
         run: |
           set -euo pipefail
+          bundle_file="$(mktemp)"
           output_file="$(mktemp)"
-          trap 'rm -f "$output_file"' EXIT
+          trap 'rm -f "$bundle_file" "$output_file"' EXIT
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || {
+            echo "runner checkout does not match migration release SHA" >&2
+            exit 1
+          }
+          git bundle create "$bundle_file" HEAD
+          bundle_head="$(git bundle list-heads "$bundle_file" | awk '$2 == "HEAD" {print $1}')"
+          [[ "$bundle_head" == "$RELEASE_SHA" ]] || {
+            echo "migration release bundle identity mismatch" >&2
+            exit 1
+          }
+          bundle_sha="$(sha256sum "$bundle_file" | awk '{print $1}')"
+          [[ "$bundle_sha" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "migration release bundle checksum is invalid" >&2
+            exit 1
+          }
           if ! ssh \
             -i ~/.ssh/studio_migration_key \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile=~/.ssh/studio_migration_known_hosts \
             "root@$MIGRATION_DEPLOY_HOST" \
-            "release $RELEASE_SHA $RELEASE_TARGET" >"$output_file" 2>&1; then
+            "release-bundle $RELEASE_SHA $RELEASE_TARGET $bundle_sha" \
+            <"$bundle_file" >"$output_file" 2>&1; then
             cat "$output_file"
             exit 1
           fi

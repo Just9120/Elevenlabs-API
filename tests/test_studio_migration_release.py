@@ -621,9 +621,20 @@ def test_failed_isolated_pg_restore_check_blocks_before_migration(
 def test_forced_command_wrapper_never_executes_original_command() -> None:
     wrapper = WRAPPER.read_text(encoding="utf-8")
 
+    assert (
+        r"^release-bundle\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)\ ([0-9a-f]{64})$"
+        in wrapper
+    )
     assert r"^release\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)$" in wrapper
     assert 'requested_commit="${BASH_REMATCH[1]}"' in wrapper
     assert 'requested_target="${BASH_REMATCH[2]}"' in wrapper
+    assert 'requested_bundle_sha="${BASH_REMATCH[3]}"' in wrapper
+    assert "MAX_BUNDLE_BYTES=134217728" in wrapper
+    assert 'iflag=fullblock bs=1048576 count=129' in wrapper
+    assert 'fail "bundle_checksum_mismatch"' in wrapper
+    assert 'repo_git bundle verify "$temporary_bundle"' in wrapper
+    assert 'fail "bundle_identity_mismatch"' in wrapper
+    assert 'repo_git fetch --no-tags "$temporary_bundle"' in wrapper
     assert '[[ "$remote_commit" == "$requested_commit" ]]' in wrapper
     assert 'repo_git show "${requested_commit}:${RELEASE_SCRIPT}"' in wrapper
     assert "env -i" in wrapper
@@ -686,13 +697,19 @@ def test_cd_uses_only_dedicated_forced_command_identity_for_migration() -> None:
         "STUDIO_MIGRATION_KNOWN_HOSTS",
     ):
         assert secret in release_job
+    assert "Checkout exact trusted revision" in release_job
+    assert "fetch-depth: 0" in release_job
+    assert "persist-credentials: false" in release_job
     assert '"root@$MIGRATION_DEPLOY_HOST"' in release_job
-    assert '"release $RELEASE_SHA $RELEASE_TARGET"' in release_job
+    assert 'git bundle create "$bundle_file" HEAD' in release_job
+    assert '"release-bundle $RELEASE_SHA $RELEASE_TARGET $bundle_sha"' in release_job
+    assert '<"$bundle_file" >"$output_file"' in release_job
     assert "StrictHostKeyChecking=yes" in release_job
     assert "UserKnownHostsFile=~/.ssh/studio_migration_known_hosts" in release_job
     assert "[studio-migration-release] OK commit=" in release_job
     assert "[studio-migration-release-wrapper] OK commit=" in release_job
     assert "bash -s" not in release_job
+    assert "scp " not in release_job
     assert "alembic upgrade" not in release_job
     assert "backup_studio_postgres_r2.sh" not in release_job
 
