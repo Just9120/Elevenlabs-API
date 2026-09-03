@@ -7480,10 +7480,19 @@ def test_batch_jobs_integrity_error_replays_concurrent_winner(monkeypatch):
     def fake_flush(self, *args, **kwargs):
         if not injected["done"] and any(isinstance(obj, TranscriptionJob) and obj.batch_idempotency_key == "batch-key-1" for obj in self.new):
             injected["done"] = True
-            options_json = main.safe_job_options(body["options"])
-            language = main.clean_job_language(body["language"])
-            hash_items = [{"source_id": item["source_id"], "output_folder_id": item["output_folder_id"], "title": main.clean_job_title(item.get("title"))} for item in body["items"]]
-            request_hash = main._batch_hash(pid, cred_id, language, options_json, hash_items)
+            request_data = main.TranscriptionJobBatchCreateIn.model_validate(body)
+            language, options_json, _, _, _, _, _, _, _, hash_items = (
+                main._normalize_batch_creation_input(request_data)
+            )
+            request_hash = main._batch_hash(
+                pid,
+                cred_id,
+                language,
+                options_json,
+                hash_items,
+                provider=request_data.provider.value,
+                operating_mode=request_data.operating_mode.value,
+            )
             winner = SessionLocal()
             try:
                 winner.execute(text("SET LOCAL lock_timeout = '3s'"))
