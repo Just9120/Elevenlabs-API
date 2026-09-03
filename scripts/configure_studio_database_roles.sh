@@ -58,11 +58,13 @@ schema_initialized() {
 }
 
 verify_runtime_privileges() {
-  local api_privileges ownership
+  local api_privileges ownership enum_ownership
   api_privileges="$(psql_admin -Atqc "SELECT has_schema_privilege('studio_api','public','USAGE') AND NOT has_schema_privilege('studio_api','public','CREATE') AND has_table_privilege('studio_api','users','SELECT,INSERT,UPDATE,DELETE') AND NOT has_table_privilege('studio_api','users','TRUNCATE') AND has_table_privilege('studio_api','audit_events','SELECT,INSERT') AND NOT has_table_privilege('studio_api','audit_events','UPDATE,DELETE,TRUNCATE') AND has_table_privilege('studio_api','alembic_version','SELECT') AND NOT has_table_privilege('studio_api','alembic_version','INSERT,UPDATE,DELETE,TRUNCATE') AND has_table_privilege('studio_api','transcription_provider_part_checkpoints','SELECT') AND NOT has_table_privilege('studio_api','transcription_provider_part_checkpoints','INSERT,UPDATE,DELETE,TRUNCATE')")"
   [[ "$api_privileges" == "t" ]] || fail "API privilege boundary invalid"
   ownership="$(psql_admin -Atqc "SELECT NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m','f') AND pg_get_userbyid(c.relowner) <> 'studio_owner')")"
   [[ "$ownership" == "t" ]] || fail "public object ownership invalid"
+  enum_ownership="$(psql_admin -Atqc "SELECT NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public' AND t.typtype='e' AND pg_get_userbyid(t.typowner) <> 'studio_owner')")"
+  [[ "$enum_ownership" == "t" ]] || fail "public enum ownership invalid"
 }
 
 verify_roles() {
