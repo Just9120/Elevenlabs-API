@@ -240,6 +240,7 @@ describe("LiveTranscriptionPanel", () => {
       headers: expect.objectContaining({ "x-csrf-token": "csrf-safe" }),
     });
     expect(JSON.parse(String(capabilityCall?.[1]?.body))).toEqual({
+      provider: "elevenlabs",
       provider_credential_id: "credential-safe",
       language: "en",
     });
@@ -1087,7 +1088,7 @@ describe("LiveTranscriptionPanel", () => {
       );
       expect(
         await screen.findByText(
-          "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+          "Не удалось загрузить профили STT. Повторите попытку.",
         ),
       ).toBeInTheDocument();
       expect(credentialSignal?.aborted).toBe(true);
@@ -1140,7 +1141,7 @@ describe("LiveTranscriptionPanel", () => {
     );
     expect(
       await screen.findByText(
-        "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+        "Не удалось загрузить профили STT. Повторите попытку.",
       ),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-live");

@@ -45,6 +45,21 @@ def test_public_referrer_policy_exposes_only_origin_for_google_picker():
     assert 'add_header Referrer-Policy "no-referrer"' not in config
 
 
+def test_yandex_realtime_relay_upgrades_without_logging_signed_capability():
+    config = _normalized_config(HOST_NGINX)
+    match = re.search(
+        r"location = /api/realtime/yandex \{(.*?)\}",
+        config,
+    )
+    assert match
+    relay = match.group(1)
+    assert "access_log off;" in relay
+    assert "proxy_http_version 1.1;" in relay
+    assert "proxy_set_header Upgrade $http_upgrade;" in relay
+    assert 'proxy_set_header Connection "upgrade";' in relay
+    assert "proxy_read_timeout 360s;" in relay
+
+
 def test_csp_is_picker_compatible_without_script_wildcards_or_eval():
     config = _normalized_config(HOST_HEADERS)
     match = re.search(r'add_header Content-Security-Policy "([^"]+)" always;', config)

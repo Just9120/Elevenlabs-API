@@ -67,8 +67,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0035_job_notifications"]
-    assert script.get_current_head() == "0035_job_notifications"
+    assert script.get_heads() == ["0036_stt_multiprovider"]
+    assert script.get_current_head() == "0036_stt_multiprovider"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():
@@ -320,6 +320,50 @@ def test_multisource_prepared_rows_allow_recovery_and_explicit_retry(sqlite_db):
     retry = queue_retry(sqlite_db, owner_user_id=job.owner_user_id, job_id=job.id, now=now)
     assert retry is not None and retry.transitioned is True
     assert retry.job.terminal_dismissed_at is None
+
+
+def test_expired_yandex_attempt_with_durable_operation_recovers_without_new_submit_authority(sqlite_db):
+    from studio_api.job_processing_lifecycle import recover_expired_processing_job
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=1,
+        expired=True,
+    )
+    job.provider = "yandex"
+    job.operating_mode = "standard"
+    attempt = _attempt(
+        sqlite_db,
+        m,
+        job,
+        rels[0],
+        stage=m.SourceAttemptStage.provider_request_started,
+        disposition=m.SourceAttemptRetryDisposition.provider_outcome_uncertain,
+        started=True,
+    )
+    sqlite_db.add(
+        m.SttProviderOperation(
+            owner_user_id=job.owner_user_id,
+            project_id=job.project_id,
+            job_id=job.id,
+            job_source_id=rels[0].id,
+            attempt_number=attempt.attempt_number,
+            provider="yandex",
+            operating_mode="standard",
+            model="general",
+            operation_id="operation-resume-safe",
+            status="pending",
+            submitted_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    sqlite_db.commit()
+
+    result = recover_expired_processing_job(sqlite_db, job_id=job.id, now=now)
+
+    assert result.status == m.JobStatus.queued
+    assert sqlite_db.query(m.SttProviderOperation).count() == 1
 
 
 def test_partial_output_preserved_and_prepared_next_source_is_safe(sqlite_db):

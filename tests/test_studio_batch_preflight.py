@@ -78,13 +78,17 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
     assert set(payload) == {
         "provider",
         "model",
+        "operating_mode",
         "language_mode",
         "diarization_enabled",
+        "dictionary_term_count",
         "existing_result_authority",
         "items",
         "summary",
         "confirmation_required",
     }
+    assert payload["operating_mode"] == "standard"
+    assert payload["dictionary_term_count"] == 0
     assert payload["provider"] == "elevenlabs"
     assert payload["model"] == "scribe_v2"
     assert payload["summary"] == {

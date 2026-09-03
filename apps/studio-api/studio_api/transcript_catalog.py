@@ -85,6 +85,8 @@ def current_effective_settings(
     diarization_enabled: bool,
     media_clip_start_seconds: int | None = None,
     media_clip_end_seconds: int | None = None,
+    provider: str = CURRENT_TRANSCRIPTION_PROVIDER,
+    model: str = CURRENT_TRANSCRIPTION_MODEL,
 ) -> EffectiveTranscriptionSettings:
     normalized_language = (
         language_mode.strip().lower() if isinstance(language_mode, str) else ""
@@ -95,7 +97,9 @@ def current_effective_settings(
         raise ValueError("Unsupported PWA transcription language mode")
     if not isinstance(diarization_enabled, bool):
         raise ValueError("Diarization selection must be boolean")
-    return elevenlabs_effective_settings(
+    return provider_effective_settings(
+        provider=provider,
+        model=model,
         language_mode=normalized_language,
         diarization_enabled=diarization_enabled,
         media_clip_start_seconds=media_clip_start_seconds,
@@ -105,6 +109,25 @@ def current_effective_settings(
 
 def elevenlabs_effective_settings(
     *,
+    language_mode: str,
+    diarization_enabled: bool,
+    media_clip_start_seconds: int | None = None,
+    media_clip_end_seconds: int | None = None,
+) -> EffectiveTranscriptionSettings:
+    return provider_effective_settings(
+        provider=CURRENT_TRANSCRIPTION_PROVIDER,
+        model=CURRENT_TRANSCRIPTION_MODEL,
+        language_mode=language_mode,
+        diarization_enabled=diarization_enabled,
+        media_clip_start_seconds=media_clip_start_seconds,
+        media_clip_end_seconds=media_clip_end_seconds,
+    )
+
+
+def provider_effective_settings(
+    *,
+    provider: str,
+    model: str,
     language_mode: str,
     diarization_enabled: bool,
     media_clip_start_seconds: int | None = None,
@@ -120,8 +143,8 @@ def elevenlabs_effective_settings(
         media_clip_end_seconds,
     )
     return EffectiveTranscriptionSettings(
-        provider=CURRENT_TRANSCRIPTION_PROVIDER,
-        model=CURRENT_TRANSCRIPTION_MODEL,
+        provider=provider,
+        model=model,
         language_mode=normalized_language,
         diarization_enabled=bool(diarization_enabled),
         media_clip_start_seconds=clip.start_seconds,
@@ -154,16 +177,26 @@ def effective_settings_from_persisted_job(
     options_json: str | None,
     media_clip_start_seconds: int | None = None,
     media_clip_end_seconds: int | None = None,
+    operating_mode: str | None = None,
+    settings: Any | None = None,
 ) -> EffectiveTranscriptionSettings | None:
     explicit_provider = _enum_value(job_provider).strip().lower()
     selected_provider = explicit_provider or _enum_value(credential_provider).strip().lower()
     language_mode = _catalog_language_mode(browser_language_mode(language))
-    if (
-        selected_provider != CURRENT_TRANSCRIPTION_PROVIDER
-        or language_mode is None
-    ):
+    if selected_provider not in {"elevenlabs", "yandex"} or language_mode is None:
         return None
-    return elevenlabs_effective_settings(
+    model = CURRENT_TRANSCRIPTION_MODEL
+    if settings is not None:
+        from .stt_provider import resolve_capability
+        try:
+            model = resolve_capability(settings, selected_provider, operating_mode or "standard").model
+        except Exception:
+            return None
+    elif selected_provider == "yandex":
+        model = "deferred-general" if operating_mode == "economic" else "general"
+    return provider_effective_settings(
+        provider=selected_provider,
+        model=model,
         language_mode=language_mode,
         diarization_enabled=job_diarization_enabled(options_json),
         media_clip_start_seconds=media_clip_start_seconds,
@@ -178,15 +211,32 @@ def accepted_evidence_from_rows(
     for raw_row in rows:
         row = tuple(raw_row)
         count = 1
-        if len(row) in {10, 12}:
+        if len(row) in {10, 12, 13}:
             *row_values, raw_count = row
             row = tuple(row_values)
             count = max(1, int(raw_count or 1))
         if len(row) == 9:
             row = (*row[:7], None, None, *row[7:])
-        if len(row) != 11:
+        if len(row) not in {11, 12}:
             continue
-        (
+        operating_mode = None
+        if len(row) == 12:
+            (
+                source_id,
+                source_type,
+                drive_file_id,
+                job_provider,
+                credential_provider,
+                operating_mode,
+                language,
+                options_json,
+                media_clip_start_seconds,
+                media_clip_end_seconds,
+                output_kind,
+                transcript_standard,
+            ) = row
+        else:
+            (
             source_id,
             source_type,
             drive_file_id,
@@ -198,7 +248,7 @@ def accepted_evidence_from_rows(
             media_clip_end_seconds,
             output_kind,
             transcript_standard,
-        ) = row
+            ) = row
         if output_kind != GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND:
             continue
         identity = catalog_source_identity(
@@ -216,6 +266,7 @@ def accepted_evidence_from_rows(
                     options_json=options_json,
                     media_clip_start_seconds=media_clip_start_seconds,
                     media_clip_end_seconds=media_clip_end_seconds,
+                    operating_mode=operating_mode,
                 ),
                 transcript_standard=str(transcript_standard or ""),
                 count=count,
@@ -412,6 +463,7 @@ def load_existing_result_matches(
             Source.drive_file_id,
             TranscriptionJob.provider,
             ProviderCredential.provider,
+            TranscriptionJob.operating_mode,
             TranscriptionJob.language,
             TranscriptionJob.options_json,
             TranscriptionJob.media_clip_start_seconds,
@@ -457,6 +509,7 @@ def load_existing_result_matches(
         Source.drive_file_id,
         TranscriptionJob.provider,
         ProviderCredential.provider,
+        TranscriptionJob.operating_mode,
         TranscriptionJob.language,
         TranscriptionJob.options_json,
         TranscriptionJob.media_clip_start_seconds,
@@ -646,6 +699,7 @@ def load_provider_attempt_authorities(
             Source.drive_file_id,
             TranscriptionJob.provider,
             ProviderCredential.provider,
+            TranscriptionJob.operating_mode,
             TranscriptionJob.language,
             TranscriptionJob.options_json,
             TranscriptionJob.media_clip_start_seconds,
@@ -707,6 +761,7 @@ def load_provider_attempt_authorities(
         Source.drive_file_id,
         TranscriptionJob.provider,
         ProviderCredential.provider,
+        TranscriptionJob.operating_mode,
         TranscriptionJob.language,
         TranscriptionJob.options_json,
         TranscriptionJob.media_clip_start_seconds,
@@ -729,6 +784,7 @@ def load_provider_attempt_authorities(
             settings=effective_settings_from_persisted_job(
                 job_provider=job_provider,
                 credential_provider=credential_provider,
+                operating_mode=operating_mode,
                 language=language,
                 options_json=options_json,
                 media_clip_start_seconds=media_clip_start_seconds,
@@ -744,6 +800,7 @@ def load_provider_attempt_authorities(
             drive_file_id,
             job_provider,
             credential_provider,
+            operating_mode,
             language,
             options_json,
             media_clip_start_seconds,

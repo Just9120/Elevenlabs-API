@@ -27,6 +27,9 @@ ELEVENLABS_PART_TARGET_DURATION_SECONDS = 1320.0
 ELEVENLABS_PART_MIN_DURATION_SECONDS = 30.0
 ELEVENLABS_PART_OVERLAP_SECONDS = 2.0
 ELEVENLABS_MAX_PARTS = 256
+YANDEX_MAX_BYTES = 60 * 1024 * 1024
+YANDEX_MAX_DURATION_SECONDS = 14400
+YANDEX_AUDIO_BITRATE = "24k"
 _COPY_CHUNK_SIZE = 1024 * 1024
 
 
@@ -311,6 +314,83 @@ def prepare_elevenlabs_media_parts(
             finally:
                 for part_stream in part_streams:
                     part_stream.close()
+
+
+@contextmanager
+def prepare_yandex_media_file(
+    *,
+    stream: BinaryIO,
+    original_filename: str,
+    mime_type: str,
+    byte_count: int,
+    max_output_bytes: int,
+    media_clip_start_seconds: int | None = None,
+    media_clip_end_seconds: int | None = None,
+    runner: Callable[..., object] = subprocess.run,
+    temporary_directory: str | None = None,
+    probe_source_creation_time: bool = False,
+    duration_warning_seconds: int = 14400,
+    max_duration_seconds: int = 43200,
+    long_duration_confirmed: bool = False,
+) -> Iterator[PreparedMediaBatch]:
+    """Normalize one source to the Yandex v3 OGG/Opus async-file contract."""
+    del mime_type, byte_count
+    with TemporaryDirectory(prefix="studio-yandex-", dir=temporary_directory) as temp_dir:
+        root = Path(temp_dir)
+        source_path = root / f"source{_safe_input_suffix(original_filename)}"
+        output_path = root / "prepared-audio.ogg"
+        _copy_input(stream, source_path)
+        source_created_at = (
+            _probe_source_creation_time(runner, source_path)
+            if probe_source_creation_time
+            else None
+        )
+        source_duration = _probe_duration_seconds(runner, source_path)
+        clip_requested = media_clip_start_seconds is not None or media_clip_end_seconds is not None
+        start, end = (0.0, source_duration)
+        if clip_requested:
+            start, end = _validated_manual_clip_bounds(
+                start_seconds=media_clip_start_seconds,
+                end_seconds=media_clip_end_seconds,
+                source_duration_seconds=source_duration,
+            )
+        duration = end - start
+        hard_limit = min(int(max_duration_seconds), YANDEX_MAX_DURATION_SECONDS)
+        if duration > hard_limit:
+            raise MediaPreparationError(MediaPreparationReason.media_duration_too_long)
+        if duration > duration_warning_seconds and not long_duration_confirmed:
+            raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required)
+        command = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(source_path),
+            "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "48000",
+            "-c:a", "libopus", "-b:a", YANDEX_AUDIO_BITRATE, str(output_path),
+        ]
+        try:
+            runner(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=FFMPEG_VIDEO_EXTRACTION_TIMEOUT_SECONDS)
+        except FileNotFoundError as exc:
+            raise MediaPreparationError(MediaPreparationReason.ffmpeg_unavailable) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise MediaPreparationError(MediaPreparationReason.media_preparation_timeout) from exc
+        except (subprocess.CalledProcessError, OSError) as exc:
+            raise MediaPreparationError(MediaPreparationReason.media_preparation_failed) from exc
+        size = _validated_output_size(output_path, min(max_output_bytes, YANDEX_MAX_BYTES))
+        prepared_stream = output_path.open("rb")
+        try:
+            yield PreparedMediaBatch(
+                parts=(PreparedMediaInput(
+                    filename=f"{_safe_stem(original_filename)}.ogg",
+                    mime_type="audio/ogg",
+                    byte_count=size,
+                    stream=prepared_stream,
+                    audio_extracted=True,
+                    duration_seconds=duration,
+                ),),
+                duration_seconds=duration,
+                source_created_at=source_created_at,
+            )
+        finally:
+            prepared_stream.close()
 
 
 def _copy_input(stream: BinaryIO, destination: Path) -> None:

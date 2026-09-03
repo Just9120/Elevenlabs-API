@@ -288,6 +288,8 @@ describe("batch composer model", () => {
     const valid = {
       provider: "elevenlabs",
       model: "scribe_v2",
+      operating_mode: "standard",
+      dictionary_term_count: 0,
       language_mode: "en",
       diarization_enabled: false,
       existing_result_authority: {
@@ -333,7 +335,7 @@ describe("batch composer model", () => {
         },
       }),
     ).toBeNull();
-    expect(parseBatchPreflightResponse({ ...valid, model: "other" })).toBeNull();
+    expect(parseBatchPreflightResponse({ ...valid, model: "" })).toBeNull();
     expect(
       parseBatchPreflightResponse({
         ...valid,

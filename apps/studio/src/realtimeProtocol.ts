@@ -1,7 +1,8 @@
 export type RealtimeCapability = {
+  provider?: "elevenlabs" | "yandex";
   websocket_url: string;
   expires_in_seconds: number;
-  model_id: "scribe_v2_realtime";
+  model_id: string;
   audio_format: "pcm_16000";
   commit_strategy: "vad";
 };
@@ -44,7 +45,9 @@ export function parseRealtimeCapability(value: unknown): RealtimeCapability {
   }
   const candidate = value as Record<string, unknown>;
   if (
-    candidate.model_id !== "scribe_v2_realtime" ||
+    typeof candidate.model_id !== "string" ||
+    !candidate.model_id ||
+    candidate.model_id.length > 120 ||
     candidate.audio_format !== "pcm_16000" ||
     candidate.commit_strategy !== "vad" ||
     !Number.isInteger(candidate.expires_in_seconds) ||
@@ -60,11 +63,21 @@ export function parseRealtimeCapability(value: unknown): RealtimeCapability {
   } catch {
     throw new Error("Сервер вернул небезопасный realtime-адрес.");
   }
+  const provider = candidate.provider === "yandex" ? "yandex" : "elevenlabs";
+  const isElevenLabs =
+    provider === "elevenlabs" &&
+    url.protocol === "wss:" &&
+    url.hostname === REALTIME_HOST &&
+    !url.port &&
+    url.pathname === REALTIME_PATH;
+  const expectedLocalProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const isYandexRelay =
+    provider === "yandex" &&
+    url.protocol === expectedLocalProtocol &&
+    url.host === window.location.host &&
+    url.pathname === "/api/realtime/yandex";
   if (
-    url.protocol !== "wss:" ||
-    url.hostname !== REALTIME_HOST ||
-    Boolean(url.port) ||
-    url.pathname !== REALTIME_PATH ||
+    (!isElevenLabs && !isYandexRelay) ||
     Boolean(url.username) ||
     Boolean(url.password) ||
     Boolean(url.hash)
@@ -72,6 +85,20 @@ export function parseRealtimeCapability(value: unknown): RealtimeCapability {
     throw new Error("Сервер вернул небезопасный realtime-адрес.");
   }
   const queryKeys = [...new Set(url.searchParams.keys())];
+  if (isYandexRelay) {
+    const capabilityValues = url.searchParams.getAll("capability");
+    if (
+      queryKeys.length !== 1 ||
+      queryKeys[0] !== "capability" ||
+      capabilityValues.length !== 1 ||
+      !capabilityValues[0] ||
+      capabilityValues[0].length > 1600 ||
+      capabilityValues[0] !== capabilityValues[0].trim()
+    ) {
+      throw new Error("Сервер вернул небезопасный realtime-адрес.");
+    }
+    return { ...(candidate as Omit<RealtimeCapability, "provider">), provider };
+  }
   const tokenValues = url.searchParams.getAll("token");
   const token = tokenValues[0] ?? "";
   const languageValues = url.searchParams.getAll("language_code");

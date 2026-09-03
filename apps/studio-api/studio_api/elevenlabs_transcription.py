@@ -227,10 +227,10 @@ class ElevenLabsTranscriptionTransport:
     post: Callable[..., httpx.Response] | None = field(default=None, repr=False)
 
     def transcribe(
-        self, *, api_key: str, stream: BinaryIO, filename: str, mime_type: str, language_code: str | None = None, diarize: bool = False
+        self, *, api_key: str, stream: BinaryIO, filename: str, mime_type: str, language_code: str | None = None, diarize: bool = False, keyterms: Sequence[str] = (), model_id: str = CURRENT_TRANSCRIPTION_MODEL
     ) -> ElevenLabsTranscriptResult:
-        data: dict[str, str] = {
-            "model_id": CURRENT_TRANSCRIPTION_MODEL,
+        data: dict[str, str | list[str]] = {
+            "model_id": model_id,
             "no_verbatim": "false",
             "temperature": "0",
             "tag_audio_events": "false",
@@ -240,6 +240,8 @@ class ElevenLabsTranscriptionTransport:
         }
         if language_code:
             data["language_code"] = language_code
+        if keyterms:
+            data["keyterms"] = list(keyterms[:100])
         files = {"file": (filename, stream, mime_type)}
         headers = {"xi-api-key": api_key}
         try:

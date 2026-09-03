@@ -7,6 +7,8 @@ import {
 export const DEFAULT_TRANSCRIPTION_LANGUAGE_MODE: TranscriptionLanguageMode =
   "ru";
 export const MAX_BATCH_ITEMS = 50;
+export type SttProvider = "elevenlabs" | "yandex";
+export type SttOperatingMode = "economic" | "standard" | "premium";
 
 export type VerifiedOutputFolder = {
   folder_id: string;
@@ -33,9 +35,11 @@ export type BatchCreateResponse = {
   replayed: boolean;
 };
 export type BatchCreateRequest = {
+  provider?: SttProvider;
+  operating_mode?: SttOperatingMode;
   provider_credential_id: string | null;
   language: TranscriptionLanguageMode;
-  options: { diarize: boolean };
+  options: { diarize: boolean; dictionary_ids?: string[] };
   items: {
     source_id: string;
     output_folder_id: string;
@@ -85,8 +89,10 @@ export type BatchPreflightItem = {
   planned_outcome: "process" | "skip" | "blocked";
 };
 export type BatchPreflightResponse = {
-  provider: "elevenlabs";
-  model: "scribe_v2";
+  provider: SttProvider;
+  model: string;
+  operating_mode: SttOperatingMode;
+  dictionary_term_count: number;
   language_mode: TranscriptionLanguageMode;
   diarization_enabled: boolean;
   existing_result_authority: {
@@ -173,6 +179,9 @@ export function composerSignature(
   credentialId: string,
   languageMode: TranscriptionLanguageMode,
   diarizationEnabled: boolean,
+  provider?: SttProvider,
+  operatingMode?: SttOperatingMode,
+  dictionaryIds?: string[],
 ) {
   try {
     return JSON.stringify(
@@ -181,6 +190,9 @@ export function composerSignature(
         credentialId,
         languageMode,
         diarizationEnabled,
+        provider,
+        operatingMode,
+        dictionaryIds,
       ),
     );
   } catch {
@@ -188,6 +200,9 @@ export function composerSignature(
       credentialId,
       languageMode,
       diarizationEnabled,
+      provider,
+      operatingMode,
+      dictionaryIds,
       invalid_rows: rows.map((row) => ({
         id: row.id,
         source_id: row.source_id,
@@ -330,15 +345,22 @@ export function buildBatchCreateRequest(
   credentialId: string,
   languageMode: TranscriptionLanguageMode,
   diarizationEnabled: boolean,
+  provider?: SttProvider,
+  operatingMode?: SttOperatingMode,
+  dictionaryIds?: string[],
 ): BatchCreateRequest {
   const items = expandComposerRows(rows).map((item) => item.request_item);
   if (items.length > MAX_BATCH_ITEMS) throw new Error("Batch item limit exceeded");
-  return {
+  const request: BatchCreateRequest = {
     provider_credential_id: credentialId || null,
     language: languageMode,
     options: { diarize: diarizationEnabled },
     items,
   };
+  if (provider) request.provider = provider;
+  if (operatingMode) request.operating_mode = operatingMode;
+  if (dictionaryIds?.length) request.options.dictionary_ids = [...dictionaryIds];
+  return request;
 }
 
 export function parseBatchPreflightResponse(
@@ -349,6 +371,8 @@ export function parseBatchPreflightResponse(
     !hasExactKeys(value, [
       "provider",
       "model",
+      "operating_mode",
+      "dictionary_term_count",
       "language_mode",
       "diarization_enabled",
       "existing_result_authority",
@@ -356,8 +380,14 @@ export function parseBatchPreflightResponse(
       "summary",
       "confirmation_required",
     ]) ||
-    value.provider !== "elevenlabs" ||
-    value.model !== "scribe_v2" ||
+    !["elevenlabs", "yandex"].includes(String(value.provider)) ||
+    typeof value.model !== "string" ||
+    value.model.length === 0 ||
+    value.model.length > 120 ||
+    !["economic", "standard", "premium"].includes(
+      String(value.operating_mode),
+    ) ||
+    !isNonNegativeInteger(value.dictionary_term_count) ||
     !isTranscriptionLanguageMode(value.language_mode) ||
     typeof value.diarization_enabled !== "boolean" ||
     value.confirmation_required !== true ||

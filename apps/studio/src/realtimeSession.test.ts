@@ -151,6 +151,72 @@ describe("RealtimeSessionController", () => {
     expect(
       realtimeProviderErrorMessage("insufficient_audio_activity"),
     ).toContain("речевой активности");
+    expect(realtimeProviderErrorMessage("quota_exceeded", "yandex")).toContain(
+      "Yandex SpeechKit",
+    );
+  });
+
+  it("commits and stops Yandex before the five-minute provider limit", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const timers = new Map<number, { callback: () => void; milliseconds: number }>();
+    let timerId = 0;
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue({
+          provider: "yandex",
+          websocket_url:
+            "ws://localhost:3000/api/realtime/yandex?capability=header.signature",
+          expires_in_seconds: 300,
+          model_id: "general",
+          audio_format: "pcm_16000",
+          commit_strategy: "vad",
+        }),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: (callback, milliseconds) => {
+          const id = ++timerId;
+          timers.set(id, { callback, milliseconds });
+          return id;
+        },
+        clearTimer: (id) => {
+          timers.delete(id);
+        },
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    (socket as unknown as { readyState: number }).readyState = WebSocket.OPEN;
+    socket.onopen?.(new Event("open"));
+    socket.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({ message_type: "session_started" }),
+      }),
+    );
+    const duration = [...timers.values()].find(
+      (timer) => timer.milliseconds === 295_000,
+    );
+    expect(duration).toBeDefined();
+
+    duration?.callback();
+
+    expect(errors.at(-1)).toContain("пятью минутами");
+    expect(statuses.at(-1)).toBe("stopping");
+    expect(JSON.parse(String(vi.mocked(socket.send).mock.calls.at(-1)?.[0]))).toMatchObject({
+      commit: true,
+    });
   });
 
   it("requests browser permission before consuming a capability", async () => {

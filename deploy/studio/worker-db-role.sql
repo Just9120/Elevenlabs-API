@@ -83,7 +83,11 @@ GRANT SELECT ON TABLE
     user_notification_preferences,
     web_push_subscriptions,
     job_notification_deliveries,
-    runtime_component_status
+    runtime_component_status,
+    stt_dictionaries,
+    stt_dictionary_entries,
+    stt_provider_operations,
+    stt_provider_health
 TO studio_worker;
 
 GRANT UPDATE ON TABLE
@@ -102,7 +106,9 @@ GRANT UPDATE ON TABLE
     operational_alert_deliveries,
     web_push_subscriptions,
     job_notification_deliveries,
-    runtime_component_status
+    runtime_component_status,
+    stt_provider_operations,
+    stt_provider_health
 TO studio_worker;
 
 GRANT INSERT ON TABLE
@@ -118,7 +124,9 @@ GRANT INSERT ON TABLE
     operational_incidents,
     operational_alert_deliveries,
     job_notification_deliveries,
-    runtime_component_status
+    runtime_component_status,
+    stt_provider_operations,
+    stt_provider_health
 TO studio_worker;
 
 GRANT DELETE ON TABLE

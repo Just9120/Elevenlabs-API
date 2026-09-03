@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .job_claim_lease import is_lease_active, invalidate_job_lease
 from .job_claim_readiness import build_claim_readiness_from_preflight
 from .job_processing_preflight import build_processing_preflight
-from .models import (JobSourceStatus, JobStatus, OutputReconciliationStatus, SourceAttemptRetryDisposition as Disp, SourceAttemptStage as Stage, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionJobSourceAttempt, TranscriptionOutputReconciliation, TranscriptionProviderPartCheckpoint)
+from .models import (JobSourceStatus, JobStatus, OutputReconciliationStatus, SourceAttemptRetryDisposition as Disp, SourceAttemptStage as Stage, SttProviderOperation, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionJobSourceAttempt, TranscriptionOutputReconciliation, TranscriptionProviderPartCheckpoint)
 from .provider_part_checkpoints import checkpoint_resume_count, delete_provider_part_checkpoints
 
 MAX_PROCESSING_ATTEMPTS = 3
@@ -262,6 +262,24 @@ def _projected_queued_ready(job, *, now=None) -> bool:
     projected["eligible"] = not projected["blocking_reasons"]
     return bool(build_claim_readiness_from_preflight(projected)["ready_for_future_claim"])
 
+
+def _has_resumable_yandex_operation(db, job, relation, *, attempt_number: int) -> bool:
+    if job.provider != "yandex":
+        return False
+    return db.execute(
+        select(SttProviderOperation.id)
+        .where(
+            SttProviderOperation.owner_user_id == job.owner_user_id,
+            SttProviderOperation.project_id == job.project_id,
+            SttProviderOperation.job_id == job.id,
+            SttProviderOperation.job_source_id == relation.id,
+            SttProviderOperation.attempt_number == attempt_number,
+            SttProviderOperation.provider == "yandex",
+            SttProviderOperation.status.in_(("pending", "completed")),
+        )
+        .limit(1)
+    ).first() is not None
+
 def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|None=None):
     attempts=int(job.attempt_count or 0)
     if job.status==JobStatus.completed: return RetryReadiness(False, RetryReason.completed, attempts, MAX_PROCESSING_ATTEMPTS, 0, 0)
@@ -282,6 +300,10 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
         if not att:
             if job.error_code in {"pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed"}: safe+=1
             else: reason=reason or RetryReason.legacy_or_unknown_execution_state
+        elif _has_resumable_yandex_operation(db, job, rel, attempt_number=attempts):
+            # The durable operation ID authorizes polling/result reload only;
+            # it does not authorize a second provider submit.
+            safe+=1
         elif att.stage==Stage.prepared and att.provider_request_started_at is None: safe+=1
         elif att.retry_disposition==Disp.retry_safe and (att.provider_request_started_at is None or att.failure_code in SAFE_PRE_TRANSPORT_FAILURES):
             safe+=1

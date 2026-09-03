@@ -57,6 +57,37 @@
   background: var(--studio-bg);
   color-scheme: light;
 }
+
+.realtime-overlay {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 5vh 5vw;
+  background: transparent;
+  color: #fff;
+  box-sizing: border-box;
+}
+
+.realtime-overlay-caption {
+  max-width: 92vw;
+  white-space: pre-wrap;
+  text-align: center;
+  font-size: clamp(28px, 4vw, 64px);
+  font-weight: 800;
+  line-height: 1.18;
+  padding: 0.3em 0.55em;
+  border-radius: 0.3em;
+  background: rgb(0 0 0 / 72%);
+  text-shadow: 0 2px 4px #000;
+}
+
+.realtime-overlay-waiting {
+  color: rgb(255 255 255 / 70%);
+  background: rgb(0 0 0 / 45%);
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.5rem;
+}
 :root[data-theme="dark"] {
   --studio-bg: #0b1220;
   --studio-surface: #111827;

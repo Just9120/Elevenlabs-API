@@ -579,7 +579,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅` дл
 
 ### Эпик `STT-PROVIDER-ABSTRACTION-01` — provider-neutral STT contract
 
-Status: **⬜ BACKLOG — 7,1% (`1/14`)**.
+Status: **🟦 IN PROGRESS — 7,1% (`1/14`)**. Provider-neutral implementation и локальные regression checks готовы; AC остаются открыты до exact CI, protected delivery и bounded LIVE.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -598,11 +598,11 @@ Status: **⬜ BACKLOG — 7,1% (`1/14`)**.
 | `STTPRO-13` | Automatic cross-provider fallback не выполняется. | ✅ |
 | `STTPRO-14` | BYOK eligibility конфигурируется отдельно для каждого provider. | — |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Local branch содержит typed batch/realtime capability contract, deterministic mode mapping, per-provider BYOK selection и isolated health circuit; unsupported combinations и automatic cross-provider fallback fail closed. Backend focused/schema/operational suites, full frontend Vitest, ESLint и production build прошли; exact-head CI ещё не запускался.
 
 ### Эпик `YANDEX-STT-01` — Yandex SpeechKit provider
 
-Status: **⬜ BACKLOG — 0% (`0/5`)**.
+Status: **🟦 IN PROGRESS — 0% (`0/5`)**. Yandex v3 batch/deferred/realtime implementation готова локально; AC остаются открыты до required CI/DEPLOY/LIVE Evidence.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -612,17 +612,17 @@ Status: **⬜ BACKLOG — 0% (`0/5`)**.
 | `YANDEX-04` | Deferred Yandex jobs сохраняют provider operation ID. | — |
 | `YANDEX-05` | Deferred Yandex jobs poll и сохраняют terminal provider result. | — |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Реализованы normal/deferred dispatch, durable opaque operation ID, bounded polling/terminal persistence и short-lived Studio WebSocket relay к Yandex bidirectional gRPC с лимитами `5 минут` / `10 MiB`. Yandex остаётся default-disabled и не вызывался в LIVE; локальные transport, schema, negative и boundary tests прошли.
 
 ### Эпик `PWA-DICTIONARIES-01` — пользовательские словари
 
-Status: **⬜ BACKLOG — 0% (`0/1`)**.
+Status: **🟦 IN PROGRESS — 0% (`0/1`)**. Owner-scoped dictionary implementation готова локально; AC остаётся открытым до required CI/DEPLOY/LIVE Evidence.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
 | `PWADIC-01` | Owner-scoped dictionaries поддерживают terms, surnames, names и abbreviations для улучшения STT. | — |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Добавлены bounded normalized entries типов `term`, `surname`, `name`, `abbreviation`, owner-isolated idempotent CRUD и provider/mode-aware hint projection; локальные API/schema/ownership tests прошли.
 
 ### Эпик `PWA-WORKER-ISOLATION-02` — worker resource и privilege boundary
 
@@ -696,7 +696,7 @@ Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`. Loc
 
 ### Эпик `REALTIME-CONTINUITY-02` — expanded realtime consumers
 
-Status: **⬜ BACKLOG — 0% (`0/5`)**.
+Status: **🟦 IN PROGRESS — 0% (`0/5`)**. Realtime continuity/consumer implementation готова локально; AC остаются открыты до required CI/DEPLOY/LIVE Evidence.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -706,7 +706,7 @@ Status: **⬜ BACKLOG — 0% (`0/5`)**.
 | `REALTI-04` | Realtime subtitles могут передаваться другому явно поддержанному external consumer. | — |
 | `REALTI-05` | Failure одного external realtime consumer не останавливает primary session. | — |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Capture/STT reason codes разделены; отдельный browser/OBS overlay изолирован по project; YouTube HTTP captions и allowlisted HTTPS webhook являются explicit ephemeral opt-in consumers с bounded text, fail-closed destination validation и независимым error state. External send локально и в production не выполнялся.
 
 ### Эпик `TRANSCRIPT-EXPORTS-02` — дополнительные export formats
 

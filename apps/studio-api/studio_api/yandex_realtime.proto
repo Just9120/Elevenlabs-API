@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package speechkit.stt.v3;
+
+// Minimal wire-compatible subset of Yandex SpeechKit v3 used by Studio.
+message RawAudio {
+  enum AudioEncoding {
+    AUDIO_ENCODING_UNSPECIFIED = 0;
+    LINEAR16_PCM = 1;
+  }
+  AudioEncoding audio_encoding = 1;
+  int64 sample_rate_hertz = 2;
+  int64 audio_channel_count = 3;
+}
+
+message AudioFormatOptions {
+  oneof AudioFormat {
+    RawAudio raw_audio = 1;
+  }
+}
+
+message LanguageRestrictionOptions {
+  enum LanguageRestrictionType {
+    LANGUAGE_RESTRICTION_TYPE_UNSPECIFIED = 0;
+    WHITELIST = 1;
+    BLACKLIST = 2;
+  }
+  LanguageRestrictionType restriction_type = 1;
+  repeated string language_code = 2;
+}
+
+message RecognitionModelOptions {
+  enum AudioProcessingType {
+    AUDIO_PROCESSING_TYPE_UNSPECIFIED = 0;
+    REAL_TIME = 1;
+    FULL_DATA = 2;
+  }
+  string model = 1;
+  AudioFormatOptions audio_format = 2;
+  LanguageRestrictionOptions language_restriction = 4;
+  AudioProcessingType audio_processing_type = 5;
+}
+
+message SpeakerLabelingOptions {
+  enum SpeakerLabeling {
+    SPEAKER_LABELING_UNSPECIFIED = 0;
+    SPEAKER_LABELING_ENABLED = 1;
+    SPEAKER_LABELING_DISABLED = 2;
+  }
+  SpeakerLabeling speaker_labeling = 1;
+}
+
+message StreamingOptions {
+  RecognitionModelOptions recognition_model = 1;
+  SpeakerLabelingOptions speaker_labeling = 5;
+}
+
+message AudioChunk { bytes data = 1; }
+
+message StreamingRequest {
+  oneof Event {
+    StreamingOptions session_options = 1;
+    AudioChunk chunk = 2;
+  }
+}
+
+message Word {
+  string text = 1;
+  int64 start_time_ms = 2;
+  int64 end_time_ms = 3;
+}
+
+message LanguageEstimation {
+  string language_code = 1;
+  double probability = 2;
+}
+
+message Alternative {
+  repeated Word words = 1;
+  string text = 2;
+  int64 start_time_ms = 3;
+  int64 end_time_ms = 4;
+  double confidence = 5;
+  repeated LanguageEstimation languages = 6;
+}
+
+message AlternativeUpdate { repeated Alternative alternatives = 1; }
+
+message FinalRefinement {
+  int64 final_index = 1;
+  oneof Type { AlternativeUpdate normalized_text = 2; }
+}
+
+message StreamingResponse {
+  oneof Event {
+    AlternativeUpdate partial = 4;
+    AlternativeUpdate final = 5;
+    FinalRefinement final_refinement = 7;
+  }
+  string channel_tag = 9;
+}
+
+service Recognizer {
+  rpc RecognizeStreaming(stream StreamingRequest) returns (stream StreamingResponse);
+}

@@ -63,7 +63,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["runtime_component_status", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["runtime_component_status", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "stt_provider_operations", "stt_provider_health", "stt_dictionary_entries", "stt_dictionaries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -379,7 +379,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0035_job_notifications", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0036_stt_multiprovider", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -1278,6 +1278,105 @@ def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
         assert all(v.ciphertext is None for v in db.query(ProviderCredentialVersion).all())
     finally:
         db.close()
+
+
+def test_stt_catalog_yandex_byok_and_owner_dictionary_crud_are_safe_and_scoped():
+    owner_password = admin(email="stt-owner@example.com")
+    other_password = admin(email="stt-other@example.com")
+    raw_key = "AQVN-yandex-api-key-private-value"
+    headers = {"origin": "https://studio.test"}
+
+    with TestClient(app) as owner:
+        owner_csrf = login(owner, owner_password, email="stt-owner@example.com")
+        mutation_headers = headers | {"x-csrf-token": owner_csrf}
+        catalog = owner.get("/api/stt/providers")
+        assert catalog.status_code == 200
+        providers = {
+            item["provider"]: item for item in catalog.json()["providers"]
+        }
+        assert set(providers) == {"elevenlabs", "yandex"}
+        assert providers["yandex"]["byok_enabled"] is False
+        assert catalog.headers["cache-control"] == "no-store"
+
+        missing_folder = owner.post(
+            "/api/credentials",
+            json={"provider": "yandex", "label": "SpeechKit", "raw_value": raw_key},
+            headers=mutation_headers,
+        )
+        assert missing_folder.status_code == 422
+        created_credential = owner.post(
+            "/api/credentials",
+            json={
+                "provider": "yandex",
+                "label": "SpeechKit",
+                "raw_value": raw_key,
+                "folder_id": "folder-public-identifier",
+            },
+            headers=mutation_headers,
+        )
+        assert created_credential.status_code == 200
+        assert raw_key not in created_credential.text
+        listed_credentials = owner.get("/api/credentials").json()["credentials"]
+        yandex = next(item for item in listed_credentials if item["provider"] == "yandex")
+        assert yandex["folder_id"] == "folder-public-identifier"
+        assert raw_key not in json.dumps(listed_credentials)
+
+        created_dictionary = owner.post(
+            "/api/stt/dictionaries",
+            json={
+                "name": "Команда проекта",
+                "entries": [
+                    {"kind": "term", "value": "VoiceOps"},
+                    {"kind": "surname", "value": "Иванов"},
+                    {"kind": "name", "value": "Алёна"},
+                    {"kind": "abbreviation", "value": "API"},
+                ],
+            },
+            headers=mutation_headers,
+        )
+        assert created_dictionary.status_code == 200
+        dictionary_id = created_dictionary.json()["id"]
+        assert len(created_dictionary.json()["entries"]) == 4
+        duplicate = owner.post(
+            "/api/stt/dictionaries",
+            json={
+                "name": "  команда   проекта ",
+                "entries": [{"kind": "term", "value": "другой"}],
+            },
+            headers=mutation_headers,
+        )
+        assert duplicate.status_code == 409
+
+    with TestClient(app) as other:
+        other_csrf = login(other, other_password, email="stt-other@example.com")
+        assert other.get("/api/stt/dictionaries").json() == {"dictionaries": []}
+        forbidden_update = other.put(
+            f"/api/stt/dictionaries/{dictionary_id}",
+            json={
+                "name": "Чужой словарь",
+                "entries": [{"kind": "term", "value": "чужой"}],
+            },
+            headers=headers | {"x-csrf-token": other_csrf},
+        )
+        assert forbidden_update.status_code == 404
+
+    with TestClient(app) as owner:
+        owner_csrf = login(owner, owner_password, email="stt-owner@example.com")
+        deleted = owner.delete(
+            f"/api/stt/dictionaries/{dictionary_id}",
+            headers=headers | {"x-csrf-token": owner_csrf},
+        )
+        assert deleted.status_code == 200
+        assert owner.get("/api/stt/dictionaries").json() == {"dictionaries": []}
+        recreated = owner.post(
+            "/api/stt/dictionaries",
+            json={
+                "name": "Команда проекта",
+                "entries": [{"kind": "term", "value": "VoiceOps"}],
+            },
+            headers=headers | {"x-csrf-token": owner_csrf},
+        )
+        assert recreated.status_code == 200
 
 
 def test_elevenlabs_account_routes_are_owner_scoped_no_store_and_never_echo_secret(monkeypatch):
@@ -4043,7 +4142,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0035_job_notifications"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
 
 
 
@@ -4107,7 +4206,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0035_job_notifications"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
 
 
 
@@ -7976,7 +8075,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0035_job_notifications"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0036_stt_multiprovider"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

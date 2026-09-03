@@ -62,6 +62,32 @@ describe("realtime protocol", () => {
     ).toThrow(/небезопасный realtime-адрес/);
   });
 
+  it("accepts only the same-origin signed Yandex relay capability", () => {
+    const yandex = {
+      ...capability,
+      provider: "yandex",
+      model_id: "general",
+      expires_in_seconds: 300,
+      websocket_url:
+        "ws://localhost:3000/api/realtime/yandex?capability=header.signature",
+    };
+    expect(parseRealtimeCapability(yandex)).toEqual(yandex);
+    expect(() =>
+      parseRealtimeCapability({
+        ...yandex,
+        websocket_url:
+          "ws://evil.example/api/realtime/yandex?capability=header.signature",
+      }),
+    ).toThrow(/небезопасный realtime-адрес/);
+    expect(() =>
+      parseRealtimeCapability({
+        ...yandex,
+        websocket_url:
+          "ws://localhost:3000/api/realtime/yandex?capability=one&capability=two",
+      }),
+    ).toThrow(/небезопасный realtime-адрес/);
+  });
+
   it("reduces provider events to ordered transcript states", () => {
     expect(parseRealtimeEvent({ message_type: "session_started" })).toEqual({
       kind: "session_started",

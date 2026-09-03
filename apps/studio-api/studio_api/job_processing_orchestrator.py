@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from .job_claim_lease import JobLeaseError, JobLeaseFailureReason, is_lease_active, renew_job_lease
 from .job_elevenlabs_transcription import (
     JobElevenLabsTranscriptionError,
-    transcribe_processing_job_source_with_elevenlabs,
 )
+from .job_stt_transcription import transcribe_processing_job_source
 from .job_google_docs_output import (
     JobGoogleDocsOutputError,
     JobGoogleDocsOutputReason,
@@ -91,7 +91,7 @@ def orchestrate_processing_job(
     lease_generation: int,
     settings,
     clock: Callable[[], datetime] | None = None,
-    transcription_opener: Callable = transcribe_processing_job_source_with_elevenlabs,
+    transcription_opener: Callable = transcribe_processing_job_source,
     google_docs_opener: Callable = create_processing_job_google_doc_from_transcript,
     output_persister: Callable = persist_processing_job_source_output_and_maybe_complete,
     lease_ttl: timedelta,
@@ -166,7 +166,7 @@ def orchestrate_processing_job(
                     )
                     transcript = transcript_cm.__enter__()
                     transcript_entered = True
-                    if transcription_opener is not transcribe_processing_job_source_with_elevenlabs:
+                    if transcription_opener is not transcribe_processing_job_source:
                         _best_effort_mark_injected_transcriber_returned(db, job_id, rel.id, lease_owner_id, lease_generation, clock)
                 _check_heartbeat_after_stage(heartbeat)
             except LeaseHeartbeatError as exc:

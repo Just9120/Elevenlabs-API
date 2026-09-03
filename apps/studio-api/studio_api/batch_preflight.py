@@ -18,6 +18,10 @@ def build_batch_preflight_payload(
     titles: Sequence[str | None],
     language_mode: str,
     diarization_enabled: bool,
+    provider: str = CURRENT_TRANSCRIPTION_PROVIDER,
+    model: str = CURRENT_TRANSCRIPTION_MODEL,
+    operating_mode: str = "standard",
+    dictionary_term_count: int = 0,
     existing_result_matches: dict[str, ExistingResultMatch],
     reprocess_existing: Sequence[bool],
     provider_attempt_authorities: dict[
@@ -128,10 +132,12 @@ def build_batch_preflight_payload(
         item["planned_outcome"] == "blocked" for item in items
     )
     return {
-        "provider": CURRENT_TRANSCRIPTION_PROVIDER,
-        "model": CURRENT_TRANSCRIPTION_MODEL,
+        "provider": provider,
+        "model": model,
+        "operating_mode": operating_mode,
         "language_mode": language_mode,
         "diarization_enabled": bool(diarization_enabled),
+        "dictionary_term_count": max(0, int(dictionary_term_count)),
         "existing_result_authority": {
             "status": "partial",
             "reason_code": "unlinked_catalog_entries_excluded",

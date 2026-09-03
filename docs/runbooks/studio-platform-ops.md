@@ -272,7 +272,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0035_job_notifications`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0036_stt_multiprovider`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -434,7 +434,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0035_job_notifications`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0036_stt_multiprovider`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -612,6 +612,66 @@ separate action-time owner authorization. Stop on an unexpected enabled
 channel, unreadable/malformed secret, duplicate terminal row, unbounded retry,
 cross-owner delivery, sensitive payload or any provider/Google call made only
 for notification testing.
+
+## Provider-neutral STT and Yandex SpeechKit
+
+Migration `0036_stt_multiprovider` adds the explicit batch operating mode,
+owner dictionaries, durable Yandex operation authority and provider/mode
+health state. Apply it only through the protected migration lane, then reapply
+and verify API/worker direct grants before recreating either runtime. Deploy
+the API and web at the same exact revision, publish the exact nginx edge
+configuration for `/api/realtime/yandex`, and deploy the worker last.
+
+`STUDIO_ELEVENLABS_BYOK_ENABLED=true` preserves the existing provider.
+Yandex is fail-closed by default and appears unavailable while
+`STUDIO_YANDEX_BYOK_ENABLED=false`. Enable it only after the owner has accepted
+the provider data boundary and has created a minimum-scope Yandex API key for
+the intended catalog. In Settings the owner adds a separate `Yandex
+SpeechKit` profile with that key and its catalog/folder ID. Never reuse or
+copy an ElevenLabs, Google, R2 or database credential. The folder ID is
+configuration metadata; the API key stays encrypted in the existing BYOK
+credential boundary.
+
+The provider catalog maps `economic`, `standard`, `premium` and `realtime` to
+operator-configured models. Defaults are `scribe_v2` / `scribe_v2_realtime`
+for ElevenLabs, `deferred-general` for Yandex economic, and `general` for the
+other Yandex modes. No selection performs automatic cross-provider fallback.
+Unsupported language, diarization, dictionary or size/duration combinations
+fail before dispatch. Owner dictionaries accept at most ten selected
+dictionaries and project at most one hundred normalized terms into providers
+that advertise dictionary support; Yandex currently rejects dictionary use
+instead of silently ignoring it.
+
+Yandex batch preparation produces one mono OGG/Opus object, bounded to 60 MiB
+and four hours. The worker commits the opaque provider operation ID before its
+first status poll, polls with the configured bounded interval/deadline, then
+encrypts the normalized terminal result. A completed operation resumes without
+resubmission. A known failed operation remains terminal; do not delete or edit
+operation rows to force a retry.
+
+Yandex realtime uses a same-origin, short-lived signed Studio WebSocket
+capability and an API-side bidirectional gRPC relay. The relay rechecks the
+active credential version and project ownership, accepts mono PCM16 at 16 kHz,
+limits each chunk to 256 KiB, the session to 10 MiB and five minutes, and never
+persists audio or the long-lived provider key. The exact nginx location disables
+access logging because the capability is in the WebSocket query. A new session
+always requires a fresh capability.
+
+The browser/OBS overlay receives only partial/committed text through a
+project-filtered local browser channel. YouTube closed-caption and generic
+HTTPS webhook destinations are explicit ephemeral per-tab values. Generic
+webhook hosts must be present in `STUDIO_REALTIME_WEBHOOK_ALLOWED_HOSTS`;
+private/non-HTTPS destinations and redirects fail closed. Consumer errors are
+shown locally and never stop the primary capture/STT session. Do not put an
+ingestion URL into logs, diagnostics or durable configuration.
+
+A no-spend rollout verifies migration/head, exact component identities,
+authenticated provider catalog, Yandex-disabled state, dictionary CRUD,
+realtime capability rejection without a Yandex profile, and public/API health.
+It must not call either paid STT provider, upload audio, mutate Google Drive,
+open a real Yandex gRPC session or send a YouTube/webhook caption. Enabling
+Yandex or sending a real external caption requires separate action-time owner
+authorization and valid provider/destination configuration.
 
 ## Component deployment
 
@@ -1020,4 +1080,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0035_job_notifications`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0036_stt_multiprovider`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
