@@ -176,20 +176,20 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exa
 
 ### Эпик `PWA-UX-POLISH-03` — содержательный dashboard и сворачиваемые support/maintenance details
 
-Status: **🟦 IN PROGRESS — 0% (`0/8`)**. Atomic scope добавлен explicit owner browser annotations 2026-09-02; implementation/Evidence ещё не засчитаны.
+Status: **🟩 READY — 100% (`8/8`)**. Все восемь explicit owner browser annotations реализованы и подтверждены exact-main CI, web delivery и bounded authenticated production LIVE.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `UXPOL-01` | Owner dashboard показывает полезные незавершённые/последние транскрибации, последние документы, connection/system attention и быстрые действия; корректные loading/empty/error states не подменяются техническими counters. | — |
-| `UXPOL-02` | Maintenance-вкладка называется `Подготовка документов` и объясняет проверку/стандартизацию текущего формата без двусмысленного обещания, что все документы уже готовы. | — |
-| `UXPOL-03` | Завершённый scan/apply plan сначала показывает summary; document list сворачивается, а весь завершённый результат можно явно убрать/reset без удаления durable run/history или влияния на running operation. | — |
-| `UXPOL-04` | System state в `Для поддержки` по умолчанию показывает понятный readiness summary, а component identities, commits, schema и technical probes находятся под доступным disclosure. | — |
-| `UXPOL-05` | Diagnostic events отображаются bounded страницами; каждая строка имеет понятный human label/summary и раскрывает technical code/metadata только по запросу пользователя. | — |
-| `UXPOL-06` | Diagnostic bundle UI предлагает `JSON — для анализа моделью` и `Markdown — для человека`, ясно объясняет выбор и не требует DOCX/YAML/TOML для обычного flow; backend compatibility может сохраняться. | — |
-| `UXPOL-07` | Связанная операция/задача выбирается или ищется по понятному названию/ID case-insensitively; поле остаётся optional, объясняет назначение и не требует угадать exact register/internal identifier. | — |
-| `UXPOL-08` | ElevenLabs account/cost panel объясняет план, использовано/осталось, overage и invoice простым русским языком; raw provider units/provenance находятся под optional disclosure. | — |
+| `UXPOL-01` | Owner dashboard показывает полезные незавершённые/последние транскрибации, последние документы, connection/system attention и быстрые действия; корректные loading/empty/error states не подменяются техническими counters. | ✅ |
+| `UXPOL-02` | Maintenance-вкладка называется `Подготовка документов` и объясняет проверку/стандартизацию текущего формата без двусмысленного обещания, что все документы уже готовы. | ✅ |
+| `UXPOL-03` | Завершённый scan/apply plan сначала показывает summary; document list сворачивается, а весь завершённый результат можно явно убрать/reset без удаления durable run/history или влияния на running operation. | ✅ |
+| `UXPOL-04` | System state в `Для поддержки` по умолчанию показывает понятный readiness summary, а component identities, commits, schema и technical probes находятся под доступным disclosure. | ✅ |
+| `UXPOL-05` | Diagnostic events отображаются bounded страницами; каждая строка имеет понятный human label/summary и раскрывает technical code/metadata только по запросу пользователя. | ✅ |
+| `UXPOL-06` | Diagnostic bundle UI предлагает `JSON — для анализа моделью` и `Markdown — для человека`, ясно объясняет выбор и не требует DOCX/YAML/TOML для обычного flow; backend compatibility может сохраняться. | ✅ |
+| `UXPOL-07` | Связанная операция/задача выбирается или ищется по понятному названию/ID case-insensitively; поле остаётся optional, объясняет назначение и не требует угадать exact register/internal identifier. | ✅ |
+| `UXPOL-08` | ElevenLabs account/cost panel объясняет план, использовано/осталось, overage и invoice простым русским языком; raw provider units/provenance находятся под optional disclosure. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Local implementation covers all eight annotated UX corrections; product completion remains uncounted until exact-head CI and applicable delivery/LIVE.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Functional merge `e5c43feac06e1649f1bd0903953ef5de7f925b87`, exact-main Studio/browser run `33718805456`, web delivery `33719123640` and authenticated read-only production inspection confirmed the richer dashboard, `Подготовка документов`, progressive maintenance/support disclosures, bounded diagnostic pagination, JSON/Markdown guidance, case-insensitive operation hints and human-readable ElevenLabs accounting without external mutation.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
@@ -507,7 +507,7 @@ Evidence: `SPEC ✅ | CODE N/A | TEST N/A | CI N/A | DEPLOY N/A | LIVE N/A`.
 
 ### Эпик `PWA-SECURITY-HARDENING-02` — personal auth и security lifecycle
 
-Status: **🟦 IN PROGRESS — 50,0% (`9/18`)**. `PWASEC-07..PWASEC-09` реализованы Goal `PWA-SESSION-CONTROL-01` на exact local revision `2b75d033c832fd57787c5a3635f6c42a40dbecbe`; exact-head CI, deployment и LIVE ещё обязательны. Optional TOTP и остальные AC вне текущего implementation scope.
+Status: **🟩 READY — 100% (`18/18`)**. Session controls, server-authoritative duration policy, recent re-authentication, bounded password-reset/TOTP verification и optional RFC 6238 enrollment/recovery/disable lifecycle подтверждены delivery Goal `PERSONAL-SECURITY-UX-01`.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -516,21 +516,21 @@ Status: **🟦 IN PROGRESS — 50,0% (`9/18`)**. `PWASEC-07..PWASEC-09` реал
 | `PWASEC-03` | Local passwords хранятся только как one-way password hash. | ✅ |
 | `PWASEC-04` | Upload policy ограничивает максимальный размер source file. | ✅ |
 | `PWASEC-05` | Batch/upload policy ограничивает максимальное число files. | ✅ |
-| `PWASEC-06` | Transcription policy ограничивает максимальную media duration. | — |
+| `PWASEC-06` | Transcription policy ограничивает максимальную media duration. | ✅ |
 | `PWASEC-07` | Пользователь может просмотреть active sessions. | ✅ |
 | `PWASEC-08` | Пользователь может отозвать одну выбранную active session. | ✅ |
 | `PWASEC-09` | Пользователь может отозвать все другие active sessions. | ✅ |
-| `PWASEC-10` | Critical actions требуют recent re-authentication. | — |
+| `PWASEC-10` | Critical actions требуют recent re-authentication. | ✅ |
 | `PWASEC-11` | Login защищён отдельным brute-force limit. | ✅ |
-| `PWASEC-12` | Password reset защищён отдельным brute-force limit. | — |
-| `PWASEC-13` | TOTP verification защищена отдельным brute-force limit. | — |
-| `PWASEC-14` | Personal TOTP остаётся optional, пока пользователь явно его не включил. | — |
-| `PWASEC-15` | TOTP использует стандартный protocol и не привязан к одному authenticator app. | — |
-| `PWASEC-16` | TOTP enrollment имеет проверяемую secret-confirmation boundary. | — |
-| `PWASEC-17` | TOTP recovery определён и протестирован. | — |
-| `PWASEC-18` | TOTP disable требует безопасной owner verification. | — |
+| `PWASEC-12` | Password reset защищён отдельным brute-force limit. | ✅ |
+| `PWASEC-13` | TOTP verification защищена отдельным brute-force limit. | ✅ |
+| `PWASEC-14` | Personal TOTP остаётся optional, пока пользователь явно его не включил. | ✅ |
+| `PWASEC-15` | TOTP использует стандартный protocol и не привязан к одному authenticator app. | ✅ |
+| `PWASEC-16` | TOTP enrollment имеет проверяемую secret-confirmation boundary. | ✅ |
+| `PWASEC-17` | TOTP recovery определён и протестирован. | ✅ |
+| `PWASEC-18` | TOTP disable требует безопасной owner verification. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`. New duration, recent-auth, TOTP/recovery and password-reset boundary tests pass locally; existing CI evidence does not cover the current uncommitted revision.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact functional merge `e5c43feac06e1649f1bd0903953ef5de7f925b87`, repository/Studio CI `33718805450` / `33718805456`, protected schema/API/web/worker delivery and final preflight/status `33725555978` / `33725916595` passed. Authenticated production LIVE confirmed active-session and security UI while intentionally leaving optional TOTP disabled and avoiding session revocation, credential changes, paid STT or destructive actions.
 
 ### Эпик `GOOGLE-DRIVE-RELIABILITY-02` — Drive upload/token/preflight reliability
 
@@ -638,20 +638,20 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. П�
 
 ### Эпик `PWA-DATABASE-LEAST-PRIVILEGE-03` — отдельные PostgreSQL owner, migrator и runtime roles
 
-Status: **🟦 IN PROGRESS — 0% (`0/8`)**. Existing `studio_worker` закрывает только worker boundary; ordinary API и protected migration всё ещё используют bootstrap `studio`, поэтому system-wide personal least privilege не подтверждён.
+Status: **🟩 READY — 100% (`8/8`)**. Production uses distinct bootstrap, `NOLOGIN` owner, protected migrator, API and worker boundaries; exact roles/secrets/schema/component identity and recovery were confirmed by protected delivery and final preflight.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `DBLP-01` | Running API использует отдельную login role без `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION`, `BYPASSRLS`, schema ownership или DDL privileges. | — |
-| `DBLP-02` | Protected migrations используют отдельную migrator login role, не доступную API/worker и ограниченную одной Studio database/schema ownership boundary. | — |
-| `DBLP-03` | Schema/tables/sequences принадлежат отдельной `NOLOGIN` owner role; bootstrap/admin login не является ordinary runtime owner. | — |
-| `DBLP-04` | API, worker, migrator и bootstrap credentials хранятся в разных root-owned secret files; bootstrap credential не монтируется в API/worker containers. | — |
-| `DBLP-05` | Reviewed API/worker direct-grant manifests сначала revoke broad access/memberships, затем выдают минимальные table/sequence grants; public schema CREATE и implicit grants запрещены. | — |
-| `DBLP-06` | Default privileges и protected migration flow fail closed re-apply/verify API/worker grants после additive schema change до component recreation. | — |
-| `DBLP-07` | Clean initialization и upgrade проверяют positive/negative role matrix, schema ownership, Alembic current/head, API/worker readiness и отсутствие privilege escalation. | — |
-| `DBLP-08` | Production switch имеет verified pre-change backup, staged credential/role preflight, bounded API smoke и explicit compatible rollback/recovery без возврата bootstrap/superuser credential в runtime. | — |
+| `DBLP-01` | Running API использует отдельную login role без `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION`, `BYPASSRLS`, schema ownership или DDL privileges. | ✅ |
+| `DBLP-02` | Protected migrations используют отдельную migrator login role, не доступную API/worker и ограниченную одной Studio database/schema ownership boundary. | ✅ |
+| `DBLP-03` | Schema/tables/sequences принадлежат отдельной `NOLOGIN` owner role; bootstrap/admin login не является ordinary runtime owner. | ✅ |
+| `DBLP-04` | API, worker, migrator и bootstrap credentials хранятся в разных root-owned secret files; bootstrap credential не монтируется в API/worker containers. | ✅ |
+| `DBLP-05` | Reviewed API/worker direct-grant manifests сначала revoke broad access/memberships, затем выдают минимальные table/sequence grants; public schema CREATE и implicit grants запрещены. | ✅ |
+| `DBLP-06` | Default privileges и protected migration flow fail closed re-apply/verify API/worker grants после additive schema change до component recreation. | ✅ |
+| `DBLP-07` | Clean initialization и upgrade проверяют positive/negative role matrix, schema ownership, Alembic current/head, API/worker readiness и отсутствие privilege escalation. | ✅ |
+| `DBLP-08` | Production switch имеет verified pre-change backup, staged credential/role preflight, bounded API smoke и explicit compatible rollback/recovery без возврата bootstrap/superuser credential в runtime. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Role manifests, protected migration/recovery scripts, preflight and negative contract tests pass locally; production role identity is intentionally not claimed before protected delivery.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact merge `e5c43feac06e1649f1bd0903953ef5de7f925b87` and exact-main CI passed. Reviewer-gated recovery `33720542771` created verified snapshot `3b8b9639048c`, selected `post_migration_recovery`, skipped a second Alembic run, verified both database role boundaries and recreated API; final preflight `33725555978` confirmed protected root-owned credentials, owner/migrator/API/worker roles, healthy public/runtime services and exact `0034_personal_security`. Worker deploy/status `33725645527` / `33725916595` confirmed exact isolated runtime identity.
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 
