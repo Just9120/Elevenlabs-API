@@ -1094,7 +1094,9 @@ def test_job_notification_preferences_are_owner_scoped_opt_in_and_fail_closed():
     c = TestClient(app)
     csrf = login(c, pw, email)
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
-    current = c.get("/api/notifications/preferences")
+    current = c.get(
+        "/api/notifications/preferences", headers={"origin": "https://studio.test"}
+    )
     assert current.status_code == 200
     assert current.headers["cache-control"] == "no-store"
     assert current.json() == {

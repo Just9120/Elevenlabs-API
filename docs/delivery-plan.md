@@ -24,16 +24,16 @@
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-03T08:28:21Z`.
+- **Updated (UTC):** `2026-09-03T08:33:42Z`.
 - **Base branch/SHA:** verified clean tracked `main` and `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939` after fetch.
 - **Working branch:** `codex/job-reliability-notifications`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
 - **Last verified revision:** `b3b77c790212cdc7e5563ef595c133a737629eb8`.
 - **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented in `1fb819fd56f4b65990061679c8004a3db14df81a`. Initial PR CI exposed fresh-database `Base.metadata.create_all` compatibility in migration `0035`; bootstrap-safe full-boundary detection and a regression test were added in `b3b77c790212cdc7e5563ef595c133a737629eb8`. Production transports remain disabled by default.
-- **Current step:** publish the migration fix and obtain green exact-head CI for PR `#294`.
-- **Next exact action:** commit this failure/recovery checkpoint, push the updated branch and wait for all PR checks.
-- **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; migration notification suite after fix `12 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Initial PR head `55e9128de835fe0c61fd86cae566deb77da105a2` failed core CI and browser E2E at the same `DuplicateColumn` migration bootstrap defect; no product runtime test failed before that gate. Full PostgreSQL/Redis suite and Docker image/Compose checks remain for repeat CI because those local services/tools are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
-- **PR / CI / deployment:** PR `#294`; initial exact-head CI failed at identified migration bootstrap defect, fix committed but not yet pushed; not deployed.
+- **Current step:** publish the corrected same-origin API test and obtain green exact-head CI for PR `#294`.
+- **Next exact action:** commit/push the test correction and wait for all PR checks.
+- **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; migration notification suite after fix `12 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Initial PR head `55e9128de835fe0c61fd86cae566deb77da105a2` failed core CI and browser E2E at the same `DuplicateColumn` migration bootstrap defect. Repeat head `ea3dd35328388209428c1cc92f8931990eebee4b` passed browser E2E and Studio image/Compose CI; core CI reached `1678 passed` with one failure in the newly added API test because its safe same-origin GET omitted the required test `Origin`, while production behavior correctly returned `403`. The test request now matches the existing same-origin contract. PostgreSQL/Redis rerun remains required because those local services are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
+- **PR / CI / deployment:** PR `#294`; browser E2E and Studio CI passed on repeat head, core CI requires one corrected test rerun; not deployed.
 - **Blockers / unverified assumptions:** exact production email/Telegram/VAPID configuration is unknown and will remain optional/fail-closed; external delivery is not assumed from source code.
 
 ## Previous Goal closure — `PERSONAL-SECURITY-UX-01`
