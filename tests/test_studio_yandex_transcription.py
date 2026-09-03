@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import io
 import os
 import sys
@@ -24,10 +25,13 @@ from studio_api.yandex_realtime_relay import (  # noqa: E402
     MAX_AUDIO_CHUNK_BYTES,
     MAX_SESSION_AUDIO_BYTES,
     YandexRealtimeCapabilityError,
+    _realtime_health_failure_code,
+    _realtime_user_failure_code,
     _session_options,
     _validated_audio_chunk,
     create_yandex_realtime_capability,
     decode_yandex_realtime_capability,
+    relay_yandex_realtime,
 )
 from studio_api.elevenlabs_transcription import (  # noqa: E402
     ElevenLabsTranscriptionError,
@@ -38,6 +42,9 @@ from studio_api.yandex_transcription import (  # noqa: E402
     normalize_yandex_transcript_response,
 )
 
+import grpc  # noqa: E402
+from studio_api import yandex_realtime_relay as realtime_relay  # noqa: E402
+
 
 class Settings:
     app_origin = "https://studio.example"
@@ -46,6 +53,82 @@ class Settings:
     @staticmethod
     def master_key_b64():
         return base64.urlsafe_b64encode(b"k" * 32).decode("ascii")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "failure_code"),
+    [
+        (grpc.StatusCode.RESOURCE_EXHAUSTED, "provider_rate_limited"),
+        (grpc.StatusCode.DEADLINE_EXCEEDED, "provider_timeout"),
+        (grpc.StatusCode.UNAVAILABLE, "provider_unavailable"),
+        (grpc.StatusCode.INTERNAL, "provider_unavailable"),
+        (grpc.StatusCode.UNKNOWN, "provider_unavailable"),
+        (grpc.StatusCode.UNAUTHENTICATED, None),
+        (grpc.StatusCode.PERMISSION_DENIED, None),
+        (grpc.StatusCode.INVALID_ARGUMENT, None),
+    ],
+)
+def test_yandex_realtime_health_uses_only_systemic_provider_failures(
+    status_code,
+    failure_code,
+):
+    assert _realtime_health_failure_code(status_code) == failure_code
+
+
+@pytest.mark.parametrize(
+    ("status_code", "failure_code"),
+    [
+        (grpc.StatusCode.RESOURCE_EXHAUSTED, "provider_rate_limited"),
+        (grpc.StatusCode.DEADLINE_EXCEEDED, "provider_timeout"),
+        (grpc.StatusCode.UNAVAILABLE, "provider_unavailable"),
+        (grpc.StatusCode.UNAUTHENTICATED, "provider_authentication_rejected"),
+        (grpc.StatusCode.PERMISSION_DENIED, "provider_authentication_rejected"),
+        (grpc.StatusCode.INVALID_ARGUMENT, "provider_request_rejected"),
+        (grpc.StatusCode.CANCELLED, "provider_unavailable"),
+    ],
+)
+def test_yandex_realtime_maps_grpc_status_to_safe_user_failure(
+    status_code,
+    failure_code,
+):
+    assert _realtime_user_failure_code(status_code) == failure_code
+
+
+def test_yandex_realtime_health_write_is_bounded_and_best_effort(monkeypatch):
+    calls = []
+
+    class HealthDb:
+        def commit(self):
+            calls.append("commit")
+
+        def rollback(self):
+            calls.append("rollback")
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setattr(realtime_relay, "SessionLocal", HealthDb)
+    monkeypatch.setattr(
+        realtime_relay,
+        "record_provider_failure",
+        lambda _db, **kwargs: calls.append(kwargs),
+    )
+    settings = SimpleNamespace(
+        stt_health_failure_threshold=3,
+        stt_health_cooldown_seconds=300,
+    )
+
+    realtime_relay._record_realtime_provider_health(
+        settings=settings,
+        failure_code="provider_timeout",
+    )
+
+    assert calls[0]["provider"] == "yandex"
+    assert calls[0]["operating_mode"] == "realtime"
+    assert calls[0]["failure_code"] == "provider_timeout"
+    assert calls[0]["threshold"] == 3
+    assert calls[0]["cooldown_seconds"] == 300
+    assert calls[1:] == ["commit", "close"]
 
 
 class _ScalarResult:
@@ -216,6 +299,124 @@ def test_yandex_realtime_wire_options_and_audio_budget_match_documented_limits()
             {"audio_base_64": base64.b64encode(b"x").decode("ascii")},
             received_bytes=MAX_SESSION_AUDIO_BYTES,
         )
+
+
+def test_yandex_realtime_relay_streams_audio_and_committed_text(monkeypatch):
+    audio = b"pcm-safe"
+    messages = [
+        {"audio_base_64": base64.b64encode(audio).decode("ascii")},
+        {"commit": True},
+    ]
+    sent = []
+    received_audio = []
+    health = []
+
+    class WebSocket:
+        headers = {"origin": "https://studio.example"}
+
+        async def accept(self):
+            sent.append({"accepted": True})
+
+        async def receive_json(self):
+            return messages.pop(0)
+
+        async def send_json(self, payload):
+            sent.append(payload)
+
+        async def close(self, *, code):
+            sent.append({"closed": code})
+
+    class Call:
+        def __init__(self, requests):
+            self.requests = requests
+
+        def __aiter__(self):
+            return self.responses()
+
+        async def responses(self):
+            async for request in self.requests:
+                if request.WhichOneof("Event") == "chunk":
+                    received_audio.append(request.chunk.data)
+            yield SimpleNamespace(
+                WhichOneof=lambda _name: "final",
+                partial=None,
+                final=SimpleNamespace(
+                    alternatives=[SimpleNamespace(text="сырой фрагмент")],
+                ),
+            )
+            yield SimpleNamespace(
+                WhichOneof=lambda _name: "final_refinement",
+                partial=None,
+                final=None,
+                final_refinement=SimpleNamespace(
+                    normalized_text=SimpleNamespace(
+                        alternatives=[SimpleNamespace(text="Готовый фрагмент")],
+                    ),
+                ),
+            )
+
+    class Stub:
+        def __init__(self, _channel):
+            pass
+
+        def RecognizeStreaming(self, requests, **_kwargs):
+            return Call(requests)
+
+    class Channel:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    authority = SimpleNamespace(
+        folder_id="folder-safe",
+        language_code="ru-RU",
+        model="general",
+    )
+    settings = SimpleNamespace(
+        app_origin="https://studio.example",
+        yandex_stt_grpc_endpoint="stt.api.cloud.yandex.net:443",
+    )
+    monkeypatch.setattr(
+        realtime_relay,
+        "decode_yandex_realtime_capability",
+        lambda *_args, **_kwargs: authority,
+    )
+    monkeypatch.setattr(
+        realtime_relay,
+        "_open_api_key",
+        lambda *_args, **_kwargs: "api-key-safe",
+    )
+    monkeypatch.setattr(realtime_relay, "RecognizerStub", Stub)
+    monkeypatch.setattr(
+        realtime_relay.grpc.aio,
+        "secure_channel",
+        lambda *_args, **_kwargs: Channel(),
+    )
+    monkeypatch.setattr(
+        realtime_relay,
+        "_record_realtime_provider_health",
+        lambda **kwargs: health.append(kwargs),
+    )
+
+    asyncio.run(
+        relay_yandex_realtime(
+            WebSocket(),
+            capability="signed-capability",
+            settings=settings,
+        )
+    )
+
+    assert received_audio == [audio]
+    assert {"message_type": "session_started"} in sent
+    assert {
+        "message_type": "committed_transcript",
+        "text": "Готовый фрагмент",
+    } in sent
+    assert all(item.get("text") != "сырой фрагмент" for item in sent)
+    assert health == [{"settings": settings, "failure_code": None}]
+    assert sent[-1] == {"closed": 1000}
 
 
 def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resumes_without_resubmit():

@@ -46,6 +46,24 @@ describe("STT browser contracts", () => {
         ],
       }),
     ).toBeNull();
+    expect(
+      parseSttProviderCatalog({
+        providers: [value.providers[0], value.providers[0]],
+      }),
+    ).toBeNull();
+    expect(
+      parseSttProviderCatalog({
+        providers: [
+          {
+            ...value.providers[0],
+            modes: [
+              value.providers[0].modes[0],
+              value.providers[0].modes[0],
+            ],
+          },
+        ],
+      }),
+    ).toBeNull();
   });
 
   it("accepts owner dictionaries and rejects unknown entry kinds", () => {

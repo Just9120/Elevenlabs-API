@@ -35,6 +35,10 @@ import {
   deliverRealtimeConsumer,
   makeRealtimeCaptionMessage,
 } from "./realtimeConsumers";
+import {
+  requestSttProviderCatalog,
+  type SttProviderCapability,
+} from "./sttContracts";
 
 type Props = {
   ownerUserId: string;
@@ -139,6 +143,12 @@ export function LiveTranscriptionPanel({
     "loading" | "ready" | "error"
   >("loading");
   const [credentialsMessage, setCredentialsMessage] = useState("");
+  const [providerCatalog, setProviderCatalog] = useState<
+    SttProviderCapability[]
+  >([]);
+  const [providerCatalogState, setProviderCatalogState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [displayAudio, setDisplayAudio] = useState(() =>
     Boolean(navigator.mediaDevices?.getDisplayMedia),
   );
@@ -210,7 +220,27 @@ export function LiveTranscriptionPanel({
     "transcribing",
     "stopping",
   ].includes(status);
-  const providerName = provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs";
+  const providerCapability = providerCatalog.find(
+    (candidate) => candidate.provider === provider,
+  );
+  const realtimeCapability = providerCapability?.modes.find(
+    (candidate) => candidate.mode === "realtime",
+  );
+  const providerName =
+    providerCapability?.display_name ??
+    (provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs");
+  const providerBlocker =
+    providerCatalogState === "ready" && !providerCapability
+      ? "Выбранный STT-провайдер отсутствует в актуальном каталоге Studio"
+      : providerCapability
+        ? !providerCapability.byok_enabled
+          ? `${providerName} пока не включён оператором Studio`
+          : !realtimeCapability
+            ? `${providerName} не поддерживает Live-транскрибацию`
+            : !realtimeCapability.health.available
+              ? `${providerName} временно недоступен в Live-режиме`
+              : ""
+        : "";
   const activeProviderCredentials = credentials.filter(
     (credential) => credential.provider === provider,
   );
@@ -545,8 +575,30 @@ export function LiveTranscriptionPanel({
     );
   };
 
+  const loadProviderCatalog = async () => {
+    setProviderCatalogState("loading");
+    await settleLatestRequest(
+      credentialRequestEpochsRef.current,
+      "live:providers",
+      requestSttProviderCatalog,
+      (catalog) => {
+        setProviderCatalog(catalog);
+        setProviderCatalogState("ready");
+      },
+      () => {
+        setProviderCatalog([]);
+        setProviderCatalogState("error");
+      },
+      {
+        controllers: credentialRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+
   useEffect(() => {
     void loadCredentials();
+    void loadProviderCatalog();
     return () => {
       cancelLatestRequests(
         credentialRequestEpochsRef.current,
@@ -1103,7 +1155,11 @@ export function LiveTranscriptionPanel({
 
         <section
           className="live-config-card"
-          aria-busy={credentialsState === "loading" || undefined}
+          aria-busy={
+            credentialsState === "loading" ||
+            providerCatalogState === "loading" ||
+            undefined
+          }
         >
           <h3>Распознавание</h3>
           <label>
@@ -1116,10 +1172,47 @@ export function LiveTranscriptionPanel({
                 setProvider(event.target.value as "elevenlabs" | "yandex")
               }
             >
-              <option value="elevenlabs">ElevenLabs</option>
-              <option value="yandex">Yandex SpeechKit</option>
+              <option
+                value="elevenlabs"
+                disabled={
+                  providerCatalogState === "ready" &&
+                  providerCatalog.find(
+                    (candidate) => candidate.provider === "elevenlabs",
+                  )?.byok_enabled !== true
+                }
+              >
+                ElevenLabs
+              </option>
+              <option
+                value="yandex"
+                disabled={
+                  providerCatalogState === "ready" &&
+                  providerCatalog.find(
+                    (candidate) => candidate.provider === "yandex",
+                  )?.byok_enabled !== true
+                }
+              >
+                Yandex SpeechKit
+                {providerCatalogState === "ready" &&
+                providerCatalog.find(
+                  (candidate) => candidate.provider === "yandex",
+                )?.byok_enabled !== true
+                  ? " — не включён"
+                  : ""}
+              </option>
             </select>
           </label>
+          {providerCatalogState === "error" && (
+            <p className="muted" role="status">
+              Не удалось обновить доступность провайдеров. Studio проверит её
+              при запуске сессии.
+            </p>
+          )}
+          {providerBlocker && (
+            <p className="error" role="alert">
+              {providerBlocker}
+            </p>
+          )}
           <label>
             Профиль {providerName}
             <select
@@ -1185,7 +1278,8 @@ export function LiveTranscriptionPanel({
                 recoveryState === "loading" ||
                 recoveryCandidate !== null ||
                 !sourceReady ||
-                !credentialId
+                !credentialId ||
+                Boolean(providerBlocker)
               }
               onClick={() => void start()}
             >

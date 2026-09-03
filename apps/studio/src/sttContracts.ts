@@ -112,12 +112,24 @@ export function parseSttProviderCatalog(value: unknown): SttProviderCapability[]
         },
       });
     }
+    if (
+      modes.length === 0 ||
+      new Set(modes.map((mode) => mode.mode)).size !== modes.length
+    ) {
+      return null;
+    }
     result.push({
       provider,
       display_name: rawProvider.display_name,
       byok_enabled: rawProvider.byok_enabled,
       modes,
     });
+  }
+  if (
+    result.length === 0 ||
+    new Set(result.map((provider) => provider.provider)).size !== result.length
+  ) {
+    return null;
   }
   return result;
 }

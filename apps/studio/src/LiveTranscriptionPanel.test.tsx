@@ -73,6 +73,62 @@ describe("LiveTranscriptionPanel", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/stt/providers")) {
+          return response({
+            providers: [
+              {
+                provider: "elevenlabs",
+                display_name: "ElevenLabs",
+                byok_enabled: true,
+                modes: [
+                  {
+                    mode: "realtime",
+                    model: "scribe_v2_realtime",
+                    transport: "websocket",
+                    languages: ["ru", "en", "detect"],
+                    diarization: false,
+                    dictionaries: false,
+                    file_constraints: {
+                      max_bytes: null,
+                      max_duration_seconds: 1800,
+                      audio_channels: [1],
+                    },
+                    health: {
+                      available: true,
+                      consecutive_failures: 0,
+                      retry_after_seconds: null,
+                    },
+                  },
+                ],
+              },
+              {
+                provider: "yandex",
+                display_name: "Yandex SpeechKit",
+                byok_enabled: false,
+                modes: [
+                  {
+                    mode: "realtime",
+                    model: "general",
+                    transport: "grpc_relay",
+                    languages: ["ru", "en", "detect"],
+                    diarization: true,
+                    dictionaries: false,
+                    file_constraints: {
+                      max_bytes: 10485760,
+                      max_duration_seconds: 300,
+                      audio_channels: [1],
+                    },
+                    health: {
+                      available: true,
+                      consecutive_failures: 0,
+                      retry_after_seconds: null,
+                    },
+                  },
+                ],
+              },
+            ],
+          });
+        }
         if (url.endsWith("/api/credentials")) {
           return response({
             credentials: [
@@ -165,6 +221,80 @@ describe("LiveTranscriptionPanel", () => {
     ).not.toBeChecked();
     expect(screen.queryByLabelText("Устройство ввода")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+  });
+
+  it("uses provider capability metadata to hide disabled Live BYOK choices", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+
+    expect(
+      await screen.findByRole("option", {
+        name: "Yandex SpeechKit — не включён",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: "ElevenLabs" }),
+    ).toBeEnabled();
+  });
+
+  it("blocks Live start while the selected provider circuit is open", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/stt/providers")) {
+        return response({
+          providers: [
+            {
+              provider: "elevenlabs",
+              display_name: "ElevenLabs",
+              byok_enabled: true,
+              modes: [
+                {
+                  mode: "realtime",
+                  model: "scribe_v2_realtime",
+                  transport: "websocket",
+                  languages: ["ru", "en", "detect"],
+                  diarization: false,
+                  dictionaries: false,
+                  file_constraints: {
+                    max_bytes: null,
+                    max_duration_seconds: 1800,
+                    audio_channels: [1],
+                  },
+                  health: {
+                    available: false,
+                    consecutive_failures: 3,
+                    retry_after_seconds: 300,
+                  },
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "ElevenLabs временно недоступен в Live-режиме",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
   });
 
   it("shows isolated source levels and explains automatic ducking", async () => {

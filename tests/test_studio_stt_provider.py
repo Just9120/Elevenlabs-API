@@ -146,6 +146,24 @@ def test_health_circuit_counts_only_provider_failures_and_accepts_aware_database
     )
     assert db.row is None
 
+    record_provider_failure(
+        db,
+        provider="yandex",
+        operating_mode="standard",
+        failure_code="malformed_provider_response",
+        threshold=2,
+        cooldown_seconds=300,
+        now=now,
+    )
+    assert db.row.consecutive_failures == 1
+
+    record_provider_success(
+        db,
+        provider="yandex",
+        operating_mode="standard",
+        now=now,
+    )
+
     for _ in range(2):
         record_provider_failure(
             db,

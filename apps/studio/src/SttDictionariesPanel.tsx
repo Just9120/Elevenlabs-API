@@ -45,6 +45,7 @@ export function SttDictionariesPanel({ csrf, onCsrf }: Props) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
   const [editorId, setEditorId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [name, setName] = useState("");
   const [entries, setEntries] = useState("");
   const [pending, setPending] = useState(false);
@@ -66,12 +67,14 @@ export function SttDictionariesPanel({ csrf, onCsrf }: Props) {
   }, []);
 
   function closeEditor() {
+    setEditorOpen(false);
     setEditorId(null);
     setName("");
     setEntries("");
   }
 
   function edit(dictionary: SttDictionary) {
+    setEditorOpen(true);
     setEditorId(dictionary.id);
     setName(dictionary.name);
     setEntries(editorText(dictionary));
@@ -147,7 +150,7 @@ export function SttDictionariesPanel({ csrf, onCsrf }: Props) {
           Повторить загрузку
         </button>
       )}
-      {state === "ready" && dictionaries.length === 0 && !editorId && (
+      {state === "ready" && dictionaries.length === 0 && !editorOpen && (
         <p className="muted">Словари пока не созданы.</p>
       )}
       {dictionaries.map((dictionary) => (
@@ -170,12 +173,22 @@ export function SttDictionariesPanel({ csrf, onCsrf }: Props) {
           </span>
         </div>
       ))}
-      {editorId === null && !name && !entries && (
-        <button type="button" disabled={pending} onClick={() => setName("Новый словарь")}>
+      {!editorOpen && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            setEditorOpen(true);
+            setEditorId(null);
+            setName("Новый словарь");
+            setEntries("");
+            setMessage("");
+          }}
+        >
           Добавить словарь
         </button>
       )}
-      {(editorId !== null || name || entries) && (
+      {editorOpen && (
         <form className="stack" onSubmit={save}>
           <label>
             Название

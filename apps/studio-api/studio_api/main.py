@@ -100,7 +100,7 @@ from .transcript_catalog import (
 )
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, provider_language_code, stored_language_mode, stored_transcription_options
 from .stt_provider import SttCapabilityError, SttOperatingMode, SttProvider, catalog_payload, resolve_capability, validate_selection
-from .stt_provider_health import provider_health
+from .stt_provider_health import provider_health, record_provider_failure, record_provider_success
 from .stt_dictionaries import (
     DictionaryEntryKind,
     dictionary_payload,
@@ -2348,11 +2348,35 @@ def create_project_realtime_capability(
             language_code=provider_language_code(data.language.value),
         )
     except RealtimeCapabilityError as exc:
+        try:
+            db.rollback()
+            record_provider_failure(
+                db,
+                provider="elevenlabs",
+                operating_mode="realtime",
+                failure_code=exc.reason.value,
+                threshold=settings.stt_health_failure_threshold,
+                cooldown_seconds=settings.stt_health_cooldown_seconds,
+                now=utcnow().replace(tzinfo=None),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
         _raise_realtime_capability_failure(
             request,
             user,
             reason=exc.reason,
         )
+    try:
+        record_provider_success(
+            db,
+            provider="elevenlabs",
+            operating_mode="realtime",
+            now=utcnow().replace(tzinfo=None),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
     _write_realtime_diagnostic_event(
         request,
         user,

@@ -9,6 +9,7 @@ from .models import SttProviderHealth
 
 
 HEALTH_FAILURE_CODES = frozenset({
+    "malformed_provider_response",
     "provider_rate_limited",
     "provider_unavailable",
     "provider_timeout",

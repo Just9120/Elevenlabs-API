@@ -37,7 +37,7 @@ from studio_api.config import Settings
 from studio_api.account_security import RECOVERY_CODE_COUNT, _totp, recovery_code_hash
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus, UserTotpFactor, UserTotpRecoveryCode
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, SttProviderHealth, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus, UserTotpFactor, UserTotpRecoveryCode
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.totp_break_glass import TotpBreakGlassError, disable_owner_totp
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
@@ -1928,6 +1928,18 @@ def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
         ).one()
         assert reason.value in event.metadata_json
         assert "sk_realtime_main_secret" not in event.metadata_json
+        health = db.get(SttProviderHealth, ("elevenlabs", "realtime"))
+        if reason.value in {
+            "malformed_provider_response",
+            "provider_rate_limited",
+            "provider_timeout",
+            "provider_unavailable",
+        }:
+            assert health is not None
+            assert health.consecutive_failures == 1
+            assert health.last_failure_code == reason.value
+        else:
+            assert health is None
     finally:
         db.close()
 
@@ -1944,6 +1956,66 @@ def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
     assert response_without_diagnostic.json() == {
         "detail": {"reason": reason.value},
     }
+
+
+def test_realtime_capability_circuit_stops_dispatch_after_systemic_failures(
+    monkeypatch,
+):
+    from studio_api import main as main_mod
+
+    email = "realtime-circuit@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime circuit"},
+        headers=headers,
+    ).json()
+    client.post(
+        "/api/credentials",
+        json={
+            "provider": "elevenlabs",
+            "label": "Realtime",
+            "raw_value": "sk_realtime_main_secret",
+        },
+        headers=headers,
+    )
+    provider_calls = []
+
+    def fail(*_args, **_kwargs):
+        provider_calls.append("called")
+        raise RealtimeCapabilityError(
+            RealtimeCapabilityReason.provider_unavailable,
+        )
+
+    monkeypatch.setattr(main_mod, "create_realtime_capability", fail)
+    path = f"/api/projects/{project['id']}/realtime/capability"
+    for _ in range(main_mod.settings.stt_health_failure_threshold):
+        assert client.post(
+            path,
+            json={"language": "detect"},
+            headers=headers,
+        ).status_code == 502
+
+    blocked = client.post(
+        path,
+        json={"language": "detect"},
+        headers=headers,
+    )
+    assert blocked.status_code == 503
+    assert blocked.json()["detail"]["reason"] == "provider_mode_unavailable"
+    assert len(provider_calls) == main_mod.settings.stt_health_failure_threshold
+
+    db = SessionLocal()
+    try:
+        health = db.get(SttProviderHealth, ("elevenlabs", "realtime"))
+        assert health is not None
+        assert health.consecutive_failures == main_mod.settings.stt_health_failure_threshold
+        assert health.circuit_open_until is not None
+    finally:
+        db.close()
 
 
 def test_aes_gcm_unique_nonce_and_aad_binding():

@@ -7,6 +7,7 @@ import json
 import secrets
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import grpc
@@ -16,6 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 from .db import SessionLocal
 from .models import CredentialStatus, Project, ProviderCredential, ProviderCredentialVersion
 from .security import aad, decrypt, master_key_from_b64
+from .stt_provider_health import record_provider_failure, record_provider_success
 from .yandex_realtime_pb2 import (
     AudioChunk,
     AudioFormatOptions,
@@ -34,6 +36,21 @@ MAX_CAPABILITY_LENGTH = 1600
 MAX_AUDIO_CHUNK_BYTES = 256 * 1024
 MAX_SESSION_AUDIO_BYTES = 10 * 1024 * 1024
 MAX_SESSION_SECONDS = 300
+
+_HEALTH_FAILURE_BY_GRPC_STATUS = {
+    grpc.StatusCode.RESOURCE_EXHAUSTED: "provider_rate_limited",
+    grpc.StatusCode.DEADLINE_EXCEEDED: "provider_timeout",
+    grpc.StatusCode.UNAVAILABLE: "provider_unavailable",
+    grpc.StatusCode.INTERNAL: "provider_unavailable",
+    grpc.StatusCode.UNKNOWN: "provider_unavailable",
+}
+
+_USER_FAILURE_BY_GRPC_STATUS = {
+    **_HEALTH_FAILURE_BY_GRPC_STATUS,
+    grpc.StatusCode.UNAUTHENTICATED: "provider_authentication_rejected",
+    grpc.StatusCode.PERMISSION_DENIED: "provider_authentication_rejected",
+    grpc.StatusCode.INVALID_ARGUMENT: "provider_request_rejected",
+}
 
 
 class YandexRealtimeCapabilityError(ValueError):
@@ -168,6 +185,52 @@ def _open_api_key(authority: YandexRealtimeAuthority, settings) -> str:
         db.close()
 
 
+def _realtime_health_failure_code(status_code: grpc.StatusCode) -> str | None:
+    return _HEALTH_FAILURE_BY_GRPC_STATUS.get(status_code)
+
+
+def _realtime_user_failure_code(status_code: grpc.StatusCode) -> str:
+    return _USER_FAILURE_BY_GRPC_STATUS.get(status_code, "provider_unavailable")
+
+
+def _record_realtime_provider_health(*, settings, failure_code: str | None) -> None:
+    """Persist only server-observed provider health without affecting the session."""
+    db = None
+    try:
+        db = SessionLocal()
+        now = datetime.now(timezone.utc)
+        if failure_code is None:
+            record_provider_success(
+                db,
+                provider="yandex",
+                operating_mode="realtime",
+                now=now,
+            )
+        else:
+            record_provider_failure(
+                db,
+                provider="yandex",
+                operating_mode="realtime",
+                failure_code=failure_code,
+                threshold=settings.stt_health_failure_threshold,
+                cooldown_seconds=settings.stt_health_cooldown_seconds,
+                now=now,
+            )
+        db.commit()
+    except Exception:
+        if db is not None:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def _validated_audio_chunk(message: object, *, received_bytes: int) -> bytes:
     if not isinstance(message, dict):
         raise YandexRealtimeCapabilityError("invalid_audio_message")
@@ -220,6 +283,8 @@ async def relay_yandex_realtime(websocket: WebSocket, *, capability: str, settin
     if origin != settings.app_origin.rstrip("/"):
         await websocket.close(code=4403)
         return
+    received_transcript = False
+    pending_final = ""
     try:
         authority = decode_yandex_realtime_capability(capability, settings=settings)
         api_key = _open_api_key(authority, settings)
@@ -254,18 +319,68 @@ async def relay_yandex_realtime(websocket: WebSocket, *, capability: str, settin
             await websocket.send_json({"message_type": "session_started"})
             async for response in call:
                 event = response.WhichOneof("Event")
-                update = response.partial if event == "partial" else response.final if event == "final" else None
+                if event == "partial":
+                    if pending_final:
+                        await websocket.send_json(
+                            {
+                                "message_type": "committed_transcript",
+                                "text": pending_final,
+                            }
+                        )
+                        pending_final = ""
+                    update = response.partial
+                elif event == "final":
+                    update = response.final
+                elif event == "final_refinement":
+                    update = response.final_refinement.normalized_text
+                else:
+                    update = None
                 if update is None or not update.alternatives:
                     continue
                 text = update.alternatives[0].text.strip()
                 if text:
-                    await websocket.send_json({"message_type": "partial_transcript" if event == "partial" else "committed_transcript", "text": text})
+                    received_transcript = True
+                    if event == "final":
+                        pending_final = text
+                    else:
+                        await websocket.send_json(
+                            {
+                                "message_type": (
+                                    "partial_transcript"
+                                    if event == "partial"
+                                    else "committed_transcript"
+                                ),
+                                "text": text,
+                            }
+                        )
+                        if event == "final_refinement":
+                            pending_final = ""
+            if pending_final:
+                await websocket.send_json(
+                    {
+                        "message_type": "committed_transcript",
+                        "text": pending_final,
+                    }
+                )
+            if received_transcript:
+                _record_realtime_provider_health(settings=settings, failure_code=None)
     except WebSocketDisconnect:
         return
     except YandexRealtimeCapabilityError as exc:
         await websocket.send_json({"message_type": "error", "error": str(exc)})
     except grpc.aio.AioRpcError as exc:
-        await websocket.send_json({"message_type": "error", "error": f"provider_{exc.code().name.lower()}"})
+        health_failure_code = _realtime_health_failure_code(exc.code())
+        if health_failure_code is not None:
+            _record_realtime_provider_health(
+                settings=settings,
+                failure_code=health_failure_code,
+            )
+        await websocket.send_json(
+            {
+                "message_type": "error",
+                "error": _realtime_user_failure_code(exc.code()),
+            }
+        )
     except Exception:
         await websocket.send_json({"message_type": "error", "error": "provider_unavailable"})
     finally:
