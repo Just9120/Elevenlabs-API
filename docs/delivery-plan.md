@@ -23,22 +23,22 @@
   13. `SMC-13`: explicit opt-in YouTube HTTP captions и generic allowlisted HTTPS webhook consumer передают только bounded subtitle text; destination validation и redaction fail closed, consumer errors видимы локально и не останавливают primary session.
   14. `SMC-14`: migration/grants/provider transports/polling/health/dictionary ownership/realtime relay/overlay/consumers и PWA flows покрыты focused/integration tests, включая negative и concurrency boundaries.
   15. `SMC-15`: reviewable PR и exact-head CI success; applicable protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT, Google mutation или реальную external caption send без отдельного подтверждения.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** production Yandex BYOK/folder configuration и paid provider LIVE не предполагаются; отсутствие credential не блокирует code/test/deploy и honest unavailable/suppressed LIVE. Реальная YouTube/external отправка остаётся action-time gate. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 15 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-03T22:44:31Z`.
+- **Updated (UTC):** `2026-09-03T22:51:40Z`.
 - **Base branch/SHA:** verified clean tracked `main` and `origin/main@0fb499d9b7b65470292df0c2a7f90d0602417b83` after fetch.
 - **Working branch:** `codex/stt-multiprovider-continuity`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** `221cb9d667c5e04890e7e910e35d08fae935e639`.
+- **Last verified revision:** `8edc3c8d348695d8c4d943d6e0f53c2cdcaeea56`.
 - **Completed:** Реализованы additive migration `0036_stt_multiprovider`, provider-neutral capability/mode/dispatch contracts, independent BYOK/health boundaries, owner dictionaries, Yandex v3 batch/deferred persistence и bounded realtime gRPC relay, provider-aware PWA, project-isolated OBS overlay, explicit YouTube/allowlisted HTTPS consumers, deployment configuration, grants, architecture/runbook и migration-head compatibility. Completion audit дополнительно закрепил provider health для malformed batch/realtime responses, Yandex gRPC status mapping и final-refinement fallback, live capability catalog, strict duplicate/empty contract rejection и полный UI lifecycle словарей; найденный editor-state defect исправлен. Yandex default-disabled; external send и paid STT не выполнялись.
-- **Current step:** PR `#295` initial head `3d41fcbe50a872c09d834fb1e80e646c745b44c6` дал browser E2E success и три actionable core findings; dev pin, canonical concurrency hash helper и browser DTO allowlist исправлены в `221cb9d667c5e04890e7e910e35d08fae935e639`.
-- **Next exact action:** push current HEAD branch `codex/stt-multiprovider-continuity`, дождаться exact-head rerun всех required checks и продолжить review/delivery gates.
+- **Current step:** PR `#295` exact head `8edc3c8d348695d8c4d943d6e0f53c2cdcaeea56` mergeable/clean, без review comments, все required checks success; выполняется checkpoint synchronization перед protected merge.
+- **Next exact action:** commit/push текущий checkpoint, подтвердить final exact-head required checks и merge PR `#295` в protected `main`.
 - **Validation / Evidence:** Python compile и lightweight repository checks passed; backend provider/realtime/recovery/schema final target `52 passed`, CI-fix focused `6 passed`, ранее выполненные provider/API focused `22 passed`, schema/regression `184 passed`, operational/preflight/nginx `70 passed`, existing processing regression `110 passed, 1 skipped`; frontend full Vitest `698 passed` in `67` files, focused provider/realtime/dictionary contracts passed, ESLint и TypeScript/Vite/PWA production build passed; `git diff --check` passed. Local DB-backed concurrency fix remains exact-head PostgreSQL CI gate.
-- **PR / CI / deployment:** public PR `#295` (`https://github.com/Just9120/Elevenlabs-API/pull/295`). Initial head `3d41fcb` browser E2E passed; core CI `33814007028` failed `3` of `1,717` tests and produced exact local fixes in `221cb9d`; Studio image/Compose job `33814007044` remained pending at checkpoint time. Fix head not pushed yet; not deployed.
+- **PR / CI / deployment:** public PR `#295` (`https://github.com/Just9120/Elevenlabs-API/pull/295`). Initial head `3d41fcb` exposed three core contract gaps. Exact fix/checkpoint head `8edc3c8d348695d8c4d943d6e0f53c2cdcaeea56`: core CI `33814548276` success (`1,717 passed`), Studio image/Compose и browser E2E run `33814548150` success; mergeable `CLEAN`, review comments absent. Not merged or deployed yet.
 - **Blockers / unverified assumptions:** no current publication blocker. Production Yandex credential/folder availability and external caption endpoints are unknown and will be represented honestly as unavailable until owner configures them.
 
 ## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
