@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `JOB-RELIABILITY-NOTIFICATIONS-01` — безопасные автоматические retry и гарантированные terminal-уведомления.
-- **State:** `IN_PROGRESS` — explicit owner authorization получена; implementation и local validation выполнены на isolated branch от verified `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939`; review/CI/delivery ещё не выполнены.
+- **State:** `IN_PROGRESS` — explicit owner authorization получена; implementation и local validation зафиксированы commit `1fb819fd56f4b65990061679c8004a3db14df81a` на isolated branch от verified `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939`; review/CI/delivery ещё не выполнены.
 - **Authorization source:** explicit owner instruction 2026-09-03 после non-commercial gap review: «Бери пару эпиков на реализацию без коммерческого контура»; выбрана связанная пара canonical `JOB-RELIABILITY-02` + `JOB-NOTIFICATIONS-01`.
 - **Scope:** закрыть `JOBREL-05`, `JOBREL-09`, `JOBREL-10` и `JOBNOT-01`–`JOBNOT-06`: автоматически повторять только доказуемо safe transient failures с bounded attempts/backoff и без повторного provider/Google/storage side effect; создать owner-scoped durable terminal-notification outbox, атомарно и idempotently связанный с terminal job transition; реализовать opt-in Web Push, email и optional Telegram для success/error; обеспечить claim lease, bounded transport timeout/retry, stale-claim recovery, deduplication, безопасную redaction, понятные настройки/readiness/status в PWA; покрыть additive migration, API/worker/frontend contracts, tests, reviewable PR, exact CI, protected delivery и bounded LIVE без paid STT или несанкционированного внешнего сообщения.
 - **Non-goals:** commercial contour; новый STT provider; повтор provider call при timeout/unknown/partial/returned-result uncertainty; автоматический Google Docs retry/reconciliation; SMS/mobile app; marketing notifications; обязательный Telegram/email/Web Push; хранение SMTP/Telegram/VAPID secrets в PostgreSQL или браузере; чтение transcript/source/document content для notification; destructive data cleanup; отправка реального внешнего уведомления без отдельной action-time owner authorization.
@@ -18,20 +18,20 @@
   8. `JRN-08`: PWA показывает понятные channel readiness/preferences и последний bounded delivery outcome; unsupported/denied/unconfigured состояния не выдаются за success.
   9. `JRN-09`: migration, DB grants, retry classifier, transactional outbox, concurrency/dedup, all transports, redaction, API ownership/CSRF и service-worker/frontend flows покрыты focused/integration tests.
   10. `JRN-10`: reviewable PR и exact-head CI success; protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT и не отправляет внешнее сообщение без отдельного подтверждения владельца.
-- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** external Web Push/email/Telegram LIVE потребует настроенного channel secret/configuration, browser permission и отдельной action-time owner authorization на реальную отправку. До этого code/test/deploy и suppressed/unconfigured LIVE могут быть закрыты независимо. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-03T08:19:18Z`.
+- **Updated (UTC):** `2026-09-03T08:22:20Z`.
 - **Base branch/SHA:** verified clean tracked `main` and `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939` after fetch.
 - **Working branch:** `codex/job-reliability-notifications`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** `9073c0bdbdd16eb1e19c26ce4b80144544c5c939`.
-- **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented. Production transports remain disabled by default.
-- **Current step:** prepare one reviewable implementation commit and PR from the verified unchanged base.
-- **Next exact action:** run final focused checks, commit only tracked Goal files plus intended new files, push branch and open the PR.
+- **Last verified revision:** `1fb819fd56f4b65990061679c8004a3db14df81a`.
+- **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented and committed as `1fb819fd56f4b65990061679c8004a3db14df81a`. Production transports remain disabled by default.
+- **Current step:** publish the reviewable branch, open PR and obtain exact-head CI evidence.
+- **Next exact action:** commit this post-implementation checkpoint, push `codex/job-reliability-notifications` and open a PR into `main`.
 - **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Full PostgreSQL/Redis suite and Docker image/Compose checks remain for CI because those local services/tools are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
 - **PR / CI / deployment:** not created / not run / not deployed.
 - **Blockers / unverified assumptions:** exact production email/Telegram/VAPID configuration is unknown and will remain optional/fail-closed; external delivery is not assumed from source code.
