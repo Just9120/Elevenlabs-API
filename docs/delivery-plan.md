@@ -24,22 +24,22 @@
   14. `SMC-14`: migration/grants/provider transports/polling/health/dictionary ownership/realtime relay/overlay/consumers и PWA flows покрыты focused/integration tests, включая negative и concurrency boundaries.
   15. `SMC-15`: reviewable PR и exact-head CI success; applicable protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT, Google mutation или реальную external caption send без отдельного подтверждения.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** production Yandex BYOK/folder configuration и paid provider LIVE не предполагаются; отсутствие credential не блокирует code/test/deploy и honest unavailable/suppressed LIVE. Реальная YouTube/external отправка остаётся action-time gate. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
+- **Known blockers/dependencies:** публикация `84` tracked files branch в `github.com/Just9120/Elevenlabs-API` и создание PR требуют явного owner approval на export; до него remote branch/PR/CI не создаются. Production Yandex BYOK/folder configuration и paid provider LIVE не предполагаются; отсутствие credential не блокирует code/test/deploy и honest unavailable/suppressed LIVE. Реальная YouTube/external отправка остаётся action-time gate. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 15 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-03T19:54:00Z`.
+- **Updated (UTC):** `2026-09-03T20:37:31Z`.
 - **Base branch/SHA:** verified clean tracked `main` and `origin/main@0fb499d9b7b65470292df0c2a7f90d0602417b83` after fetch.
 - **Working branch:** `codex/stt-multiprovider-continuity`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** `996b5c07b87738db850dc68dc769cd90a56cb7ff`.
-- **Completed:** Реализованы additive migration `0036_stt_multiprovider`, provider-neutral capability/mode/dispatch contracts, independent BYOK/health boundaries, owner dictionaries, Yandex v3 batch/deferred persistence и bounded realtime gRPC relay, provider-aware PWA, project-isolated OBS overlay, explicit YouTube/allowlisted HTTPS consumers, deployment configuration, grants, architecture/runbook и migration-head compatibility. Yandex default-disabled; external send и paid STT не выполнялись.
-- **Current step:** reviewable implementation commit создан; опубликовать branch, создать PR и получить exact-head CI Evidence.
-- **Next exact action:** push `codex/stt-multiprovider-continuity`, открыть PR из exact commit и дождаться required checks.
-- **Validation / Evidence:** Python compile и lightweight repository checks passed; backend provider/API focused `22 passed`, schema/regression `184 passed`, operational/preflight/nginx `70 passed`, existing processing regression `110 passed, 1 skipped`; frontend full Vitest `694 passed`, ESLint и TypeScript/Vite/PWA production build passed; `git diff --check` passed. Local DB-backed coverage, которую нельзя честно выполнить без PostgreSQL/Redis, остаётся exact-head CI gate.
-- **PR / CI / deployment:** implementation commit `996b5c07b87738db850dc68dc769cd90a56cb7ff`; PR not created; exact-head CI not run; not deployed.
-- **Blockers / unverified assumptions:** production Yandex credential/folder availability and external caption endpoints are unknown and will be represented honestly as unavailable until owner configures them.
+- **Last verified revision:** `670bef2595aa60e064c1f34488916e1613e9e921`.
+- **Completed:** Реализованы additive migration `0036_stt_multiprovider`, provider-neutral capability/mode/dispatch contracts, independent BYOK/health boundaries, owner dictionaries, Yandex v3 batch/deferred persistence и bounded realtime gRPC relay, provider-aware PWA, project-isolated OBS overlay, explicit YouTube/allowlisted HTTPS consumers, deployment configuration, grants, architecture/runbook и migration-head compatibility. Completion audit дополнительно закрепил provider health для malformed batch/realtime responses, Yandex gRPC status mapping и final-refinement fallback, live capability catalog, strict duplicate/empty contract rejection и полный UI lifecycle словарей; найденный editor-state defect исправлен. Yandex default-disabled; external send и paid STT не выполнялись.
+- **Current step:** локальная implementation и completion audit зафиксированы; remote publication/PR ожидают явного owner approval на GitHub export.
+- **Next exact action:** после owner approval push exact branch `codex/stt-multiprovider-continuity`, открыть PR из `670bef2595aa60e064c1f34488916e1613e9e921` и дождаться required checks.
+- **Validation / Evidence:** Python compile и lightweight repository checks passed; backend provider/realtime/recovery/schema final target `52 passed`, ранее выполненные provider/API focused `22 passed`, schema/regression `184 passed`, operational/preflight/nginx `70 passed`, existing processing regression `110 passed, 1 skipped`; frontend full Vitest `698 passed` in `67` files, focused provider/realtime/dictionary contracts passed, ESLint и TypeScript/Vite/PWA production build passed; `git diff --check` passed. Local DB-backed coverage, которую нельзя честно выполнить без PostgreSQL/Redis, остаётся exact-head CI gate.
+- **PR / CI / deployment:** local commits `996b5c07b87738db850dc68dc769cd90a56cb7ff`, checkpoint `262768c5623cbd2112b997a1f26e537e00687f11` и completion audit `670bef2595aa60e064c1f34488916e1613e9e921`; remote branch/PR not created; exact-head CI not run; not deployed.
+- **Blockers / unverified assumptions:** GitHub export approval pending. Production Yandex credential/folder availability and external caption endpoints are unknown and will be represented honestly as unavailable until owner configures them.
 
 ## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
 
