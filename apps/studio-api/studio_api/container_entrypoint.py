@@ -33,6 +33,12 @@ SECRET_FILES = {
     ),
     "STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE": "studio_alert_telegram_bot_token",
     "STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE": "studio_alert_telegram_chat_id",
+    "STUDIO_JOB_WEB_PUSH_VAPID_PRIVATE_KEY_FILE": (
+        "studio_job_web_push_vapid_private_key"
+    ),
+    "STUDIO_JOB_SMTP_PASSWORD_FILE": "studio_job_smtp_password",
+    "STUDIO_JOB_TELEGRAM_BOT_TOKEN_FILE": "studio_job_telegram_bot_token",
+    "STUDIO_JOB_TELEGRAM_CHAT_ID_FILE": "studio_job_telegram_chat_id",
 }
 MOUNTED_SECRET_RULES: dict[str, tuple[int, int] | None] = {
     "STUDIO_POSTGRES_PASSWORD_FILE": None,
@@ -45,6 +51,10 @@ MOUNTED_SECRET_RULES: dict[str, tuple[int, int] | None] = {
     "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE": None,
     "STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE": None,
     "STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE": None,
+    "STUDIO_JOB_WEB_PUSH_VAPID_PRIVATE_KEY_FILE": None,
+    "STUDIO_JOB_SMTP_PASSWORD_FILE": None,
+    "STUDIO_JOB_TELEGRAM_BOT_TOKEN_FILE": None,
+    "STUDIO_JOB_TELEGRAM_CHAT_ID_FILE": None,
 }
 
 

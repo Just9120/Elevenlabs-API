@@ -14,10 +14,11 @@ export default defineConfig({
       strategies: 'generateSW',
       registerType: 'autoUpdate',
       manifest: false,
-      includeAssets: ['icons/icon.svg', 'manifest.webmanifest'],
+      includeAssets: ['icons/icon.svg', 'manifest.webmanifest', 'push-handler.js'],
       workbox: {
         navigateFallback: '/',
         globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+        importScripts: ['/push-handler.js'],
         runtimeCaching: [],
       },
     }),

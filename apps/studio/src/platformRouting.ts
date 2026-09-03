@@ -2,6 +2,7 @@ export type Page = "dashboard" | "audio" | "projects" | "settings";
 export type SettingsSection =
   | "account"
   | "connections"
+  | "notifications"
   | "files"
   | "appearance"
   | "diagnostics";
@@ -20,6 +21,8 @@ export function parsePlatformRoute(
       return { page: "settings", settingsSection: "account" };
     case "/settings/connections":
       return { page: "settings", settingsSection: "connections" };
+    case "/settings/notifications":
+      return { page: "settings", settingsSection: "notifications" };
     case "/settings/files":
       return { page: "settings", settingsSection: "files" };
     case "/settings/appearance":

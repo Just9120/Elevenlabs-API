@@ -63,7 +63,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["runtime_component_status", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["runtime_component_status", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -379,7 +379,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0034_personal_security", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0035_job_notifications", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -1083,6 +1083,62 @@ def test_account_source_retention_preferences_are_server_authoritative():
         assert db.query(AuditEvent).filter_by(event_type="account.preferences_updated", actor_user_id=user.id).count() == 2
     finally:
         db.close()
+
+
+def test_job_notification_preferences_are_owner_scoped_opt_in_and_fail_closed():
+    email = "notification-preferences@example.com"
+    pw = admin(email)
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/notifications/preferences").status_code == 401
+
+    c = TestClient(app)
+    csrf = login(c, pw, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    current = c.get(
+        "/api/notifications/preferences", headers={"origin": "https://studio.test"}
+    )
+    assert current.status_code == 200
+    assert current.headers["cache-control"] == "no-store"
+    assert current.json() == {
+        "channels": {
+            "web_push": {
+                "enabled": False,
+                "configured": False,
+                "subscription_count": 0,
+                "vapid_public_key": None,
+            },
+            "email": {"enabled": False, "configured": False},
+            "telegram": {"enabled": False, "configured": False},
+        },
+        "recent_deliveries": [],
+    }
+    assert c.patch(
+        "/api/notifications/preferences",
+        json={"email_enabled": True},
+    ).status_code == 403
+    assert c.patch(
+        "/api/notifications/preferences",
+        json={"unknown": True},
+        headers=headers,
+    ).status_code == 422
+    blocked = c.patch(
+        "/api/notifications/preferences",
+        json={"email_enabled": True},
+        headers=headers,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json() == {
+        "detail": "Email-уведомления пока не настроены администратором"
+    }
+    assert c.post(
+        "/api/notifications/web-push/subscriptions",
+        json={
+            "endpoint": "https://fcm.googleapis.com/fcm/send/browser",
+            "p256dh": "A" * 80,
+            "auth": "A" * 20,
+        },
+        headers=headers,
+    ).status_code == 409
 
 
 def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
@@ -3987,7 +4043,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0034_personal_security"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0035_job_notifications"
 
 
 
@@ -4051,7 +4107,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0034_personal_security"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0035_job_notifications"
 
 
 
@@ -7920,7 +7976,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0034_personal_security"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0035_job_notifications"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

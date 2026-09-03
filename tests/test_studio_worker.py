@@ -165,11 +165,18 @@ def test_idle_runs_bounded_alert_evaluation_then_one_delivery():
         source_cleanup_runner=lambda db, **kw: False,
         provider_checkpoint_cleanup_runner=lambda db, **kw: 0,
         realtime_draft_cleanup_runner=lambda db, **kw: 0,
+        job_notification_runner=lambda **kw: events.append(
+            "one_job_notification_attempted"
+        ),
         alert_evaluator=lambda **kw: events.append("alerts_evaluated"),
         alert_delivery_runner=lambda **kw: events.append("one_delivery_attempted"),
     )
 
-    assert events[-2:] == ["alerts_evaluated", "one_delivery_attempted"]
+    assert events[-3:] == [
+        "one_job_notification_attempted",
+        "alerts_evaluated",
+        "one_delivery_attempted",
+    ]
     assert stop.waits == [5]
 
 

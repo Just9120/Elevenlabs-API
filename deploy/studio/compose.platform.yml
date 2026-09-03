@@ -100,6 +100,27 @@ services:
       STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE: /run/studio-runtime-secrets/studio_alert_telegram_bot_token
       STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE: /run/studio-runtime-secrets/studio_alert_telegram_chat_id
       STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS: ${STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS:-5}
+      STUDIO_JOB_NOTIFICATION_RETRY_SECONDS: ${STUDIO_JOB_NOTIFICATION_RETRY_SECONDS:-60}
+      STUDIO_JOB_NOTIFICATION_MAX_ATTEMPTS: ${STUDIO_JOB_NOTIFICATION_MAX_ATTEMPTS:-3}
+      STUDIO_JOB_NOTIFICATION_CLAIM_SECONDS: ${STUDIO_JOB_NOTIFICATION_CLAIM_SECONDS:-60}
+      STUDIO_JOB_WEB_PUSH_ENABLED: ${STUDIO_JOB_WEB_PUSH_ENABLED:-false}
+      STUDIO_JOB_WEB_PUSH_VAPID_PUBLIC_KEY: ${STUDIO_JOB_WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      STUDIO_JOB_WEB_PUSH_VAPID_PRIVATE_KEY_FILE: /run/studio-runtime-secrets/studio_job_web_push_vapid_private_key
+      STUDIO_JOB_WEB_PUSH_VAPID_SUBJECT: ${STUDIO_JOB_WEB_PUSH_VAPID_SUBJECT:-}
+      STUDIO_JOB_WEB_PUSH_TIMEOUT_SECONDS: ${STUDIO_JOB_WEB_PUSH_TIMEOUT_SECONDS:-5}
+      STUDIO_JOB_EMAIL_ENABLED: ${STUDIO_JOB_EMAIL_ENABLED:-false}
+      STUDIO_JOB_SMTP_HOST: ${STUDIO_JOB_SMTP_HOST:-}
+      STUDIO_JOB_SMTP_PORT: ${STUDIO_JOB_SMTP_PORT:-587}
+      STUDIO_JOB_SMTP_USERNAME: ${STUDIO_JOB_SMTP_USERNAME:-}
+      STUDIO_JOB_SMTP_PASSWORD_FILE: /run/studio-runtime-secrets/studio_job_smtp_password
+      STUDIO_JOB_SMTP_FROM_EMAIL: ${STUDIO_JOB_SMTP_FROM_EMAIL:-}
+      STUDIO_JOB_SMTP_USE_SSL: ${STUDIO_JOB_SMTP_USE_SSL:-false}
+      STUDIO_JOB_SMTP_STARTTLS: ${STUDIO_JOB_SMTP_STARTTLS:-true}
+      STUDIO_JOB_SMTP_TIMEOUT_SECONDS: ${STUDIO_JOB_SMTP_TIMEOUT_SECONDS:-10}
+      STUDIO_JOB_TELEGRAM_ENABLED: ${STUDIO_JOB_TELEGRAM_ENABLED:-false}
+      STUDIO_JOB_TELEGRAM_BOT_TOKEN_FILE: /run/studio-runtime-secrets/studio_job_telegram_bot_token
+      STUDIO_JOB_TELEGRAM_CHAT_ID_FILE: /run/studio-runtime-secrets/studio_job_telegram_chat_id
+      STUDIO_JOB_TELEGRAM_TIMEOUT_SECONDS: ${STUDIO_JOB_TELEGRAM_TIMEOUT_SECONDS:-5}
     secrets:
       - studio_credential_master_key
       - source: studio_api_postgres_password
@@ -112,6 +133,10 @@ services:
       - studio_google_maintenance_oauth_client_secret
       - studio_alert_telegram_bot_token
       - studio_alert_telegram_chat_id
+      - studio_job_web_push_vapid_private_key
+      - studio_job_smtp_password
+      - studio_job_telegram_bot_token
+      - studio_job_telegram_chat_id
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:
@@ -200,6 +225,27 @@ services:
       STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE: /run/studio-runtime-secrets/studio_alert_telegram_bot_token
       STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE: /run/studio-runtime-secrets/studio_alert_telegram_chat_id
       STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS: ${STUDIO_ALERT_TELEGRAM_TIMEOUT_SECONDS:-5}
+      STUDIO_JOB_NOTIFICATION_RETRY_SECONDS: ${STUDIO_JOB_NOTIFICATION_RETRY_SECONDS:-60}
+      STUDIO_JOB_NOTIFICATION_MAX_ATTEMPTS: ${STUDIO_JOB_NOTIFICATION_MAX_ATTEMPTS:-3}
+      STUDIO_JOB_NOTIFICATION_CLAIM_SECONDS: ${STUDIO_JOB_NOTIFICATION_CLAIM_SECONDS:-60}
+      STUDIO_JOB_WEB_PUSH_ENABLED: ${STUDIO_JOB_WEB_PUSH_ENABLED:-false}
+      STUDIO_JOB_WEB_PUSH_VAPID_PUBLIC_KEY: ${STUDIO_JOB_WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      STUDIO_JOB_WEB_PUSH_VAPID_PRIVATE_KEY_FILE: /run/studio-runtime-secrets/studio_job_web_push_vapid_private_key
+      STUDIO_JOB_WEB_PUSH_VAPID_SUBJECT: ${STUDIO_JOB_WEB_PUSH_VAPID_SUBJECT:-}
+      STUDIO_JOB_WEB_PUSH_TIMEOUT_SECONDS: ${STUDIO_JOB_WEB_PUSH_TIMEOUT_SECONDS:-5}
+      STUDIO_JOB_EMAIL_ENABLED: ${STUDIO_JOB_EMAIL_ENABLED:-false}
+      STUDIO_JOB_SMTP_HOST: ${STUDIO_JOB_SMTP_HOST:-}
+      STUDIO_JOB_SMTP_PORT: ${STUDIO_JOB_SMTP_PORT:-587}
+      STUDIO_JOB_SMTP_USERNAME: ${STUDIO_JOB_SMTP_USERNAME:-}
+      STUDIO_JOB_SMTP_PASSWORD_FILE: /run/studio-runtime-secrets/studio_job_smtp_password
+      STUDIO_JOB_SMTP_FROM_EMAIL: ${STUDIO_JOB_SMTP_FROM_EMAIL:-}
+      STUDIO_JOB_SMTP_USE_SSL: ${STUDIO_JOB_SMTP_USE_SSL:-false}
+      STUDIO_JOB_SMTP_STARTTLS: ${STUDIO_JOB_SMTP_STARTTLS:-true}
+      STUDIO_JOB_SMTP_TIMEOUT_SECONDS: ${STUDIO_JOB_SMTP_TIMEOUT_SECONDS:-10}
+      STUDIO_JOB_TELEGRAM_ENABLED: ${STUDIO_JOB_TELEGRAM_ENABLED:-false}
+      STUDIO_JOB_TELEGRAM_BOT_TOKEN_FILE: /run/studio-runtime-secrets/studio_job_telegram_bot_token
+      STUDIO_JOB_TELEGRAM_CHAT_ID_FILE: /run/studio-runtime-secrets/studio_job_telegram_chat_id
+      STUDIO_JOB_TELEGRAM_TIMEOUT_SECONDS: ${STUDIO_JOB_TELEGRAM_TIMEOUT_SECONDS:-5}
       TMPDIR: /tmp
       PYTHONDONTWRITEBYTECODE: "1"
     secrets:
@@ -214,6 +260,10 @@ services:
       - studio_google_maintenance_oauth_client_secret
       - studio_alert_telegram_bot_token
       - studio_alert_telegram_chat_id
+      - studio_job_web_push_vapid_private_key
+      - studio_job_smtp_password
+      - studio_job_telegram_bot_token
+      - studio_job_telegram_chat_id
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
       - /tmp:rw,nosuid,nodev,noexec,mode=1770,uid=10001,gid=10001,size=${STUDIO_WORKER_TMPFS_SIZE:-3g}
@@ -300,6 +350,14 @@ secrets:
     file: ${STUDIO_ALERT_TELEGRAM_BOT_TOKEN_FILE:-./optional-empty-secret}
   studio_alert_telegram_chat_id:
     file: ${STUDIO_ALERT_TELEGRAM_CHAT_ID_FILE:-./optional-empty-secret}
+  studio_job_web_push_vapid_private_key:
+    file: ${STUDIO_JOB_WEB_PUSH_VAPID_PRIVATE_KEY_FILE:-./optional-empty-secret}
+  studio_job_smtp_password:
+    file: ${STUDIO_JOB_SMTP_PASSWORD_FILE:-./optional-empty-secret}
+  studio_job_telegram_bot_token:
+    file: ${STUDIO_JOB_TELEGRAM_BOT_TOKEN_FILE:-./optional-empty-secret}
+  studio_job_telegram_chat_id:
+    file: ${STUDIO_JOB_TELEGRAM_CHAT_ID_FILE:-./optional-empty-secret}
 volumes:
   studio-postgres-data:
 networks:

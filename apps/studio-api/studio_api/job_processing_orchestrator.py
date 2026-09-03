@@ -545,9 +545,12 @@ def _handle_pre_output_failure(db, job_id, owner, generation, clock, processed, 
 
 
 def _safe_fail(db, job_id, owner, generation, clock, code, message):
-    fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code=code, error_message=message)
+    result = fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code=code, error_message=message)
     _commit(db, JobProcessingOrchestrationReason.commit_failed)
-    _emit(db, job_id, "JOB_FAILED", metadata={"final_job_status": "failed", "error_code": _safe_diagnostic_error_code(code)})
+    if result.status == JobStatus.queued:
+        _emit(db, job_id, "JOB_AUTOMATIC_RETRY_SCHEDULED", metadata={"attempt_number": result.attempt_count, "boundary": "retry_state"})
+    else:
+        _emit(db, job_id, "JOB_FAILED", metadata={"final_job_status": "failed", "error_code": _safe_diagnostic_error_code(code)})
 
 
 def _record_output_uncertainty(db, job_id, owner, generation, clock, message):

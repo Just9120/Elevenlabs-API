@@ -46,6 +46,31 @@ class User(Base):
     deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     __table_args__=(CheckConstraint("source_retention_ttl_seconds IN (3600, 86400, 259200, 604800, 2592000)", name="ck_users_source_retention_ttl_allowed"), CheckConstraint("accent_color IN ('blue', 'violet', 'teal', 'rose')", name="ck_users_accent_color_allowed"),)
 
+class UserNotificationPreference(Base):
+    __tablename__="user_notification_preferences"
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), primary_key=True)
+    web_push_enabled: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    email_enabled: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    telegram_enabled: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+
+class WebPushSubscription(Base):
+    __tablename__="web_push_subscriptions"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    endpoint_fingerprint: Mapped[str]=mapped_column(String(64), nullable=False)
+    ciphertext: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    nonce: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    key_id: Mapped[str]=mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+    revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    __table_args__=(
+        UniqueConstraint("owner_user_id","endpoint_fingerprint",name="uq_web_push_subscription_owner_endpoint"),
+        Index("ix_web_push_subscriptions_owner_active","owner_user_id","revoked_at","created_at"),
+    )
+
 class LocalIdentity(Base):
     __tablename__="local_identities"
     user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), primary_key=True)
@@ -329,6 +354,8 @@ class TranscriptionJob(Base):
     finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     error_code: Mapped[str|None]=mapped_column(String(80))
     error_message: Mapped[str|None]=mapped_column(String(512))
+    retry_not_before_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    automatic_retry_reason: Mapped[str|None]=mapped_column(String(80))
     lease_owner_id: Mapped[str|None]=mapped_column(String(128))
     lease_generation: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
     claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
@@ -344,7 +371,7 @@ class TranscriptionJob(Base):
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
     speakers: Mapped[list["TranscriptionJobSpeaker"]]=relationship("TranscriptionJobSpeaker", order_by="TranscriptionJobSpeaker.display_ordinal")
-    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), CheckConstraint("provider_billed_duration_ms IS NULL OR provider_billed_duration_ms >= 0", name="ck_transcription_jobs_provider_duration_nonnegative"), CheckConstraint("provider_cost_amount IS NULL OR provider_cost_amount >= 0", name="ck_transcription_jobs_provider_cost_nonnegative"), CheckConstraint("provider_cost_currency IS NULL OR provider_cost_currency = 'USD'", name="ck_transcription_jobs_provider_currency"), CheckConstraint("provider_rate_per_hour IS NULL OR provider_rate_per_hour > 0", name="ck_transcription_jobs_provider_rate_positive"), CheckConstraint("NOT (provider_accounting_complete IS TRUE AND provider_accounting_uncertain IS TRUE)", name="ck_transcription_jobs_provider_accounting_consistent"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), Index("ix_transcription_jobs_retry_schedule", "status", "retry_not_before_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), CheckConstraint("provider_billed_duration_ms IS NULL OR provider_billed_duration_ms >= 0", name="ck_transcription_jobs_provider_duration_nonnegative"), CheckConstraint("provider_cost_amount IS NULL OR provider_cost_amount >= 0", name="ck_transcription_jobs_provider_cost_nonnegative"), CheckConstraint("provider_cost_currency IS NULL OR provider_cost_currency = 'USD'", name="ck_transcription_jobs_provider_currency"), CheckConstraint("provider_rate_per_hour IS NULL OR provider_rate_per_hour > 0", name="ck_transcription_jobs_provider_rate_positive"), CheckConstraint("NOT (provider_accounting_complete IS TRUE AND provider_accounting_uncertain IS TRUE)", name="ck_transcription_jobs_provider_accounting_consistent"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
 
     def apply_output_folder_snapshot(self, *, folder_id=None, folder_url=None, folder_name=None):
         from .job_output_folder_selection import normalize_drive_id, normalize_drive_url, normalize_optional_name
@@ -837,6 +864,37 @@ class OperationalAlertDelivery(Base):
         CheckConstraint("lifecycle_generation >= 1", name="ck_operational_alert_deliveries_generation"),
         CheckConstraint("attempt_count >= 0 AND attempt_count <= 5", name="ck_operational_alert_deliveries_attempt_count"),
         Index("ix_operational_alert_deliveries_claim", "state", "next_attempt_at", "claim_expires_at", "created_at"),
+    )
+
+
+class JobNotificationDelivery(Base):
+    __tablename__="job_notification_deliveries"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    terminal_status: Mapped[str]=mapped_column(String(16), nullable=False)
+    attempt_number: Mapped[int]=mapped_column(Integer, nullable=False)
+    channel: Mapped[str]=mapped_column(String(24), nullable=False)
+    destination_id: Mapped[str]=mapped_column(String(64), nullable=False)
+    state: Mapped[str]=mapped_column(String(16), nullable=False, default="pending", server_default=text("'pending'"))
+    attempt_count: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    claim_token: Mapped[str|None]=mapped_column(String(64))
+    claim_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str|None]=mapped_column(String(80))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("job_id","terminal_status","attempt_number","channel","destination_id",name="uq_job_notification_delivery_terminal_destination"),
+        CheckConstraint("terminal_status IN ('completed','failed')",name="ck_job_notification_deliveries_terminal_status"),
+        CheckConstraint("channel IN ('web_push','email','telegram')",name="ck_job_notification_deliveries_channel"),
+        CheckConstraint("state IN ('pending','claimed','delivered','failed','suppressed')",name="ck_job_notification_deliveries_state"),
+        CheckConstraint("attempt_number >= 1",name="ck_job_notification_deliveries_attempt_number"),
+        CheckConstraint("attempt_count >= 0 AND attempt_count <= 5",name="ck_job_notification_deliveries_attempt_count"),
+        Index("ix_job_notification_deliveries_claim","state","next_attempt_at","claim_expires_at","created_at"),
+        Index("ix_job_notification_deliveries_owner_created","owner_user_id","created_at","id"),
     )
 
 

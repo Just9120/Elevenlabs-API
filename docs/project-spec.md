@@ -30,9 +30,9 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository/runtime baseline: functional production web/API `main@30f21a66bcba966134b07407aa7fbad18f6a88e9`, delivery record `main@e73697cc4f0a2d96c0ed420466a65428f5abaf2c`. Exact-main repository/Studio CI, web/API CD, public health и schema `0031` подтверждены; worker не требовал повторной delivery для последнего UX fix. Owner-authorized long-media LIVE evidence proved continuous progress and the transaction-free source-preparation boundary. Checkpoint persistence под restricted worker role и recovery-job visibility после очистки истории исправлены без broadening grants или automatic provider retry.
+Verified repository/runtime baseline: functional production web/API/worker `main@e5c43feac06e1649f1bd0903953ef5de7f925b87`. Exact-main repository/Studio CI, protected migration recovery, web/API/worker delivery, public health, isolated worker identity and schema `0034_personal_security` подтверждены. Owner-authorized long-media LIVE evidence proved continuous progress and the transaction-free source-preparation boundary. Checkpoint persistence под restricted worker role и recovery-job visibility после очистки истории исправлены без broadening grants или automatic provider retry.
 
-Current operational Goal: `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`, state `DONE` по explicit owner acceptance 2026-09-01. `PUX-13`, `JOBREL-17` и recovery visibility закрыты exact-main CI/deployment/LIVE; exact functional baseline `30f21a66` сохраняет automatic retry blocked и предлагает для confirmed-but-uncheckpointed result только explicit cost-confirmed full restart. Planned sufficiently-long paid retry снят owner как closure gate; возможная новая regression будет отдельным hotfix. Worker isolation, `idle_in_transaction_session_timeout=60s`, provider-cost/lifecycle gates, realtime STT и commercial contour не изменены.
+Current operational Goal: `JOB-RELIABILITY-NOTIFICATIONS-01`, state `IN_PROGRESS` по explicit owner authorization 2026-09-03. Scope закрывает remaining `JOBREL-05/09/10` и `JOBNOT-01..06`: только доказуемо safe automatic retry, durable terminal outbox и explicit opt-in Web Push/email/Telegram. Local CODE/TEST implementation существует на isolated branch; CI, protected migration/deployment и bounded LIVE ещё не подтверждены. Provider/Google uncertainty, paid canary, несанкционированная внешняя отправка и commercial contour не входят в Goal.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -677,11 +677,11 @@ Status: **🟦 IN PROGRESS — 82,4% (`14/17`)**.
 | `JOBREL-16` | Target write readiness проверяется до provider dispatch. | ✅ |
 | `JOBREL-17` | После immutable authoritative snapshot долгие source availability/materialization и media preparation операции не удерживают idle worker DB transaction; после I/O выполняется fresh fail-closed lifecycle/source/credential/output revalidation до любого provider call. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅` для выполненных AC. Exact `main@295033c8`, repository CI `33495743363`, platform/worker delivery `33495743305` / `33496421647` и final worker status `33496797208` подтверждены. Production job `66e70976-2f26-4ed0-93d6-8436784b9fdd` прошла long source preparation за прежней `idle_in_transaction_session_timeout=60s` boundary и достигла provider dispatch без `lifecycle_changed_before_provider_call`; subsequent provider rejection не создал usage и сохранил fail-closed retry state.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅` для уже выполненных AC. Exact `main@295033c8`, repository CI `33495743363`, platform/worker delivery `33495743305` / `33496421647` и final worker status `33496797208` подтверждены. Production job `66e70976-2f26-4ed0-93d6-8436784b9fdd` прошла long source preparation за прежней `idle_in_transaction_session_timeout=60s` boundary и достигла provider dispatch без `lifecycle_changed_before_provider_call`; subsequent provider rejection не создал usage и сохранил fail-closed retry state. New `JOBREL-05/09/10` implementation имеет local `CODE ◐ | TEST ◐`; CI/DEPLOY/LIVE ещё не выполнены, поэтому AC остаются незакрытыми.
 
 ### Эпик `JOB-NOTIFICATIONS-01` — уведомления о завершении/error
 
-Status: **⬜ BACKLOG — 0% (`0/6`)**.
+Status: **🟦 IN PROGRESS — 0% (`0/6`)**.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -692,7 +692,7 @@ Status: **⬜ BACKLOG — 0% (`0/6`)**.
 | `JOBNOT-05` | Telegram может уведомлять об успешном завершении. | — |
 | `JOBNOT-06` | Telegram может уведомлять о terminal error. | — |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`. Local branch содержит opt-in API/PWA, encrypted Web Push subscription lifecycle, email/Telegram transports и durable bounded terminal outbox; completion ждёт exact-head CI, protected delivery и bounded no-send LIVE.
 
 ### Эпик `REALTIME-CONTINUITY-02` — expanded realtime consumers
 

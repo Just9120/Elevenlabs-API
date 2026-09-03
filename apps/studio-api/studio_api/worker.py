@@ -97,6 +97,7 @@ def run_worker_loop(
     realtime_draft_cleanup_runner: Callable | None = None,
     alert_evaluator: Callable | None = None,
     alert_delivery_runner: Callable | None = None,
+    job_notification_runner: Callable | None = None,
 ) -> int:
     if iteration is None:
         from .audio_preparation_worker import claim_next_studio_work
@@ -205,6 +206,15 @@ def run_worker_loop(
             if stop_event.is_set():
                 break
             alert_now = datetime.now(timezone.utc)
+            try:
+                if job_notification_runner is None:
+                    from .job_notifications import process_one_job_notification as deliver_job_notification
+                else:
+                    deliver_job_notification = job_notification_runner
+                if deliver_job_notification(session_factory=session_factory, settings=settings, now=alert_now):
+                    continue
+            except Exception:
+                logger.warning("studio_worker_job_notification_failed", extra={"event": "studio_worker_job_notification_failed"})
             alert_interval = max(30, int(getattr(settings, "alert_evaluation_interval_seconds", 60)))
             if (
                 last_alert_evaluation_at is None

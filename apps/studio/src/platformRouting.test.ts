@@ -20,6 +20,10 @@ describe("platform routing", () => {
       "/settings/connections",
       { page: "settings", settingsSection: "connections" },
     ],
+    [
+      "/settings/notifications",
+      { page: "settings", settingsSection: "notifications" },
+    ],
     ["/settings/files", { page: "settings", settingsSection: "files" }],
     [
       "/settings/appearance",
@@ -49,6 +53,7 @@ describe("platform routing", () => {
     ["projects", "account", "/transcriptions"],
     ["settings", "account", "/settings"],
     ["settings", "connections", "/settings/connections"],
+    ["settings", "notifications", "/settings/notifications"],
     ["settings", "files", "/settings/files"],
     ["settings", "appearance", "/settings/appearance"],
     ["settings", "diagnostics", "/settings/diagnostics"],

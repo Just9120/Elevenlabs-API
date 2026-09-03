@@ -1,9 +1,10 @@
 from functools import lru_cache
+import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote_plus
-from pydantic import Field, IPvAnyAddress, field_validator, model_validator
+from pydantic import EmailStr, Field, IPvAnyAddress, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -107,6 +108,27 @@ class Settings(BaseSettings):
     alert_telegram_bot_token_file: str | None = None
     alert_telegram_chat_id_file: str | None = None
     alert_telegram_timeout_seconds: int = Field(default=5, ge=1, le=15)
+    job_notification_retry_seconds: int = Field(default=60, ge=30, le=3600)
+    job_notification_max_attempts: int = Field(default=3, ge=1, le=5)
+    job_notification_claim_seconds: int = Field(default=60, ge=15, le=300)
+    job_web_push_enabled: bool = False
+    job_web_push_vapid_public_key: str | None = None
+    job_web_push_vapid_private_key_file: str | None = None
+    job_web_push_vapid_subject: str | None = None
+    job_web_push_timeout_seconds: int = Field(default=5, ge=1, le=15)
+    job_email_enabled: bool = False
+    job_smtp_host: str | None = None
+    job_smtp_port: int = Field(default=587, ge=1, le=65535)
+    job_smtp_username: str | None = None
+    job_smtp_password_file: str | None = None
+    job_smtp_from_email: EmailStr | None = None
+    job_smtp_use_ssl: bool = False
+    job_smtp_starttls: bool = True
+    job_smtp_timeout_seconds: int = Field(default=10, ge=1, le=30)
+    job_telegram_enabled: bool = False
+    job_telegram_bot_token_file: str | None = None
+    job_telegram_chat_id_file: str | None = None
+    job_telegram_timeout_seconds: int = Field(default=5, ge=1, le=15)
 
     @field_validator("trusted_proxy_ip")
     @classmethod
@@ -118,6 +140,13 @@ class Settings(BaseSettings):
     @field_validator("alert_storage_limit_bytes", mode="before")
     @classmethod
     def normalize_optional_storage_alert_limit(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("job_smtp_from_email", mode="before")
+    @classmethod
+    def normalize_optional_email(cls, value):
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -151,6 +180,38 @@ class Settings(BaseSettings):
             raise ValueError("Telegram alerts require bot token and chat id secret files")
         if all(telegram_files) and telegram_files[0] == telegram_files[1]:
             raise ValueError("Telegram alert secret files must be distinct")
+        push = (
+            self.job_web_push_vapid_public_key,
+            self.job_web_push_vapid_private_key_file,
+            self.job_web_push_vapid_subject,
+        )
+        if self.job_web_push_enabled and not all(push):
+            raise ValueError("Web Push notifications require public/private VAPID keys and subject")
+        if self.job_web_push_vapid_public_key and not re.fullmatch(
+            r"[A-Za-z0-9_-]{80,120}", self.job_web_push_vapid_public_key
+        ):
+            raise ValueError("Web Push VAPID public key is invalid")
+        if self.job_web_push_vapid_subject and not (
+            self.job_web_push_vapid_subject.startswith("mailto:")
+            or self.job_web_push_vapid_subject.startswith("https://")
+        ):
+            raise ValueError("Web Push VAPID subject must be mailto or HTTPS")
+        if self.job_smtp_username and not self.job_smtp_password_file:
+            raise ValueError("SMTP username requires a password file")
+        if self.job_email_enabled and not (
+            self.job_smtp_host and self.job_smtp_from_email
+        ):
+            raise ValueError("Email notifications require SMTP host and from address")
+        if self.job_email_enabled and self.job_smtp_use_ssl == self.job_smtp_starttls:
+            raise ValueError("Email notifications require exactly one TLS mode")
+        job_telegram_files = (
+            self.job_telegram_bot_token_file,
+            self.job_telegram_chat_id_file,
+        )
+        if self.job_telegram_enabled and not all(job_telegram_files):
+            raise ValueError("Job Telegram notifications require bot token and chat id files")
+        if all(job_telegram_files) and job_telegram_files[0] == job_telegram_files[1]:
+            raise ValueError("Job Telegram secret files must be distinct")
         return self
 
     def master_key_b64(self) -> str:
@@ -214,6 +275,61 @@ class Settings(BaseSettings):
             raise RuntimeError("Telegram bot token secret is invalid")
         if not (1 <= len(chat_id) <= 32 and chat_id.lstrip("-").isdigit()):
             raise RuntimeError("Telegram chat id secret is invalid")
+        return token, chat_id
+
+    def job_web_push_configured(self) -> bool:
+        if not (
+            self.job_web_push_enabled
+            and self.job_web_push_vapid_public_key
+            and self.job_web_push_vapid_private_key_file
+            and self.job_web_push_vapid_subject
+        ):
+            return False
+        try:
+            return bool(Path(self.job_web_push_vapid_private_key_file).read_text(encoding="utf-8").strip())
+        except (OSError, UnicodeError):
+            return False
+
+    def job_email_configured(self) -> bool:
+        if not (self.job_email_enabled and self.job_smtp_host and self.job_smtp_from_email):
+            return False
+        if self.job_smtp_use_ssl == self.job_smtp_starttls:
+            return False
+        if not self.job_smtp_username:
+            return True
+        try:
+            return bool(Path(self.job_smtp_password_file or "").read_text(encoding="utf-8").strip())
+        except (OSError, UnicodeError):
+            return False
+
+    def job_smtp_password(self) -> str | None:
+        if not self.job_smtp_username:
+            return None
+        value = Path(self.job_smtp_password_file or "").read_text(encoding="utf-8").strip()
+        if not value or len(value) > 4096:
+            raise RuntimeError("SMTP password secret is invalid")
+        return value
+
+    def job_telegram_configured(self) -> bool:
+        try:
+            self.job_telegram_credentials()
+        except (OSError, RuntimeError, UnicodeError):
+            return False
+        return True
+
+    def job_telegram_credentials(self) -> tuple[str, str]:
+        if not (
+            self.job_telegram_enabled
+            and self.job_telegram_bot_token_file
+            and self.job_telegram_chat_id_file
+        ):
+            raise RuntimeError("Job Telegram notifications are not configured")
+        token = Path(self.job_telegram_bot_token_file).read_text(encoding="utf-8").strip()
+        chat_id = Path(self.job_telegram_chat_id_file).read_text(encoding="utf-8").strip()
+        if not (20 <= len(token) <= 256 and ":" in token):
+            raise RuntimeError("Job Telegram bot token secret is invalid")
+        if not (1 <= len(chat_id) <= 32 and chat_id.lstrip("-").isdigit()):
+            raise RuntimeError("Job Telegram chat id secret is invalid")
         return token, chat_id
 
     def sqlalchemy_url(self) -> str:

@@ -80,6 +80,9 @@ GRANT SELECT ON TABLE
     diagnostic_events,
     operational_incidents,
     operational_alert_deliveries,
+    user_notification_preferences,
+    web_push_subscriptions,
+    job_notification_deliveries,
     runtime_component_status
 TO studio_worker;
 
@@ -97,6 +100,8 @@ GRANT UPDATE ON TABLE
     diagnostic_events,
     operational_incidents,
     operational_alert_deliveries,
+    web_push_subscriptions,
+    job_notification_deliveries,
     runtime_component_status
 TO studio_worker;
 
@@ -112,6 +117,7 @@ GRANT INSERT ON TABLE
     diagnostic_events,
     operational_incidents,
     operational_alert_deliveries,
+    job_notification_deliveries,
     runtime_component_status
 TO studio_worker;
 

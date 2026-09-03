@@ -16,6 +16,7 @@ _API_ENDPOINT_GROUPS = (
     ("/api/transcript-maintenance", "transcript_maintenance"),
     ("/api/google", "google"),
     ("/api/provider-accounts", "provider_accounts"),
+    ("/api/notifications", "notifications"),
     ("/api/credentials", "credentials"),
     ("/api/projects", "projects"),
     ("/api/auth", "auth"),
