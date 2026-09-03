@@ -66,6 +66,8 @@ frozenlist==1.8.0
     #   aiosignal
 greenlet==3.5.3
     # via sqlalchemy
+grpcio==1.83.1
+    # via -r apps/studio-api/requirements.txt
 h11==0.16.0
     # via
     #   httpcore
@@ -105,6 +107,8 @@ propcache==0.5.2
     # via
     #   aiohttp
     #   yarl
+protobuf==7.36.0
+    # via -r apps/studio-api/requirements.txt
 py-vapid==1.9.4
     # via pywebpush
 pycparser==3.0

@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
+import { RealtimeOverlay } from "./RealtimeOverlay";
 import { PwaErrorBoundary } from "./PwaErrorBoundary";
 import { emitPwaServiceWorkerError, installPwaGlobalErrorHandlers } from "./pwaDiagnostics";
 import { initializeStudioTheme } from "./theme";
@@ -25,7 +26,11 @@ export function renderStudioApp() {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <PwaErrorBoundary>
-        <App />
+        {window.location.pathname === "/realtime-overlay" ? (
+          <RealtimeOverlay />
+        ) : (
+          <App />
+        )}
       </PwaErrorBoundary>
     </React.StrictMode>,
   );

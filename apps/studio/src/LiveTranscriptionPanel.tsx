@@ -30,6 +30,15 @@ import {
   saveLocalRealtimeDraft,
   type RealtimeDraft,
 } from "./realtimeDrafts";
+import {
+  REALTIME_CAPTION_CHANNEL,
+  deliverRealtimeConsumer,
+  makeRealtimeCaptionMessage,
+} from "./realtimeConsumers";
+import {
+  requestSttProviderCatalog,
+  type SttProviderCapability,
+} from "./sttContracts";
 
 type Props = {
   ownerUserId: string;
@@ -41,10 +50,9 @@ type Props = {
   onSegmentsChange?: (segments: string[]) => void;
 };
 
-const STATUS_LABELS: Record<RealtimeSessionStatus, string> = {
+const STATUS_LABELS: Omit<Record<RealtimeSessionStatus, string>, "connecting"> = {
   ready: "Готово к запуску",
   requesting_permission: "Ожидаем разрешение браузера",
-  connecting: "Подключаемся к ElevenLabs",
   connected: "Соединение установлено",
   transcribing: "Распознаём речь",
   stopping: "Завершаем сессию",
@@ -68,7 +76,11 @@ const FAILURE_MESSAGES: Record<string, string> = {
 const CREDENTIAL_REQUEST_TIMEOUT_MS = 15_000;
 const REALTIME_DRAFT_REQUEST_TIMEOUT_MS = 15_000;
 
-function capabilityFailureMessage(error: unknown) {
+function capabilityFailureMessage(
+  error: unknown,
+  provider: "elevenlabs" | "yandex",
+) {
+  const providerName = provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs";
   if (!(error instanceof ApiError) || !error.data) {
     return error instanceof Error
       ? error.message
@@ -77,7 +89,7 @@ function capabilityFailureMessage(error: unknown) {
   const data = error.data as { detail?: { reason?: unknown } };
   const reason = data.detail?.reason;
   return typeof reason === "string" && FAILURE_MESSAGES[reason]
-    ? FAILURE_MESSAGES[reason]
+    ? FAILURE_MESSAGES[reason].replaceAll("ElevenLabs", providerName)
     : error.message;
 }
 
@@ -123,11 +135,20 @@ export function LiveTranscriptionPanel({
   onSegmentsChange,
 }: Props) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [provider, setProvider] = useState<"elevenlabs" | "yandex">(
+    "elevenlabs",
+  );
   const [credentialId, setCredentialId] = useState("");
   const [credentialsState, setCredentialsState] = useState<
     "loading" | "ready" | "error"
   >("loading");
   const [credentialsMessage, setCredentialsMessage] = useState("");
+  const [providerCatalog, setProviderCatalog] = useState<
+    SttProviderCapability[]
+  >([]);
+  const [providerCatalogState, setProviderCatalogState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [displayAudio, setDisplayAudio] = useState(() =>
     Boolean(navigator.mediaDevices?.getDisplayMedia),
   );
@@ -159,6 +180,11 @@ export function LiveTranscriptionPanel({
   const [draftStatus, setDraftStatus] = useState<
     "idle" | "saving" | "saved" | "degraded"
   >("idle");
+  const [youtubeEndpoint, setYoutubeEndpoint] = useState("");
+  const [webhookEndpoint, setWebhookEndpoint] = useState("");
+  const [consumerStatus, setConsumerStatus] = useState<Record<string, string>>(
+    {},
+  );
   const controllerRef = useRef<RealtimeSessionController | null>(null);
   const credentialRequestEpochsRef = useRef(new Map<string, number>());
   const credentialRequestControllersRef = useRef(
@@ -178,6 +204,8 @@ export function LiveTranscriptionPanel({
   const mountedRef = useRef(true);
   const csrfRef = useRef(csrf);
   const onCsrfRef = useRef(onCsrf);
+  const captionChannelRef = useRef<BroadcastChannel | null>(null);
+  const consumerSequenceRef = useRef(0);
   const microphoneSupported = Boolean(
     navigator.mediaDevices?.getUserMedia,
   );
@@ -192,6 +220,30 @@ export function LiveTranscriptionPanel({
     "transcribing",
     "stopping",
   ].includes(status);
+  const providerCapability = providerCatalog.find(
+    (candidate) => candidate.provider === provider,
+  );
+  const realtimeCapability = providerCapability?.modes.find(
+    (candidate) => candidate.mode === "realtime",
+  );
+  const providerName =
+    providerCapability?.display_name ??
+    (provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs");
+  const providerBlocker =
+    providerCatalogState === "ready" && !providerCapability
+      ? "Выбранный STT-провайдер отсутствует в актуальном каталоге Studio"
+      : providerCapability
+        ? !providerCapability.byok_enabled
+          ? `${providerName} пока не включён оператором Studio`
+          : !realtimeCapability
+            ? `${providerName} не поддерживает Live-транскрибацию`
+            : !realtimeCapability.health.available
+              ? `${providerName} временно недоступен в Live-режиме`
+              : ""
+        : "";
+  const activeProviderCredentials = credentials.filter(
+    (credential) => credential.provider === provider,
+  );
   const transcript = useMemo(() => segments.join("\n"), [segments]);
   const actionableDraftText = useMemo(
     () => realtimeTranscriptText(segments, partial),
@@ -199,6 +251,53 @@ export function LiveTranscriptionPanel({
   );
   csrfRef.current = csrf;
   onCsrfRef.current = onCsrf;
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(REALTIME_CAPTION_CHANNEL);
+    captionChannelRef.current = channel;
+    return () => {
+      channel.close();
+      if (captionChannelRef.current === channel) captionChannelRef.current = null;
+    };
+  }, [projectId]);
+
+  function publishCaption(committed: string[], currentPartial: string) {
+    captionChannelRef.current?.postMessage(
+      makeRealtimeCaptionMessage(projectId, committed, currentPartial),
+    );
+  }
+
+  function deliverCommittedCaption(text: string) {
+    const sequence = consumerSequenceRef.current++;
+    const targets = [
+      { kind: "youtube_live" as const, endpoint: youtubeEndpoint.trim() },
+      { kind: "webhook" as const, endpoint: webhookEndpoint.trim() },
+    ].filter((target) => target.endpoint);
+    for (const target of targets) {
+      setConsumerStatus((current) => ({ ...current, [target.kind]: "Отправляем…" }));
+      void deliverRealtimeConsumer(
+        projectId,
+        target.kind,
+        target.endpoint,
+        text,
+        sequence,
+        csrfRef.current,
+        onCsrfRef.current,
+      ).then(
+        () =>
+          setConsumerStatus((current) => ({
+            ...current,
+            [target.kind]: "Доставлено",
+          })),
+        () =>
+          setConsumerStatus((current) => ({
+            ...current,
+            [target.kind]: "Ошибка доставки; основная транскрибация продолжается",
+          })),
+      );
+    }
+  }
 
   function enqueueLocalDraftSave(nextDraft: RealtimeDraft) {
     const deletionGeneration = draftDeletionGenerationRef.current;
@@ -445,14 +544,18 @@ export function LiveTranscriptionPanel({
       (credentialCollection) => {
         const activeCredentials = credentialCollection.filter(
           (credential) =>
-            credential.provider === "elevenlabs" &&
+            (credential.provider === "elevenlabs" ||
+              credential.provider === "yandex") &&
             credential.status === "active",
         );
         setCredentials(activeCredentials);
+        const matchingCredentials = activeCredentials.filter(
+          (credential) => credential.provider === provider,
+        );
         setCredentialId((selected) =>
-          activeCredentials.some((credential) => credential.id === selected)
+          matchingCredentials.some((credential) => credential.id === selected)
             ? selected
-            : (activeCredentials[0]?.id ?? ""),
+            : (matchingCredentials[0]?.id ?? ""),
         );
         setCredentialsState("ready");
         setCredentialsMessage("");
@@ -462,8 +565,29 @@ export function LiveTranscriptionPanel({
         setCredentialId("");
         setCredentialsState("error");
         setCredentialsMessage(
-          "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+          "Не удалось загрузить профили STT. Повторите попытку.",
         );
+      },
+      {
+        controllers: credentialRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+
+  const loadProviderCatalog = async () => {
+    setProviderCatalogState("loading");
+    await settleLatestRequest(
+      credentialRequestEpochsRef.current,
+      "live:providers",
+      requestSttProviderCatalog,
+      (catalog) => {
+        setProviderCatalog(catalog);
+        setProviderCatalogState("ready");
+      },
+      () => {
+        setProviderCatalog([]);
+        setProviderCatalogState("error");
       },
       {
         controllers: credentialRequestControllersRef.current,
@@ -474,6 +598,7 @@ export function LiveTranscriptionPanel({
 
   useEffect(() => {
     void loadCredentials();
+    void loadProviderCatalog();
     return () => {
       cancelLatestRequests(
         credentialRequestEpochsRef.current,
@@ -481,6 +606,14 @@ export function LiveTranscriptionPanel({
       );
     };
   }, [projectId]);
+
+  useEffect(() => {
+    setCredentialId((selected) =>
+      activeProviderCredentials.some((credential) => credential.id === selected)
+        ? selected
+        : (activeProviderCredentials[0]?.id ?? ""),
+    );
+  }, [provider, credentials]);
 
   async function refreshDevices() {
     if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -547,6 +680,7 @@ export function LiveTranscriptionPanel({
     setError("");
     setExportNotice("");
     sessionStartedAtRef.current = null;
+    consumerSequenceRef.current = 0;
     setElapsedSeconds(0);
     setFollowTranscript(true);
     const controller = new RealtimeSessionController(
@@ -577,6 +711,7 @@ export function LiveTranscriptionPanel({
         onPartial: (text) => {
           partialRef.current = text;
           setPartial(text);
+          publishCaption(segmentsRef.current, text);
           schedulePartialCheckpoint(text);
         },
         onCommitted: (text) => {
@@ -591,6 +726,8 @@ export function LiveTranscriptionPanel({
           setPartial("");
           setSegments(next);
           onSegmentsChange?.(next);
+          publishCaption(next, "");
+          deliverCommittedCaption(text);
         },
         onError: setError,
         onInputLevel: setInputLevel,
@@ -612,11 +749,12 @@ export function LiveTranscriptionPanel({
                 body: JSON.stringify({
                   provider_credential_id: credentialId || null,
                   language,
+                  provider,
                 }),
               },
             );
           } catch (capabilityError) {
-            throw new Error(capabilityFailureMessage(capabilityError), {
+            throw new Error(capabilityFailureMessage(capabilityError, provider), {
               cause: capabilityError,
             });
           }
@@ -856,7 +994,9 @@ export function LiveTranscriptionPanel({
           </p>
         </div>
         <span className={`live-status live-status-${status}`} role="status">
-          {STATUS_LABELS[status]}
+          {status === "connecting"
+            ? `Подключаемся к ${providerName}`
+            : STATUS_LABELS[status]}
         </span>
       </header>
 
@@ -1015,20 +1155,75 @@ export function LiveTranscriptionPanel({
 
         <section
           className="live-config-card"
-          aria-busy={credentialsState === "loading" || undefined}
+          aria-busy={
+            credentialsState === "loading" ||
+            providerCatalogState === "loading" ||
+            undefined
+          }
         >
           <h3>Распознавание</h3>
           <label>
-            Профиль ElevenLabs
+            Провайдер
+            <select
+              aria-label="Провайдер Live-транскрибации"
+              value={provider}
+              disabled={running}
+              onChange={(event) =>
+                setProvider(event.target.value as "elevenlabs" | "yandex")
+              }
+            >
+              <option
+                value="elevenlabs"
+                disabled={
+                  providerCatalogState === "ready" &&
+                  providerCatalog.find(
+                    (candidate) => candidate.provider === "elevenlabs",
+                  )?.byok_enabled !== true
+                }
+              >
+                ElevenLabs
+              </option>
+              <option
+                value="yandex"
+                disabled={
+                  providerCatalogState === "ready" &&
+                  providerCatalog.find(
+                    (candidate) => candidate.provider === "yandex",
+                  )?.byok_enabled !== true
+                }
+              >
+                Yandex SpeechKit
+                {providerCatalogState === "ready" &&
+                providerCatalog.find(
+                  (candidate) => candidate.provider === "yandex",
+                )?.byok_enabled !== true
+                  ? " — не включён"
+                  : ""}
+              </option>
+            </select>
+          </label>
+          {providerCatalogState === "error" && (
+            <p className="muted" role="status">
+              Не удалось обновить доступность провайдеров. Studio проверит её
+              при запуске сессии.
+            </p>
+          )}
+          {providerBlocker && (
+            <p className="error" role="alert">
+              {providerBlocker}
+            </p>
+          )}
+          <label>
+            Профиль {providerName}
             <select
               value={credentialId}
               disabled={running || credentialsState !== "ready"}
               onChange={(event) => setCredentialId(event.target.value)}
             >
-              {credentials.length === 0 && (
+              {activeProviderCredentials.length === 0 && (
                 <option value="">Активный профиль не найден</option>
               )}
-              {credentials.map((credential) => (
+              {activeProviderCredentials.map((credential) => (
                 <option key={credential.id} value={credential.id}>
                   {credentialLabel(credential)}
                 </option>
@@ -1037,7 +1232,7 @@ export function LiveTranscriptionPanel({
           </label>
           {credentialsState === "loading" && (
             <p role="status" className="muted">
-              Загружаем профили ElevenLabs…
+              Загружаем профили STT…
             </p>
           )}
           {credentialsState === "error" && (
@@ -1069,7 +1264,8 @@ export function LiveTranscriptionPanel({
           <details className="technical-details">
             <summary>Технические параметры</summary>
             <p className="muted">
-              Model: scribe_v2_realtime · segment detection: VAD.
+              Provider: {providerName} · mode: realtime · segment detection:
+              VAD.
             </p>
           </details>
           <div className="actions">
@@ -1082,7 +1278,8 @@ export function LiveTranscriptionPanel({
                 recoveryState === "loading" ||
                 recoveryCandidate !== null ||
                 !sourceReady ||
-                !credentialId
+                !credentialId ||
+                Boolean(providerBlocker)
               }
               onClick={() => void start()}
             >
@@ -1094,6 +1291,62 @@ export function LiveTranscriptionPanel({
           </div>
         </section>
       </div>
+
+      <details className="live-config-card realtime-consumers">
+        <summary>Субтитры и внешние получатели</summary>
+        <p className="muted">
+          Каждый получатель работает независимо. Ошибка overlay, YouTube или
+          webhook не останавливает распознавание и сохранение основного текста.
+        </p>
+        <div className="actions">
+          <button
+            type="button"
+            onClick={() =>
+              window.open(
+                `/realtime-overlay?project=${encodeURIComponent(projectId)}`,
+                "studio-realtime-overlay",
+                "popup,width=1280,height=720",
+              )
+            }
+          >
+            Открыть overlay для браузера / OBS
+          </button>
+        </div>
+        <label>
+          YouTube Live closed-caption ingestion URL
+          <input
+            type="password"
+            autoComplete="off"
+            value={youtubeEndpoint}
+            disabled={running}
+            placeholder="https://upload.youtube.com/closedcaption?..."
+            onChange={(event) => setYoutubeEndpoint(event.target.value)}
+          />
+          <small>
+            Адрес действует только в этой вкладке и не сохраняется в Studio.
+          </small>
+          {consumerStatus.youtube_live && (
+            <span role="status">{consumerStatus.youtube_live}</span>
+          )}
+        </label>
+        <label>
+          HTTPS webhook
+          <input
+            type="password"
+            autoComplete="off"
+            value={webhookEndpoint}
+            disabled={running}
+            placeholder="Разрешённый оператором HTTPS endpoint"
+            onChange={(event) => setWebhookEndpoint(event.target.value)}
+          />
+          <small>
+            Хост должен быть заранее добавлен оператором в allowlist Studio.
+          </small>
+          {consumerStatus.webhook && (
+            <span role="status">{consumerStatus.webhook}</span>
+          )}
+        </label>
+      </details>
 
       {displayAudio && microphone && !running && (
         <p className="notice">

@@ -102,6 +102,7 @@ import { PlatformSidebar } from "./PlatformSidebar";
 import { AudioPreparationPage } from "./AudioPreparationPage";
 import { ElevenLabsAccountPanel } from "./ElevenLabsAccountPanel";
 import { StorageLifecyclePanel } from "./StorageLifecyclePanel";
+import { SttDictionariesPanel } from "./SttDictionariesPanel";
 import { appendUniqueItems } from "./collectionPageModel";
 import {
   isApprovedOutputUrl,
@@ -134,8 +135,17 @@ import {
   type BatchPreflightResponse,
   type ComposerRow,
   type ComposerSegment,
+  type SttOperatingMode,
+  type SttProvider,
   type VerifiedOutputFolder,
 } from "./batchComposerModel";
+import {
+  requestSttDictionaries,
+  requestSttProviderCatalog,
+  sttModeLabel,
+  type SttDictionary,
+  type SttProviderCapability,
+} from "./sttContracts";
 import {
   parseJobRetryResponse,
   parseOutputReconciliationCheckResponse,
@@ -242,7 +252,9 @@ function isExpectedCredentialCreateResponse(
   return (
     typeof response.id === "string" &&
     response.id.length > 0 &&
-    (response.provider === "elevenlabs" || response.provider === "openai") &&
+    (response.provider === "elevenlabs" ||
+      response.provider === "yandex" ||
+      response.provider === "openai") &&
     typeof response.label === "string" &&
     response.label.trim().length > 0 &&
     response.status === "active" &&
@@ -1229,7 +1241,7 @@ function isExpectedCompletedLocalSource(
     validDate(source.updated_at)
   );
 }
-const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
+const STT_CREDENTIAL_SESSION_KEY_PREFIX = "studio.sttCredentialId.";
 const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const TRANSCRIPTION_WORKSPACE_REQUEST_TIMEOUT_MS = 20_000;
@@ -1652,6 +1664,10 @@ function PreparationPanel({
       notice.panelId !== localUploadPanelId,
   );
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
+  const [selectedProvider, setSelectedProvider] =
+    useState<SttProvider>("elevenlabs");
+  const [operatingMode, setOperatingMode] =
+    useState<SttOperatingMode>("standard");
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [languageMode, setLanguageMode] = useState<TranscriptionLanguageMode>(
     DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
@@ -1660,6 +1676,15 @@ function PreparationPanel({
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
+  const [providerCatalog, setProviderCatalog] = useState<
+    SttProviderCapability[]
+  >([]);
+  const [providerCatalogError, setProviderCatalogError] = useState("");
+  const [dictionaries, setDictionaries] = useState<SttDictionary[]>([]);
+  const [dictionariesError, setDictionariesError] = useState("");
+  const [selectedDictionaryIds, setSelectedDictionaryIds] = useState<string[]>(
+    [],
+  );
   const [sourceUploadPolicy, setSourceUploadPolicy] =
     useState<SourceUploadPolicy | null>(null);
   const [sourceUploadPolicyError, setSourceUploadPolicyError] = useState("");
@@ -1773,6 +1798,7 @@ function PreparationPanel({
 
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
+    setSelectedDictionaryIds([]);
     setRecentlyAddedRow(null);
     setRowAdditionStatus("");
   }, [project.id]);
@@ -1818,9 +1844,42 @@ function PreparationPanel({
         setCredentialsLoading(false);
       },
       () => {
-        setCredentialsError("Не удалось загрузить подключение ElevenLabs.");
+        setCredentialsError("Не удалось загрузить профили STT.");
         setCredentialsLoading(false);
       },
+      {
+        controllers: prerequisiteRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadSttMetadata = () => {
+    setProviderCatalogError("");
+    setDictionariesError("");
+    void settleLatestRequest(
+      prerequisiteRequestEpochsRef.current,
+      "preparation:stt-providers",
+      requestSttProviderCatalog,
+      setProviderCatalog,
+      () => setProviderCatalogError("Не удалось загрузить режимы STT."),
+      {
+        controllers: prerequisiteRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+    void settleLatestRequest(
+      prerequisiteRequestEpochsRef.current,
+      "preparation:stt-dictionaries",
+      requestSttDictionaries,
+      (nextDictionaries) => {
+        setDictionaries(nextDictionaries);
+        setSelectedDictionaryIds((current) =>
+          current.filter((id) =>
+            nextDictionaries.some((dictionary) => dictionary.id === id),
+          ),
+        );
+      },
+      () => setDictionariesError("Не удалось загрузить словари."),
       {
         controllers: prerequisiteRequestControllersRef.current,
         timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
@@ -1851,37 +1910,49 @@ function PreparationPanel({
   useEffect(() => {
     loadCredentials();
     loadSourceUploadPolicy();
+    loadSttMetadata();
   }, []);
-  const activeElevenLabsCredentials = credentials.filter(
+  const activeProviderCredentials = credentials.filter(
     (credential) =>
-      credential.provider === "elevenlabs" && credential.status === "active",
+      credential.provider === selectedProvider && credential.status === "active",
+  );
+  const selectedProviderCapability = providerCatalog.find(
+    (provider) => provider.provider === selectedProvider,
+  );
+  const selectedModeCapability = selectedProviderCapability?.modes.find(
+    (mode) => mode.mode === operatingMode,
   );
   useEffect(() => {
     if (credentialsLoading || credentialsError) return;
-    if (activeElevenLabsCredentials.length === 1) {
-      setSelectedCredentialId(activeElevenLabsCredentials[0].id);
-      sessionStorage.removeItem(ELEVENLABS_CREDENTIAL_SESSION_KEY);
+    const sessionKey = `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`;
+    if (activeProviderCredentials.length === 1) {
+      setSelectedCredentialId(activeProviderCredentials[0].id);
+      sessionStorage.removeItem(sessionKey);
       return;
     }
-    if (activeElevenLabsCredentials.length > 1) {
-      const saved =
-        sessionStorage.getItem(ELEVENLABS_CREDENTIAL_SESSION_KEY) ?? "";
+    if (activeProviderCredentials.length > 1) {
+      const saved = sessionStorage.getItem(sessionKey) ?? "";
       if (
         saved &&
-        activeElevenLabsCredentials.some(
+        activeProviderCredentials.some(
           (credential) => credential.id === saved,
         )
       ) {
         setSelectedCredentialId(saved);
       } else {
-        if (saved) sessionStorage.removeItem(ELEVENLABS_CREDENTIAL_SESSION_KEY);
+        if (saved) sessionStorage.removeItem(sessionKey);
         setSelectedCredentialId("");
       }
       return;
     }
-    sessionStorage.removeItem(ELEVENLABS_CREDENTIAL_SESSION_KEY);
+    sessionStorage.removeItem(sessionKey);
     setSelectedCredentialId("");
-  }, [credentialsLoading, credentialsError, activeElevenLabsCredentials]);
+  }, [
+    credentialsLoading,
+    credentialsError,
+    activeProviderCredentials,
+    selectedProvider,
+  ]);
   useEffect(() => {
     if (!sources.loaded || sources.loading || sources.error) return;
     setCreatedSources((current) => {
@@ -1929,6 +2000,9 @@ function PreparationPanel({
     selectedCredentialId,
     languageMode,
     diarizationEnabled,
+    selectedProvider,
+    operatingMode,
+    selectedDictionaryIds,
   );
   useEffect(() => {
     if (preflight && preflight.signature !== signature) {
@@ -2025,14 +2099,26 @@ function PreparationPanel({
   const firstReadinessBlocker =
     rowReadinessResults.find((result) => !result.ready)?.reason ?? "";
   const credentialBlocker = credentialsLoading
-    ? "Загрузка подключения ElevenLabs…"
+    ? "Загрузка профилей STT…"
     : credentialsError
       ? credentialsError
       : !selectedCredentialId
-        ? activeElevenLabsCredentials.length > 1
-          ? "Выберите профиль подключения ElevenLabs"
-          : "Добавьте активный ключ ElevenLabs в настройках"
+        ? activeProviderCredentials.length > 1
+          ? "Выберите профиль подключения"
+          : `Добавьте активный ключ ${selectedProviderCapability?.display_name ?? selectedProvider} в настройках`
         : "";
+  const providerBlocker = providerCatalogError
+    ? providerCatalogError
+    : selectedProviderCapability && !selectedProviderCapability.byok_enabled
+      ? `${selectedProviderCapability.display_name} пока не включён оператором Studio`
+      : selectedModeCapability && !selectedModeCapability.health.available
+        ? `${selectedProviderCapability?.display_name ?? selectedProvider} временно недоступен в выбранном режиме`
+        : "";
+  const dictionaryBlocker = dictionariesError && selectedDictionaryIds.length
+    ? dictionariesError
+    : selectedDictionaryIds.length && selectedModeCapability?.dictionaries === false
+      ? "Выбранный режим не поддерживает словари"
+      : "";
   const submitting =
     submissionStage !== null || batchSubmission?.status === "pending";
   const activePreflight =
@@ -2064,8 +2150,12 @@ function PreparationPanel({
       : "Создание задач…"
     : batchSubmission?.status === "ambiguous"
       ? "Сначала подтвердите исход предыдущей отправки"
+      : providerBlocker
+        ? providerBlocker
       : credentialBlocker
         ? credentialBlocker
+      : dictionaryBlocker
+        ? dictionaryBlocker
       : rows.length === 0
         ? "Добавьте хотя бы одну задачу"
         : batchLimitBlocker
@@ -2082,6 +2172,8 @@ function PreparationPanel({
     batchSubmission === null &&
     !credentialsLoading &&
     !credentialsError &&
+    !providerBlocker &&
+    !dictionaryBlocker &&
     Boolean(selectedCredentialId) &&
     rows.length > 0 &&
     plannedJobCount <= MAX_BATCH_ITEMS &&
@@ -3401,7 +3493,7 @@ function PreparationPanel({
     setMessage("");
     if (submitting) return;
     if (credentialsLoading || credentialsError || !selectedCredentialId) {
-      setMessage(credentialBlocker || "Выберите активный профиль ElevenLabs.");
+      setMessage(credentialBlocker || "Выберите активный профиль STT.");
       return;
     }
     if (rows.length === 0) {
@@ -3429,6 +3521,9 @@ function PreparationPanel({
       selectedCredentialId,
       languageMode,
       diarizationEnabled,
+      selectedProvider,
+      operatingMode,
+      selectedDictionaryIds,
     );
     const confirming = activePreflight !== null;
     if (batchSubmission) {
@@ -3483,7 +3578,7 @@ function PreparationPanel({
     } catch (err) {
       setMessage(
         err instanceof ApiError && err.status === 422
-          ? "План не прошёл проверку Studio. Исправьте файлы, папки или профиль ElevenLabs."
+          ? "План не прошёл проверку Studio. Исправьте файлы, папки или профиль STT."
           : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
       );
     } finally {
@@ -4288,8 +4383,82 @@ function PreparationPanel({
         <div className="provider-card">
           <div>
             <span className="field-label">Провайдер транскрибации</span>
-            <strong>ElevenLabs</strong>
-            {selectedCredentialId && !credentialsError && (
+            <label className="profile-selector">
+              Провайдер
+              <select
+                aria-label="Провайдер транскрибации"
+                value={selectedProvider}
+                onChange={(event) => {
+                  const provider = event.target.value as SttProvider;
+                  setSelectedProvider(provider);
+                  setSelectedCredentialId("");
+                  setOperatingMode("standard");
+                  setDiarizationEnabled(false);
+                  setSelectedDictionaryIds([]);
+                  setRows((current) =>
+                    current.map(clearComposerReprocessDecisions),
+                  );
+                }}
+              >
+                <option value="elevenlabs">ElevenLabs</option>
+                <option
+                  value="yandex"
+                  disabled={
+                    providerCatalog.length > 0 &&
+                    providerCatalog.find((item) => item.provider === "yandex")
+                      ?.byok_enabled !== true
+                  }
+                >
+                  Yandex SpeechKit
+                  {providerCatalog.length > 0 &&
+                  providerCatalog.find((item) => item.provider === "yandex")
+                    ?.byok_enabled !== true
+                    ? " — не включён"
+                    : ""}
+                </option>
+              </select>
+            </label>
+            <label className="profile-selector">
+              Режим
+              <select
+                aria-label="Режим транскрибации"
+                value={operatingMode}
+                onChange={(event) => {
+                  const mode = event.target.value as SttOperatingMode;
+                  const capability = selectedProviderCapability?.modes.find(
+                    (item) => item.mode === mode,
+                  );
+                  setOperatingMode(mode);
+                  if (capability?.diarization === false) {
+                    setDiarizationEnabled(false);
+                  }
+                  if (capability?.dictionaries === false) {
+                    setSelectedDictionaryIds([]);
+                  }
+                  setRows((current) =>
+                    current.map(clearComposerReprocessDecisions),
+                  );
+                }}
+              >
+                {(selectedProviderCapability?.modes.filter(
+                  (mode) => mode.mode !== "realtime",
+                ) ?? [
+                  { mode: "economic" as const, health: { available: true } },
+                  { mode: "standard" as const, health: { available: true } },
+                  { mode: "premium" as const, health: { available: true } },
+                ]).map((mode) => (
+                  <option
+                    key={mode.mode}
+                    value={mode.mode}
+                    disabled={!mode.health.available}
+                  >
+                    {sttModeLabel(mode.mode)}
+                    {!mode.health.available ? " — временно недоступен" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedCredentialId && !credentialsError && !providerBlocker && (
               <span className="provider-ready">Подключён и готов</span>
             )}
             <p className="muted">
@@ -4301,17 +4470,23 @@ function PreparationPanel({
             <div className="notice" role="alert">
               <p>{credentialsError}</p>
               <button type="button" onClick={loadCredentials}>
-                Повторить загрузку подключения ElevenLabs
+                Повторить загрузку профилей
               </button>
             </div>
           )}
+          {providerBlocker && (
+            <p className="notice" role="alert">
+              {providerBlocker}
+            </p>
+          )}
           {!credentialsLoading &&
             !credentialsError &&
-            activeElevenLabsCredentials.length === 0 && (
+            activeProviderCredentials.length === 0 && (
               <div>
                 <p className="notice">
-                  Добавьте активный ключ ElevenLabs в настройках, чтобы
-                  создавать задачи.
+                  Добавьте активный ключ{" "}
+                  {selectedProviderCapability?.display_name ?? selectedProvider}
+                  {" "}в настройках, чтобы создавать задачи.
                 </p>
                 <button
                   type="button"
@@ -4330,7 +4505,7 @@ function PreparationPanel({
             )}
           {!credentialsLoading &&
             !credentialsError &&
-            activeElevenLabsCredentials.length > 1 && (
+            activeProviderCredentials.length > 1 && (
               <label className="profile-selector">
                 Профиль подключения
                 <select
@@ -4341,18 +4516,18 @@ function PreparationPanel({
                     setSelectedCredentialId(value);
                     if (value) {
                       sessionStorage.setItem(
-                        ELEVENLABS_CREDENTIAL_SESSION_KEY,
+                        `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`,
                         value,
                       );
                     } else {
                       sessionStorage.removeItem(
-                        ELEVENLABS_CREDENTIAL_SESSION_KEY,
+                        `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`,
                       );
                     }
                   }}
                 >
                   <option value="">Выберите профиль</option>
-                  {activeElevenLabsCredentials.map((credential) => (
+                  {activeProviderCredentials.map((credential) => (
                     <option key={credential.id} value={credential.id}>
                       {credentialProfileLabel(credential)}
                     </option>
@@ -4388,6 +4563,7 @@ function PreparationPanel({
               type="checkbox"
               aria-label="Разделять на спикеров"
               checked={diarizationEnabled}
+              disabled={selectedModeCapability?.diarization === false}
               onChange={(event) => {
                 setDiarizationEnabled(event.target.checked);
                 setRows((current) =>
@@ -4410,6 +4586,47 @@ function PreparationPanel({
               </small>
             </span>
           </label>
+          <details className="technical-details">
+            <summary>Пользовательские словари</summary>
+            {selectedModeCapability?.dictionaries === false ? (
+              <p className="muted">
+                В выбранном режиме словари не поддерживаются.
+              </p>
+            ) : dictionariesError ? (
+              <p className="error">{dictionariesError}</p>
+            ) : dictionaries.length === 0 ? (
+              <p className="muted">Словари пока не созданы.</p>
+            ) : (
+              <div className="dictionary-selector">
+                {dictionaries.map((dictionary) => (
+                  <label className="check-row" key={dictionary.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedDictionaryIds.includes(dictionary.id)}
+                      onChange={(event) =>
+                        setSelectedDictionaryIds((current) =>
+                          event.target.checked
+                            ? [...current, dictionary.id]
+                            : current.filter((id) => id !== dictionary.id),
+                        )
+                      }
+                    />
+                    <span>
+                      <b>{dictionary.name}</b>
+                      <small>{dictionary.entries.length} записей</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="secondary"
+              onClick={loadSttMetadata}
+            >
+              Обновить словари
+            </button>
+          </details>
         </div>
         <div
           className="composer-status"
@@ -5009,10 +5226,17 @@ function PreparationPanel({
                     : "План готов к подтверждению"}
                 </h3>
                 <p className="muted batch-preflight-provider">
-                  ElevenLabs scribe_v2 ·{" "}
+                  {activePreflight.provider === "yandex"
+                    ? "Yandex SpeechKit"
+                    : "ElevenLabs"}{" "}
+                  {activePreflight.model} ·{" "}
+                  {sttModeLabel(activePreflight.operating_mode)} ·{" "}
                   {transcriptionLanguageModeLabel(
                     activePreflight.language_mode,
                   )}
+                  {activePreflight.dictionary_term_count > 0
+                    ? ` · словарь: ${activePreflight.dictionary_term_count} терминов`
+                    : ""}
                 </p>
                 <p
                   className={`diarization-state batch-preflight-diarization${
@@ -7004,6 +7228,8 @@ function SettingsPage({
   const [accentMessage, setAccentMessage] = useState("");
   const accentMutationPendingRef = useRef(false);
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
+  const [createCredentialProvider, setCreateCredentialProvider] =
+    useState<Credential["provider"]>("elevenlabs");
   const [replacingCredentialId, setReplacingCredentialId] = useState<
     string | null
   >(null);
@@ -7227,6 +7453,7 @@ function SettingsPage({
     const provider = String(fd.get("provider") ?? "") as Credential["provider"];
     const label = String(fd.get("credential_label") ?? "").trim();
     const rawValue = String(fd.get("credential_raw_value") ?? "");
+    const folderId = String(fd.get("yandex_folder_id") ?? "").trim();
     const rawInput = form.elements.namedItem(
       "credential_raw_value",
     ) as HTMLInputElement | null;
@@ -7248,7 +7475,12 @@ function SettingsPage({
           safeMutate<unknown>("/credentials", {
             method: "POST",
             signal,
-            body: JSON.stringify({ provider, label, raw_value: rawValue }),
+            body: JSON.stringify({
+              provider,
+              label,
+              raw_value: rawValue,
+              ...(provider === "yandex" ? { folder_id: folderId } : {}),
+            }),
           }),
         CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
       );
@@ -7349,6 +7581,9 @@ function SettingsPage({
               provider: selected.provider,
               label: selected.label,
               raw_value: rawValue,
+              ...(selected.provider === "yandex"
+                ? { folder_id: selected.folder_id }
+                : {}),
             }),
           }),
         CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
@@ -8026,9 +8261,10 @@ function SettingsPage({
           <h3>Ключи провайдеров</h3>
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.
-            Текущие обычная и Live-транскрибации выполняются только через
-            ElevenLabs. OpenAI key можно безопасно хранить для будущих
-            интеграций, но текущий execution flow его не использует.
+            Обычная и Live-транскрибации поддерживают включённые оператором
+            профили ElevenLabs и Yandex SpeechKit. OpenAI key можно безопасно
+            хранить для будущих интеграций, но текущий execution flow его не
+            использует.
           </p>
           {credentialMutations.length > 0 && (
             <p role="status" className="notice">
@@ -8074,13 +8310,29 @@ function SettingsPage({
               <select
                 name="provider"
                 aria-label="Провайдер"
+                value={createCredentialProvider}
+                onChange={(event) =>
+                  setCreateCredentialProvider(
+                    event.target.value as Credential["provider"],
+                  )
+                }
                 disabled={createCredentialPending}
               >
                 <option value="elevenlabs">ElevenLabs</option>
+                <option value="yandex">Yandex SpeechKit</option>
                 <option value="openai">
                   OpenAI — только хранение, не для текущей транскрибации
                 </option>
               </select>
+              {createCredentialProvider === "yandex" && (
+                <input
+                  name="yandex_folder_id"
+                  autoComplete="off"
+                  placeholder="ID каталога Yandex"
+                  disabled={createCredentialPending}
+                  required
+                />
+              )}
               <input
                 name="credential_label"
                 autoComplete="off"
@@ -8128,6 +8380,11 @@ function SettingsPage({
                     {credential.status} · v{credential.active_version ?? "—"} ·{" "}
                     {credential.masked_value ?? "—"}
                   </p>
+                  {credential.provider === "yandex" && (
+                    <p className="muted">
+                      Каталог: {credential.folder_id ?? "не указан"}
+                    </p>
+                  )}
                   {credential.provider === "openai" && (
                     <p className="notice">
                       Этот key хранится зашифрованно, но не используется
@@ -8222,7 +8479,9 @@ function SettingsPage({
                 </article>
               );
             })}
-          </div>          <h3>Google Drive</h3>
+          </div>
+          <SttDictionariesPanel csrf={csrf} onCsrf={onCsrf} />
+          <h3>Google Drive</h3>
           <p
             className={
               googleConnection?.connected && googleConnection.picker_ready

@@ -37,7 +37,7 @@ from studio_api.config import Settings
 from studio_api.account_security import RECOVERY_CODE_COUNT, _totp, recovery_code_hash
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus, UserTotpFactor, UserTotpRecoveryCode
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, Session as DbSession, SttProviderHealth, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus, UserTotpFactor, UserTotpRecoveryCode
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.totp_break_glass import TotpBreakGlassError, disable_owner_totp
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
@@ -63,7 +63,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["runtime_component_status", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["runtime_component_status", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "stt_provider_operations", "stt_provider_health", "stt_dictionary_entries", "stt_dictionaries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -379,7 +379,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0035_job_notifications", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0036_stt_multiprovider", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -1280,6 +1280,105 @@ def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
         db.close()
 
 
+def test_stt_catalog_yandex_byok_and_owner_dictionary_crud_are_safe_and_scoped():
+    owner_password = admin(email="stt-owner@example.com")
+    other_password = admin(email="stt-other@example.com")
+    raw_key = "AQVN-yandex-api-key-private-value"
+    headers = {"origin": "https://studio.test"}
+
+    with TestClient(app) as owner:
+        owner_csrf = login(owner, owner_password, email="stt-owner@example.com")
+        mutation_headers = headers | {"x-csrf-token": owner_csrf}
+        catalog = owner.get("/api/stt/providers")
+        assert catalog.status_code == 200
+        providers = {
+            item["provider"]: item for item in catalog.json()["providers"]
+        }
+        assert set(providers) == {"elevenlabs", "yandex"}
+        assert providers["yandex"]["byok_enabled"] is False
+        assert catalog.headers["cache-control"] == "no-store"
+
+        missing_folder = owner.post(
+            "/api/credentials",
+            json={"provider": "yandex", "label": "SpeechKit", "raw_value": raw_key},
+            headers=mutation_headers,
+        )
+        assert missing_folder.status_code == 422
+        created_credential = owner.post(
+            "/api/credentials",
+            json={
+                "provider": "yandex",
+                "label": "SpeechKit",
+                "raw_value": raw_key,
+                "folder_id": "folder-public-identifier",
+            },
+            headers=mutation_headers,
+        )
+        assert created_credential.status_code == 200
+        assert raw_key not in created_credential.text
+        listed_credentials = owner.get("/api/credentials").json()["credentials"]
+        yandex = next(item for item in listed_credentials if item["provider"] == "yandex")
+        assert yandex["folder_id"] == "folder-public-identifier"
+        assert raw_key not in json.dumps(listed_credentials)
+
+        created_dictionary = owner.post(
+            "/api/stt/dictionaries",
+            json={
+                "name": "Команда проекта",
+                "entries": [
+                    {"kind": "term", "value": "VoiceOps"},
+                    {"kind": "surname", "value": "Иванов"},
+                    {"kind": "name", "value": "Алёна"},
+                    {"kind": "abbreviation", "value": "API"},
+                ],
+            },
+            headers=mutation_headers,
+        )
+        assert created_dictionary.status_code == 200
+        dictionary_id = created_dictionary.json()["id"]
+        assert len(created_dictionary.json()["entries"]) == 4
+        duplicate = owner.post(
+            "/api/stt/dictionaries",
+            json={
+                "name": "  команда   проекта ",
+                "entries": [{"kind": "term", "value": "другой"}],
+            },
+            headers=mutation_headers,
+        )
+        assert duplicate.status_code == 409
+
+    with TestClient(app) as other:
+        other_csrf = login(other, other_password, email="stt-other@example.com")
+        assert other.get("/api/stt/dictionaries").json() == {"dictionaries": []}
+        forbidden_update = other.put(
+            f"/api/stt/dictionaries/{dictionary_id}",
+            json={
+                "name": "Чужой словарь",
+                "entries": [{"kind": "term", "value": "чужой"}],
+            },
+            headers=headers | {"x-csrf-token": other_csrf},
+        )
+        assert forbidden_update.status_code == 404
+
+    with TestClient(app) as owner:
+        owner_csrf = login(owner, owner_password, email="stt-owner@example.com")
+        deleted = owner.delete(
+            f"/api/stt/dictionaries/{dictionary_id}",
+            headers=headers | {"x-csrf-token": owner_csrf},
+        )
+        assert deleted.status_code == 200
+        assert owner.get("/api/stt/dictionaries").json() == {"dictionaries": []}
+        recreated = owner.post(
+            "/api/stt/dictionaries",
+            json={
+                "name": "Команда проекта",
+                "entries": [{"kind": "term", "value": "VoiceOps"}],
+            },
+            headers=headers | {"x-csrf-token": owner_csrf},
+        )
+        assert recreated.status_code == 200
+
+
 def test_elevenlabs_account_routes_are_owner_scoped_no_store_and_never_echo_secret(monkeypatch):
     from decimal import Decimal
     from studio_api import main as main_mod
@@ -1829,6 +1928,18 @@ def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
         ).one()
         assert reason.value in event.metadata_json
         assert "sk_realtime_main_secret" not in event.metadata_json
+        health = db.get(SttProviderHealth, ("elevenlabs", "realtime"))
+        if reason.value in {
+            "malformed_provider_response",
+            "provider_rate_limited",
+            "provider_timeout",
+            "provider_unavailable",
+        }:
+            assert health is not None
+            assert health.consecutive_failures == 1
+            assert health.last_failure_code == reason.value
+        else:
+            assert health is None
     finally:
         db.close()
 
@@ -1845,6 +1956,66 @@ def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
     assert response_without_diagnostic.json() == {
         "detail": {"reason": reason.value},
     }
+
+
+def test_realtime_capability_circuit_stops_dispatch_after_systemic_failures(
+    monkeypatch,
+):
+    from studio_api import main as main_mod
+
+    email = "realtime-circuit@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime circuit"},
+        headers=headers,
+    ).json()
+    client.post(
+        "/api/credentials",
+        json={
+            "provider": "elevenlabs",
+            "label": "Realtime",
+            "raw_value": "sk_realtime_main_secret",
+        },
+        headers=headers,
+    )
+    provider_calls = []
+
+    def fail(*_args, **_kwargs):
+        provider_calls.append("called")
+        raise RealtimeCapabilityError(
+            RealtimeCapabilityReason.provider_unavailable,
+        )
+
+    monkeypatch.setattr(main_mod, "create_realtime_capability", fail)
+    path = f"/api/projects/{project['id']}/realtime/capability"
+    for _ in range(main_mod.settings.stt_health_failure_threshold):
+        assert client.post(
+            path,
+            json={"language": "detect"},
+            headers=headers,
+        ).status_code == 502
+
+    blocked = client.post(
+        path,
+        json={"language": "detect"},
+        headers=headers,
+    )
+    assert blocked.status_code == 503
+    assert blocked.json()["detail"]["reason"] == "provider_mode_unavailable"
+    assert len(provider_calls) == main_mod.settings.stt_health_failure_threshold
+
+    db = SessionLocal()
+    try:
+        health = db.get(SttProviderHealth, ("elevenlabs", "realtime"))
+        assert health is not None
+        assert health.consecutive_failures == main_mod.settings.stt_health_failure_threshold
+        assert health.circuit_open_until is not None
+    finally:
+        db.close()
 
 
 def test_aes_gcm_unique_nonce_and_aad_binding():
@@ -4043,7 +4214,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0035_job_notifications"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
 
 
 
@@ -4107,7 +4278,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0035_job_notifications"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
 
 
 
@@ -7309,10 +7480,19 @@ def test_batch_jobs_integrity_error_replays_concurrent_winner(monkeypatch):
     def fake_flush(self, *args, **kwargs):
         if not injected["done"] and any(isinstance(obj, TranscriptionJob) and obj.batch_idempotency_key == "batch-key-1" for obj in self.new):
             injected["done"] = True
-            options_json = main.safe_job_options(body["options"])
-            language = main.clean_job_language(body["language"])
-            hash_items = [{"source_id": item["source_id"], "output_folder_id": item["output_folder_id"], "title": main.clean_job_title(item.get("title"))} for item in body["items"]]
-            request_hash = main._batch_hash(pid, cred_id, language, options_json, hash_items)
+            request_data = main.TranscriptionJobBatchCreateIn.model_validate(body)
+            language, options_json, _, _, _, _, _, _, _, hash_items = (
+                main._normalize_batch_creation_input(request_data)
+            )
+            request_hash = main._batch_hash(
+                pid,
+                cred_id,
+                language,
+                options_json,
+                hash_items,
+                provider=request_data.provider.value,
+                operating_mode=request_data.operating_mode.value,
+            )
             winner = SessionLocal()
             try:
                 winner.execute(text("SET LOCAL lock_timeout = '3s'"))
@@ -7976,7 +8156,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0035_job_notifications"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0036_stt_multiprovider"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

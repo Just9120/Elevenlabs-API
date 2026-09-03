@@ -62,6 +62,8 @@ type Attempt = {
   connectionTimer: number | null;
   sessionTimer: number | null;
   closeTimer: number | null;
+  durationTimer: number | null;
+  provider: "elevenlabs" | "yandex";
 };
 
 type RealtimeSessionDependencies = {
@@ -100,6 +102,7 @@ const CONNECTION_TIMEOUT_MS = 10_000;
 const SESSION_START_TIMEOUT_MS = 10_000;
 const CAPABILITY_TIMEOUT_MS = 25_000;
 const FINAL_COMMIT_GRACE_MS = 2_000;
+const YANDEX_SESSION_SAFE_DURATION_MS = 295_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 512 * 1024;
 const MIXED_DISPLAY_GAIN = 0.35;
@@ -140,8 +143,12 @@ function microphoneConstraints(deviceId?: string): MediaTrackConstraints {
   };
 }
 
-export function realtimeProviderErrorMessage(code: string) {
+export function realtimeProviderErrorMessage(
+  code: string,
+  provider: "elevenlabs" | "yandex" = "elevenlabs",
+) {
   const normalized = code.toLowerCase();
+  const providerName = provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs";
   if (normalized.includes("session_time_limit")) {
     return "Достигнута максимальная длительность одной realtime-сессии. Сохраните текст и начните новую сессию.";
   }
@@ -149,13 +156,13 @@ export function realtimeProviderErrorMessage(code: string) {
     normalized.includes("rate_limited") ||
     normalized.includes("commit_throttled")
   ) {
-    return "ElevenLabs временно ограничил частоту realtime-запросов. Повторите запуск позже.";
+    return `${providerName} временно ограничил частоту realtime-запросов. Повторите запуск позже.`;
   }
   if (
     normalized.includes("quota") ||
     normalized.includes("resource_exhausted")
   ) {
-    return "Квота или доступный баланс ElevenLabs исчерпаны.";
+    return `Квота или доступный баланс ${providerName} исчерпаны.`;
   }
   if (
     normalized.includes("auth") ||
@@ -165,17 +172,17 @@ export function realtimeProviderErrorMessage(code: string) {
     return "Одноразовый realtime-доступ отклонён. Запустите новую сессию.";
   }
   if (normalized.includes("queue_overflow")) {
-    return "Очередь ElevenLabs переполнена. Проверьте сеть и начните новую сессию.";
+    return `Очередь ${providerName} переполнена. Проверьте сеть и начните новую сессию.`;
   }
   if (normalized.includes("insufficient_audio_activity")) {
-    return "ElevenLabs не обнаружил достаточной речевой активности. Проверьте выбранный источник и уровень сигнала.";
+    return `${providerName} не обнаружил достаточной речевой активности. Проверьте выбранный источник и уровень сигнала.`;
   }
   if (
     normalized.includes("audio") ||
     normalized.includes("chunk") ||
     normalized.includes("input_error")
   ) {
-    return "ElevenLabs отклонил аудиопоток. Выберите источник и начните заново.";
+    return `${providerName} отклонил аудиопоток. Выберите источник и начните заново.`;
   }
   return "Realtime-сессия завершилась ошибкой. Начните новую сессию.";
 }
@@ -234,6 +241,8 @@ export class RealtimeSessionController {
       connectionTimer: null,
       sessionTimer: null,
       closeTimer: null,
+      durationTimer: null,
+      provider: "elevenlabs",
     };
     this.current = attempt;
     this.callbacks.onError("");
@@ -277,6 +286,7 @@ export class RealtimeSessionController {
       const capability = parseRealtimeCapability(
         capabilityValue,
       );
+      attempt.provider = capability.provider ?? "elevenlabs";
       this.assertActive(attempt);
       this.connect(attempt, capability, stream);
     } catch (error) {
@@ -499,7 +509,7 @@ export class RealtimeSessionController {
         return;
       }
       this.callbacks.onError(
-        "ElevenLabs не установил realtime-соединение за 10 секунд. Начните новую сессию.",
+        `${attempt.provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs"} не установил realtime-соединение за 10 секунд. Начните новую сессию.`,
       );
       this.closeSocket(attempt, "Тайм-аут подключения");
       this.finish(attempt, "closed");
@@ -512,7 +522,7 @@ export class RealtimeSessionController {
         attempt.sessionTimer = null;
         if (!this.owns(attempt) || attempt.cleanupDone) return;
         this.callbacks.onError(
-          "ElevenLabs открыл соединение, но не подтвердил realtime-сессию за 10 секунд. Начните новую сессию.",
+          `${attempt.provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs"} открыл соединение, но не подтвердил realtime-сессию за 10 секунд. Начните новую сессию.`,
         );
         this.closeSocket(attempt, "Тайм-аут запуска сессии");
         this.finish(attempt, "closed");
@@ -529,6 +539,7 @@ export class RealtimeSessionController {
       const event = parseRealtimeEvent(parsed);
       if (event.kind === "session_started") {
         this.clearSessionTimer(attempt);
+        this.startProviderDurationTimer(attempt);
         this.callbacks.onStatus("transcribing");
       } else if (event.kind === "partial") {
         this.clearSessionTimer(attempt);
@@ -541,7 +552,9 @@ export class RealtimeSessionController {
         this.callbacks.onCommitted(event.text);
       } else if (event.kind === "error") {
         if (attempt.userStopRequested) return;
-        this.callbacks.onError(realtimeProviderErrorMessage(event.code));
+        this.callbacks.onError(
+          realtimeProviderErrorMessage(event.code, attempt.provider),
+        );
         this.closeSocket(attempt, "Ошибка провайдера");
         this.finish(attempt, "closed");
       }
@@ -638,6 +651,10 @@ export class RealtimeSessionController {
       this.deps.clearTimer(attempt.closeTimer);
       attempt.closeTimer = null;
     }
+    if (attempt.durationTimer !== null) {
+      this.deps.clearTimer(attempt.durationTimer);
+      attempt.durationTimer = null;
+    }
     const websocket = attempt.websocket;
     attempt.websocket = null;
     if (
@@ -663,6 +680,18 @@ export class RealtimeSessionController {
     if (attempt.sessionTimer === null) return;
     this.deps.clearTimer(attempt.sessionTimer);
     attempt.sessionTimer = null;
+  }
+
+  private startProviderDurationTimer(attempt: Attempt) {
+    if (attempt.provider !== "yandex" || attempt.durationTimer !== null) return;
+    attempt.durationTimer = this.deps.setTimer(() => {
+      attempt.durationTimer = null;
+      if (!this.owns(attempt) || attempt.cleanupDone) return;
+      this.callbacks.onError(
+        "Yandex SpeechKit ограничивает realtime-сессию пятью минутами. Studio безопасно завершает текущую сессию; сохраните текст и начните следующую.",
+      );
+      this.stop();
+    }, YANDEX_SESSION_SAFE_DURATION_MS);
   }
 
   private clearCapabilityRequest(attempt: Attempt, abort = true) {

@@ -51,12 +51,15 @@ def stored_transcription_options(
     diarize: bool,
     *,
     existing_result_reprocess_authorized: bool = False,
+    dictionary_terms: list[str] | tuple[str, ...] = (),
 ) -> str | None:
     payload = {}
     if diarize:
         payload["diarize"] = True
     if existing_result_reprocess_authorized:
         payload[EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION] = True
+    if dictionary_terms:
+        payload["dictionary_terms"] = list(dictionary_terms)
     if not payload:
         return None
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))

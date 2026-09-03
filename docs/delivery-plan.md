@@ -2,8 +2,49 @@
 
 ## Current Goal
 
+- **ID / title:** `STT-MULTIPROVIDER-CONTINUITY-01` — provider-neutral STT, Yandex SpeechKit, owner dictionaries и независимые realtime consumers.
+- **State:** `IN_PROGRESS` — owner явно одобрил public export exact payload; branch опубликована, PR `#295` открыт, первые exact-head CI findings исправлены локально и готовятся к rerun.
+- **Authorization source:** explicit owner instruction 2026-09-03 после review оставшихся non-commercial эпиков: «Бери в работу около 25 AC». Выбран связный набор из `24` canonical AC: open `STTPRO-01..12/14`, `YANDEX-01..05`, `PWADIC-01`, `REALTI-01..05`; уже закрытый `STTPRO-13` не добавляется повторно.
+- **Scope:** выделить provider-neutral batch/realtime contracts и capability catalog; добавить explicit operating modes `economic/standard/premium/realtime`, separate provider BYOK eligibility и health circuit; подключить Yandex SpeechKit batch/deferred/realtime с durable operation ID, bounded polling и terminal-result persistence; добавить owner-scoped словари terms/surnames/names/abbreviations и безопасную передачу поддерживаемых hints; различить capture/STT failures; дать отдельный browser/OBS overlay, YouTube HTTP captions и ещё один explicit allowlisted HTTPS webhook consumer, изолируя consumer failures от primary Live session; покрыть additive migration, API/worker/PWA contracts, tests, reviewable PR, exact CI, applicable protected delivery и bounded no-spend LIVE.
+- **Non-goals:** commercial contour; automatic cross-provider fallback; выбор provider системой без owner action; paid provider canary; реальная отправка YouTube/external consumer без отдельной action-time authorization; хранение YouTube ingestion URL или external endpoint как durable secret; создание/управление YouTube broadcast; audio recording; новая billing/subscription logic; изменение Colab; destructive cleanup.
+- **Goal AC:**
+  1. `SMC-01`: canonical denominator — ровно `STTPRO-01..12/14`, `YANDEX-01..05`, `PWADIC-01`, `REALTI-01..05`; status/Evidence меняются только после фактических gates.
+  2. `SMC-02`: batch worker вызывает выбранный provider только через единый typed contract; existing ElevenLabs lifecycle, retry, lease, accounting, checkpoint и output invariants не ослабляются.
+  3. `SMC-03`: realtime capability/session выполняются через provider-neutral contract; browser DTO явно сообщает provider/protocol/model/audio format и не раскрывает long-lived BYOK secret.
+  4. `SMC-04`: capability catalog фиксирует modes, languages, diarization, dictionaries и bounded file/session constraints для каждого provider; unsupported combination блокируется до dispatch.
+  5. `SMC-05`: `economic`, `standard`, `premium` и `realtime` детерминированно маппятся на configured provider capability; автоматического cross-provider fallback нет.
+  6. `SMC-06`: provider/mode health circuit открывается только на bounded массовом provider failure signal, останавливает новый dispatch, имеет cooldown/probe state и не затрагивает другой provider/mode.
+  7. `SMC-07`: BYOK eligibility и active credential selection независимы для ElevenLabs и Yandex; owner явно выбирает provider/profile, а stale/mismatched selection fail closed.
+  8. `SMC-08`: Yandex normal/deferred batch использует documented API v3 boundary, сохраняет opaque operation ID до polling, делает bounded status/result polling и сохраняет нормализованный terminal provider result без raw payload в browser/logs.
+  9. `SMC-09`: Yandex realtime проходит через authenticated short-lived Studio relay к documented bidirectional gRPC API; capture audio и long-lived API key не сохраняются.
+  10. `SMC-10`: owner dictionaries имеют strict owner scope, bounded normalized entries четырёх типов, idempotent CRUD и provider-specific supported-hint projection без silent claim для unsupported provider/mode.
+  11. `SMC-11`: capture-source loss и STT-connection loss имеют разные safe reason codes и русские recovery actions.
+  12. `SMC-12`: отдельный browser/OBS overlay получает только committed/partial subtitle state через same-origin local session channel и не управляет primary capture/STT lifecycle.
+  13. `SMC-13`: explicit opt-in YouTube HTTP captions и generic allowlisted HTTPS webhook consumer передают только bounded subtitle text; destination validation и redaction fail closed, consumer errors видимы локально и не останавливают primary session.
+  14. `SMC-14`: migration/grants/provider transports/polling/health/dictionary ownership/realtime relay/overlay/consumers и PWA flows покрыты focused/integration tests, включая negative и concurrency boundaries.
+  15. `SMC-15`: reviewable PR и exact-head CI success; applicable protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT, Google mutation или реальную external caption send без отдельного подтверждения.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** production Yandex BYOK/folder configuration и paid provider LIVE не предполагаются; отсутствие credential не блокирует code/test/deploy и honest unavailable/suppressed LIVE. Реальная YouTube/external отправка остаётся action-time gate. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
+- **Stop condition:** все 15 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-03T22:51:40Z`.
+- **Base branch/SHA:** verified clean tracked `main` and `origin/main@0fb499d9b7b65470292df0c2a7f90d0602417b83` after fetch.
+- **Working branch:** `codex/stt-multiprovider-continuity`.
+- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
+- **Last verified revision:** `8edc3c8d348695d8c4d943d6e0f53c2cdcaeea56`.
+- **Completed:** Реализованы additive migration `0036_stt_multiprovider`, provider-neutral capability/mode/dispatch contracts, independent BYOK/health boundaries, owner dictionaries, Yandex v3 batch/deferred persistence и bounded realtime gRPC relay, provider-aware PWA, project-isolated OBS overlay, explicit YouTube/allowlisted HTTPS consumers, deployment configuration, grants, architecture/runbook и migration-head compatibility. Completion audit дополнительно закрепил provider health для malformed batch/realtime responses, Yandex gRPC status mapping и final-refinement fallback, live capability catalog, strict duplicate/empty contract rejection и полный UI lifecycle словарей; найденный editor-state defect исправлен. Yandex default-disabled; external send и paid STT не выполнялись.
+- **Current step:** PR `#295` exact head `8edc3c8d348695d8c4d943d6e0f53c2cdcaeea56` mergeable/clean, без review comments, все required checks success; выполняется checkpoint synchronization перед protected merge.
+- **Next exact action:** commit/push текущий checkpoint, подтвердить final exact-head required checks и merge PR `#295` в protected `main`.
+- **Validation / Evidence:** Python compile и lightweight repository checks passed; backend provider/realtime/recovery/schema final target `52 passed`, CI-fix focused `6 passed`, ранее выполненные provider/API focused `22 passed`, schema/regression `184 passed`, operational/preflight/nginx `70 passed`, existing processing regression `110 passed, 1 skipped`; frontend full Vitest `698 passed` in `67` files, focused provider/realtime/dictionary contracts passed, ESLint и TypeScript/Vite/PWA production build passed; `git diff --check` passed. Local DB-backed concurrency fix remains exact-head PostgreSQL CI gate.
+- **PR / CI / deployment:** public PR `#295` (`https://github.com/Just9120/Elevenlabs-API/pull/295`). Initial head `3d41fcb` exposed three core contract gaps. Exact fix/checkpoint head `8edc3c8d348695d8c4d943d6e0f53c2cdcaeea56`: core CI `33814548276` success (`1,717 passed`), Studio image/Compose и browser E2E run `33814548150` success; mergeable `CLEAN`, review comments absent. Not merged or deployed yet.
+- **Blockers / unverified assumptions:** no current publication blocker. Production Yandex credential/folder availability and external caption endpoints are unknown and will be represented honestly as unavailable until owner configures them.
+
+## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
+
 - **ID / title:** `JOB-RELIABILITY-NOTIFICATIONS-01` — безопасные автоматические retry и гарантированные terminal-уведомления.
-- **State:** `IN_PROGRESS` — explicit owner authorization получена; implementation зафиксирована commit `1fb819fd56f4b65990061679c8004a3db14df81a`, а bootstrap-safe migration fix — `b3b77c790212cdc7e5563ef595c133a737629eb8`; PR `#294` открыт, повторный exact-head CI и delivery ещё не выполнены.
+- **State:** `DONE` — PR `#294` merged; exact-main CI, protected migration/API/web/worker delivery и bounded no-send LIVE выполнены на `main@0fb499d9b7b65470292df0c2a7f90d0602417b83`.
 - **Authorization source:** explicit owner instruction 2026-09-03 после non-commercial gap review: «Бери пару эпиков на реализацию без коммерческого контура»; выбрана связанная пара canonical `JOB-RELIABILITY-02` + `JOB-NOTIFICATIONS-01`.
 - **Scope:** закрыть `JOBREL-05`, `JOBREL-09`, `JOBREL-10` и `JOBNOT-01`–`JOBNOT-06`: автоматически повторять только доказуемо safe transient failures с bounded attempts/backoff и без повторного provider/Google/storage side effect; создать owner-scoped durable terminal-notification outbox, атомарно и idempotently связанный с terminal job transition; реализовать opt-in Web Push, email и optional Telegram для success/error; обеспечить claim lease, bounded transport timeout/retry, stale-claim recovery, deduplication, безопасную redaction, понятные настройки/readiness/status в PWA; покрыть additive migration, API/worker/frontend contracts, tests, reviewable PR, exact CI, protected delivery и bounded LIVE без paid STT или несанкционированного внешнего сообщения.
 - **Non-goals:** commercial contour; новый STT provider; повтор provider call при timeout/unknown/partial/returned-result uncertainty; автоматический Google Docs retry/reconciliation; SMS/mobile app; marketing notifications; обязательный Telegram/email/Web Push; хранение SMTP/Telegram/VAPID secrets в PostgreSQL или браузере; чтение transcript/source/document content для notification; destructive data cleanup; отправка реального внешнего уведомления без отдельной action-time owner authorization.
@@ -18,23 +59,23 @@
   8. `JRN-08`: PWA показывает понятные channel readiness/preferences и последний bounded delivery outcome; unsupported/denied/unconfigured состояния не выдаются за success.
   9. `JRN-09`: migration, DB grants, retry classifier, transactional outbox, concurrency/dedup, all transports, redaction, API ownership/CSRF и service-worker/frontend flows покрыты focused/integration tests.
   10. `JRN-10`: reviewable PR и exact-head CI success; protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT и не отправляет внешнее сообщение без отдельного подтверждения владельца.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** external Web Push/email/Telegram LIVE потребует настроенного channel secret/configuration, browser permission и отдельной action-time owner authorization на реальную отправку. До этого code/test/deploy и suppressed/unconfigured LIVE могут быть закрыты независимо. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+- **Known blockers/dependencies:** отсутствуют для Goal DoD. External Web Push/email/Telegram фактически не отправлялись: channels остаются disabled/unconfigured и требуют отдельной action-time authorization. Unrelated files/directories сохранены untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `JOB-RELIABILITY-NOTIFICATIONS-01`
 
-- **Updated (UTC):** `2026-09-03T08:33:42Z`.
-- **Base branch/SHA:** verified clean tracked `main` and `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939` after fetch.
-- **Working branch:** `codex/job-reliability-notifications`.
+- **Updated (UTC):** `2026-09-03T17:40:00Z`.
+- **Base branch/SHA:** merged and deployed `main@0fb499d9b7b65470292df0c2a7f90d0602417b83`.
+- **Working branch:** merged `codex/job-reliability-notifications`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
 - **Last verified revision:** `b3b77c790212cdc7e5563ef595c133a737629eb8`.
 - **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented in `1fb819fd56f4b65990061679c8004a3db14df81a`. Initial PR CI exposed fresh-database `Base.metadata.create_all` compatibility in migration `0035`; bootstrap-safe full-boundary detection and a regression test were added in `b3b77c790212cdc7e5563ef595c133a737629eb8`. Production transports remain disabled by default.
-- **Current step:** publish the corrected same-origin API test and obtain green exact-head CI for PR `#294`.
-- **Next exact action:** commit/push the test correction and wait for all PR checks.
+- **Current step:** Goal closed; optional notification channels remain owner-controlled and disabled/unconfigured.
+- **Next exact action:** none; next Goal required new authorization and is recorded above.
 - **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; migration notification suite after fix `12 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Initial PR head `55e9128de835fe0c61fd86cae566deb77da105a2` failed core CI and browser E2E at the same `DuplicateColumn` migration bootstrap defect. Repeat head `ea3dd35328388209428c1cc92f8931990eebee4b` passed browser E2E and Studio image/Compose CI; core CI reached `1678 passed` with one failure in the newly added API test because its safe same-origin GET omitted the required test `Origin`, while production behavior correctly returned `403`. The test request now matches the existing same-origin contract. PostgreSQL/Redis rerun remains required because those local services are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
-- **PR / CI / deployment:** PR `#294`; browser E2E and Studio CI passed on repeat head, core CI requires one corrected test rerun; not deployed.
-- **Blockers / unverified assumptions:** exact production email/Telegram/VAPID configuration is unknown and will remain optional/fail-closed; external delivery is not assumed from source code.
+- **PR / CI / deployment:** PR `#294` merged; exact-main CI `33761495438` / `33761495442`; web CD `33761495444`; protected migration/API `33781247133` with schema `0035_job_notifications` and backup snapshot `f216e86ca866`; worker deploy/status `33781774924` / `33782320682`.
+- **Blockers / unverified assumptions:** none for closed Goal; external delivery remains intentionally untested and is not inferred from source.
 
 ## Previous Goal closure — `PERSONAL-SECURITY-UX-01`
 
@@ -289,7 +330,7 @@ DB least privilege, security hardening и UX polish изменились бол�
 
 ## Candidate next Goals
 
-Current Goal завершена. Следующая Goal не выбрана и требует новой explicit owner authorization.
+Current Goal `STT-MULTIPROVIDER-CONTINUITY-01` выполняется; Candidate next Goal не выбирается до её terminal state.
 
 ## Risks и boundaries
 

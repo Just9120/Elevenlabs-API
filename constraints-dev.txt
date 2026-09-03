@@ -97,6 +97,8 @@ googleapis-common-protos==1.75.0
     # via google-api-core
 greenlet==3.5.3
     # via sqlalchemy
+grpcio==1.83.1
+    # via -r apps/studio-api/requirements.txt
 h11==0.16.0
     # via
     #   httpcore
@@ -167,8 +169,9 @@ prompt-toolkit==3.0.52
     # via ipython
 proto-plus==1.28.1
     # via google-api-core
-protobuf==7.35.1
+protobuf==7.36.0
     # via
+    #   -r apps/studio-api/requirements.txt
     #   google-api-core
     #   googleapis-common-protos
     #   proto-plus

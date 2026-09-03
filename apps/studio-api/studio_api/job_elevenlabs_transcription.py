@@ -53,9 +53,11 @@ from .provider_usage_accounting import (
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_part_completed, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
+from .stt_dictionaries import dictionary_terms_from_options
 from .transcript_catalog import (
     ExistingResultMatchStatus,
     elevenlabs_effective_settings,
+    provider_effective_settings,
     has_competing_provider_attempt_conflict,
     load_existing_result_matches,
     lock_catalog_source_identities,
@@ -136,6 +138,10 @@ def transcribe_processing_job_source_with_elevenlabs(
     source_materializer: Callable = materialize_processing_job_source,
     media_preparer: Callable = prepare_elevenlabs_media_parts,
     elevenlabs_transport: ElevenLabsTranscriptionTransport | Callable[..., ElevenLabsTranscriptResult] | None = None,
+    expected_provider: str = "elevenlabs",
+    provider_model: str = "scribe_v2",
+    usage_accounting_enabled: bool = True,
+    part_checkpoints_enabled: bool = True,
     **kwargs,
 ) -> Iterator[ElevenLabsTranscriptResult]:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
@@ -157,7 +163,7 @@ def transcribe_processing_job_source_with_elevenlabs(
         except JobExecutionContextError as exc:
             raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.prerequisites_unavailable) from exc
         try:
-            if prereq.provider != "elevenlabs":
+            if prereq.provider != expected_provider:
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_mismatch)
             try:
                 _emit_provider(db, job_id, "SOURCE_VALIDATION_STARTED", {"attempt_number": _attempt(db, job_id)})
@@ -184,6 +190,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                         lease_generation,
                         clock(),
                         settings,
+                        expected_provider=expected_provider,
+                        provider_model=provider_model,
                     )
                     media_clip = initial_job_snapshot["catalog_settings"]
                     _close_read_transaction_before_media_preparation(db)
@@ -242,48 +250,52 @@ def transcribe_processing_job_source_with_elevenlabs(
                         prereq,
                         source,
                         expected_catalog_settings=initial_job_snapshot["catalog_settings"],
+                        expected_provider=expected_provider,
+                        provider_model=provider_model,
                     )
                     _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                     part_results: list[ElevenLabsTranscriptResult] = []
-                    try:
-                        part_results.extend(
-                            load_provider_part_checkpoints(
-                                db,
-                                job_id=job_id,
-                                job_source_id=job_source_id,
-                                parts=prepared_batch.parts,
-                                settings=settings,
-                                now=clock(),
+                    if part_checkpoints_enabled:
+                        try:
+                            part_results.extend(
+                                load_provider_part_checkpoints(
+                                    db,
+                                    job_id=job_id,
+                                    job_source_id=job_source_id,
+                                    parts=prepared_batch.parts,
+                                    settings=settings,
+                                    now=clock(),
+                                )
                             )
-                        )
-                    except ProviderPartCheckpointError as exc:
-                        _best_effort_classify(
-                            db,
-                            job_id,
-                            job_source_id,
-                            lease_owner_id,
-                            lease_generation,
-                            exc.reason.value,
-                            clock,
-                        )
-                        raise JobElevenLabsTranscriptionError(
-                            JobElevenLabsTranscriptionReason.retry_state_persistence_failed
-                        ) from exc
-                    try:
-                        pricing_snapshot(settings)
-                    except ProviderUsageAccountingError as exc:
-                        _best_effort_classify(
-                            db,
-                            job_id,
-                            job_source_id,
-                            lease_owner_id,
-                            lease_generation,
-                            JobElevenLabsTranscriptionReason.provider_pricing_unavailable.value,
-                            clock,
-                        )
-                        raise JobElevenLabsTranscriptionError(
-                            JobElevenLabsTranscriptionReason.provider_pricing_unavailable
-                        ) from exc
+                        except ProviderPartCheckpointError as exc:
+                            _best_effort_classify(
+                                db,
+                                job_id,
+                                job_source_id,
+                                lease_owner_id,
+                                lease_generation,
+                                exc.reason.value,
+                                clock,
+                            )
+                            raise JobElevenLabsTranscriptionError(
+                                JobElevenLabsTranscriptionReason.retry_state_persistence_failed
+                            ) from exc
+                    if usage_accounting_enabled:
+                        try:
+                            pricing_snapshot(settings)
+                        except ProviderUsageAccountingError as exc:
+                            _best_effort_classify(
+                                db,
+                                job_id,
+                                job_source_id,
+                                lease_owner_id,
+                                lease_generation,
+                                JobElevenLabsTranscriptionReason.provider_pricing_unavailable.value,
+                                clock,
+                            )
+                            raise JobElevenLabsTranscriptionError(
+                                JobElevenLabsTranscriptionReason.provider_pricing_unavailable
+                            ) from exc
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
                         mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts), completed_parts=len(part_results))
@@ -306,8 +318,9 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     lease_generation,
                                     clock,
                                 )
-                            try:
-                                begin_provider_part_usage(
+                            if usage_accounting_enabled:
+                                try:
+                                    begin_provider_part_usage(
                                     db,
                                     job_id=job_id,
                                     job_source_id=job_source_id,
@@ -318,39 +331,23 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     settings=settings,
                                     now=clock(),
                                 )
-                                db.commit()
-                            except ProviderUsageAccountingError as exc:
-                                db.rollback()
-                                mapped = (
-                                    JobElevenLabsTranscriptionReason.provider_pricing_unavailable
-                                    if exc.reason.value == "provider_pricing_unavailable"
-                                    else JobElevenLabsTranscriptionReason.provider_usage_outcome_uncertain
-                                    if exc.reason.value == "provider_usage_outcome_uncertain"
-                                    else JobElevenLabsTranscriptionReason.provider_usage_accounting_unavailable
-                                )
-                                _best_effort_classify(
-                                    db,
-                                    job_id,
-                                    job_source_id,
-                                    lease_owner_id,
-                                    lease_generation,
-                                    mapped.value,
-                                    clock,
-                                )
-                                raise JobElevenLabsTranscriptionError(mapped) from exc
-                            except Exception as exc:
-                                db.rollback()
-                                mapped = JobElevenLabsTranscriptionReason.provider_usage_accounting_unavailable
-                                _best_effort_classify(
-                                    db,
-                                    job_id,
-                                    job_source_id,
-                                    lease_owner_id,
-                                    lease_generation,
-                                    mapped.value,
-                                    clock,
-                                )
-                                raise JobElevenLabsTranscriptionError(mapped) from exc
+                                    db.commit()
+                                except ProviderUsageAccountingError as exc:
+                                    db.rollback()
+                                    mapped = (
+                                        JobElevenLabsTranscriptionReason.provider_pricing_unavailable
+                                        if exc.reason.value == "provider_pricing_unavailable"
+                                        else JobElevenLabsTranscriptionReason.provider_usage_outcome_uncertain
+                                        if exc.reason.value == "provider_usage_outcome_uncertain"
+                                        else JobElevenLabsTranscriptionReason.provider_usage_accounting_unavailable
+                                    )
+                                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                    raise JobElevenLabsTranscriptionError(mapped) from exc
+                                except Exception as exc:
+                                    db.rollback()
+                                    mapped = JobElevenLabsTranscriptionReason.provider_usage_accounting_unavailable
+                                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                    raise JobElevenLabsTranscriptionError(mapped) from exc
                             try:
                                 part_result = _call_transport(
                                     transport,
@@ -360,6 +357,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     mime_type=prepared.mime_type,
                                     language_code=provider_settings.language_code,
                                     diarize=provider_settings.diarize,
+                                    keyterms=dictionary_terms_from_options(initial_job_snapshot.get("options_json")),
+                                    model_id=provider_model,
                                 )
                             except ElevenLabsTranscriptionError as exc:
                                 provider_failure = _map_provider_reason(exc.reason)
@@ -394,8 +393,9 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 )
                                 _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                                 raise JobElevenLabsTranscriptionError(mapped) from exc
-                            try:
-                                usage = confirm_provider_part_usage(
+                            if usage_accounting_enabled:
+                                try:
+                                    usage = confirm_provider_part_usage(
                                     db,
                                     job_id=job_id,
                                     job_source_id=job_source_id,
@@ -404,8 +404,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     part_index=part_index,
                                     now=clock(),
                                 )
-                                db.commit()
-                                _emit_provider(
+                                    db.commit()
+                                    _emit_provider(
                                     db,
                                     job_id,
                                     "PROVIDER_USAGE_CONFIRMED",
@@ -416,21 +416,13 @@ def transcribe_processing_job_source_with_elevenlabs(
                                         ),
                                         "currency": usage.currency,
                                     },
-                                )
-                            except Exception as exc:
-                                db.rollback()
-                                mapped = JobElevenLabsTranscriptionReason.provider_usage_outcome_uncertain
-                                _best_effort_classify(
-                                    db,
-                                    job_id,
-                                    job_source_id,
-                                    lease_owner_id,
-                                    lease_generation,
-                                    mapped.value,
-                                    clock,
-                                )
-                                part_result.revoke()
-                                raise JobElevenLabsTranscriptionError(mapped) from exc
+                                    )
+                                except Exception as exc:
+                                    db.rollback()
+                                    mapped = JobElevenLabsTranscriptionReason.provider_usage_outcome_uncertain
+                                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                    part_result.revoke()
+                                    raise JobElevenLabsTranscriptionError(mapped) from exc
                             part_results.append(part_result)
                             _post_provider_revalidate_or_fail(
                                 db,
@@ -441,7 +433,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 clock,
                             )
                             try:
-                                if len(prepared_batch.parts) > 1:
+                                if part_checkpoints_enabled and len(prepared_batch.parts) > 1:
                                     save_provider_part_checkpoint(
                                         db,
                                         job_id=job_id,
@@ -637,9 +629,11 @@ def _final_pre_provider_revalidate(
     source,
     *,
     expected_catalog_settings=None,
+    expected_provider="elevenlabs",
+    provider_model="scribe_v2",
 ) -> TranscriptionProviderSettings:
     try:
-        cred_snap = _load_credential_db_only(db, job_id, owner, generation, now, settings)
+        cred_snap = _load_credential_db_only(db, job_id, owner, generation, now, settings, expected_provider=expected_provider, provider_model=provider_model)
         out_snap = _load_output_snapshot(db, job_id, owner, generation, now)
         src_snap = _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, settings)
     except JobElevenLabsTranscriptionError:
@@ -647,7 +641,7 @@ def _final_pre_provider_revalidate(
     except Exception as exc:
         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call) from exc
     credential_identity_changed = (
-        cred_snap["provider"] != "elevenlabs"
+        cred_snap["provider"] != expected_provider
         or cred_snap["credential_id"] != getattr(prereq, "_credential").credential_id
         or cred_snap["version_id"] != prereq.credential_version_id
     )
@@ -742,7 +736,7 @@ def _require_no_existing_result_conflict(
         )
 
 
-def _load_credential_db_only(db, job_id, owner, generation, now, settings):
+def _load_credential_db_only(db, job_id, owner, generation, now, settings, *, expected_provider="elevenlabs", provider_model="scribe_v2"):
     db.expire_all()
     job = db.get(TranscriptionJob, job_id)
     lifecycle_changed = (
@@ -764,7 +758,7 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
             JobElevenLabsTranscriptionReason.credential_or_output_identity_changed_before_provider_call
         )
     provider = str(getattr(cred.provider, "value", cred.provider))
-    if provider != "elevenlabs" or (job.provider is not None and job.provider != provider):
+    if provider != expected_provider or (job.provider is not None and job.provider != provider):
         raise JobElevenLabsTranscriptionError(
             JobElevenLabsTranscriptionReason.credential_or_output_identity_changed_before_provider_call
         )
@@ -787,8 +781,11 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         "version_id": ver.id,
         "provider": provider,
         "provider_settings": provider_transcription_settings(job.language, job.options_json),
+        "options_json": job.options_json,
         "owner_user_id": job.owner_user_id,
-        "catalog_settings": elevenlabs_effective_settings(
+        "catalog_settings": provider_effective_settings(
+            provider=expected_provider,
+            model=provider_model,
             language_mode=browser_language_mode(job.language),
             diarization_enabled=job_diarization_enabled(job.options_json),
             media_clip_start_seconds=job.media_clip_start_seconds,

@@ -9,7 +9,7 @@ from .source_policy import DEFAULT_SOURCE_RETENTION_TTL_SECONDS
 def now(): return datetime.now(timezone.utc)
 class UserRole(str, enum.Enum): admin="admin"; user="user"
 class UserStatus(str, enum.Enum): active="active"; disabled="disabled"; deleted="deleted"
-class CredentialProvider(str, enum.Enum): elevenlabs="elevenlabs"; openai="openai"
+class CredentialProvider(str, enum.Enum): elevenlabs="elevenlabs"; yandex="yandex"; openai="openai"
 class CredentialStatus(str, enum.Enum): active="active"; revoked="revoked"; deleted="deleted"
 class GoogleConnectionStatus(str, enum.Enum): active="active"; revoked="revoked"; error="error"
 class GoogleProvider(str, enum.Enum): google="google"
@@ -133,6 +133,7 @@ class ProviderCredential(Base):
     user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), index=True)
     provider: Mapped[CredentialProvider]=mapped_column(Enum(CredentialProvider))
     label: Mapped[str]=mapped_column(String(120))
+    config_json: Mapped[str|None]=mapped_column(Text)
     status: Mapped[CredentialStatus]=mapped_column(Enum(CredentialStatus), default=CredentialStatus.active)
     active_version_id: Mapped[str|None]=mapped_column(String(36))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
@@ -331,6 +332,7 @@ class TranscriptionJob(Base):
     trace_id: Mapped[str|None]=mapped_column(String(128), index=True)
     status: Mapped[JobStatus]=mapped_column(Enum(JobStatus), default=JobStatus.queued, index=True)
     provider: Mapped[str|None]=mapped_column(String(40))
+    operating_mode: Mapped[str]=mapped_column(String(24), nullable=False, default="standard", server_default=text("'standard'"))
     provider_credential_id: Mapped[str|None]=mapped_column(ForeignKey("provider_credentials.id"), index=True)
     title: Mapped[str|None]=mapped_column(String(160))
     language: Mapped[str|None]=mapped_column(String(40))
@@ -371,7 +373,7 @@ class TranscriptionJob(Base):
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
     speakers: Mapped[list["TranscriptionJobSpeaker"]]=relationship("TranscriptionJobSpeaker", order_by="TranscriptionJobSpeaker.display_ordinal")
-    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), Index("ix_transcription_jobs_retry_schedule", "status", "retry_not_before_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), CheckConstraint("provider_billed_duration_ms IS NULL OR provider_billed_duration_ms >= 0", name="ck_transcription_jobs_provider_duration_nonnegative"), CheckConstraint("provider_cost_amount IS NULL OR provider_cost_amount >= 0", name="ck_transcription_jobs_provider_cost_nonnegative"), CheckConstraint("provider_cost_currency IS NULL OR provider_cost_currency = 'USD'", name="ck_transcription_jobs_provider_currency"), CheckConstraint("provider_rate_per_hour IS NULL OR provider_rate_per_hour > 0", name="ck_transcription_jobs_provider_rate_positive"), CheckConstraint("NOT (provider_accounting_complete IS TRUE AND provider_accounting_uncertain IS TRUE)", name="ck_transcription_jobs_provider_accounting_consistent"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_project_owner_created_id", "project_id", "owner_user_id", "created_at", "id"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), Index("ix_transcription_jobs_retry_schedule", "status", "retry_not_before_at", "created_at"), CheckConstraint("operating_mode IN ('economic','standard','premium')", name="ck_transcription_jobs_operating_mode"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), CheckConstraint("provider_billed_duration_ms IS NULL OR provider_billed_duration_ms >= 0", name="ck_transcription_jobs_provider_duration_nonnegative"), CheckConstraint("provider_cost_amount IS NULL OR provider_cost_amount >= 0", name="ck_transcription_jobs_provider_cost_nonnegative"), CheckConstraint("provider_cost_currency IS NULL OR provider_cost_currency = 'USD'", name="ck_transcription_jobs_provider_currency"), CheckConstraint("provider_rate_per_hour IS NULL OR provider_rate_per_hour > 0", name="ck_transcription_jobs_provider_rate_positive"), CheckConstraint("NOT (provider_accounting_complete IS TRUE AND provider_accounting_uncertain IS TRUE)", name="ck_transcription_jobs_provider_accounting_consistent"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
 
     def apply_output_folder_snapshot(self, *, folder_id=None, folder_url=None, folder_name=None):
         from .job_output_folder_selection import normalize_drive_id, normalize_drive_url, normalize_optional_name
@@ -647,6 +649,96 @@ class TranscriptionJobSourceAttempt(Base):
         Index("ix_source_attempts_retry_disposition", "retry_disposition"),
         Index("ix_source_attempts_job_retry_disposition", "job_id", "retry_disposition"),
     )
+
+
+class SttDictionary(Base):
+    __tablename__="stt_dictionaries"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    name: Mapped[str]=mapped_column(String(120), nullable=False)
+    normalized_name: Mapped[str]=mapped_column(String(120), nullable=False)
+    active: Mapped[bool]=mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    entries: Mapped[list["SttDictionaryEntry"]]=relationship("SttDictionaryEntry", back_populates="dictionary", cascade="all, delete-orphan", order_by="SttDictionaryEntry.position")
+    __table_args__=(
+        UniqueConstraint("owner_user_id","normalized_name",name="uq_stt_dictionaries_owner_name"),
+        CheckConstraint("length(trim(name)) > 0", name="ck_stt_dictionaries_name_nonempty"),
+        CheckConstraint("length(trim(normalized_name)) > 0", name="ck_stt_dictionaries_normalized_name_nonempty"),
+        Index("ix_stt_dictionaries_owner_active_updated","owner_user_id","active","updated_at"),
+    )
+
+
+class SttDictionaryEntry(Base):
+    __tablename__="stt_dictionary_entries"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    dictionary_id: Mapped[str]=mapped_column(ForeignKey("stt_dictionaries.id", ondelete="CASCADE"), nullable=False)
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    kind: Mapped[str]=mapped_column(String(24), nullable=False)
+    value: Mapped[str]=mapped_column(String(160), nullable=False)
+    normalized_value: Mapped[str]=mapped_column(String(160), nullable=False)
+    position: Mapped[int]=mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    dictionary: Mapped[SttDictionary]=relationship("SttDictionary", back_populates="entries")
+    __table_args__=(
+        UniqueConstraint("dictionary_id","kind","normalized_value",name="uq_stt_dictionary_entries_kind_value"),
+        UniqueConstraint("dictionary_id","position",name="uq_stt_dictionary_entries_position"),
+        CheckConstraint("kind IN ('term','surname','name','abbreviation')", name="ck_stt_dictionary_entries_kind"),
+        CheckConstraint("length(trim(value)) > 0", name="ck_stt_dictionary_entries_value_nonempty"),
+        CheckConstraint("position >= 0 AND position < 500", name="ck_stt_dictionary_entries_position"),
+        Index("ix_stt_dictionary_entries_owner_dictionary","owner_user_id","dictionary_id","position"),
+    )
+
+
+class SttProviderOperation(Base):
+    __tablename__="stt_provider_operations"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False)
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    job_source_id: Mapped[str]=mapped_column(ForeignKey("transcription_job_sources.id"), nullable=False)
+    attempt_number: Mapped[int]=mapped_column(Integer, nullable=False)
+    provider: Mapped[str]=mapped_column(String(40), nullable=False)
+    operating_mode: Mapped[str]=mapped_column(String(24), nullable=False)
+    model: Mapped[str]=mapped_column(String(80), nullable=False)
+    operation_id: Mapped[str]=mapped_column(String(256), nullable=False)
+    status: Mapped[str]=mapped_column(String(24), nullable=False, default="pending", server_default=text("'pending'"))
+    result_ciphertext: Mapped[bytes|None]=mapped_column(LargeBinary)
+    result_nonce: Mapped[bytes|None]=mapped_column(LargeBinary)
+    result_key_id: Mapped[str|None]=mapped_column(String(80))
+    result_hmac: Mapped[str|None]=mapped_column(String(64))
+    submitted_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    last_polled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("job_source_id","attempt_number",name="uq_stt_provider_operations_source_attempt"),
+        UniqueConstraint("provider","operation_id",name="uq_stt_provider_operations_provider_operation"),
+        CheckConstraint("attempt_number >= 1", name="ck_stt_provider_operations_attempt_positive"),
+        CheckConstraint("provider IN ('yandex')", name="ck_stt_provider_operations_provider"),
+        CheckConstraint("operating_mode IN ('economic','standard','premium')", name="ck_stt_provider_operations_mode"),
+        CheckConstraint("status IN ('pending','completed','failed')", name="ck_stt_provider_operations_status"),
+        CheckConstraint("((result_ciphertext IS NULL AND result_nonce IS NULL AND result_key_id IS NULL AND result_hmac IS NULL) OR (result_ciphertext IS NOT NULL AND result_nonce IS NOT NULL AND result_key_id IS NOT NULL AND length(result_hmac) = 64))", name="ck_stt_provider_operations_result_shape"),
+        Index("ix_stt_provider_operations_job_source","job_source_id","attempt_number"),
+        Index("ix_stt_provider_operations_pending","status","last_polled_at","created_at"),
+    )
+
+
+class SttProviderHealth(Base):
+    __tablename__="stt_provider_health"
+    provider: Mapped[str]=mapped_column(String(40), primary_key=True)
+    operating_mode: Mapped[str]=mapped_column(String(24), primary_key=True)
+    consecutive_failures: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    circuit_open_until: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_failure_code: Mapped[str|None]=mapped_column(String(80))
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        CheckConstraint("provider IN ('elevenlabs','yandex')", name="ck_stt_provider_health_provider"),
+        CheckConstraint("operating_mode IN ('economic','standard','premium','realtime')", name="ck_stt_provider_health_mode"),
+        CheckConstraint("consecutive_failures >= 0", name="ck_stt_provider_health_failures_nonnegative"),
+    )
+
 
 class TranscriptionProviderPartCheckpoint(Base):
     __tablename__="transcription_provider_part_checkpoints"

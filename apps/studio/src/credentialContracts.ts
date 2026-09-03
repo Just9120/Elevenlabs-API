@@ -3,11 +3,12 @@ import { LATEST_REQUEST_CANCEL_REASON } from "./latestRequest";
 
 export type Credential = {
   id: string;
-  provider: "elevenlabs" | "openai";
+  provider: "elevenlabs" | "yandex" | "openai";
   label: string;
   status: "active" | "revoked";
   masked_value: string | null;
   active_version: number | null;
+  folder_id: string | null;
 };
 
 export function parseCredentialCollection(candidate: unknown): Credential[] | null {
@@ -23,6 +24,7 @@ export function parseCredentialCollection(candidate: unknown): Credential[] | nu
       credential.id.length === 0 ||
       credential.id.length > 36 ||
       (credential.provider !== "elevenlabs" &&
+        credential.provider !== "yandex" &&
         credential.provider !== "openai") ||
       typeof credential.label !== "string" ||
       credential.label.trim().length === 0 ||
@@ -34,7 +36,12 @@ export function parseCredentialCollection(candidate: unknown): Credential[] | nu
           credential.masked_value.length > 80)) ||
       (credential.active_version !== null &&
         (!Number.isInteger(credential.active_version) ||
-          (credential.active_version as number) <= 0))
+          (credential.active_version as number) <= 0)) ||
+      (credential.folder_id !== null &&
+        credential.folder_id !== undefined &&
+        (typeof credential.folder_id !== "string" ||
+          credential.folder_id.length === 0 ||
+          credential.folder_id.length > 256))
     ) {
       return null;
     }
@@ -45,6 +52,7 @@ export function parseCredentialCollection(candidate: unknown): Credential[] | nu
       status: credential.status,
       masked_value: credential.masked_value,
       active_version: credential.active_version as number | null,
+      folder_id: (credential.folder_id as string | null | undefined) ?? null,
     });
   }
   if (

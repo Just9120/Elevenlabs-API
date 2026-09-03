@@ -73,6 +73,62 @@ describe("LiveTranscriptionPanel", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/stt/providers")) {
+          return response({
+            providers: [
+              {
+                provider: "elevenlabs",
+                display_name: "ElevenLabs",
+                byok_enabled: true,
+                modes: [
+                  {
+                    mode: "realtime",
+                    model: "scribe_v2_realtime",
+                    transport: "websocket",
+                    languages: ["ru", "en", "detect"],
+                    diarization: false,
+                    dictionaries: false,
+                    file_constraints: {
+                      max_bytes: null,
+                      max_duration_seconds: 1800,
+                      audio_channels: [1],
+                    },
+                    health: {
+                      available: true,
+                      consecutive_failures: 0,
+                      retry_after_seconds: null,
+                    },
+                  },
+                ],
+              },
+              {
+                provider: "yandex",
+                display_name: "Yandex SpeechKit",
+                byok_enabled: false,
+                modes: [
+                  {
+                    mode: "realtime",
+                    model: "general",
+                    transport: "grpc_relay",
+                    languages: ["ru", "en", "detect"],
+                    diarization: true,
+                    dictionaries: false,
+                    file_constraints: {
+                      max_bytes: 10485760,
+                      max_duration_seconds: 300,
+                      audio_channels: [1],
+                    },
+                    health: {
+                      available: true,
+                      consecutive_failures: 0,
+                      retry_after_seconds: null,
+                    },
+                  },
+                ],
+              },
+            ],
+          });
+        }
         if (url.endsWith("/api/credentials")) {
           return response({
             credentials: [
@@ -167,6 +223,80 @@ describe("LiveTranscriptionPanel", () => {
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
   });
 
+  it("uses provider capability metadata to hide disabled Live BYOK choices", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+
+    expect(
+      await screen.findByRole("option", {
+        name: "Yandex SpeechKit — не включён",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: "ElevenLabs" }),
+    ).toBeEnabled();
+  });
+
+  it("blocks Live start while the selected provider circuit is open", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/stt/providers")) {
+        return response({
+          providers: [
+            {
+              provider: "elevenlabs",
+              display_name: "ElevenLabs",
+              byok_enabled: true,
+              modes: [
+                {
+                  mode: "realtime",
+                  model: "scribe_v2_realtime",
+                  transport: "websocket",
+                  languages: ["ru", "en", "detect"],
+                  diarization: false,
+                  dictionaries: false,
+                  file_constraints: {
+                    max_bytes: null,
+                    max_duration_seconds: 1800,
+                    audio_channels: [1],
+                  },
+                  health: {
+                    available: false,
+                    consecutive_failures: 3,
+                    retry_after_seconds: 300,
+                  },
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "ElevenLabs временно недоступен в Live-режиме",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+  });
+
   it("shows isolated source levels and explains automatic ducking", async () => {
     render(
       <LiveTranscriptionPanel
@@ -240,6 +370,7 @@ describe("LiveTranscriptionPanel", () => {
       headers: expect.objectContaining({ "x-csrf-token": "csrf-safe" }),
     });
     expect(JSON.parse(String(capabilityCall?.[1]?.body))).toEqual({
+      provider: "elevenlabs",
       provider_credential_id: "credential-safe",
       language: "en",
     });
@@ -1087,7 +1218,7 @@ describe("LiveTranscriptionPanel", () => {
       );
       expect(
         await screen.findByText(
-          "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+          "Не удалось загрузить профили STT. Повторите попытку.",
         ),
       ).toBeInTheDocument();
       expect(credentialSignal?.aborted).toBe(true);
@@ -1140,7 +1271,7 @@ describe("LiveTranscriptionPanel", () => {
     );
     expect(
       await screen.findByText(
-        "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+        "Не удалось загрузить профили STT. Повторите попытку.",
       ),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-live");

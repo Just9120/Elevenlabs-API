@@ -80,10 +80,28 @@ class Settings(BaseSettings):
     worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     worker_lease_heartbeat_interval_seconds: int = Field(default=60, ge=5)
     provider_part_checkpoint_ttl_seconds: int = Field(default=86400, ge=3600, le=86400)
+    elevenlabs_byok_enabled: bool = True
+    yandex_byok_enabled: bool = False
+    elevenlabs_economic_model: str = Field(default="scribe_v2", min_length=1, max_length=80)
+    elevenlabs_standard_model: str = Field(default="scribe_v2", min_length=1, max_length=80)
+    elevenlabs_premium_model: str = Field(default="scribe_v2", min_length=1, max_length=80)
+    elevenlabs_realtime_model: str = Field(default="scribe_v2_realtime", min_length=1, max_length=80)
+    yandex_economic_model: str = Field(default="deferred-general", min_length=1, max_length=80)
+    yandex_standard_model: str = Field(default="general", min_length=1, max_length=80)
+    yandex_premium_model: str = Field(default="general", min_length=1, max_length=80)
+    yandex_realtime_model: str = Field(default="general", min_length=1, max_length=80)
+    yandex_stt_api_base_url: str = "https://stt.api.cloud.yandex.net"
+    yandex_operations_api_base_url: str = "https://operation.api.cloud.yandex.net"
+    yandex_stt_grpc_endpoint: str = "stt.api.cloud.yandex.net:443"
+    yandex_operation_poll_interval_seconds: int = Field(default=5, ge=1, le=60)
+    yandex_operation_timeout_seconds: int = Field(default=14400, ge=30, le=14400)
+    stt_health_failure_threshold: int = Field(default=3, ge=2, le=20)
+    stt_health_cooldown_seconds: int = Field(default=300, ge=30, le=3600)
     elevenlabs_scribe_v2_rate_per_hour_usd: Decimal | None = Field(default=None, gt=0, le=100)
     elevenlabs_pricing_effective_date: date | None = None
     elevenlabs_pricing_source: str | None = Field(default=None, max_length=80)
     realtime_draft_ttl_seconds: int = Field(default=259200, ge=259200, le=259200)
+    realtime_webhook_allowed_hosts: str = Field(default="", max_length=2000)
     diagnostic_retention_days: int = Field(default=14, ge=1, le=30)
     diagnostic_debug_retention_hours: int = Field(default=24, ge=1, le=24)
     diagnostic_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86400)

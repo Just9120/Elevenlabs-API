@@ -1,6 +1,6 @@
 import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
@@ -99,6 +99,24 @@ from .transcript_catalog import (
     lock_catalog_source_identities,
 )
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, provider_language_code, stored_language_mode, stored_transcription_options
+from .stt_provider import SttCapabilityError, SttOperatingMode, SttProvider, catalog_payload, resolve_capability, validate_selection
+from .stt_provider_health import provider_health, record_provider_failure, record_provider_success
+from .stt_dictionaries import (
+    DictionaryEntryKind,
+    dictionary_payload,
+    load_owned_dictionaries,
+    normalize_dictionary_entries,
+    normalize_dictionary_name,
+    replace_dictionary_entries,
+    snapshot_dictionary_terms,
+)
+from .yandex_realtime_relay import create_yandex_realtime_capability, relay_yandex_realtime
+from .realtime_consumers import (
+    RealtimeConsumerError,
+    RealtimeConsumerKind,
+    deliver_realtime_caption,
+    validate_realtime_consumer_target,
+)
 from .transcript_catalog_routes import router as transcript_catalog_router
 from .audio_preparation import AudioPreparationError
 from .direct_drive_upload import (
@@ -254,7 +272,32 @@ class PasswordResetConfirmIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str=Field(min_length=32,max_length=256)
     new_password: str=Field(min_length=12,max_length=1024)
-class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
+class CredentialIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: CredentialProvider
+    label: str=Field(min_length=1,max_length=120)
+    raw_value: str=Field(min_length=8,max_length=4096)
+    folder_id: str|None=Field(default=None,min_length=1,max_length=256)
+
+    @model_validator(mode="after")
+    def validate_provider_config(self):
+        folder_id = self.folder_id.strip() if isinstance(self.folder_id, str) else None
+        if self.provider == CredentialProvider.yandex and not folder_id:
+            raise ValueError("Для Yandex укажите ID каталога")
+        if self.provider != CredentialProvider.yandex and folder_id:
+            raise ValueError("ID каталога поддерживается только для Yandex")
+        self.folder_id = folder_id
+        return self
+
+class SttDictionaryEntryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: DictionaryEntryKind
+    value: str=Field(min_length=1,max_length=160)
+
+class SttDictionaryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str=Field(min_length=1,max_length=120)
+    entries: list[SttDictionaryEntryIn]=Field(min_length=1,max_length=500)
 class ProjectIn(BaseModel): title: str=Field(min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
 class ProjectPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -494,6 +537,15 @@ class BatchJobItemIn(BaseModel):
 class TranscriptionJobOptionsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     diarize: StrictBool=False
+    dictionary_ids: list[str]=Field(default_factory=list,max_length=10)
+
+    @field_validator("dictionary_ids")
+    @classmethod
+    def unique_dictionary_ids(cls, value):
+        cleaned=[item.strip() for item in value]
+        if any(not item or len(item)>36 for item in cleaned) or len(cleaned)!=len(set(cleaned)):
+            raise ValueError("Некорректный список словарей")
+        return cleaned
 
 class JobRetryIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -504,6 +556,14 @@ class RealtimeCapabilityIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider_credential_id: str|None=Field(default=None, max_length=36)
     language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
+    provider: SttProvider=SttProvider.elevenlabs
+
+class RealtimeConsumerDeliveryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: RealtimeConsumerKind
+    endpoint: str=Field(min_length=12,max_length=2048)
+    text: str=Field(min_length=1,max_length=2000)
+    sequence: StrictInt=Field(ge=0,le=2147483647)
 
 class RealtimeDraftIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -512,6 +572,8 @@ class RealtimeDraftIn(BaseModel):
     partial: str=Field(default="", max_length=20000)
 
 class TranscriptionJobBatchCreateIn(BaseModel):
+    provider: SttProvider=SttProvider.elevenlabs
+    operating_mode: SttOperatingMode=SttOperatingMode.standard
     provider_credential_id: str|None=Field(default=None, max_length=36)
     language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
     options: TranscriptionJobOptionsIn=Field(default_factory=TranscriptionJobOptionsIn)
@@ -1151,7 +1213,7 @@ def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)], "usage_cost": job_usage_cost_payload(job)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "operating_mode": getattr(job,"operating_mode","standard"), "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)], "usage_cost": job_usage_cost_payload(job)}
     batch=browser_batch_reference(job)
     if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
@@ -1931,51 +1993,77 @@ def _clean_idempotency_key(value: str|None) -> str:
 def _load_existing_batch(db, user_id, project_id, key):
     return db.query(TranscriptionJob).filter(TranscriptionJob.owner_user_id==user_id, TranscriptionJob.project_id==project_id, TranscriptionJob.batch_idempotency_key==key).order_by(TranscriptionJob.batch_position.asc(), TranscriptionJob.id.asc()).all()
 
-def _batch_hash(project_id, provider_credential_id, language, options_json, items):
-    canonical={"project_id":project_id,"provider_credential_id":provider_credential_id,"language":language,"options":json.loads(options_json) if options_json else None,"items":items}
+def _batch_hash(project_id, provider_credential_id, language, options_json, items, *, provider="elevenlabs", operating_mode="standard"):
+    canonical={"project_id":project_id,"provider_credential_id":provider_credential_id,"provider":provider,"operating_mode":operating_mode,"language":language,"options":json.loads(options_json) if options_json else None,"items":items}
     return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _resolve_active_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
+def _provider_label(provider: str | SttProvider | CredentialProvider) -> str:
+    value=getattr(provider,"value",provider)
+    return "Yandex SpeechKit" if value == "yandex" else "ElevenLabs"
+
+
+def _resolve_active_stt_credential_id(
+    db,
+    user,
+    requested_credential_id,
+    provider: str | SttProvider,
+    operating_mode: str | SttOperatingMode = SttOperatingMode.standard,
+) -> str:
+    provider_value=SttProvider(getattr(provider,"value",provider))
+    try:
+        resolve_capability(settings,provider_value,operating_mode)
+    except SttCapabilityError as exc:
+        raise HTTPException(422,detail={"reason":exc.reason.value}) from None
+    credential_provider=CredentialProvider(provider_value.value)
+    label=_provider_label(provider_value)
     requested = requested_credential_id.strip() if isinstance(requested_credential_id, str) and requested_credential_id.strip() else None
     if requested:
         credential = db.get(ProviderCredential, requested)
         if (
             not credential
             or credential.user_id != user.id
-            or credential.provider != CredentialProvider.elevenlabs
+            or credential.provider != credential_provider
             or credential.status != CredentialStatus.active
             or credential.deleted_at is not None
         ):
-            raise HTTPException(422, "Выберите активный профиль ElevenLabs.")
+            raise HTTPException(422, f"Выберите активный профиль {label}.")
         return credential.id
     credentials = db.query(ProviderCredential).filter(
         ProviderCredential.user_id == user.id,
-        ProviderCredential.provider == CredentialProvider.elevenlabs,
+        ProviderCredential.provider == credential_provider,
         ProviderCredential.status == CredentialStatus.active,
         ProviderCredential.deleted_at.is_(None),
     ).all()
     if len(credentials) == 1:
         return credentials[0].id
     if len(credentials) == 0:
-        raise HTTPException(422, "Добавьте активный ключ ElevenLabs в настройках.")
-    raise HTTPException(422, "Выберите профиль подключения ElevenLabs.")
+        raise HTTPException(422, f"Добавьте активный ключ {label} в настройках.")
+    raise HTTPException(422, f"Выберите профиль подключения {label}.")
 
-def _open_active_elevenlabs_api_key(
+
+def _resolve_active_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
+    return _resolve_active_stt_credential_id(db,user,requested_credential_id,SttProvider.elevenlabs)
+
+def _open_active_stt_api_key(
     db: Session,
     user: User,
     credential_id: str,
+    provider: str | SttProvider,
 ) -> str:
+    provider_value=SttProvider(getattr(provider,"value",provider))
+    credential_provider=CredentialProvider(provider_value.value)
+    label=_provider_label(provider_value)
     credential = db.get(ProviderCredential, credential_id)
     if (
         not credential
         or credential.user_id != user.id
-        or credential.provider != CredentialProvider.elevenlabs
+        or credential.provider != credential_provider
         or credential.status != CredentialStatus.active
         or credential.deleted_at is not None
         or not credential.active_version_id
     ):
-        raise HTTPException(422, "Выберите активный профиль ElevenLabs.")
+        raise HTTPException(422, f"Выберите активный профиль {label}.")
     version = db.get(ProviderCredentialVersion, credential.active_version_id)
     if (
         not version
@@ -1986,7 +2074,7 @@ def _open_active_elevenlabs_api_key(
         or version.nonce is None
         or version.key_id != settings.credential_key_id
     ):
-        raise HTTPException(503, "Профиль ElevenLabs временно недоступен.")
+        raise HTTPException(503, f"Профиль {label} временно недоступен.")
     try:
         return decrypt(
             version.ciphertext,
@@ -1997,8 +2085,12 @@ def _open_active_elevenlabs_api_key(
     except Exception as exc:
         raise HTTPException(
             503,
-            "Профиль ElevenLabs временно недоступен.",
+            f"Профиль {label} временно недоступен.",
         ) from exc
+
+
+def _open_active_elevenlabs_api_key(db: Session,user: User,credential_id: str) -> str:
+    return _open_active_stt_api_key(db,user,credential_id,SttProvider.elevenlabs)
 
 def _raise_realtime_capability_failure(
     request: Request,
@@ -2213,23 +2305,78 @@ def create_project_realtime_capability(
     limiter.check("realtime:capability:" + user.id, 20, 300)
     project = owned_project_or_404(db, user, project_id)
     _browser_capability_cache_headers(response)
-    credential_id = _resolve_active_elevenlabs_credential_id(
+    try:
+        mode_capability=resolve_capability(settings,data.provider,SttOperatingMode.realtime)
+    except SttCapabilityError as exc:
+        raise HTTPException(422,detail={"reason":exc.reason.value}) from None
+    health=provider_health(db,provider=data.provider.value,operating_mode="realtime",now=utcnow().replace(tzinfo=None))
+    if not health.available:
+        raise HTTPException(503,detail={"reason":"provider_mode_unavailable","retry_after_seconds":health.retry_after_seconds})
+    credential_id = _resolve_active_stt_credential_id(
         db,
         user,
         data.provider_credential_id,
+        data.provider,
+        SttOperatingMode.realtime,
     )
-    api_key = _open_active_elevenlabs_api_key(db, user, credential_id)
+    if data.provider == SttProvider.yandex:
+        credential=db.get(ProviderCredential,credential_id)
+        version=db.get(ProviderCredentialVersion,credential.active_version_id) if credential and credential.active_version_id else None
+        try:
+            config=json.loads(credential.config_json or "{}") if credential else {}
+        except (TypeError,ValueError):
+            config={}
+        folder_id=str(config.get("folder_id") or "").strip()
+        if version is None or not folder_id:
+            raise HTTPException(503,detail={"reason":"credential_unavailable"})
+        capability=create_yandex_realtime_capability(
+            owner_user_id=user.id,
+            project_id=project.id,
+            credential_id=credential.id,
+            credential_version_id=version.id,
+            folder_id=folder_id,
+            language_code={"ru":"ru-RU","en":"en-US"}.get(data.language.value),
+            model=mode_capability.model,
+            settings=settings,
+        )
+        _write_realtime_diagnostic_event(request,user,event_code="REALTIME_CAPABILITY_ISSUED",project_id=project.id,metadata={"provider":"yandex","model":mode_capability.model,"expires_in_seconds":capability["expires_in_seconds"]})
+        return capability
+    api_key = _open_active_stt_api_key(db,user,credential_id,data.provider)
     try:
         capability = create_realtime_capability(
             api_key,
             language_code=provider_language_code(data.language.value),
         )
     except RealtimeCapabilityError as exc:
+        try:
+            db.rollback()
+            record_provider_failure(
+                db,
+                provider="elevenlabs",
+                operating_mode="realtime",
+                failure_code=exc.reason.value,
+                threshold=settings.stt_health_failure_threshold,
+                cooldown_seconds=settings.stt_health_cooldown_seconds,
+                now=utcnow().replace(tzinfo=None),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
         _raise_realtime_capability_failure(
             request,
             user,
             reason=exc.reason,
         )
+    try:
+        record_provider_success(
+            db,
+            provider="elevenlabs",
+            operating_mode="realtime",
+            now=utcnow().replace(tzinfo=None),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
     _write_realtime_diagnostic_event(
         request,
         user,
@@ -2242,6 +2389,47 @@ def create_project_realtime_capability(
     )
     return capability.browser_payload()
 
+
+@app.websocket("/api/realtime/yandex")
+async def yandex_realtime_websocket(websocket: WebSocket,capability: str=Query(...,min_length=80,max_length=1600)):
+    await relay_yandex_realtime(websocket,capability=capability,settings=settings)
+
+
+@app.post("/api/projects/{project_id}/realtime/consumers/deliver")
+def deliver_project_realtime_caption(
+    project_id: str,
+    data: RealtimeConsumerDeliveryIn,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    _,user=pair
+    limiter.check("realtime:consumer:"+user.id,600,3600)
+    owned_project_or_404(db,user,project_id)
+    try:
+        target=validate_realtime_consumer_target(
+            data.kind,
+            data.endpoint,
+            webhook_allowed_hosts=settings.realtime_webhook_allowed_hosts,
+        )
+        deliver_realtime_caption(
+            target,
+            text=" ".join(data.text.split()),
+            sequence=data.sequence,
+        )
+    except RealtimeConsumerError as exc:
+        status_code=422 if str(exc) in {
+            "unsupported_consumer",
+            "invalid_consumer_endpoint",
+            "invalid_youtube_endpoint",
+            "webhook_host_not_allowed",
+            "consumer_endpoint_not_public",
+            "invalid_caption_text",
+            "invalid_caption_sequence",
+        } else 502
+        raise HTTPException(status_code,detail={"reason":str(exc)}) from None
+    return {"ok":True}
+
 def _existing_batch_is_complete(existing, request_hash: str, expected_count: int) -> bool:
     if len(existing) != expected_count:
         return False
@@ -2249,7 +2437,9 @@ def _existing_batch_is_complete(existing, request_hash: str, expected_count: int
     return positions == list(range(expected_count)) and all(job.batch_request_hash == request_hash for job in existing)
 
 def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
-    language=stored_language_mode(data.language); options_json=stored_transcription_options(data.options.diarize)
+    language=stored_language_mode(data.language)
+    options_payload={"diarize":bool(data.options.diarize),"dictionary_ids":list(data.options.dictionary_ids)}
+    options_json=json.dumps(options_payload,sort_keys=True,separators=(",",":"))
     explicit_provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
     pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]; reprocess_existing=[]; media_clips=[]
     for item in data.items:
@@ -2282,18 +2472,37 @@ def _validate_manual_segment_groups(source_ids,media_clips):
         except MediaClipPlanError as exc:
             raise HTTPException(422,"Некорректный план фрагментов файла") from exc
 
-def _validate_new_batch_targets(db: Session, user: User, project: Project, *, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
-    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+def _validate_new_batch_targets(db: Session, user: User, project: Project, *, provider, operating_mode, language, diarization_enabled, dictionary_ids, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
+    try:
+        capability=validate_selection(settings,provider=provider,mode=operating_mode,language=language,diarization=diarization_enabled,dictionary_count=len(dictionary_ids))
+    except SttCapabilityError as exc:
+        raise HTTPException(422,detail={"reason":exc.reason.value}) from None
+    health=provider_health(db,provider=provider.value,operating_mode=operating_mode.value,now=utcnow().replace(tzinfo=None))
+    if not health.available:
+        raise HTTPException(503,detail={"reason":"provider_mode_unavailable","retry_after_seconds":health.retry_after_seconds})
+    provider_credential_id=_resolve_active_stt_credential_id(
+        db,
+        user,
+        explicit_provider_credential_id,
+        provider,
+        operating_mode,
+    )
+    try:
+        dictionaries=load_owned_dictionaries(db,owner_user_id=user.id,dictionary_ids=dictionary_ids)
+    except ValueError as exc:
+        raise HTTPException(422,detail={"reason":str(exc)}) from None
     if duplicate_pair_found:
         raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
     sources=validate_job_sources(db, project.id, source_ids)
     unique_folders=list(dict.fromkeys(folder_ids))
     access_token=refreshed_google_drive_access_token(db, user)
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
-    return provider_credential_id, sources, verified_by_id
+    return provider_credential_id, sources, verified_by_id, capability, snapshot_dictionary_terms(dictionaries)
 
-def _batch_target_settings(*, language: str, diarization_enabled: bool, media_clip):
+def _batch_target_settings(*, provider: str, model: str, language: str, diarization_enabled: bool, media_clip):
     return current_effective_settings(
+        provider=provider,
+        model=model,
         language_mode=language,
         diarization_enabled=diarization_enabled,
         media_clip_start_seconds=media_clip.start_seconds,
@@ -2317,17 +2526,17 @@ def _require_catalog_identity_locks(db: Session, user: User, sources):
         )
     return locked
 
-def _load_batch_existing_result_matches(db: Session, user: User, sources, media_clips, *, language: str, diarization_enabled: bool):
+def _load_batch_existing_result_matches(db: Session, user: User, sources, media_clips, *, provider: str="elevenlabs", model: str="scribe_v2", language: str, diarization_enabled: bool):
     decisions={}
     for source,media_clip in zip(sources,media_clips,strict=True):
-        match=load_existing_result_matches(db,owner_user_id=user.id,sources=(source,),target_settings=_batch_target_settings(language=language,diarization_enabled=diarization_enabled,media_clip=media_clip)).get(source.id)
+        match=load_existing_result_matches(db,owner_user_id=user.id,sources=(source,),target_settings=_batch_target_settings(provider=provider,model=model,language=language,diarization_enabled=diarization_enabled,media_clip=media_clip)).get(source.id)
         decisions[_batch_decision_key(source,media_clip)]=match
     return decisions
 
-def _load_batch_provider_attempt_authorities(db: Session, user: User, sources, media_clips, *, language: str, diarization_enabled: bool):
+def _load_batch_provider_attempt_authorities(db: Session, user: User, sources, media_clips, *, provider: str="elevenlabs", model: str="scribe_v2", language: str, diarization_enabled: bool):
     decisions={}
     for source,media_clip in zip(sources,media_clips,strict=True):
-        authority=load_provider_attempt_authorities(db,owner_user_id=user.id,sources=(source,),target_settings=_batch_target_settings(language=language,diarization_enabled=diarization_enabled,media_clip=media_clip)).get(source.id)
+        authority=load_provider_attempt_authorities(db,owner_user_id=user.id,sources=(source,),target_settings=_batch_target_settings(provider=provider,model=model,language=language,diarization_enabled=diarization_enabled,media_clip=media_clip)).get(source.id)
         decisions[_batch_decision_key(source,media_clip)]=authority
     return decisions
 
@@ -2356,15 +2565,19 @@ def _require_batch_preflight_decisions(sources, media_clips, matches, provider_a
 def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:batch:preflight:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
     language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, media_clips, _hash_items=_normalize_batch_creation_input(data)
-    _provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
-    existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,language=language,diarization_enabled=data.options.diarize)
-    provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,language=language,diarization_enabled=data.options.diarize)
+    _provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
+    provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
     return build_batch_preflight_payload(
         sources=sources,
         output_folders=[verified_by_id[fid] for fid in folder_ids],
         titles=titles,
         language_mode=language,
         diarization_enabled=data.options.diarize,
+        provider=data.provider.value,
+        model=capability.model,
+        operating_mode=data.operating_mode.value,
+        dictionary_term_count=len(dictionary_terms),
         existing_result_matches=existing_result_matches,
         reprocess_existing=reprocess_existing,
         provider_attempt_authorities=provider_attempt_authorities,
@@ -2380,26 +2593,27 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     existing=_load_existing_batch(db,user.id,p.id,key)
     if existing:
         replay_credential_id = explicit_provider_credential_id or existing[0].provider_credential_id
-        request_hash=_batch_hash(p.id, replay_credential_id, language, options_json, hash_items)
+        request_hash=_batch_hash(p.id,replay_credential_id,language,options_json,hash_items,provider=data.provider.value,operating_mode=data.operating_mode.value)
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
-    provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
-    request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
+    provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    request_hash=_batch_hash(p.id,provider_credential_id,language,options_json,hash_items,provider=data.provider.value,operating_mode=data.operating_mode.value)
     try:
         jobs=[]
         _require_catalog_identity_locks(db, user, sources)
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
-        existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,language=language,diarization_enabled=data.options.diarize)
-        provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,language=language,diarization_enabled=data.options.diarize)
+        existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
+        provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
         _require_batch_preflight_decisions(sources,media_clips,existing_result_matches,provider_attempt_authorities,reprocess_existing)
         for idx,(src,fid,title,media_clip) in enumerate(zip(sources,folder_ids,titles,media_clips,strict=True)):
             vf=verified_by_id[fid]
             job_options_json=stored_transcription_options(
                 data.options.diarize,
                 existing_result_reprocess_authorized=reprocess_existing[idx],
+                dictionary_terms=dictionary_terms,
             )
-            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, trace_id=getattr(request.state,"trace_id",None), status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx, media_clip_start_seconds=media_clip.start_seconds, media_clip_end_seconds=media_clip.end_seconds)
+            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, trace_id=getattr(request.state,"trace_id",None), status=JobStatus.queued, provider=data.provider.value, operating_mode=data.operating_mode.value, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx, media_clip_start_seconds=media_clip.start_seconds, media_clip_end_seconds=media_clip.end_seconds)
             job.apply_output_folder_snapshot(folder_id=vf.id, folder_url=vf.web_view_url, folder_name=vf.name)
             db.add(job); db.flush(); db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0, status=JobSourceStatus.queued)); jobs.append(job)
         audit(db,"job.batch_created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,created_count=len(jobs))
@@ -4084,8 +4298,92 @@ def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db))
     out=[]
     for c in rows:
         v=db.get(ProviderCredentialVersion, c.active_version_id) if c.active_version_id else None
-        out.append({"id":c.id,"provider":c.provider.value,"label":c.label,"status":c.status.value,"active_version":v.version if v else None,"masked_value":v.masked_value if v else None,"created_at":c.created_at.isoformat()})
+        try:
+            provider_config=json.loads(c.config_json or "{}")
+        except (TypeError,ValueError):
+            provider_config={}
+        out.append({"id":c.id,"provider":c.provider.value,"label":c.label,"status":c.status.value,"active_version":v.version if v else None,"masked_value":v.masked_value if v else None,"folder_id":provider_config.get("folder_id") if c.provider==CredentialProvider.yandex else None,"created_at":c.created_at.isoformat()})
     return {"credentials": out}
+
+
+@app.get("/api/stt/providers")
+def list_stt_providers(response: Response,pair=Depends(current_session),db: Session=Depends(get_db)):
+    _,user=pair
+    limiter.check("stt:providers:"+user.id,240,3600)
+    payload=catalog_payload(settings)
+    current=utcnow().replace(tzinfo=None)
+    for provider in payload["providers"]:
+        for mode in provider["modes"]:
+            health=provider_health(db,provider=provider["provider"],operating_mode=mode["mode"],now=current)
+            mode["health"]={"available":health.available,"consecutive_failures":health.consecutive_failures,"retry_after_seconds":health.retry_after_seconds}
+    _browser_capability_cache_headers(response)
+    return payload
+
+
+@app.get("/api/stt/dictionaries")
+def list_stt_dictionaries(response: Response,pair=Depends(current_session),db: Session=Depends(get_db)):
+    _,user=pair
+    limiter.check("stt:dictionaries:list:"+user.id,240,3600)
+    _browser_capability_cache_headers(response)
+    return {"dictionaries":[dictionary_payload(row) for row in load_owned_dictionaries(db,owner_user_id=user.id)]}
+
+
+@app.post("/api/stt/dictionaries")
+def create_stt_dictionary(data: SttDictionaryIn,pair=Depends(require_csrf),db: Session=Depends(get_db),_=Depends(require_same_origin)):
+    _,user=pair
+    limiter.check("stt:dictionaries:create:"+user.id,60,3600)
+    try:
+        name,normalized_name=normalize_dictionary_name(data.name)
+        entries=normalize_dictionary_entries(data.entries)
+    except ValueError as exc:
+        raise HTTPException(422,detail={"reason":str(exc)}) from None
+    row=SttDictionary(owner_user_id=user.id,name=name,normalized_name=normalized_name)
+    db.add(row)
+    try:
+        db.flush()
+        replace_dictionary_entries(db,dictionary=row,entries=entries)
+        audit(db,"stt_dictionary.created",actor_user_id=user.id,subject_user_id=user.id)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409,detail={"reason":"dictionary_name_conflict"}) from None
+    db.refresh(row)
+    return dictionary_payload(load_owned_dictionaries(db,owner_user_id=user.id,dictionary_ids=(row.id,))[0])
+
+
+@app.put("/api/stt/dictionaries/{dictionary_id}")
+def update_stt_dictionary(dictionary_id: str,data: SttDictionaryIn,pair=Depends(require_csrf),db: Session=Depends(get_db),_=Depends(require_same_origin)):
+    _,user=pair
+    limiter.check("stt:dictionaries:update:"+user.id,120,3600)
+    row=db.get(SttDictionary,dictionary_id)
+    if row is None or row.owner_user_id!=user.id or not row.active:
+        raise HTTPException(404,"Не найдено")
+    try:
+        row.name,row.normalized_name=normalize_dictionary_name(data.name)
+        replace_dictionary_entries(db,dictionary=row,entries=normalize_dictionary_entries(data.entries))
+        row.updated_at=utcnow()
+        audit(db,"stt_dictionary.updated",actor_user_id=user.id,subject_user_id=user.id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422,detail={"reason":str(exc)}) from None
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409,detail={"reason":"dictionary_name_conflict"}) from None
+    return dictionary_payload(load_owned_dictionaries(db,owner_user_id=user.id,dictionary_ids=(row.id,))[0])
+
+
+@app.delete("/api/stt/dictionaries/{dictionary_id}")
+def delete_stt_dictionary(dictionary_id: str,pair=Depends(require_csrf),db: Session=Depends(get_db),_=Depends(require_same_origin)):
+    _,user=pair
+    limiter.check("stt:dictionaries:delete:"+user.id,60,3600)
+    row=db.get(SttDictionary,dictionary_id)
+    if row is None or row.owner_user_id!=user.id:
+        raise HTTPException(404,"Не найдено")
+    db.delete(row)
+    audit(db,"stt_dictionary.deleted",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return {"ok":True}
 
 
 def _active_elevenlabs_credentials(db: Session, user: User):
@@ -4226,13 +4524,16 @@ def add_version(db,user,c,raw):
 @app.post("/api/credentials")
 def create_credential(data: CredentialIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     sess,user=require_recent_auth(pair); limiter.check("cred:create:"+user.id, 20, 3600)
-    c=ProviderCredential(user_id=user.id, provider=data.provider, label=data.label.strip()); db.add(c); db.flush(); v=add_version(db,user,c,data.raw_value)
+    config_json=json.dumps({"folder_id":data.folder_id},ensure_ascii=False,separators=(",",":")) if data.provider==CredentialProvider.yandex else None
+    c=ProviderCredential(user_id=user.id, provider=data.provider, label=data.label.strip(),config_json=config_json); db.add(c); db.flush(); v=add_version(db,user,c,data.raw_value)
     audit(db,"credential.created",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"id": c.id, "provider": c.provider.value, "label": c.label, "status": c.status.value, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/replace")
 def replace_credential(credential_id: str, data: CredentialIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=require_recent_auth(pair); limiter.check("cred:replace:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id or c.provider!=data.provider or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
+    c.label=data.label.strip()
+    c.config_json=json.dumps({"folder_id":data.folder_id},ensure_ascii=False,separators=(",",":")) if data.provider==CredentialProvider.yandex else None
     v=add_version(db,user,c,data.raw_value); audit(db,"credential.replaced",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"ok": True, "active_version": v.version, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/revoke")

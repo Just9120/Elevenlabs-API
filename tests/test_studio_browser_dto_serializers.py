@@ -28,6 +28,7 @@ JOB_KEYS = {
     "status",
     "title",
     "provider",
+    "operating_mode",
     "language_mode",
     "diarization_enabled",
     "media_clip",
@@ -126,6 +127,7 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     assert "provider_credential_id" not in payload
     assert "lease_owner_id" not in payload
     assert "lease_generation" not in payload
+    assert payload["operating_mode"] == "standard"
     assert payload["language_mode"] == "detect"
     assert payload["diarization_enabled"] is False
     assert payload["media_clip"] is None

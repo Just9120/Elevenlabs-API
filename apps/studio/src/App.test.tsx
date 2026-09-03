@@ -115,10 +115,142 @@ function credentialFixture(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+function sttProviderCatalogFixture() {
+  const health = {
+    available: true,
+    consecutive_failures: 0,
+    retry_after_seconds: null,
+  };
+  const constraints = {
+    max_bytes: 26_214_400,
+    max_duration_seconds: 14_400,
+    audio_channels: [1, 2],
+  };
+  return {
+    providers: [
+      {
+        provider: "elevenlabs",
+        display_name: "ElevenLabs",
+        byok_enabled: true,
+        modes: [
+          {
+            mode: "economic",
+            model: "scribe_v2",
+            transport: "batch",
+            languages: ["ru", "en", "detect"],
+            diarization: true,
+            dictionaries: true,
+            file_constraints: constraints,
+            health,
+          },
+          {
+            mode: "standard",
+            model: "scribe_v2",
+            transport: "batch",
+            languages: ["ru", "en", "detect"],
+            diarization: true,
+            dictionaries: true,
+            file_constraints: constraints,
+            health,
+          },
+          {
+            mode: "premium",
+            model: "scribe_v2",
+            transport: "batch",
+            languages: ["ru", "en", "detect"],
+            diarization: true,
+            dictionaries: true,
+            file_constraints: constraints,
+            health,
+          },
+          {
+            mode: "realtime",
+            model: "scribe_v2_realtime",
+            transport: "websocket",
+            languages: ["ru", "en", "detect"],
+            diarization: false,
+            dictionaries: false,
+            file_constraints: {
+              max_bytes: null,
+              max_duration_seconds: 1_800,
+              audio_channels: [1],
+            },
+            health,
+          },
+        ],
+      },
+      {
+        provider: "yandex",
+        display_name: "Yandex SpeechKit",
+        byok_enabled: false,
+        modes: [
+          {
+            mode: "economic",
+            model: "general:rc",
+            transport: "deferred",
+            languages: ["ru", "en", "detect"],
+            diarization: false,
+            dictionaries: false,
+            file_constraints: {
+              max_bytes: 62_914_560,
+              max_duration_seconds: 14_400,
+              audio_channels: [1],
+            },
+            health,
+          },
+          {
+            mode: "standard",
+            model: "general",
+            transport: "batch",
+            languages: ["ru", "en", "detect"],
+            diarization: true,
+            dictionaries: false,
+            file_constraints: {
+              max_bytes: 62_914_560,
+              max_duration_seconds: 14_400,
+              audio_channels: [1],
+            },
+            health,
+          },
+          {
+            mode: "premium",
+            model: "general:rc",
+            transport: "batch",
+            languages: ["ru", "en", "detect"],
+            diarization: true,
+            dictionaries: false,
+            file_constraints: {
+              max_bytes: 62_914_560,
+              max_duration_seconds: 14_400,
+              audio_channels: [1],
+            },
+            health,
+          },
+          {
+            mode: "realtime",
+            model: "general",
+            transport: "grpc_relay",
+            languages: ["ru", "en", "detect"],
+            diarization: true,
+            dictionaries: false,
+            file_constraints: {
+              max_bytes: 10_485_760,
+              max_duration_seconds: 300,
+              audio_channels: [1],
+            },
+            health,
+          },
+        ],
+      },
+    ],
+  };
+}
 function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
+    provider?: "elevenlabs" | "yandex";
+    operating_mode?: "economic" | "standard" | "premium";
     language?: "ru" | "en" | "detect";
-    options?: { diarize?: boolean };
+    options?: { diarize?: boolean; dictionary_ids?: string[] };
     items?: {
       title?: string | null;
       reprocess_existing?: boolean;
@@ -128,8 +260,10 @@ function batchPreflightJson(init?: RequestInit) {
   };
   const items = request.items ?? [];
   return json({
-    provider: "elevenlabs",
+    provider: request.provider ?? "elevenlabs",
     model: "scribe_v2",
+    operating_mode: request.operating_mode ?? "standard",
+    dictionary_term_count: request.options?.dictionary_ids?.length ?? 0,
     language_mode: request.language ?? "ru",
     diarization_enabled: request.options?.diarize === true,
     existing_result_authority: {
@@ -492,6 +626,10 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
         });
       if (url.endsWith("/api/auth/csrf"))
         return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/stt/providers"))
+        return json(sttProviderCatalogFixture());
+      if (url.endsWith("/api/stt/dictionaries"))
+        return json({ dictionaries: [] });
       if (url.endsWith("/api/projects"))
         return json({
           projects: [
@@ -930,6 +1068,10 @@ describe("Studio PWA", () => {
             supported_mime_prefixes: ["audio/", "video/"],
             supported_mime_types: ["application/ogg"],
           });
+        if (url.endsWith("/api/stt/providers"))
+          return json(sttProviderCatalogFixture());
+        if (url.endsWith("/api/stt/dictionaries"))
+          return json({ dictionaries: [] });
         if (url.endsWith("/api/auth/bootstrap-status"))
           return json({ bootstrap_required: false });
         if (url.endsWith("/api/auth/login-context"))
@@ -1463,7 +1605,7 @@ describe("Studio PWA", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(6);
     await userEvent.click(screen.getByRole("tab", { name: "Подключения" }));
     expect(
-      screen.getByText(/транскрибации выполняются только через ElevenLabs/i),
+      screen.getByText(/профили ElevenLabs и Yandex SpeechKit/i),
     ).toBeInTheDocument();
 
     const accountTab = screen.getByRole("tab", { name: "Аккаунт" });
@@ -4972,6 +5114,8 @@ describe("Studio PWA", () => {
         return json({
           provider: "elevenlabs",
           model: "scribe_v2",
+          operating_mode: "standard",
+          dictionary_term_count: 0,
           language_mode: request.language ?? "ru",
           diarization_enabled: request.options?.diarize === true,
           existing_result_authority: {
@@ -5116,6 +5260,8 @@ describe("Studio PWA", () => {
           return json({
             provider: "elevenlabs",
             model: "scribe_v2",
+            operating_mode: "standard",
+            dictionary_term_count: 0,
             language_mode: "ru",
             diarization_enabled: false,
             existing_result_authority: {
@@ -5518,6 +5664,10 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/stt/providers"))
+          return json(sttProviderCatalogFixture());
+        if (url.endsWith("/api/stt/dictionaries"))
+          return json({ dictionaries: [] });
         if (url.endsWith("/api/google/connection"))
           return json({
             connected: true,
@@ -6019,6 +6169,8 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
+      provider: "elevenlabs",
+      operating_mode: "standard",
       provider_credential_id: "cred-active",
       language: "en",
       options: { diarize: true },
@@ -6343,6 +6495,10 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/stt/providers"))
+          return json(sttProviderCatalogFixture());
+        if (url.endsWith("/api/stt/dictionaries"))
+          return json({ dictionaries: [] });
         if (url.endsWith("/api/google/connection"))
           return json({
             connected: true,
@@ -6861,6 +7017,10 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/stt/providers"))
+          return json(sttProviderCatalogFixture());
+        if (url.endsWith("/api/stt/dictionaries"))
+          return json({ dictionaries: [] });
         if (url.endsWith("/api/google/connection"))
           return json({
             connected: true,
@@ -7161,6 +7321,8 @@ describe("Studio PWA", () => {
         url === "/api/projects/pB/jobs/batch" && init?.method === "POST",
     );
     expect(JSON.parse(String(bCreateCall?.[1]?.body))).toEqual({
+      provider: "elevenlabs",
+      operating_mode: "standard",
       provider_credential_id: "cred-active",
       language: "ru",
       options: { diarize: false },
@@ -12375,7 +12537,7 @@ describe("Studio PWA", () => {
       await screen.findByRole("form", { name: "Композитор пакетных задач" });
       expect(
         await screen.findByRole("button", {
-          name: "Повторить загрузку подключения ElevenLabs",
+          name: "Повторить загрузку профилей",
         }),
       ).toBeInTheDocument();
       expect(
@@ -12390,7 +12552,7 @@ describe("Studio PWA", () => {
 
       await userEvent.click(
         screen.getByRole("button", {
-          name: "Повторить загрузку подключения ElevenLabs",
+          name: "Повторить загрузку профилей",
         }),
       );
       await userEvent.click(
@@ -12448,7 +12610,7 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
       await screen.findByRole("button", {
-        name: "Повторить загрузку подключения ElevenLabs",
+        name: "Повторить загрузку профилей",
       }),
     ).toBeInTheDocument();
     expect(

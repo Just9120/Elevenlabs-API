@@ -12,7 +12,11 @@ from .job_claim_lease import is_lease_active
 from .models import CredentialProvider, CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, TranscriptionJob
 from .security import aad, decrypt, master_key_from_b64, utcnow
 
-SUPPORTED_PROVIDERS = {CredentialProvider.elevenlabs.value, CredentialProvider.openai.value}
+SUPPORTED_PROVIDERS = {
+    CredentialProvider.elevenlabs.value,
+    CredentialProvider.yandex.value,
+    CredentialProvider.openai.value,
+}
 
 
 class ProviderCredentialAccessReason(str, Enum):
