@@ -107,6 +107,69 @@ def run_alembic(target: str, *, env: dict[str, str], command: str = "upgrade") -
     subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), command, target], cwd=ROOT, env=env, check=True)
 
 
+def test_database_role_manifest_lets_real_migrator_extend_existing_enum(tmp_path):
+    with isolated_migration_database("studio_enum_owner") as (temp_engine, env):
+        run_alembic("0035_job_notifications", env=env)
+        temp_db = str(temp_engine.url.database)
+        role_sql = (ROOT / "deploy/studio/database-roles.sql").read_text(encoding="utf-8")
+        role_sql = role_sql.replace(
+            "GRANT CONNECT ON DATABASE studio TO studio_api, studio_migrator",
+            f'GRANT CONNECT ON DATABASE "{temp_db}" TO studio_api, studio_migrator',
+        )
+        raw_connection = temp_engine.raw_connection()
+        try:
+            with raw_connection.cursor() as cursor:
+                cursor.execute(role_sql, prepare=False)
+            raw_connection.commit()
+        finally:
+            raw_connection.close()
+
+        with temp_engine.connect() as conn:
+            assert conn.execute(
+                text(
+                    "SELECT pg_get_userbyid(t.typowner) "
+                    "FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace "
+                    "WHERE n.nspname='public' AND t.typname='credentialprovider'"
+                )
+            ).scalar_one() == "studio_owner"
+
+        password = uuid.uuid4().hex + uuid.uuid4().hex
+        assert re.fullmatch(r"[0-9a-f]{64}", password)
+        password_file = tmp_path / "studio_migrator_password"
+        password_file.write_text(password, encoding="utf-8")
+        with temp_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f"ALTER ROLE studio_migrator WITH LOGIN PASSWORD '{password}'"
+            )
+
+        migrator_url = make_url(temp_engine.url).set(
+            username="studio_migrator",
+            password=password,
+        )
+        migrator_engine = create_engine(migrator_url)
+        try:
+            with migrator_engine.connect() as conn:
+                assert conn.execute(text("SELECT current_user")).scalar_one() == "studio_owner"
+            migrator_env = env.copy()
+            migrator_env["STUDIO_DATABASE_USER"] = "studio_migrator"
+            migrator_env["STUDIO_POSTGRES_PASSWORD_FILE"] = str(password_file)
+            run_alembic("head", env=migrator_env)
+        finally:
+            migrator_engine.dispose()
+            with temp_engine.begin() as conn:
+                conn.execute(text("ALTER ROLE studio_migrator NOLOGIN"))
+
+        with temp_engine.connect() as conn:
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
+            assert conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_enum e "
+                    "JOIN pg_type t ON t.oid=e.enumtypid "
+                    "WHERE t.typname='credentialprovider' AND e.enumlabel='yandex'"
+                )
+            ).scalar_one() == 1
+
+
 def admin(email="a@example.com", password="correct horse battery"):
     db = SessionLocal()
     u = User(email=email, role=UserRole.admin, status=UserStatus.active)

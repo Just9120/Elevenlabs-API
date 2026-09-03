@@ -18,6 +18,9 @@ def test_application_database_roles_separate_owner_migrator_and_api():
     assert "GRANT studio_owner TO studio_migrator" in sql
     assert "ALTER ROLE studio_migrator SET role = 'studio_owner'" in sql
     assert "ALTER SCHEMA public OWNER TO studio_owner" in sql
+    assert "DO $enum_ownership$" in sql
+    assert "t.typtype = 'e'" in sql
+    assert "ALTER TYPE %I.%I OWNER TO studio_owner" in sql
     assert "PASSWORD" not in sql
     assert sql.count("BEGIN;") == 1
     assert sql.count("COMMIT;") == 1
@@ -51,6 +54,7 @@ def test_database_role_operator_keeps_passwords_out_of_argv_and_requires_protect
     assert "set -x" not in script
     assert "echo $password" not in script
     assert "database role memberships invalid" in script
+    assert "public enum ownership invalid" in script
     assert "STUDIO_DATABASE_ROLES_OK" in script
     assert "STUDIO_DATABASE_ROLES_BOOTSTRAP_OK" in script
     assert 'schema_initialized || fail "application schema is not initialized"' in script

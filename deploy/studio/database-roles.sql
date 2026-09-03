@@ -81,6 +81,31 @@ BEGIN
 END
 $ownership$;
 
+-- Native PostgreSQL enums created by the original bootstrap predate the
+-- dedicated owner/migrator split.  Tables do not carry ownership of their
+-- column types, so transfer those enums explicitly before Alembic needs to
+-- extend one of them (for example credentialprovider).
+DO $enum_ownership$
+DECLARE
+    item record;
+BEGIN
+    FOR item IN
+        SELECT n.nspname, t.typname
+        FROM pg_type AS t
+        JOIN pg_namespace AS n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'public'
+          AND t.typtype = 'e'
+          AND pg_get_userbyid(t.typowner) <> 'studio_owner'
+    LOOP
+        EXECUTE format(
+            'ALTER TYPE %I.%I OWNER TO studio_owner',
+            item.nspname,
+            item.typname
+        );
+    END LOOP;
+END
+$enum_ownership$;
+
 GRANT CONNECT ON DATABASE studio TO studio_api, studio_migrator;
 GRANT USAGE ON SCHEMA public TO studio_api;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC, studio_api;
