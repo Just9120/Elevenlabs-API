@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -134,6 +136,21 @@ def test_job_notification_migration_is_additive_single_head():
         m.TranscriptionJob.__table__.c.keys()
     )
     assert m.JobNotificationDelivery.__table__.name == "job_notification_deliveries"
+
+
+def test_job_notification_migration_accepts_fresh_metadata_schema():
+    script = ScriptDirectory.from_config(Config(str(ROOT / "apps/studio-api/alembic.ini")))
+    revision = script.get_revision("0035_job_notifications")
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        original_op = revision.module.op
+        revision.module.op = Operations(MigrationContext.configure(connection))
+        try:
+            revision.module.upgrade()
+        finally:
+            revision.module.op = original_op
+    engine.dispose()
 
 
 def test_web_push_subscription_is_validated_and_encrypted(db):
