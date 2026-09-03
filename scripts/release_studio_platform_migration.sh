@@ -18,6 +18,7 @@ snapshot_id=""
 migration_applied="no"
 database_role_change_attempted="no"
 worker_role_change_attempted="no"
+release_mode="migration"
 release_workspace=""
 
 cleanup() {
@@ -44,15 +45,13 @@ blocked() {
 
 run_worker_role() {
   local operation="$1"
-  # Apply needs the root-only worker password, while Git must explicitly trust
-  # the already validated deploy-user checkout. Keep that trust process-scoped;
-  # never mutate root's global Git configuration or relax secret permissions.
+  # Apply needs the root-only worker password, while the tracked checkout must
+  # be inspected by its validated repository owner. Never mutate root's Git
+  # configuration or relax secret permissions.
   env \
-    GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0=safe.directory \
-    GIT_CONFIG_VALUE_0="$STUDIO_DEPLOY_DIR" \
     GIT_OPTIONAL_LOCKS=0 \
     STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+    STUDIO_REPOSITORY_USER="$STUDIO_REPOSITORY_USER" \
     bash "$WORKER_ROLE_SCRIPT" "$operation" </dev/null
 }
 
@@ -501,10 +500,23 @@ IFS=$'\t' read -r target_revision source_revision release_safety repository_head
   || blocked "candidate_migration_not_additive"
 
 current_revision="$(probe_current_revision)"
-[[ "$current_revision" == "$source_revision" ]] \
-  || blocked "migration_is_not_exactly_one_linear_revision"
+if [[ "$current_revision" == "$source_revision" ]]; then
+  release_mode="migration"
+elif [[ "$current_revision" == "$target_revision" ]]; then
+  [[ "$target_revision" == "$repository_head" ]] \
+    || blocked "post_migration_recovery_requires_repository_head"
+  [[ "$(require_running_service studio-api)" == "$api_container_id" ]] \
+    || blocked "running_api_container_changed"
+  running_api_head="$(probe_running_api_head "$api_container_id")"
+  [[ "$running_api_head" == "$source_revision" ]] \
+    || blocked "post_migration_recovery_api_revision_mismatch"
+  release_mode="post_migration_recovery"
+  migration_applied="yes"
+else
+  blocked "migration_is_not_exactly_one_linear_revision"
+fi
 
-if [[ "$api_health_status" != "healthy" ]]; then
+if [[ "$release_mode" == "migration" && "$api_health_status" != "healthy" ]]; then
   [[ "$(require_running_service studio-api)" == "$api_container_id" ]] \
     || blocked "running_api_container_changed"
   running_api_head="$(probe_running_api_head "$api_container_id")"
@@ -565,17 +577,27 @@ fi
 
 phase="migration"
 database_role_change_attempted="yes"
-if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
-  STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
-  STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT="$snapshot_id" \
-  STUDIO_EXPECTED_MIGRATION_FROM="$source_revision" \
-  STUDIO_EXPECTED_MIGRATION_TO="$target_revision" \
-  STUDIO_EXPECTED_REPOSITORY_HEAD="$repository_head" \
-  STUDIO_EXPECTED_API_IMAGE_ID="$candidate_image_id" \
-  bash "$MIGRATION_SCRIPT" </dev/null; then
-  blocked "migration_failed"
+if [[ "$release_mode" == "post_migration_recovery" ]]; then
+  if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+    bash "$DATABASE_ROLE_SCRIPT" apply </dev/null; then
+    blocked "database_role_recovery_failed"
+  fi
+else
+  if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
+    STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
+    STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT="$snapshot_id" \
+    STUDIO_EXPECTED_MIGRATION_FROM="$source_revision" \
+    STUDIO_EXPECTED_MIGRATION_TO="$target_revision" \
+    STUDIO_EXPECTED_REPOSITORY_HEAD="$repository_head" \
+    STUDIO_EXPECTED_API_IMAGE_ID="$candidate_image_id" \
+    bash "$MIGRATION_SCRIPT" </dev/null; then
+    failure_revision="$(probe_current_revision)"
+    [[ "$failure_revision" == "$target_revision" ]] \
+      && migration_applied="yes"
+    blocked "migration_failed"
+  fi
+  migration_applied="yes"
 fi
-migration_applied="yes"
 post_revision="$(probe_current_revision)"
 [[ "$post_revision" == "$target_revision" ]] \
   || blocked "post_migration_revision_mismatch"
@@ -631,9 +653,10 @@ else
 fi
 
 phase="complete"
-printf '%s OK commit=%s from=%s to=%s head=%s snapshot=%s image=%s api_deployed=%s\n' \
+printf '%s OK commit=%s mode=%s from=%s to=%s head=%s snapshot=%s image=%s api_deployed=%s\n' \
   "$PREFIX" \
   "${STUDIO_EXPECTED_COMMIT:0:12}" \
+  "$release_mode" \
   "$source_revision" \
   "$target_revision" \
   "$repository_head" \

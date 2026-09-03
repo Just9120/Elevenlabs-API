@@ -86,7 +86,10 @@ def test_worker_role_grants_only_current_processing_surfaces():
 def test_worker_role_operator_script_keeps_password_off_argv_and_disk():
     script = ROLE_SCRIPT.read_text(encoding="utf-8")
     assert "set -euo pipefail" in script
-    assert "git status --porcelain --untracked-files=no" in script
+    assert "status --porcelain --untracked-files=no" in script
+    assert 'runuser -u "$repository_user" --' in script
+    assert "GIT_OPTIONAL_LOCKS=0" in script
+    assert "safe.directory" not in script
     assert "STUDIO_WORKER_POSTGRES_PASSWORD_FILE" in script
     assert "root-owned" in script and '"600"' in script and '"400"' in script
     assert "printf \"ALTER ROLE %s WITH LOGIN PASSWORD '%s';\\n\"" in script

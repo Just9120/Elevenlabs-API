@@ -290,7 +290,23 @@ revision and candidate/running API image, then choose a separately approved
 forward recovery. The protected lane may perform the next direct successor only
 when its schema-ahead proof succeeds; otherwise stop for a manual recovery
 decision. If it reports `migration_applied=no`, correct the diagnosed blocker and
-obtain a new environment approval before another attempt.
+obtain a new environment approval before another attempt. A migration helper can
+fail after Alembic has committed but before its later role checks finish. The
+release script therefore re-probes the database after a helper failure and reports
+`migration_applied=yes` whenever the reviewed target is already current. For a
+legacy failure produced before that correction, do not trust `migration_applied=no`
+alone: reconcile the helper log, exact database revision and running API image
+before authorizing any follow-up.
+
+The same reviewed `migration_target=head` has one narrow post-migration recovery
+mode; it is not a generic retry. It is selected only when the database already
+equals the repository-head target and the unchanged running API image advertises
+exactly the target's direct predecessor. With the worker still safely stopped and
+a new approved Environment deployment, the lane creates and verifies a fresh
+snapshot, re-applies the database and worker role manifests, and recreates the API
+from the exact candidate image. It emits `mode=post_migration_recovery` and never
+invokes Alembic in this state. Any different database/API chain blocks before the
+snapshot or mutation.
 
 ### Manual fallback
 
@@ -843,9 +859,10 @@ default release gate and `studio-production-migration` approval apply. This
 recovery target performs only `configure_studio_worker_db_role.sh apply` plus
 `verify` and a localhost API readiness check; it does not create a backup, run a
 migration, rebuild/recreate API, start the worker, call a provider, or process a
-job. The root-only apply uses process-scoped Git trust with optional index locks
-disabled, so the deploy-user-owned checkout remains writable by the deploy
-identity. Resume the unchanged exact worker image only after the recovery run
+job. The root-only apply keeps the password root-only but delegates the read-only
+tracked-checkout inspection to the validated repository owner with optional index
+locks disabled. It neither changes global Git trust nor makes the checkout
+root-owned. Resume the unchanged exact worker image only after the recovery run
 finishes successfully.
 
 `STUDIO_ELEVENLABS_SCRIBE_V2_RATE_PER_HOUR_USD`, `STUDIO_ELEVENLABS_PRICING_EFFECTIVE_DATE` and `STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing` form one complete snapshot. The operator verifies the value and effective date against the [official ElevenAPI pricing page](https://elevenlabs.io/pricing/api?price.section=speech_to_text) before changing it. Missing/partial/unsupported pricing blocks a provider call. A job keeps the first accepted snapshot across all parts, so changing environment pricing affects only jobs that have not started provider usage. Studio shows attributable confirmed usage cost, not an ElevenLabs invoice debit after free quota or subscription credits.
