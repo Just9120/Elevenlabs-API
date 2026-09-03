@@ -2,6 +2,42 @@
 
 ## Current Goal
 
+- **ID / title:** `JOB-RELIABILITY-NOTIFICATIONS-01` — безопасные автоматические retry и гарантированные terminal-уведомления.
+- **State:** `IN_PROGRESS` — explicit owner authorization получена; implementation и local validation выполнены на isolated branch от verified `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939`; review/CI/delivery ещё не выполнены.
+- **Authorization source:** explicit owner instruction 2026-09-03 после non-commercial gap review: «Бери пару эпиков на реализацию без коммерческого контура»; выбрана связанная пара canonical `JOB-RELIABILITY-02` + `JOB-NOTIFICATIONS-01`.
+- **Scope:** закрыть `JOBREL-05`, `JOBREL-09`, `JOBREL-10` и `JOBNOT-01`–`JOBNOT-06`: автоматически повторять только доказуемо safe transient failures с bounded attempts/backoff и без повторного provider/Google/storage side effect; создать owner-scoped durable terminal-notification outbox, атомарно и idempotently связанный с terminal job transition; реализовать opt-in Web Push, email и optional Telegram для success/error; обеспечить claim lease, bounded transport timeout/retry, stale-claim recovery, deduplication, безопасную redaction, понятные настройки/readiness/status в PWA; покрыть additive migration, API/worker/frontend contracts, tests, reviewable PR, exact CI, protected delivery и bounded LIVE без paid STT или несанкционированного внешнего сообщения.
+- **Non-goals:** commercial contour; новый STT provider; повтор provider call при timeout/unknown/partial/returned-result uncertainty; автоматический Google Docs retry/reconciliation; SMS/mobile app; marketing notifications; обязательный Telegram/email/Web Push; хранение SMTP/Telegram/VAPID secrets в PostgreSQL или браузере; чтение transcript/source/document content для notification; destructive data cleanup; отправка реального внешнего уведомления без отдельной action-time owner authorization.
+- **Goal AC:**
+  1. `JRN-01`: canonical `JOBREL-05/09/10` и `JOBNOT-01..06` остаются единственным product denominator; operational status/Evidence меняются только после фактических gates.
+  2. `JRN-02`: automatic retry допускается только для allowlisted transient failure с durable proof отсутствия ambiguous external side effect; attempts и exponential backoff bounded, cancel/limit/non-transient/unknown/provider-result/Google uncertainty fail closed.
+  3. `JRN-03`: terminal job success/failure атомарно материализует owner-scoped notification intents; unique keys и state machine не допускают duplicate Web Push/email/Telegram при retry, recovery, repeated terminal observation или concurrent workers.
+  4. `JRN-04`: Web Push имеет explicit browser opt-in/subscription lifecycle, VAPID-backed server delivery и service-worker handling для success/error без sensitive payload.
+  5. `JRN-05`: email имеет explicit owner opt-in, использует account email и TLS-capable secret-file-backed SMTP configuration; success/error delivery bounded и честно unavailable без configuration.
+  6. `JRN-06`: Telegram является optional opt-in channel с отдельным secret-file-backed bot/destination contract; success/error payload allowlisted и не смешивается с operational alerts.
+  7. `JRN-07`: delivery claim не удерживает DB transaction во время network I/O; stale claims восстанавливаются, retry count/backoff bounded, provider response bodies/URLs/secrets не сохраняются и не логируются.
+  8. `JRN-08`: PWA показывает понятные channel readiness/preferences и последний bounded delivery outcome; unsupported/denied/unconfigured состояния не выдаются за success.
+  9. `JRN-09`: migration, DB grants, retry classifier, transactional outbox, concurrency/dedup, all transports, redaction, API ownership/CSRF и service-worker/frontend flows покрыты focused/integration tests.
+  10. `JRN-10`: reviewable PR и exact-head CI success; protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT и не отправляет внешнее сообщение без отдельного подтверждения владельца.
+- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** external Web Push/email/Telegram LIVE потребует настроенного channel secret/configuration, browser permission и отдельной action-time owner authorization на реальную отправку. До этого code/test/deploy и suppressed/unconfigured LIVE могут быть закрыты независимо. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
+- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-03T08:19:18Z`.
+- **Base branch/SHA:** verified clean tracked `main` and `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939` after fetch.
+- **Working branch:** `codex/job-reliability-notifications`.
+- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
+- **Last verified revision:** `9073c0bdbdd16eb1e19c26ce4b80144544c5c939`.
+- **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented. Production transports remain disabled by default.
+- **Current step:** prepare one reviewable implementation commit and PR from the verified unchanged base.
+- **Next exact action:** run final focused checks, commit only tracked Goal files plus intended new files, push branch and open the PR.
+- **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Full PostgreSQL/Redis suite and Docker image/Compose checks remain for CI because those local services/tools are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
+- **PR / CI / deployment:** not created / not run / not deployed.
+- **Blockers / unverified assumptions:** exact production email/Telegram/VAPID configuration is unknown and will remain optional/fail-closed; external delivery is not assumed from source code.
+
+## Previous Goal closure — `PERSONAL-SECURITY-UX-01`
+
 - **ID / title:** `PERSONAL-SECURITY-UX-01` — least-privilege PostgreSQL, полный personal security lifecycle и понятный owner UX.
 - **State:** `DONE` — все 14 Goal AC и required Evidence закрыты на exact functional merge `e5c43feac06e1649f1bd0903953ef5de7f925b87`; protected recovery завершил already-applied schema без второго Alembic run, API/web/worker доставлены, а bounded authenticated LIVE подтверждён без paid STT или destructive actions.
 - **Authorization source:** explicit owner instructions 2026-09-02: «В целом ок, тогда я бы взял эти два эпика как Goal. Плюс UX/UI правки, которые я сейчас дам в аннотациях» и последующие восемь browser comments.
@@ -26,7 +62,7 @@
 - **Known blockers/dependencies:** отсутствуют для Goal DoD. Optional TOTP не включался в production LIVE, recovery codes не генерировались, paid STT и destructive session/credential/storage actions не выполнялись; эти действия остаются owner-controlled. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
 - **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `PERSONAL-SECURITY-UX-01`
 
 - **Updated (UTC):** `2026-09-03T07:05:00Z`.
 - **Base branch/SHA:** verified merged and deployed `origin/main@e5c43feac06e1649f1bd0903953ef5de7f925b87` после recovery PR `#292`.

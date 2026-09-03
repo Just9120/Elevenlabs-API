@@ -80,7 +80,7 @@ PROVIDER_ERROR_CODES = frozenset({
 })
 RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
 FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
-ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "storage", "google", "credentials", "projects", "realtime", "transcript_catalog", "transcript_maintenance", "auth", "unknown"})
+ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "storage", "google", "credentials", "projects", "provider_accounts", "notifications", "realtime", "transcript_catalog", "transcript_maintenance", "auth", "unknown"})
 PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
 PWA_ERROR_CODES = frozenset({"app_error", "unhandled_rejection", "api_request_failed", "route_error", "service_worker_error", "unknown"})
 PWA_REJECTION_CATEGORIES = frozenset({"abort", "type_error", "error", "other"})
@@ -146,6 +146,7 @@ REGISTRY: dict[str, EventDef] = {
     "JOB_RETRY_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"attempt_number": R("int", min=0, max=1000), "retry_available": R("bool"), "boundary": R("enum", choices=BOUNDARIES)}),
     "JOB_RETRY_QUEUED": EventDef(frozenset({"api"}), "INFO", {"retry_reason": R("token"), "retry_available": R("bool"), "retry_safe_source_count": R("int", min=0, max=50), "missing_output_count": R("int", min=0, max=50), "final_job_status": R("enum", choices=FINAL_STATUSES), "boundary": R("enum", choices=BOUNDARIES)}),
     "JOB_RETRY_BLOCKED": EventDef(frozenset({"api"}), "WARNING", {"retry_reason": R("token"), "retry_available": R("bool"), "retry_safe_source_count": R("int", min=0, max=50), "missing_output_count": R("int", min=0, max=50), "boundary": R("enum", choices=BOUNDARIES)}),
+    "JOB_AUTOMATIC_RETRY_SCHEDULED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "JOB_EXPIRED_LEASE_RECOVERED": EventDef(frozenset({"worker", "api"}), "INFO", {"retry_reason": R("token"), "final_job_status": R("enum", choices=FINAL_STATUSES), "missing_output_count": R("int", min=0, max=50)}),
     "JOB_EXPIRED_LEASE_RECOVERY_BLOCKED": EventDef(frozenset({"worker", "api"}), "WARNING", {"retry_reason": R("token"), "final_job_status": R("enum", choices=FINAL_STATUSES), "missing_output_count": R("int", min=0, max=50)}),
     "SOURCE_ATTEMPT_PREPARED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True), "boundary": R("enum", choices=BOUNDARIES)}),

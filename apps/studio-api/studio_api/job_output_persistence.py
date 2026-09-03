@@ -128,6 +128,8 @@ def persist_processing_job_source_output_and_maybe_complete(
     required_count = len(required_ids)
     completed = required_count > 0 and persisted_count == required_count
     if completed:
+        from .job_notifications import ensure_terminal_notification_intents
+
         _require_job_boundary(db, job, lease_owner_id, lease_generation, now)
         job.status = JobStatus.completed
         job.finished_at = now
@@ -136,6 +138,7 @@ def persist_processing_job_source_output_and_maybe_complete(
         job.error_message = None
         finalize_job_provider_accounting(db, job=job, now=now)
         invalidate_job_lease(job)
+        ensure_terminal_notification_intents(db, job=job, now=now)
         db.flush()
     return JobOutputPersistenceResult(job.id, rel.id, output.id, job.status, int(persisted_count), required_count, completed, lease_generation)
 

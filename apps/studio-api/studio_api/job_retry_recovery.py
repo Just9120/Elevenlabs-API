@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Literal
 from sqlalchemy import func, select
@@ -22,6 +22,14 @@ SAFE_PROVIDER_FAILURES = {
 SAFE_PRE_TRANSPORT_FAILURES = SAFE_PROVIDER_FAILURES | {"provider_usage_accounting_unavailable"}
 UNCERTAIN_PROVIDER_FAILURES = {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "lifecycle_changed_after_provider_call", "lease_heartbeat_failed", "lease_heartbeat_not_owned", "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "context_closed", "unknown"}
 PRE_PROVIDER_SAFE_FAILURES = {"prerequisites_unavailable", "source_materialization_unavailable", "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_duration_confirmation_required", "media_split_failed", "media_part_too_large", "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_state_persistence_failed", "pipeline_transcription_failed", "pipeline_output_reconciliation_prepare_failed", "provider_pricing_unavailable", "provider_usage_accounting_unavailable"}
+AUTOMATIC_RETRY_TRANSIENT_FAILURES = {
+    "source_materialization_unavailable",
+    "media_preparation_timeout",
+    "provider_rate_limited",
+    "provider_usage_accounting_unavailable",
+}
+AUTOMATIC_RETRY_BASE_SECONDS = 30
+AUTOMATIC_RETRY_MAX_SECONDS = 300
 
 class RetryReason(str, Enum):
     available="available"; partial_provider_resume_available="partial_provider_resume_available"; partial_provider_restart_available="partial_provider_restart_available"; job_not_failed="job_not_failed"; cancelled="cancelled"; completed="completed"; attempt_limit_reached="attempt_limit_reached"; provider_outcome_uncertain="provider_outcome_uncertain"; provider_result_lost="provider_result_lost"; output_reconciliation_required="output_reconciliation_required"; legacy_or_unknown_execution_state="legacy_or_unknown_execution_state"; prerequisites_unavailable="prerequisites_unavailable"; non_retryable="non_retryable"
@@ -336,8 +344,64 @@ def queue_retry(db, *, owner_user_id, job_id, now):
     if job.status==JobStatus.queued:
         return RetryQueueResult(job=job, readiness=ready, transitioned=False)
     if ready.available and not is_lease_active(job, now):
+        from .job_notifications import suppress_obsolete_job_notification_intents
         if ready.reason == RetryReason.partial_provider_restart_available:
             delete_provider_part_checkpoints(db, job_id=job.id)
-        job.status=JobStatus.queued; job.finished_at=None; job.error_code=None; job.error_message=None; job.terminal_dismissed_at=None; job.updated_at=now; invalidate_job_lease(job); db.flush()
+        suppress_obsolete_job_notification_intents(db, job_id=job.id, now=now)
+        job.status=JobStatus.queued; job.finished_at=None; job.error_code=None; job.error_message=None; job.retry_not_before_at=None; job.automatic_retry_reason=None; job.terminal_dismissed_at=None; job.updated_at=now; invalidate_job_lease(job); db.flush()
         return RetryQueueResult(job=job, readiness=compute_explicit_retry_readiness(db, job, now=now), transitioned=True)
     return RetryQueueResult(job=job, readiness=ready, transitioned=False)
+
+
+def schedule_automatic_retry_if_safe(db, *, job: TranscriptionJob, now: datetime) -> bool:
+    """Requeue only an allowlisted, durable, non-ambiguous transient failure."""
+    if job.status != JobStatus.failed or int(job.attempt_count or 0) >= MAX_PROCESSING_ATTEMPTS:
+        return False
+    readiness = compute_explicit_retry_readiness(db, job, now=now)
+    if not readiness.available or requires_provider_cost_confirmation(readiness):
+        return False
+    missing = [rel for rel in _required(db, job.id) if not _has_output(db, rel.id)]
+    saw_transient = False
+    reason = None
+    for rel in missing:
+        attempt = current_attempt_for_relation(
+            db,
+            job_source_id=rel.id,
+            attempt_number=int(job.attempt_count or 0),
+        )
+        if attempt is None:
+            return False
+        if (
+            attempt.stage == Stage.prepared
+            and attempt.provider_request_started_at is None
+            and attempt.failure_code is None
+        ):
+            continue
+        failure = attempt.provider_failure_code or attempt.failure_code
+        if (
+            attempt.retry_disposition != Disp.retry_safe
+            or failure not in AUTOMATIC_RETRY_TRANSIENT_FAILURES
+        ):
+            return False
+        saw_transient = True
+        reason = reason or failure
+    if not saw_transient:
+        return False
+    from .job_notifications import suppress_obsolete_job_notification_intents
+
+    delay = min(
+        AUTOMATIC_RETRY_BASE_SECONDS * (2 ** max(0, int(job.attempt_count or 0) - 1)),
+        AUTOMATIC_RETRY_MAX_SECONDS,
+    )
+    suppress_obsolete_job_notification_intents(db, job_id=job.id, now=now)
+    job.status = JobStatus.queued
+    job.finished_at = None
+    job.error_code = None
+    job.error_message = None
+    job.retry_not_before_at = now + timedelta(seconds=delay)
+    job.automatic_retry_reason = reason
+    job.terminal_dismissed_at = None
+    job.updated_at = now
+    invalidate_job_lease(job)
+    db.flush()
+    return True

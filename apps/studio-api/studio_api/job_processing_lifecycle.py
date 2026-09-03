@@ -62,6 +62,8 @@ def begin_job_processing(db: Session, *, job_id: str, lease_owner_id: str, lease
     job.finished_at = None
     job.error_code = None
     job.error_message = None
+    job.retry_not_before_at = None
+    job.automatic_retry_reason = None
     job.updated_at = now
     db.flush()
     return _result(job)
@@ -112,6 +114,9 @@ def acknowledge_job_cancellation(db: Session, *, job_id: str, lease_owner_id: st
 
 
 def fail_job_processing(db: Session, *, job_id: str, lease_owner_id: str, lease_generation: int, now: datetime, error_code: str | None, error_message: str | None) -> JobProcessingResult:
+    from .job_notifications import ensure_terminal_notification_intents
+    from .job_retry_recovery import schedule_automatic_retry_if_safe
+
     job = _processing_job(db, job_id)
     _require_active_owner(job, lease_owner_id, lease_generation, now)
     if job.cancel_requested_at is not None:
@@ -122,13 +127,18 @@ def fail_job_processing(db: Session, *, job_id: str, lease_owner_id: str, lease_
     job.error_code = safe_failure_metadata_value(error_code)
     job.error_message = safe_failure_metadata_value(error_message)
     invalidate_job_lease(job)
+    db.flush()
+    if schedule_automatic_retry_if_safe(db, job=job, now=now):
+        return _result(job)
     finalize_job_provider_accounting(db, job=job, now=now)
+    ensure_terminal_notification_intents(db, job=job, now=now)
     db.flush()
     return _result(job)
 
 
 def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -> JobProcessingResult:
     from .job_retry_recovery import compute_expired_recovery_readiness
+    from .job_notifications import ensure_terminal_notification_intents
     job = _processing_job(db, job_id)
     if is_lease_active(job, now):
         raise JobProcessingError(JobProcessingFailureReason.lease_active)
@@ -152,6 +162,8 @@ def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -
                 job.finished_at = None
                 job.error_code = None
                 job.error_message = None
+                job.retry_not_before_at = None
+                job.automatic_retry_reason = None
             else:
                 job.status = JobStatus.failed
                 job.finished_at = now
@@ -161,6 +173,8 @@ def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -
     job.updated_at = now
     if job.status in {JobStatus.cancelled, JobStatus.failed, JobStatus.completed}:
         finalize_job_provider_accounting(db, job=job, now=now)
+    if job.status in {JobStatus.failed, JobStatus.completed}:
+        ensure_terminal_notification_intents(db, job=job, now=now)
     invalidate_job_lease(job)
     db.flush()
     return _result(job)

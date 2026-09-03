@@ -110,7 +110,8 @@ def persist_verified_reconciliation_output(db: Session, *, case: TranscriptionOu
     required=[r.id for r in db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.job_id==job.id)).scalars().all() if r.status!=JobSourceStatus.skipped]
     count=db.execute(select(func.count(TranscriptionJobOutput.id)).where(TranscriptionJobOutput.job_id==job.id, TranscriptionJobOutput.job_source_id.in_(required or ["__none__"]))).scalar_one()
     if job.status==JobStatus.failed and job.error_code==OUTPUT_RECONCILIATION_ERROR_CODE and required and int(count)==len(required):
-        job.status=JobStatus.completed; job.finished_at=now; job.error_code=None; job.error_message=None; job.updated_at=now; finalize_job_provider_accounting(db, job=job, now=now)
+        from .job_notifications import ensure_terminal_notification_intents
+        job.status=JobStatus.completed; job.finished_at=now; job.error_code=None; job.error_message=None; job.updated_at=now; finalize_job_provider_accounting(db, job=job, now=now); ensure_terminal_notification_intents(db, job=job, now=now)
     return True
 
 def verify_candidate(case, candidate):

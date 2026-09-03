@@ -1460,7 +1460,7 @@ describe("Studio PWA", () => {
     expect(
       screen.getByRole("heading", { name: "Настройки", level: 1 }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    expect(screen.getAllByRole("tab")).toHaveLength(6);
     await userEvent.click(screen.getByRole("tab", { name: "Подключения" }));
     expect(
       screen.getByText(/транскрибации выполняются только через ElevenLabs/i),

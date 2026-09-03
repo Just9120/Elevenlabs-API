@@ -43,3 +43,7 @@ def test_provider_account_routes_have_a_distinct_safe_group():
         diagnostic_endpoint_group("/api/provider-accounts/elevenlabs")
         == "provider_accounts"
     )
+
+
+def test_notification_routes_have_a_distinct_safe_group():
+    assert diagnostic_endpoint_group("/api/notifications/preferences") == "notifications"

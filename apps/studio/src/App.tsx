@@ -174,6 +174,7 @@ import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import { FolderImportDialog } from "./FolderImportDialog";
 import { AccountSessionsPanel } from "./AccountSessionsPanel";
 import { AccountSecurityPanel } from "./AccountSecurityPanel";
+import { NotificationsPanel } from "./NotificationsPanel";
 import {
   buildLocalFolderPreview,
   localFolderRejectedReasonLabel,
@@ -6874,6 +6875,7 @@ function SourceStorageSettings({
 const SETTINGS_SECTION_IDS = [
   "account",
   "connections",
+  "notifications",
   "files",
   "appearance",
   "diagnostics",
@@ -6881,6 +6883,7 @@ const SETTINGS_SECTION_IDS = [
 const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   account: "Аккаунт",
   connections: "Подключения",
+  notifications: "Уведомления",
   files: "Файлы и хранилище",
   appearance: "Оформление",
   diagnostics: "Для поддержки",
@@ -7918,6 +7921,9 @@ function SettingsPage({
             )}
               </div>
             </section>
+          )}
+          {section === "notifications" && (
+            <NotificationsPanel csrf={csrf} onCsrf={onCsrf} />
           )}
           <div hidden={section !== "files"}>
               <SourceStorageSettings

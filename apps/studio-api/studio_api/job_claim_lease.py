@@ -67,6 +67,10 @@ def acquire_next_ready_job_lease(
         filters = [
             TranscriptionJob.status == JobStatus.queued,
             or_(
+                TranscriptionJob.retry_not_before_at.is_(None),
+                TranscriptionJob.retry_not_before_at <= now,
+            ),
+            or_(
                 TranscriptionJob.lease_owner_id.is_(None),
                 TranscriptionJob.lease_expires_at.is_(None),
                 TranscriptionJob.lease_expires_at <= now,
@@ -108,6 +112,8 @@ def acquire_job_lease(
         raise JobLeaseError(JobLeaseFailureReason.job_not_found)
     if job.status != JobStatus.queued:
         raise JobLeaseError(JobLeaseFailureReason.job_not_queued)
+    if job.retry_not_before_at is not None and _as_utc_aware(job.retry_not_before_at) > _as_utc_aware(now):
+        raise JobLeaseError(JobLeaseFailureReason.job_not_ready)
     if not build_claim_readiness(job, now=now)["ready_for_future_claim"]:
         raise JobLeaseError(JobLeaseFailureReason.job_not_ready)
     if is_lease_active(job, now):

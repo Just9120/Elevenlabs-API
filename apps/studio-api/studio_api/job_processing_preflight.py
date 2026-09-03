@@ -52,6 +52,16 @@ def build_processing_preflight(job: Any, *, now: datetime | None = None) -> Proc
     blocking_reasons: list[str] = []
     if job_status != QUEUED_JOB_STATUS:
         blocking_reasons.append("job_status_not_queued")
+    retry_not_before_at = getattr(job, "retry_not_before_at", None)
+    if retry_not_before_at is not None and now is not None:
+        comparable_retry = retry_not_before_at
+        comparable_now = now
+        if comparable_retry.tzinfo is None:
+            comparable_retry = comparable_retry.replace(tzinfo=timezone.utc)
+        if comparable_now.tzinfo is None:
+            comparable_now = comparable_now.replace(tzinfo=timezone.utc)
+        if comparable_retry > comparable_now:
+            blocking_reasons.append("automatic_retry_backoff_active")
 
     ordered_job_sources = sorted(job.sources, key=lambda item: item.position)
     if not ordered_job_sources:

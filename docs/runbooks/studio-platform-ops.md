@@ -27,6 +27,7 @@ Required secret-file classes include:
 - separate maintenance Google OAuth client secret file when recursive transcript maintenance is enabled;
 - separate transcription-reference and audio-reference access-key files for two private S3/R2-compatible buckets;
 - optional Telegram operational-alert bot-token and chat-ID files when that transport is enabled;
+- optional VAPID private key, SMTP password and separate job-notification Telegram bot-token/chat-ID files when those owner channels are enabled;
 - backup/restic repository/password/access secret files when backup automation is used.
 
 Rules:
@@ -271,7 +272,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0034_personal_security`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0035_job_notifications`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -433,7 +434,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0034_personal_security`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0035_job_notifications`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -561,6 +562,56 @@ Stop on duplicate deliveries for one lifecycle generation, cross-owner data,
 unbounded retry, secret-bearing output, unknown storage/account limits or an
 unexpected provider/Google call. Do not restart services, requeue jobs, mutate
 audit history or delete storage as alert remediation.
+
+## Automatic retry and owner job notifications
+
+Migration `0035_job_notifications` adds the automatic-retry schedule, explicit
+owner channel preferences, encrypted Web Push subscriptions and a durable
+terminal-delivery outbox. Every channel is disabled by default. A completed or
+failed job creates delivery rows only for channels the owner already enabled;
+retry/recovery suppresses obsolete pending rows before a new attempt. Claim and
+completion use separate transactions, so SMTP, Web Push and Telegram network
+I/O never holds a database transaction. Stale claims, retry attempts and
+backoff are bounded; transport bodies, provider URLs, transcript text,
+filenames, document IDs and credentials are not persisted in delivery status.
+
+Automatic job retry is limited to three total processing attempts. It accepts
+only durable `retry_safe` evidence for `source_materialization_unavailable`,
+`media_preparation_timeout`, `provider_rate_limited`, or the pre-provider
+`provider_usage_accounting_unavailable` boundary. Backoff is 30 seconds after
+the first failed attempt and 60 seconds after the second. A missing attempt
+record, cancellation, non-allowlisted failure, exhausted limit, provider
+timeout/unavailability, partial/returned result, Google handoff or output
+reconciliation uncertainty stays terminal and requires the existing explicit
+owner recovery flow. Never requeue such a job with direct SQL.
+
+To activate Web Push, generate one VAPID key pair outside the repository and
+store only the private key in a distinct operator-managed root-owned `0600`
+file. Set `STUDIO_JOB_WEB_PUSH_ENABLED=true`, the public key and a `mailto:` or
+HTTPS subject in the host `.env`, and set
+`STUDIO_JOB_WEB_PUSH_VAPID_PRIVATE_KEY_FILE` to that file. Do not reuse a
+Google, R2, database or provider credential. The browser still requires an
+explicit permission grant and creates an encrypted owner-scoped subscription;
+server configuration alone does not opt the owner in.
+
+Email uses `STUDIO_JOB_EMAIL_ENABLED=true`, SMTP host/port, a validated From
+address and exactly one TLS mode. When SMTP authentication is required, place
+the password in the distinct `STUDIO_JOB_SMTP_PASSWORD_FILE`; never place it in
+`.env`. Telegram job notifications are separate from operational alerts and
+use their own bot-token/chat-ID files with
+`STUDIO_JOB_TELEGRAM_ENABLED=true`. Do not reuse the operational-alert bot
+credentials implicitly. The owner must enable email or Telegram separately in
+Settings even after the transport is configured.
+
+Safe rollout order is: reviewed additive migration and grant re-apply/verify →
+API/web deployment → stopped-worker configuration and role verification →
+worker deployment/status. With all three transports disabled, bounded LIVE may
+verify schema, API preferences, service-worker assets, worker health and zero
+external sends. Enabling a transport or sending a real notification requires
+separate action-time owner authorization. Stop on an unexpected enabled
+channel, unreadable/malformed secret, duplicate terminal row, unbounded retry,
+cross-owner delivery, sensitive payload or any provider/Google call made only
+for notification testing.
 
 ## Component deployment
 
@@ -969,4 +1020,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0034_personal_security`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0035_job_notifications`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
