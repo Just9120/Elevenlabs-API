@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `JOB-RELIABILITY-NOTIFICATIONS-01` — безопасные автоматические retry и гарантированные terminal-уведомления.
-- **State:** `IN_PROGRESS` — explicit owner authorization получена; implementation и local validation зафиксированы commit `1fb819fd56f4b65990061679c8004a3db14df81a` на isolated branch от verified `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939`; review/CI/delivery ещё не выполнены.
+- **State:** `IN_PROGRESS` — explicit owner authorization получена; implementation зафиксирована commit `1fb819fd56f4b65990061679c8004a3db14df81a`, а bootstrap-safe migration fix — `b3b77c790212cdc7e5563ef595c133a737629eb8`; PR `#294` открыт, повторный exact-head CI и delivery ещё не выполнены.
 - **Authorization source:** explicit owner instruction 2026-09-03 после non-commercial gap review: «Бери пару эпиков на реализацию без коммерческого контура»; выбрана связанная пара canonical `JOB-RELIABILITY-02` + `JOB-NOTIFICATIONS-01`.
 - **Scope:** закрыть `JOBREL-05`, `JOBREL-09`, `JOBREL-10` и `JOBNOT-01`–`JOBNOT-06`: автоматически повторять только доказуемо safe transient failures с bounded attempts/backoff и без повторного provider/Google/storage side effect; создать owner-scoped durable terminal-notification outbox, атомарно и idempotently связанный с terminal job transition; реализовать opt-in Web Push, email и optional Telegram для success/error; обеспечить claim lease, bounded transport timeout/retry, stale-claim recovery, deduplication, безопасную redaction, понятные настройки/readiness/status в PWA; покрыть additive migration, API/worker/frontend contracts, tests, reviewable PR, exact CI, protected delivery и bounded LIVE без paid STT или несанкционированного внешнего сообщения.
 - **Non-goals:** commercial contour; новый STT provider; повтор provider call при timeout/unknown/partial/returned-result uncertainty; автоматический Google Docs retry/reconciliation; SMS/mobile app; marketing notifications; обязательный Telegram/email/Web Push; хранение SMTP/Telegram/VAPID secrets в PostgreSQL или браузере; чтение transcript/source/document content для notification; destructive data cleanup; отправка реального внешнего уведомления без отдельной action-time owner authorization.
@@ -24,16 +24,16 @@
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-03T08:22:20Z`.
+- **Updated (UTC):** `2026-09-03T08:28:21Z`.
 - **Base branch/SHA:** verified clean tracked `main` and `origin/main@9073c0bdbdd16eb1e19c26ce4b80144544c5c939` after fetch.
 - **Working branch:** `codex/job-reliability-notifications`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** `1fb819fd56f4b65990061679c8004a3db14df81a`.
-- **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented and committed as `1fb819fd56f4b65990061679c8004a3db14df81a`. Production transports remain disabled by default.
-- **Current step:** publish the reviewable branch, open PR and obtain exact-head CI evidence.
-- **Next exact action:** commit this post-implementation checkpoint, push `codex/job-reliability-notifications` and open a PR into `main`.
-- **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Full PostgreSQL/Redis suite and Docker image/Compose checks remain for CI because those local services/tools are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
-- **PR / CI / deployment:** not created / not run / not deployed.
+- **Last verified revision:** `b3b77c790212cdc7e5563ef595c133a737629eb8`.
+- **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented in `1fb819fd56f4b65990061679c8004a3db14df81a`. Initial PR CI exposed fresh-database `Base.metadata.create_all` compatibility in migration `0035`; bootstrap-safe full-boundary detection and a regression test were added in `b3b77c790212cdc7e5563ef595c133a737629eb8`. Production transports remain disabled by default.
+- **Current step:** publish the migration fix and obtain green exact-head CI for PR `#294`.
+- **Next exact action:** commit this failure/recovery checkpoint, push the updated branch and wait for all PR checks.
+- **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; migration notification suite after fix `12 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Initial PR head `55e9128de835fe0c61fd86cae566deb77da105a2` failed core CI and browser E2E at the same `DuplicateColumn` migration bootstrap defect; no product runtime test failed before that gate. Full PostgreSQL/Redis suite and Docker image/Compose checks remain for repeat CI because those local services/tools are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
+- **PR / CI / deployment:** PR `#294`; initial exact-head CI failed at identified migration bootstrap defect, fix committed but not yet pushed; not deployed.
 - **Blockers / unverified assumptions:** exact production email/Telegram/VAPID configuration is unknown and will remain optional/fail-closed; external delivery is not assumed from source code.
 
 ## Previous Goal closure — `PERSONAL-SECURITY-UX-01`
