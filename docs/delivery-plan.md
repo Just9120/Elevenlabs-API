@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `UX-AUDIT-CONTROLS-01` — понятные режимы, destinations, recovery, billing, storage cleanup и diagnostics.
-- **State:** `IN_PROGRESS` — Google Docs и canonical requirements точечно дополнены; implementation slice и local validation завершены, review/CI Evidence ещё не получены.
+- **State:** `IN_PROGRESS` — Google Docs и canonical requirements точечно дополнены; implementation, local validation и exact-head CI завершены, delivery/LIVE ещё не выполнены.
 - **Authorization source:** explicit owner instruction 2026-09-04: «сначала обнови документ требований… Затем формируй goal по результатам UX аудита и приступай к правкам».
 - **Scope:** реализовать новый canonical `UXCTL-01..14`: показывать только реально различающиеся STT modes и объяснять отличия; включать fragmentation явным checkbox, наследовать общую Drive folder и разрешать per-fragment override с resolved preflight; дать collapsible и explicit resolution flow для provider-uncertain jobs; отделить base plan от PAYG/prepaid balance; добавить preview/confirmation/report для bulk удаления только Studio-owned files; сделать diagnostic events compact, severity-first и human-readable без потери blocker/source context; покрыть API/PWA/data contracts, tests, reviewable PR, exact CI и applicable delivery/LIVE.
 - **Non-goals:** commercial contour; изменение provider tariffs или billing calculations; автоматический cross-provider fallback; удаление Google Drive sources/documents; destructive cleanup без отдельного owner action; paid STT/provider canary; изменение Colab; новая design system или полный visual redesign.
@@ -18,23 +18,23 @@
   8. `UXA-08`: новые owner-scoped mutation boundaries имеют CSRF/recent-confirmation/audit, fail-closed replay и concurrency-safe behavior; additive migration используется только для durable resolution state.
   9. `UXA-09`: focused backend/frontend/integration/browser regressions покрывают positive, negative, ownership, concurrency и narrow viewport states.
   10. `UXA-10`: reviewable PR и exact-head CI success; applicable web/API/worker/migration delivery подтверждает exact identities, а bounded LIVE не выполняет paid STT, Google mutation или destructive bulk cleanup без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** production destructive cleanup, provider call и Google mutation остаются action-time gates и не требуются для safe UI/read-only LIVE; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 10 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-04T09:29:33Z`.
+- **Updated (UTC):** `2026-09-04T10:00:13Z`.
 - **Base branch/SHA:** exact synced `origin/main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`.
 - **Working branch:** `codex/ux-audit-controls` from exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** implementation commit `9d3befa6770e19a2a9a08264c075fd2e81800de8`.
+- **Last verified revision:** exact-head implementation revision `c47ce2bf8044744abab37c9c0ee0594346c383d0`.
 - **Completed:** Google Doc `Требования к проекту VoiceOps Studio` revision `ANLCKQlhXCiyRDsxLHF_o-wX4fktyA1eq2i7ZHalVZEdAsqB54Zv2QLevIMKSJb-6sd2T69WzDwMMEfmplaJ7Kc7ZzuijNaU0L1YNZliGBg` получил шесть material requirements в существующих sections без structural change; final readback подтвердил по одному list item. Canonical `UXCTL-01..14`, additive schema `0037`, owner-scoped bulk Studio-file deletion preview/apply, explicit uncertain-job resolution, truthful STT mode grouping, explicit fragmentation/default and per-fragment Drive destinations, readable ElevenLabs plan/PAYG labels and compact actionable diagnostics реализованы вместе с API/PWA/schema regressions и operational docs.
-- **Current step:** PR `#297` открыт; initial backend CI нашёл только ошибку новой test fixture (`JobSourceStatus.failed/completed` при canonical enum `queued/skipped`), обе строки исправлены без product-code change.
-- **Next exact action:** зафиксировать и отправить regression fix, затем дождаться нового exact-head backend/Studio/browser CI.
-- **Validation / Evidence:** Google Docs final connector readback; Python compileall и lightweight CI checks passed; focused schema/source/deletion/DTO/account suite `113 passed`; diagnostics/report suite `22 passed, 1 deselected`; full frontend Vitest `703 passed`; ESLint, TypeScript/Vite/PWA production build, Playwright discovery и `git diff --check` passed. PostgreSQL-backed API execution и Linux preflight остаются CI Evidence: локальный PostgreSQL отсутствует, а native Windows pytest temp-root имеет pre-existing access failure.
-- **PR / CI / deployment:** PR `#297` открыт на `f3bbc8de5a2f78a8afa721e91b1cf0fd039ecacf`; initial CI `33858232909` завершил `1723 passed, 1 failed`, где единственный failure — invalid enum в новом API test setup. Studio/browser run `33858232870` ещё выполняется. Delivery не выполнялась.
-- **Blockers / unverified assumptions:** implementation blocker не выявлен. Точный PostgreSQL/API integration result, Linux preflight и browser E2E требуют CI; production provider call, Google mutation и destructive bulk cleanup не разрешены этой проверкой и не нужны для bounded LIVE.
+- **Current step:** PR `#297` mergeable; exact-head backend, Studio и authenticated browser E2E checks на `c47ce2b` завершены success. Перед merge выполняется единственная operational metadata synchronization.
+- **Next exact action:** зафиксировать и отправить эту metadata synchronization, дождаться exact metadata-head CI, затем выполнить merge и applicable protected migration/API/web delivery с bounded read-only LIVE.
+- **Validation / Evidence:** Google Docs final connector readback; Python compileall и lightweight CI checks passed; focused schema/source/deletion/DTO/account suite `113 passed`; diagnostics/report suite `22 passed, 1 deselected`; full frontend Vitest `703 passed`; ESLint, TypeScript/Vite/PWA production build, focused `JobCard` `5 passed`, Playwright discovery и `git diff --check` passed. Локальный PostgreSQL отсутствует, поэтому новый PostgreSQL-backed active-job regression подтверждён в exact-head CI. Initial CI последовательно выявил invalid enum только в новой fixture, затем устаревшие E2E assumptions о раскрытой attention-card и реальный product defect: processing job с uncertain attempt ошибочно получал `history_attention_required`; fixes нормализовали fixture/selectors и ограничили attention predicate terminal statuses, после чего все exact-head suites прошли.
+- **PR / CI / deployment:** PR `#297` на `c47ce2bf8044744abab37c9c0ee0594346c383d0` mergeable. Exact-head CI `33860478948` / job `100983529853`, Studio `33860478916` / job `100983529765` и authenticated browser E2E job `100983529940` завершены success. Delivery не выполнялась.
+- **Blockers / unverified assumptions:** implementation blocker не выявлен. Production provider call, Google mutation и destructive bulk cleanup не разрешены этой проверкой и не нужны для bounded LIVE; applicable protected migration approval остаётся delivery gate, если GitHub environment запросит owner approval.
 
 ## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
 

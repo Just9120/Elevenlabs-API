@@ -37,12 +37,12 @@ Current operational Goal: `UX-AUDIT-CONTROLS-01`, state `IN_PROGRESS` по expli
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **93,2% (`313/336`)** | previous notification/STT Goals reconciled; `UXCTL-01..14` added by current explicit Goal and remain open |
-| Non-commercial scope | **93,8% (`345/368`)** | Colab `32/32` + personal PWA `313/336` |
+| Personal Studio PWA | **97,3% (`327/336`)** | previous notification/STT Goals reconciled; `UXCTL-01..14` implemented and confirmed by exact-head CODE/TEST/CI, delivery pending |
+| Non-commercial scope | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `327/336` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **56,6% (`345/610`)** | `345 / (368 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **58,9% (`359/610`)** | `359 / (368 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед текущей Goal даёт `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; новые AC пока открыты. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед текущей Goal даёт `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; все 14 AC реализованы и подтверждены exact-head CODE/TEST/CI, что поднимает numerator до `359/610`, а DEPLOY/LIVE остаются открыты. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
 
 ### Commercial scope decision
 
@@ -193,26 +193,26 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Fun
 
 ### Эпик `PWA-UX-CONTROLS-04` — честные controls, recovery и compact diagnostics
 
-Status: **🟦 IN PROGRESS — 0% (`0/14`)**. Scope добавлен explicit owner Goal `UX-AUDIT-CONTROLS-01`; implementation и Evidence выполняются в текущей delivery.
+Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все product AC реализованы и подтверждены exact-head CODE/TEST/CI; applicable DEPLOY/LIVE ещё не выполнены, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `UXCTL-01` | Отдельный STT mode показывается только если effective provider capability реально отличается model, transport, features, speed или cost; эквивалентные modes объединяются. | — |
-| `UXCTL-02` | Для каждого различающегося STT mode до dispatch доступно краткое понятное объяснение фактических отличий без неподтверждённых обещаний. | — |
-| `UXCTL-03` | Fragmentation включается отдельным явным checkbox и в выключенном состоянии не создаёт segment-specific controls. | — |
-| `UXCTL-04` | Общая output folder является default destination всех fragments. | — |
-| `UXCTL-05` | Каждый fragment может переопределить output folder; composer/preflight показывает resolved destination каждого fragment до создания jobs. | — |
-| `UXCTL-06` | Attention-required terminal job остаётся видимой до решения, но её подробности можно свернуть без изменения durable state. | — |
-| `UXCTL-07` | Пользователь может повторно проверить uncertain result, связать job с подтверждённым более поздним результатом либо явно подтвердить отсутствие результата с предупреждением о возможном расходе; только resolved job переходит в обычный history lifecycle, audit сохраняется. | — |
-| `UXCTL-08` | ElevenLabs account UI отдельно показывает base subscription plan и PAYG/prepaid balance и переводит raw provider values в понятные пользовательские labels. | — |
-| `UXCTL-09` | Порядок расходования subscription credits и PAYG отображается только при наличии подтверждённых provider data и не выводится из предположений Studio. | — |
-| `UXCTL-10` | Bulk cleanup preview показывает eligible/blocked Studio-owned files, aggregate bytes и явно сообщает, что Google Drive sources/documents не удаляются. | — |
-| `UXCTL-11` | Bulk cleanup apply требует explicit confirmation, удаляет только eligible Studio-owned files, безопасно пропускает blocked files и возвращает bounded summary по причинам. | — |
-| `UXCTL-12` | Diagnostic event сначала показывает human-readable problem/action summary; technical event code, request/trace IDs и расширенные metadata находятся под disclosure. | — |
-| `UXCTL-13` | Diagnostic projection сохраняет safe blocker reason и source/object type, необходимые для понимания failed или blocked действия. | — |
-| `UXCTL-14` | Весь diagnostic event log можно свернуть; errors/warnings приоритетны, informational events доступны по запросу, список остаётся bounded/paginated. | — |
+| `UXCTL-01` | Отдельный STT mode показывается только если effective provider capability реально отличается model, transport, features, speed или cost; эквивалентные modes объединяются. | ✅ |
+| `UXCTL-02` | Для каждого различающегося STT mode до dispatch доступно краткое понятное объяснение фактических отличий без неподтверждённых обещаний. | ✅ |
+| `UXCTL-03` | Fragmentation включается отдельным явным checkbox и в выключенном состоянии не создаёт segment-specific controls. | ✅ |
+| `UXCTL-04` | Общая output folder является default destination всех fragments. | ✅ |
+| `UXCTL-05` | Каждый fragment может переопределить output folder; composer/preflight показывает resolved destination каждого fragment до создания jobs. | ✅ |
+| `UXCTL-06` | Attention-required terminal job остаётся видимой до решения, но её подробности можно свернуть без изменения durable state. | ✅ |
+| `UXCTL-07` | Пользователь может повторно проверить uncertain result, связать job с подтверждённым более поздним результатом либо явно подтвердить отсутствие результата с предупреждением о возможном расходе; только resolved job переходит в обычный history lifecycle, audit сохраняется. | ✅ |
+| `UXCTL-08` | ElevenLabs account UI отдельно показывает base subscription plan и PAYG/prepaid balance и переводит raw provider values в понятные пользовательские labels. | ✅ |
+| `UXCTL-09` | Порядок расходования subscription credits и PAYG отображается только при наличии подтверждённых provider data и не выводится из предположений Studio. | ✅ |
+| `UXCTL-10` | Bulk cleanup preview показывает eligible/blocked Studio-owned files, aggregate bytes и явно сообщает, что Google Drive sources/documents не удаляются. | ✅ |
+| `UXCTL-11` | Bulk cleanup apply требует explicit confirmation, удаляет только eligible Studio-owned files, безопасно пропускает blocked files и возвращает bounded summary по причинам. | ✅ |
+| `UXCTL-12` | Diagnostic event сначала показывает human-readable problem/action summary; technical event code, request/trace IDs и расширенные metadata находятся под disclosure. | ✅ |
+| `UXCTL-13` | Diagnostic projection сохраняет safe blocker reason и source/object type, необходимые для понимания failed или blocked действия. | ✅ |
+| `UXCTL-14` | Весь diagnostic event log можно свернуть; errors/warnings приоритетны, informational events доступны по запросу, список остаётся bounded/paginated. | ✅ |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
