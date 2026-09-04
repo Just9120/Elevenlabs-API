@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `BULK-CLEANUP-VISIBILITY-HOTFIX-01` — согласовать план очистки с фактически видимым списком файлов.
-- **State:** `IN_PROGRESS` — причина production UX mismatch подтверждена; backend/frontend fix, operational synchronization и local validation завершены, PR/CI/delivery ещё не выполнены.
+- **State:** `IN_PROGRESS` — причина production UX mismatch подтверждена; backend/frontend fix, operational synchronization, local validation и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
 - **Authorization source:** explicit owner browser comment 2026-09-04: «пишет 7 файлов, а по факту файлов нет».
 - **Scope:** оставить безопасную очистку всех Studio-owned записей, но отдельно считать и показывать источники в текущем browser list и истёкшие local-upload записи, уже скрытые retention policy; включить visibility classification в preview token; сохранить confirmation, ownership, blocked reasons и Drive-safe boundary; покрыть backend/frontend regressions, reviewable PR, exact CI, web/API delivery и bounded preview-only LIVE.
 - **Non-goals:** изменение retention сроков или source-list availability; удаление production данных в ходе проверки; Google Drive/Docs mutation; новая schema migration; paid STT; изменение canonical product denominator или commercial contour.
@@ -12,22 +12,22 @@
   2. `BCV-02`: UI отдельно показывает число файлов в текущем списке и число истёкших записей, скрытых retention policy, не называя скрытые записи видимыми файлами.
   3. `BCV-03`: visibility входит в replay-safe preview token; apply по-прежнему требует recent authentication, explicit confirmation и не удаляет Google Drive content.
   4. `BCV-04`: focused backend/frontend tests, reviewable PR, exact-head/main CI, applicable API/web delivery и bounded preview-only LIVE проходят без destructive apply.
-- **Required Evidence:** `SPEC N/A | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC N/A | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** локальный PostgreSQL недоступен, поэтому API integration regression требует CI; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 4 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-04T16:22:00Z`.
+- **Updated (UTC):** `2026-09-04T16:32:15Z`.
 - **Base branch/SHA:** exact synced `origin/main@83d461ee20cdb0b1275213f9b99397b292c9167d`.
 - **Working branch:** `codex/ux-bulk-cleanup-count-hotfix` from exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** `83d461ee20cdb0b1275213f9b99397b292c9167d`.
+- **Last verified revision:** implementation revision `c3fa05094f242e225a96cea60d27b1c76b279e4a`.
 - **Completed:** production screenshot и source/API comparison подтвердили mismatch: list endpoint скрывает истёкшие local uploads, а cleanup preview намеренно сохраняет их eligible для окончательного удаления. Backend preview получил separate listed/hidden-expired counters и visibility-bound token; PWA получила explicit explanatory copy; closure предыдущей Goal и canonical operational Evidence синхронизированы без изменения product denominator.
-- **Current step:** создать reviewable commit/PR и дождаться exact-head required CI.
-- **Next exact action:** зафиксировать hotfix, отправить ветку и открыть PR.
+- **Current step:** синхронизировать pre-merge checkpoint, повторно подтвердить required checks финального head и merge PR `#298`.
+- **Next exact action:** зафиксировать checkpoint в текущем PR и дождаться required CI финального head.
 - **Validation / Evidence:** Python compileall, lightweight CI checks, `git diff --check` и production frontend build passed; `tests/test_studio_source_deletion.py` — `28 passed`; полный `App.test.tsx` — `227 passed`; финальный focused copy regression — `2 passed`; changed-file ESLint passed. PostgreSQL-backed `test_studio_api_core.py` локально не запустился из-за отсутствующего `127.0.0.1:5432`, product assertion не выполнялась и требует exact CI.
-- **PR / CI / deployment:** не созданы; production остаётся на `main@83d461ee20cdb0b1275213f9b99397b292c9167d`, schema `0037_ux_audit_controls`.
+- **PR / CI / deployment:** PR `#298` (`c3fa05094f242e225a96cea60d27b1c76b279e4a`) MERGEABLE/CLEAN, без comments/reviews; exact implementation-head CI `33895266704` и Studio/browser CI `33895266688` success. Production остаётся на `main@83d461ee20cdb0b1275213f9b99397b292c9167d`, schema `0037_ux_audit_controls`.
 - **Blockers / unverified assumptions:** implementation blocker не выявлен; destructive production cleanup не входит в LIVE hotfix.
 
 ## Previous Goal closure — `UX-AUDIT-CONTROLS-01`
@@ -355,7 +355,7 @@ DB least privilege, security hardening и UX polish изменились бол�
 
 ## Candidate next Goals
 
-Current Goal `UX-AUDIT-CONTROLS-01` выполняется; Candidate next Goal не выбирается до её terminal state.
+Current Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
 
 ## Risks и boundaries
 
