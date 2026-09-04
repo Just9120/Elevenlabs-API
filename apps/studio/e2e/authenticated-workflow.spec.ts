@@ -431,7 +431,7 @@ test('Audio workspace processes a device WAV in-browser without uploading source
   await expect(localResults).toBeVisible();
   const download = localResults.getByRole('link', { name: 'Скачать файл' });
   await expect(download).toHaveAttribute('href', /^blob:/);
-  await expect(download).toHaveAttribute('download', 'Обработанное аудио.wav');
+  await expect(download).toHaveAttribute('download', 'browser-local.wav');
   expect(uploadMutations).toEqual([]);
 });
 
