@@ -87,7 +87,12 @@ from .google_drive import GoogleDriveReconciliationError, list_reconciliation_ca
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 from .media_clip import MediaClipPlanError, MediaClipRangeError, normalize_media_clip_range, validate_ordered_media_clip_plan
 from .batch_preflight import build_batch_preflight_payload
-from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
+from .source_deletion import (
+    SourceDeletionReason,
+    bulk_source_deletion_preview,
+    is_source_expired,
+    request_source_deletion,
+)
 from .transcript_catalog import (
     ExistingResultMatchStatus,
     GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
@@ -513,6 +518,38 @@ class ConfirmedClearIn(BaseModel):
         if value is not True:
             raise ValueError("Подтвердите очистку")
         return value
+
+
+class ConfirmedBulkSourceDeletionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_delete: StrictBool
+    expected_preview_token: str = Field(pattern="^[a-f0-9]{64}$")
+    expected_eligible_count: StrictInt = Field(ge=0)
+    expected_blocked_count: StrictInt = Field(ge=0)
+
+    @field_validator("confirm_delete")
+    @classmethod
+    def deletion_must_be_confirmed(cls, value):
+        if value is not True:
+            raise ValueError("Подтвердите удаление")
+        return value
+
+
+class JobAttentionResolutionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resolution: str = Field(pattern="^(acknowledged_no_result|linked_later_result)$")
+    linked_job_id: str | None = Field(default=None, max_length=36)
+    confirm_possible_spend: StrictBool
+
+    @model_validator(mode="after")
+    def validate_resolution(self):
+        if self.confirm_possible_spend is not True:
+            raise ValueError("Подтвердите возможное списание у провайдера")
+        if self.resolution == "linked_later_result" and not valid_uuid(self.linked_job_id):
+            raise ValueError("Выберите подтверждённую более позднюю задачу")
+        if self.resolution == "acknowledged_no_result" and self.linked_job_id is not None:
+            raise ValueError("Связанная задача здесь не используется")
+        return self
 
 class BatchJobItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1213,7 +1250,8 @@ def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "operating_mode": getattr(job,"operating_mode","standard"), "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)], "usage_cost": job_usage_cost_payload(job)}
+    attention_resolved_at=getattr(job,"history_attention_resolved_at",None)
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "operating_mode": getattr(job,"operating_mode","standard"), "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "history_attention_resolved_at": attention_resolved_at.isoformat() if attention_resolved_at else None, "history_attention_resolution": getattr(job,"history_attention_resolution",None), "history_attention_linked_job_id": getattr(job,"history_attention_linked_job_id",None), "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)], "usage_cost": job_usage_cost_payload(job)}
     batch=browser_batch_reference(job)
     if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
@@ -2927,6 +2965,106 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
     return {"ok": True, "source_state": result.source_state, "storage_cleanup": result.storage_cleanup}
 
 
+@app.get("/api/projects/{project_id}/sources/bulk-deletion/preview")
+def preview_bulk_source_deletion(
+    project_id: str,
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("source:bulk-delete:preview:" + user.id, 60, 3600)
+    preview = bulk_source_deletion_preview(
+        db,
+        owner_user_id=user.id,
+        project_id=project_id,
+        now=utcnow(),
+    )
+    if preview is None:
+        raise HTTPException(404, "Не найдено")
+    return preview.payload()
+
+
+@app.post("/api/projects/{project_id}/sources/bulk-deletion")
+def apply_bulk_source_deletion(
+    project_id: str,
+    data: ConfirmedBulkSourceDeletionIn,
+    request: Request,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    _, user = require_recent_auth(pair)
+    limiter.check("source:bulk-delete:apply:" + user.id, 10, 3600)
+    now = utcnow()
+    preview = bulk_source_deletion_preview(
+        db,
+        owner_user_id=user.id,
+        project_id=project_id,
+        now=now,
+        lock_sources=True,
+    )
+    if preview is None:
+        raise HTTPException(404, "Не найдено")
+    preview_payload = preview.payload()
+    if (
+        not safe_eq(preview_payload["preview_token"], data.expected_preview_token)
+        or preview_payload["eligible_count"] != data.expected_eligible_count
+        or preview_payload["blocked_count"] != data.expected_blocked_count
+    ):
+        raise HTTPException(
+            409,
+            detail={"reason": "preview_changed", "preview": preview_payload},
+        )
+    cleanup_counts: dict[str, int] = {}
+    deleted_count = 0
+    for source_id in preview.eligible_ids:
+        result = request_source_deletion(
+            db,
+            owner_user_id=user.id,
+            source_id=source_id,
+            now=now,
+        )
+        if result is None or not result.ok:
+            db.rollback()
+            raise HTTPException(
+                409,
+                detail={"reason": "preview_changed"},
+            )
+        deleted_count += 1
+        cleanup_counts[result.storage_cleanup] = cleanup_counts.get(result.storage_cleanup, 0) + 1
+    audit(
+        db,
+        "source.bulk_deletion_completed",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+        project_id=project_id,
+        deleted_count=deleted_count,
+        blocked_count=preview_payload["blocked_count"],
+    )
+    db.commit()
+    write_diagnostic_event(
+        owner_user_id=user.id,
+        component="api",
+        event_code="SOURCE_BULK_DELETION_COMPLETED",
+        project_id=project_id,
+        request_id=getattr(request.state, "request_id", None),
+        correlation_id=getattr(request.state, "correlation_id", None),
+        metadata={
+            "deleted_count": deleted_count,
+            "blocked_count": preview_payload["blocked_count"],
+            "boundary": "source_deletion",
+        },
+    )
+    return {
+        "ok": True,
+        "deleted_count": deleted_count,
+        "blocked_count": preview_payload["blocked_count"],
+        "blocked_reasons": preview_payload["blocked_reasons"],
+        "cleanup_counts": cleanup_counts,
+        "google_drive_files_deleted": 0,
+    }
+
+
 @app.get("/api/sources/{source_id}")
 def get_source(source_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair
@@ -3090,6 +3228,7 @@ def history_attention_required_expression():
         select(TranscriptionJobSourceAttempt.id)
         .where(
             TranscriptionJobSourceAttempt.job_id == TranscriptionJob.id,
+            TranscriptionJob.history_attention_resolved_at.is_(None),
             TranscriptionJobSourceAttempt.provider_request_started_at.is_not(
                 None
             ),
@@ -3243,11 +3382,94 @@ def dismiss_terminal_job(job_id: str, pair=Depends(require_csrf), db: Session=De
     _,user=pair; limiter.check("job:dismiss:"+user.id, 240, 3600); job=owned_job_or_404(db,user,job_id)
     if job.status not in (JobStatus.completed, JobStatus.failed, JobStatus.cancelled):
         raise HTTPException(409, "Только завершённую задачу можно убрать в историю")
+    if db.query(TranscriptionJob.id).filter(
+        TranscriptionJob.id == job.id,
+        history_attention_required_expression(),
+    ).first():
+        raise HTTPException(409, "Сначала разрешите неопределённый результат задачи")
     if job.terminal_dismissed_at is None:
         now=utcnow(); job.terminal_dismissed_at=now; job.updated_at=now
         audit(db,"job.dismissed",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
         db.commit(); db.refresh(job)
     return job_payload(job)
+
+
+@app.post("/api/jobs/{job_id}/attention-resolution")
+def resolve_job_history_attention(
+    job_id: str,
+    data: JobAttentionResolutionIn,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    _, user = require_recent_auth(pair)
+    limiter.check("job:attention-resolution:" + user.id, 20, 3600)
+    job = db.execute(
+        select(TranscriptionJob)
+        .where(
+            TranscriptionJob.id == job_id,
+            TranscriptionJob.owner_user_id == user.id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(404, "Не найдено")
+    if job.history_attention_resolved_at is not None:
+        if (
+            job.history_attention_resolution == data.resolution
+            and job.history_attention_linked_job_id == data.linked_job_id
+        ):
+            payload = job_payload(job)
+            payload["history_attention_required"] = False
+            return payload
+        raise HTTPException(409, detail={"reason": "attention_resolution_conflict"})
+    if not db.query(TranscriptionJob.id).filter(
+        TranscriptionJob.id == job.id,
+        history_attention_required_expression(),
+    ).first():
+        raise HTTPException(409, detail={"reason": "attention_not_required"})
+    linked_job = None
+    if data.resolution == "linked_later_result":
+        linked_job = owned_job_or_404(db, user, data.linked_job_id or "")
+        source_ids = [row.source_id for row in job.sources]
+        linked_source_ids = [row.source_id for row in linked_job.sources]
+        valid_link = (
+            linked_job.project_id == job.project_id
+            and linked_job.created_at > job.created_at
+            and linked_job.status == JobStatus.completed
+            and source_ids == linked_source_ids
+            and linked_job.media_clip_start_seconds == job.media_clip_start_seconds
+            and linked_job.media_clip_end_seconds == job.media_clip_end_seconds
+            and db.query(TranscriptionJobOutput.id).filter(
+                TranscriptionJobOutput.job_id == linked_job.id,
+                TranscriptionJobOutput.output_kind == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
+            ).first()
+            is not None
+        )
+        if not valid_link:
+            raise HTTPException(409, detail={"reason": "linked_job_not_confirmed"})
+    now = utcnow()
+    job.history_attention_resolved_at = now
+    job.history_attention_resolution = data.resolution
+    job.history_attention_linked_job_id = linked_job.id if linked_job else None
+    job.terminal_dismissed_at = now
+    job.updated_at = now
+    audit(
+        db,
+        "job.history_attention_resolved",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+        project_id=job.project_id,
+        job_id=job.id,
+        resolution=data.resolution,
+        linked_job_id=job.history_attention_linked_job_id,
+        possible_provider_spend_acknowledged=True,
+    )
+    db.commit()
+    db.refresh(job)
+    payload = job_payload(job)
+    payload["history_attention_required"] = False
+    return payload
 
 @app.get("/api/jobs/{job_id}/retry")
 def get_job_retry(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):

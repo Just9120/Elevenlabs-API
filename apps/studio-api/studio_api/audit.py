@@ -9,10 +9,12 @@ SAFE_ENUM_VALUES={
         "queued_job_uses_source",
         "processing_job_uses_source",
         "retryable_failed_job_uses_source",
+        "audio_preparation_uses_source",
         "project_unavailable",
         "source_already_deleted",
         "unsupported_source_state",
     },
+    "resolution": {"acknowledged_no_result", "linked_later_result"},
     "deletion_reason": {"user_deleted", "retention_expired"},
     "cleanup_outcome": {"not_applicable", "pending", "completed", "failed"},
     "upload_protocol": {"single_put", "multipart"},
@@ -20,10 +22,12 @@ SAFE_ENUM_VALUES={
 MAX_CLEANUP_ATTEMPT=100000
 SAFE_BOUNDED_INTEGERS={
     "planned_count": 500,
-    "deleted_count": 500,
+    "deleted_count": 100000,
+    "blocked_count": 100000,
     "failed_count": 500,
     "deleted_bytes": 1073741824000,
 }
+SAFE_BOOLEANS={"possible_provider_spend_acknowledged"}
 FORBIDDEN_SUBSTRINGS=(
     "source_id",
     "job_id",
@@ -55,6 +59,10 @@ def _safe_audit_metadata(metadata):
     for key, maximum in SAFE_BOUNDED_INTEGERS.items():
         value=metadata.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum:
+            safe[key]=value
+    for key in SAFE_BOOLEANS:
+        value=metadata.get(key)
+        if isinstance(value, bool):
             safe[key]=value
     return {
         k: v

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+import hashlib
+import json
 from uuid import uuid4
 
 from sqlalchemy import exists, or_, select
@@ -58,6 +60,30 @@ class SourceDeletionResult:
     reason: SourceDeletionReason
     source_state: str
     storage_cleanup: str
+
+
+@dataclass(frozen=True)
+class BulkSourceDeletionPreview:
+    eligible_ids: tuple[str, ...]
+    preview_token: str
+    blocked_reasons: dict[str, int]
+    eligible_bytes: int
+    eligible_unknown_size_count: int
+    blocked_bytes: int
+    blocked_unknown_size_count: int
+
+    def payload(self) -> dict:
+        return {
+            "preview_token": self.preview_token,
+            "eligible_count": len(self.eligible_ids),
+            "eligible_bytes": self.eligible_bytes,
+            "eligible_unknown_size_count": self.eligible_unknown_size_count,
+            "blocked_count": sum(self.blocked_reasons.values()),
+            "blocked_bytes": self.blocked_bytes,
+            "blocked_unknown_size_count": self.blocked_unknown_size_count,
+            "blocked_reasons": dict(sorted(self.blocked_reasons.items())),
+            "google_drive_files_deleted": 0,
+        }
 
 
 @dataclass(frozen=True)
@@ -162,6 +188,78 @@ def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_job
     if _active_audio_preparation_references(db, source.id, lock=False):
         return SourceDeletionReason.audio_preparation_uses_source
     return SourceDeletionReason.available
+
+
+def bulk_source_deletion_preview(
+    db: Session,
+    *,
+    owner_user_id: str,
+    project_id: str,
+    now: datetime,
+    lock_sources: bool = False,
+) -> BulkSourceDeletionPreview | None:
+    project = db.get(Project, project_id)
+    if project is None or project.owner_user_id != owner_user_id or project.archived_at is not None:
+        return None
+    stmt = (
+        select(Source)
+        .where(
+            Source.project_id == project_id,
+            Source.deleted_at.is_(None),
+            Source.upload_status != SourceUploadStatus.deleted,
+        )
+        .order_by(Source.created_at.asc(), Source.id.asc())
+    )
+    if lock_sources:
+        stmt = stmt.with_for_update()
+    sources = list(db.execute(stmt).scalars().all())
+    eligible_ids: list[str] = []
+    blocked_reasons: dict[str, int] = {}
+    eligible_bytes = blocked_bytes = 0
+    eligible_unknown = blocked_unknown = 0
+    preview_entries: list[dict[str, str]] = []
+    for source in sources:
+        reason = deletion_readiness(db, source, now=now)
+        preview_entries.append(
+            {
+                "source_id": source.id,
+                "reason": reason.value,
+                "updated_at": _aware(source.updated_at).isoformat(),
+            }
+        )
+        eligible = reason == SourceDeletionReason.available
+        if eligible:
+            eligible_ids.append(source.id)
+        else:
+            blocked_reasons[reason.value] = blocked_reasons.get(reason.value, 0) + 1
+        if source.size_bytes is None:
+            if eligible:
+                eligible_unknown += 1
+            else:
+                blocked_unknown += 1
+        elif eligible:
+            eligible_bytes += source.size_bytes
+        else:
+            blocked_bytes += source.size_bytes
+    return BulkSourceDeletionPreview(
+        tuple(eligible_ids),
+        hashlib.sha256(
+            json.dumps(
+                {
+                    "owner_user_id": owner_user_id,
+                    "project_id": project_id,
+                    "entries": preview_entries,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest(),
+        blocked_reasons,
+        eligible_bytes,
+        eligible_unknown,
+        blocked_bytes,
+        blocked_unknown,
+    )
 
 
 def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, now: datetime) -> SourceDeletionResult | None:

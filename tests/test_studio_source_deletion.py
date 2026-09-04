@@ -138,6 +138,53 @@ def test_queued_job_blocks_source_deletion_without_cleanup_state_change(sqlite_d
     assert src.storage_cleanup_status == m.SourceStorageCleanupStatus.not_requested
 
 
+def test_bulk_deletion_preview_counts_eligible_blocked_bytes_and_never_drive_content(sqlite_db):
+    from studio_api.source_deletion import bulk_source_deletion_preview
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    eligible = _local_source(sqlite_db, m, project, now, key="eligible")
+    eligible.size_bytes = 120
+    drive = m.Source(
+        project_id=project.id,
+        source_type=m.SourceType.google_drive,
+        original_filename="drive.mp3",
+        drive_file_id="drive-id",
+        drive_file_url="https://drive.google.com/file/d/drive-id/view",
+        upload_status=m.SourceUploadStatus.uploaded,
+        uploaded_at=now,
+        size_bytes=80,
+        storage_cleanup_status=m.SourceStorageCleanupStatus.not_applicable,
+    )
+    sqlite_db.add(drive)
+    blocked = _local_source(sqlite_db, m, project, now, key="blocked")
+    blocked.size_bytes = 60
+    _job_for_source(sqlite_db, m, user, project, blocked, status=m.JobStatus.processing)
+    sqlite_db.commit()
+
+    preview = bulk_source_deletion_preview(
+        sqlite_db,
+        owner_user_id=user.id,
+        project_id=project.id,
+        now=now,
+    )
+
+    assert preview is not None
+    assert set(preview.eligible_ids) == {eligible.id, drive.id}
+    assert len(preview.preview_token) == 64
+    assert preview.payload() == {
+        "preview_token": preview.preview_token,
+        "eligible_count": 2,
+        "eligible_bytes": 200,
+        "eligible_unknown_size_count": 0,
+        "blocked_count": 1,
+        "blocked_bytes": 60,
+        "blocked_unknown_size_count": 0,
+        "blocked_reasons": {"processing_job_uses_source": 1},
+        "google_drive_files_deleted": 0,
+    }
+
+
 @pytest.mark.parametrize(
     ("job_status", "allowed"),
     [

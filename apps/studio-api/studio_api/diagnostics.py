@@ -87,7 +87,7 @@ PWA_REJECTION_CATEGORIES = frozenset({"abort", "type_error", "error", "other"})
 SOURCE_TYPES = frozenset({"local_upload", "google_drive"})
 SOURCE_DELETION_REASONS = frozenset({"user_deleted", "retention_expired"})
 SOURCE_CLEANUP_OUTCOMES = frozenset({"not_applicable", "pending", "completed", "failed"})
-SOURCE_DELETION_BLOCKERS = frozenset({"queued_job_uses_source", "processing_job_uses_source", "retryable_failed_job_uses_source", "project_unavailable", "source_already_deleted", "unsupported_source_state"})
+SOURCE_DELETION_BLOCKERS = frozenset({"queued_job_uses_source", "processing_job_uses_source", "retryable_failed_job_uses_source", "audio_preparation_uses_source", "project_unavailable", "source_already_deleted", "unsupported_source_state"})
 GOOGLE_PICKER_SESSION_FAILURE_REASONS = frozenset({
     "google_connection_missing",
     "google_connection_inactive",
@@ -118,6 +118,7 @@ REGISTRY: dict[str, EventDef] = {
     "SOURCE_DELETION_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "deletion_reason": R("enum", choices=SOURCE_DELETION_REASONS, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_DELETION_BLOCKED": EventDef(frozenset({"api"}), "WARNING", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "blocker": R("enum", choices=SOURCE_DELETION_BLOCKERS, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_DELETION_COMPLETED": EventDef(frozenset({"api"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "deletion_reason": R("enum", choices=SOURCE_DELETION_REASONS, required=True), "cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_BULK_DELETION_COMPLETED": EventDef(frozenset({"api"}), "INFO", {"deleted_count": R("int", min=0, max=100000, required=True), "blocked_count": R("int", min=0, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_RETENTION_EXPIRED": EventDef(frozenset({"worker"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "deletion_reason": R("enum", choices=SOURCE_DELETION_REASONS, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_STORAGE_CLEANUP_STARTED": EventDef(frozenset({"worker"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "SOURCE_STORAGE_CLEANUP_COMPLETED": EventDef(frozenset({"worker"}), "INFO", {"cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  distinctBatchModes,
   parseSttDictionaryCollection,
   parseSttProviderCatalog,
+  sttModeExplanation,
 } from "./sttContracts";
 
 describe("STT browser contracts", () => {
@@ -92,5 +94,42 @@ describe("STT browser contracts", () => {
         ],
       }),
     ).toBeNull();
+  });
+
+  it("collapses names that have the same effective provider capability", () => {
+    const base = {
+      model: "scribe_v2",
+      transport: "batch" as const,
+      languages: ["ru", "en", "detect"] as const,
+      diarization: true,
+      dictionaries: true,
+      file_constraints: {
+        max_bytes: 500,
+        max_duration_seconds: 3600,
+        audio_channels: [1, 2],
+      },
+      health: { available: true, consecutive_failures: 0, retry_after_seconds: null },
+    };
+    const modes = distinctBatchModes([
+      { ...base, mode: "economic" },
+      { ...base, mode: "standard" },
+      { ...base, mode: "premium" },
+    ]);
+    expect(modes.map((mode) => mode.mode)).toEqual(["standard"]);
+    expect(sttModeExplanation(modes[0])).toContain("до 60 мин.");
+
+    const healthyEquivalent = distinctBatchModes([
+      {
+        ...base,
+        mode: "standard",
+        health: {
+          available: false,
+          consecutive_failures: 3,
+          retry_after_seconds: 30,
+        },
+      },
+      { ...base, mode: "economic" },
+    ]);
+    expect(healthyEquivalent.map((mode) => mode.mode)).toEqual(["economic"]);
   });
 });

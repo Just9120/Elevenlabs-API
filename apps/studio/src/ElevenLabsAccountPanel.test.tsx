@@ -83,7 +83,7 @@ describe("ElevenLabs account panel", () => {
       <ElevenLabsAccountPanel csrf="csrf-value" onCsrf={onCsrf} />,
     );
 
-    expect(await screen.findByText("creator")).toBeInTheDocument();
+    expect(await screen.findByText("Creator")).toBeInTheDocument();
     expect(screen.getByText(/2 500 из 10 000/)).toBeInTheDocument();
     expect(screen.getByText(/оставшиеся кредиты и дополнительные расходы/)).toBeInTheDocument();
     expect(screen.getByText(/без пересчёта в минуты/)).toBeInTheDocument();
@@ -141,9 +141,20 @@ describe("ElevenLabs account panel", () => {
       },
     }] });
     render(<ElevenLabsAccountPanel csrf="csrf" onCsrf={vi.fn()} />);
-    expect(await screen.findByText("creator")).toBeInTheDocument();
+    expect(await screen.findByText("Creator")).toBeInTheDocument();
     expect(screen.getByText(/22,99/)).toBeInTheDocument();
     expect(screen.getByText("ElevenLabs не передал дату оплаты")).toBeInTheDocument();
     expect(screen.queryByText(/Актуальные данные подписки пока не получены/)).not.toBeInTheDocument();
+  });
+
+  it("does not present PAYG as the name of the base subscription", async () => {
+    api.mockResolvedValue({ accounts: [{
+      ...validAccount,
+      subscription: { ...validAccount.subscription, tier: "payg" },
+    }] });
+    render(<ElevenLabsAccountPanel csrf="csrf" onCsrf={vi.fn()} />);
+    expect(await screen.findByText("Нет данных")).toBeInTheDocument();
+    expect(screen.getByText(/вернул способ оплаты PAYG/)).toBeInTheDocument();
+    expect(screen.getByText(/Порядок списания между ними не указан/)).toBeInTheDocument();
   });
 });

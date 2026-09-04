@@ -272,7 +272,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0036_stt_multiprovider`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0037_ux_audit_controls`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -434,7 +434,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0036_stt_multiprovider`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0037_ux_audit_controls`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -1078,6 +1078,21 @@ The bounded production canary produced one resolved reconciliation case and requ
 - Source retention cleanup does not block reconciliation because the recovery path uses durable case metadata and a verified Drive candidate rather than source bytes or object storage.
 - Conflict is stable and fail-closed: repeated checks may report the conflict, but the system must not choose the first candidate, delete documents, or ask for a manual document ID.
 
+### Explicit resolution of an uncertain provider outcome
+
+An old terminal job with a provider request but no confirmed Google Docs output
+remains visible after history cleanup. The owner must first run the ordinary
+Drive reconciliation check. If it still cannot confirm an output, the PWA may
+resolve the attention state only through the recent-authenticated, CSRF- and
+same-origin-protected action: either link a later completed job for the same
+project, ordered sources and exact media clip that has a persisted Google Docs
+output, or explicitly acknowledge that no confirmed result exists and that the
+provider may already have charged for the request. The API locks the job,
+stores the resolution once, writes an audit record and then moves the old job
+to history. Conflicting replays fail closed. This action never retries STT,
+creates or deletes a Google document, removes the old attempt, or claims that
+provider spend did not occur.
+
 ## Source cleanup operations note
 
-Repository Alembic history currently extends through additive `0036_stt_multiprovider`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; production apply requires a separate action-time owner confirmation. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic history currently extends through additive `0037_ux_audit_controls`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; bulk removal must revalidate the opaque preview snapshot under locked source/job state, requires recent authentication plus explicit confirmation, skips blocked sources by reason, and never calls Google Drive deletion. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

@@ -160,7 +160,7 @@ def test_database_role_manifest_lets_real_migrator_extend_existing_enum(tmp_path
                 conn.execute(text("ALTER ROLE studio_migrator NOLOGIN"))
 
         with temp_engine.connect() as conn:
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0037_ux_audit_controls"
             assert conn.execute(
                 text(
                     "SELECT count(*) FROM pg_enum e "
@@ -442,7 +442,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0036_stt_multiprovider", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0037_ux_audit_controls", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -2931,6 +2931,115 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
 
 
+def test_bulk_source_deletion_is_owner_scoped_confirmed_and_drive_safe():
+    client, headers, project_id = create_logged_in_project(
+        "bulk-source-delete@example.com"
+    )
+    other, other_headers, _ = create_logged_in_project(
+        "bulk-source-delete-other@example.com"
+    )
+    drive_source_id = create_gdrive_source(
+        client, headers, project_id, "bulk-drive.mp4"
+    )
+    blocked_source_id = create_gdrive_source(
+        client, headers, project_id, "bulk-blocked.mp4"
+    )
+    local_source_id = add_local_source(project_id)
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        blocking_job = TranscriptionJob(
+            project_id=project_id,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.queued,
+        )
+        db.add(blocking_job)
+        db.flush()
+        db.add(
+            TranscriptionJobSource(
+                job_id=blocking_job.id,
+                source_id=blocked_source_id,
+                position=0,
+                status=JobSourceStatus.queued,
+            )
+        )
+        db.commit()
+
+    path = f"/api/projects/{project_id}/sources/bulk-deletion"
+    assert TestClient(app).get(f"{path}/preview").status_code == 401
+    assert other.get(f"{path}/preview").status_code == 404
+    preview = client.get(f"{path}/preview")
+    assert preview.status_code == 200
+    preview_payload = preview.json()
+    assert len(preview_payload.pop("preview_token")) == 64
+    assert preview_payload == {
+        "eligible_count": 2,
+        "eligible_bytes": 52,
+        "eligible_unknown_size_count": 0,
+        "blocked_count": 1,
+        "blocked_bytes": 42,
+        "blocked_unknown_size_count": 0,
+        "blocked_reasons": {"queued_job_uses_source": 1},
+        "google_drive_files_deleted": 0,
+    }
+    confirmation = {
+        "confirm_delete": True,
+        "expected_preview_token": preview.json()["preview_token"],
+        "expected_eligible_count": 2,
+        "expected_blocked_count": 1,
+    }
+    assert client.post(path, json=confirmation).status_code == 403
+    assert client.post(
+        path,
+        json={**confirmation, "confirm_delete": False},
+        headers=headers,
+    ).status_code == 422
+    assert other.post(path, json=confirmation, headers=other_headers).status_code == 404
+    changed = client.post(
+        path,
+        json={**confirmation, "expected_eligible_count": 3},
+        headers=headers,
+    )
+    assert changed.status_code == 409
+    assert changed.json()["detail"]["reason"] == "preview_changed"
+    same_counts_stale_snapshot = client.post(
+        path,
+        json={**confirmation, "expected_preview_token": "f" * 64},
+        headers=headers,
+    )
+    assert same_counts_stale_snapshot.status_code == 409
+    assert same_counts_stale_snapshot.json()["detail"]["reason"] == "preview_changed"
+
+    applied = client.post(path, json=confirmation, headers=headers)
+    assert applied.status_code == 200
+    assert applied.json() == {
+        "ok": True,
+        "deleted_count": 2,
+        "blocked_count": 1,
+        "blocked_reasons": {"queued_job_uses_source": 1},
+        "cleanup_counts": {"not_applicable": 1, "pending": 1},
+        "google_drive_files_deleted": 0,
+    }
+    assert client.post(path, json=confirmation, headers=headers).status_code == 409
+
+    with SessionLocal() as db:
+        drive_source = db.get(Source, drive_source_id)
+        local_source = db.get(Source, local_source_id)
+        blocked_source = db.get(Source, blocked_source_id)
+        assert drive_source.drive_file_id is not None
+        assert drive_source.upload_status == SourceUploadStatus.deleted
+        assert drive_source.storage_cleanup_status == SourceStorageCleanupStatus.not_applicable
+        assert local_source.upload_status == SourceUploadStatus.deleted
+        assert local_source.storage_cleanup_status == SourceStorageCleanupStatus.pending
+        assert blocked_source.deleted_at is None
+        event = db.query(AuditEvent).filter_by(
+            event_type="source.bulk_deletion_completed"
+        ).one()
+        assert json.loads(event.metadata_json) == {
+            "blocked_count": 1,
+            "deleted_count": 2,
+        }
+
+
 def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project("local@example.com")
@@ -4277,7 +4386,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0037_ux_audit_controls"
 
 
 
@@ -4341,7 +4450,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0036_stt_multiprovider"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0037_ux_audit_controls"
 
 
 
@@ -5331,6 +5440,180 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
             and event.subject_user_id == owner_id
             and event.metadata_json == "{}"
             for event in events.values()
+        )
+
+
+def _add_uncertain_history_job(project_id: str, source_id: str, *, created_at: datetime):
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        job = TranscriptionJob(
+            project_id=project_id,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Старый неопределённый результат",
+            attempt_count=1,
+            created_at=created_at,
+            started_at=created_at,
+            finished_at=created_at + timedelta(minutes=1),
+            error_code="partial_provider_result",
+        )
+        db.add(job)
+        db.flush()
+        relation = TranscriptionJobSource(
+            job_id=job.id,
+            source_id=source_id,
+            position=0,
+            status=JobSourceStatus.failed,
+        )
+        db.add(relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=project.owner_user_id,
+                project_id=project_id,
+                job_id=job.id,
+                job_source_id=relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.failed,
+                retry_disposition=SourceAttemptRetryDisposition.provider_outcome_uncertain,
+                failure_code="partial_provider_result",
+                provider_request_started_at=created_at,
+                failed_at=created_at + timedelta(minutes=1),
+            )
+        )
+        db.commit()
+        return job.id
+
+
+def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_safe():
+    client, headers, project_id = create_logged_in_project(
+        "attention-resolution@example.com"
+    )
+    other, other_headers, _ = create_logged_in_project(
+        "attention-resolution-other@example.com"
+    )
+    source_id = create_gdrive_source(
+        client, headers, project_id, "attention-source.mp4"
+    )
+    old_created_at = utcnow() - timedelta(days=1)
+    uncertain_job_id = _add_uncertain_history_job(
+        project_id, source_id, created_at=old_created_at
+    )
+    acknowledged_job_id = _add_uncertain_history_job(
+        project_id, source_id, created_at=old_created_at + timedelta(minutes=2)
+    )
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        later_job = TranscriptionJob(
+            project_id=project_id,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.completed,
+            provider="elevenlabs",
+            title="Подтверждённый поздний результат",
+            created_at=old_created_at + timedelta(hours=1),
+            finished_at=old_created_at + timedelta(hours=2),
+        )
+        db.add(later_job)
+        db.flush()
+        relation = TranscriptionJobSource(
+            job_id=later_job.id,
+            source_id=source_id,
+            position=0,
+            status=JobSourceStatus.completed,
+        )
+        db.add(relation)
+        db.flush()
+        db.add(
+            TranscriptionJobOutput(
+                job_id=later_job.id,
+                job_source_id=relation.id,
+                document_id="confirmed-later-document",
+                web_view_url="https://docs.google.com/document/d/confirmed-later-document/edit",
+                output_drive_folder_id="confirmed-folder",
+                output_kind="google_docs_transcript",
+                transcript_standard="transcript_doc",
+                document_character_count=42,
+                document_created_at=later_job.finished_at,
+                persisted_at=later_job.finished_at,
+                lease_generation=1,
+            )
+        )
+        db.commit()
+        later_job_id = later_job.id
+
+    endpoint = f"/api/jobs/{uncertain_job_id}/attention-resolution"
+    linked_payload = {
+        "resolution": "linked_later_result",
+        "linked_job_id": later_job_id,
+        "confirm_possible_spend": True,
+    }
+    assert client.post(endpoint, json=linked_payload).status_code == 403
+    assert other.post(
+        endpoint, json=linked_payload, headers=other_headers
+    ).status_code == 404
+    assert client.post(
+        endpoint,
+        json={**linked_payload, "confirm_possible_spend": False},
+        headers=headers,
+    ).status_code == 422
+    assert client.post(
+        endpoint,
+        json={**linked_payload, "linked_job_id": uncertain_job_id},
+        headers=headers,
+    ).status_code == 409
+
+    linked = client.post(endpoint, json=linked_payload, headers=headers)
+    assert linked.status_code == 200
+    assert linked.json()["history_attention_required"] is False
+    assert linked.json()["history_attention_resolution"] == "linked_later_result"
+    assert linked.json()["history_attention_linked_job_id"] == later_job_id
+    assert linked.json()["history_attention_resolved_at"]
+    assert linked.json()["terminal_dismissed_at"]
+    replay = client.post(endpoint, json=linked_payload, headers=headers)
+    assert replay.status_code == 200
+    assert replay.json()["history_attention_resolved_at"] == linked.json()[
+        "history_attention_resolved_at"
+    ]
+    conflict = client.post(
+        endpoint,
+        json={
+            "resolution": "acknowledged_no_result",
+            "linked_job_id": None,
+            "confirm_possible_spend": True,
+        },
+        headers=headers,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["reason"] == "attention_resolution_conflict"
+
+    acknowledge_endpoint = f"/api/jobs/{acknowledged_job_id}/attention-resolution"
+    acknowledged = client.post(
+        acknowledge_endpoint,
+        json={
+            "resolution": "acknowledged_no_result",
+            "linked_job_id": None,
+            "confirm_possible_spend": True,
+        },
+        headers=headers,
+    )
+    assert acknowledged.status_code == 200
+    assert acknowledged.json()["history_attention_resolution"] == "acknowledged_no_result"
+    assert acknowledged.json()["history_attention_linked_job_id"] is None
+
+    with SessionLocal() as db:
+        events = db.query(AuditEvent).filter_by(
+            event_type="job.history_attention_resolved"
+        ).all()
+        assert len(events) == 2
+        assert {json.loads(event.metadata_json)["resolution"] for event in events} == {
+            "acknowledged_no_result",
+            "linked_later_result",
+        }
+        assert all(
+            json.loads(event.metadata_json)["possible_provider_spend_acknowledged"]
+            is True
+            for event in events
         )
 
 
@@ -8219,7 +8502,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0036_stt_multiprovider"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0037_ux_audit_controls"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

@@ -198,3 +198,53 @@ export function sttModeLabel(mode: SttModeCapability["mode"]) {
     realtime: "Live",
   }[mode];
 }
+
+function effectiveModeSignature(mode: SttModeCapability) {
+  return JSON.stringify({
+    model: mode.model,
+    transport: mode.transport,
+    languages: [...mode.languages].sort(),
+    diarization: mode.diarization,
+    dictionaries: mode.dictionaries,
+    max_bytes: mode.file_constraints.max_bytes,
+    max_duration_seconds: mode.file_constraints.max_duration_seconds,
+    audio_channels: [...mode.file_constraints.audio_channels].sort((a, b) => a - b),
+  });
+}
+
+export function distinctBatchModes(modes: SttModeCapability[]) {
+  const rank = { standard: 0, economic: 1, premium: 2 } as const;
+  const representatives = new Map<string, SttModeCapability>();
+  for (const mode of modes.filter((item) => item.mode !== "realtime")) {
+    const signature = effectiveModeSignature(mode);
+    const current = representatives.get(signature);
+    if (
+      !current ||
+      (mode.health.available && !current.health.available) ||
+      (mode.health.available === current.health.available &&
+        rank[mode.mode as keyof typeof rank] <
+          rank[current.mode as keyof typeof rank])
+    ) {
+      representatives.set(signature, mode);
+    }
+  }
+  return [...representatives.values()].sort(
+    (left, right) =>
+      rank[left.mode as keyof typeof rank] - rank[right.mode as keyof typeof rank],
+  );
+}
+
+export function sttModeExplanation(mode: SttModeCapability) {
+  const durationMinutes = Math.floor(
+    mode.file_constraints.max_duration_seconds / 60,
+  );
+  const features = [
+    mode.diarization ? "разделение спикеров" : null,
+    mode.dictionaries ? "пользовательские словари" : null,
+  ].filter(Boolean);
+  return `${mode.model} · обработка: ${
+    mode.transport === "deferred" ? "в очереди провайдера" : "обычная"
+  } · до ${durationMinutes} мин.${
+    features.length ? ` · поддерживает ${features.join(" и ")}` : ""
+  }`;
+}

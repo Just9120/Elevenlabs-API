@@ -22,11 +22,13 @@ export type ComposerSegment = {
   ends_at_source_end: boolean;
   title: string;
   reprocess_existing: boolean;
+  output_folder?: VerifiedOutputFolder | null;
 };
 export type ComposerRow = {
   id: string;
   source_id: string;
   output_folder: VerifiedOutputFolder | null;
+  segmentation_enabled?: boolean;
   segments: ComposerSegment[];
 };
 export type BatchCreateResponse = {
@@ -113,6 +115,7 @@ export function newComposerRow(): ComposerRow {
     id: crypto.randomUUID(),
     source_id: "",
     output_folder: null,
+    segmentation_enabled: false,
     segments: [newComposerSegment(0, 1)],
   };
 }
@@ -125,6 +128,7 @@ function newComposerSegment(position: number, count: number): ComposerSegment {
     ends_at_source_end: position === count - 1,
     title: "",
     reprocess_existing: false,
+    output_folder: null,
   };
 }
 
@@ -206,11 +210,16 @@ export function composerSignature(
       invalid_rows: rows.map((row) => ({
         id: row.id,
         source_id: row.source_id,
+        output_folder_id: row.output_folder?.folder_id ?? null,
+        segmentation_enabled: row.segmentation_enabled === true,
         segments: row.segments.map((segment) => ({
           id: segment.id,
           start_boundary: segment.start_boundary,
           end_boundary: segment.end_boundary,
           ends_at_source_end: segment.ends_at_source_end,
+          title: segment.title,
+          reprocess_existing: segment.reprocess_existing,
+          output_folder_id: segment.output_folder?.folder_id ?? null,
         })),
       })),
     });
@@ -311,6 +320,20 @@ export function composerSegmentPlanIssue(
 
 export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] {
   return rows.flatMap<ExpandedComposerItem>((row) => {
+    if (!row.segmentation_enabled) {
+      const segment = row.segments[0] ?? newComposerSegment(0, 1);
+      return [{
+        row_id: row.id,
+        segment_id: segment.id,
+        segment_index: 0,
+        request_item: {
+          source_id: row.source_id,
+          output_folder_id: row.output_folder?.folder_id ?? "",
+          title: segment.title.trim() || null,
+          reprocess_existing: segment.reprocess_existing,
+        },
+      }];
+    }
     const inspected = inspectComposerSegmentPlan(row.segments);
     if (inspected.issue) throw new Error(inspected.issue);
     return row.segments.map((segment, segmentIndex) => {
@@ -325,7 +348,8 @@ export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] 
         segment_index: segmentIndex,
         request_item: {
           source_id: row.source_id,
-          output_folder_id: row.output_folder?.folder_id ?? "",
+          output_folder_id:
+            segment.output_folder?.folder_id ?? row.output_folder?.folder_id ?? "",
           title: segment.title.trim() || null,
           reprocess_existing: segment.reprocess_existing,
           ...(fullSource

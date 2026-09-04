@@ -194,4 +194,65 @@ describe("JobCard", () => {
     await userEvent.click(button);
     expect(onDismissTerminal).not.toHaveBeenCalled();
   });
+
+  it("keeps an uncertain provider outcome compact until the user resolves it", async () => {
+    const onCheckReconciliation = vi.fn();
+    const onResolveAttention = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const candidate: TranscriptionJob = {
+      ...job,
+      id: "job-2",
+      status: "completed",
+      title: "Подтверждённый результат",
+      error_code: null,
+      error_message: null,
+      created_at: "2026-07-23T10:00:00Z",
+      finished_at: "2026-07-23T10:05:00Z",
+    };
+
+    renderCard({
+      pinnedTerminal: true,
+      attentionRequired: true,
+      attentionCandidates: [candidate],
+      onCheckReconciliation,
+      onResolveAttention,
+    });
+
+    const details = screen
+      .getByText("Показать детали старой ошибки")
+      .closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(
+      screen.queryByRole("button", { name: "Убрать в историю" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить результат ещё раз" }),
+    );
+    expect(onCheckReconciliation).toHaveBeenCalledWith("job-1");
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Более поздний подтверждённый результат"),
+      "job-2",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Связать и убрать в историю" }),
+    );
+    expect(onResolveAttention).toHaveBeenCalledWith(
+      "job-1",
+      "linked_later_result",
+      "job-2",
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Подтвердить: результата нет" }),
+    );
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining("мог уже списать средства"),
+    );
+    expect(onResolveAttention).toHaveBeenCalledWith(
+      "job-1",
+      "acknowledged_no_result",
+    );
+  });
 });

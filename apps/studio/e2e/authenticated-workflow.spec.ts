@@ -190,14 +190,27 @@ test('authenticated user opens transcriptions and reads a completed job result',
     name: 'События диагностики',
   });
   await expect(
+    diagnosticEvents.getByText(/Журнал событий · требует внимания 0 · информационных 3/),
+  ).toBeVisible();
+  await expect(
     diagnosticEvents.getByText('JOB_COMPLETED', { exact: true }),
+  ).toBeHidden();
+  await diagnosticEvents.getByText(/Журнал событий ·/).click();
+  await diagnosticEvents.getByText('Информационные события (3)', { exact: true }).click();
+  await expect(
+    diagnosticEvents.getByText('Транскрибация завершена', { exact: true }),
   ).toBeVisible();
   await expect(
-    diagnosticEvents.getByText('OUTPUT_PERSISTED', { exact: true }),
+    diagnosticEvents.getByText('Задача транскрибации создана', { exact: true }),
   ).toBeVisible();
-  await expect(
-    diagnosticEvents.getByText('JOB_CREATED', { exact: true }),
-  ).toBeVisible();
+  const eventDetails = diagnosticEvents.locator('li.diagnostics-event details');
+  await expect(eventDetails).toHaveCount(3);
+  for (let index = 0; index < 3; index += 1) {
+    await eventDetails.nth(index).locator('summary').click();
+  }
+  await expect(diagnosticEvents.getByText('JOB_COMPLETED', { exact: true })).toBeVisible();
+  await expect(diagnosticEvents.getByText('OUTPUT_PERSISTED', { exact: true })).toBeVisible();
+  await expect(diagnosticEvents.getByText('JOB_CREATED', { exact: true })).toBeVisible();
   await expect(diagnosticEvents).toContainText('final_job_status');
   await expect(diagnosticEvents).toContainText('completed');
   await expect(diagnosticEvents).toContainText('output_count');
