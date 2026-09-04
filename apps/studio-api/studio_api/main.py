@@ -3228,6 +3228,9 @@ def history_attention_required_expression():
         select(TranscriptionJobSourceAttempt.id)
         .where(
             TranscriptionJobSourceAttempt.job_id == TranscriptionJob.id,
+            TranscriptionJob.status.in_(
+                [JobStatus.completed, JobStatus.failed, JobStatus.cancelled]
+            ),
             TranscriptionJob.history_attention_resolved_at.is_(None),
             TranscriptionJobSourceAttempt.provider_request_started_at.is_not(
                 None

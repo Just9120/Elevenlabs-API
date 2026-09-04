@@ -5486,6 +5486,43 @@ def _add_uncertain_history_job(project_id: str, source_id: str, *, created_at: d
         return job.id
 
 
+def test_active_provider_attempt_never_requires_history_resolution():
+    client, _headers, project_id, job_id, _source_ids = create_job_with_sources(
+        "active-attention@example.com",
+        ("active-attention-source.mp4",),
+    )
+    with SessionLocal() as db:
+        job = db.get(TranscriptionJob, job_id)
+        job.status = JobStatus.processing
+        job.started_at = utcnow() - timedelta(minutes=1)
+        relation = (
+            db.query(TranscriptionJobSource)
+            .filter(TranscriptionJobSource.job_id == job_id)
+            .one()
+        )
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=job.owner_user_id,
+                project_id=project_id,
+                job_id=job_id,
+                job_source_id=relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.provider_request_started,
+                retry_disposition=(
+                    SourceAttemptRetryDisposition.provider_outcome_uncertain
+                ),
+                provider_request_started_at=utcnow() - timedelta(seconds=30),
+            )
+        )
+        db.commit()
+
+    response = client.get(f"/api/projects/{project_id}/jobs")
+    assert response.status_code == 200
+    active_job = next(row for row in response.json()["jobs"] if row["id"] == job_id)
+    assert active_job["status"] == "processing"
+    assert active_job["history_attention_required"] is False
+
+
 def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_safe():
     client, headers, project_id = create_logged_in_project(
         "attention-resolution@example.com"
