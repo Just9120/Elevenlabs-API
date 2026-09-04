@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `AUDIO-OUTPUT-FILENAME-HOTFIX-01` — пользовательское имя результата с fallback на имя исходного файла.
-- **State:** `IN_PROGRESS` — production defect `source.flac` локализован; frontend/backend fix и focused local regressions готовы, review/CI/delivery/LIVE ещё не выполнены.
+- **State:** `IN_PROGRESS` — production defect `source.flac` локализован; implementation, local validation, reviewable PR и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
 - **Authorization source:** explicit owner instruction 2026-09-04: «нужно поле для задания имени. Если имя не задано, то переносится имя исходного файла»; owner отдельно подтвердил, что `source.flac` был фактическим именем output до ручного переименования.
 - **Scope:** сделать `Название результата` необязательным; при пустом поле использовать stem исходного filename; для separate mode применять имя соответствующего source, для concat — первого файла в подтверждённом порядке; сохранять введённое Unicode/кириллическое имя в Studio Source, Google Drive и browser download; оставить internal object key безопасным и отдельным от user-visible filename; согласовать local/server paths; покрыть regressions, reviewable PR, exact CI, web/API/worker delivery и bounded non-mutating LIVE.
 - **Non-goals:** переименование существующих output/Google Drive files; paid STT; обработка или загрузка нового production media ради проверки; изменение audio processing parameters, storage/retention, schema, commercial contour или Google Docs.
@@ -12,22 +12,22 @@
   2. `AOF-02`: явное пользовательское имя имеет приоритет, а multi-output custom plan сохраняет уникальную связь с source без одинаковых имён.
   3. `AOF-03`: кириллица/Unicode сохраняются в persisted output filename, Drive upload и RFC 5987 download metadata; internal storage key остаётся bounded ASCII-safe и не подменяет видимое имя.
   4. `AOF-04`: local и server paths покрыты focused regressions; reviewable PR, exact-head/main CI, applicable web/API/worker delivery и bounded read-only LIVE подтверждают exact revision без provider/Google mutation.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** production end-to-end creation нового файла намеренно не входит в bounded LIVE без отдельного action-time решения; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 4 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-04T18:43:59Z`.
+- **Updated (UTC):** `2026-09-04T19:02:10Z`.
 - **Base branch/SHA:** exact synced `origin/main@924c05385522570066325aab0287f0e5ac7b475a`.
 - **Working branch:** `codex/audio-output-filename-hotfix` from exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** implementation `61ecb2ff44a969f499253fed6399aff981e87826` покрыта локальными checks; checkpoint update следует отдельным commit и не расширяет runtime scope.
+- **Last verified revision:** exact implementation head `a85bcb986d3728d02590e40736a2a9ceeef0f445` покрыта local checks и required PR CI; содержащий этот factual checkpoint docs-only commit runtime scope не расширяет.
 - **Completed:** exact defect path подтверждён: default Cyrillic title проходил через ASCII-only sanitization и становился fallback `source`; UI одновременно не наследовал source name. Поле стало optional, fallback разрешается до dispatch для single/separate/concat, local WAV использует то же правило, server output сохраняет Unicode filename, а presigned download передаёт Unicode через RFC 5987 с безопасным ASCII fallback. Предыдущая Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` reconciled по PR `#298`, exact-main CI/CD и authenticated preview-only LIVE: `0` текущих и `7` скрытых истёкших записей показаны раздельно, destructive apply не выполнялся.
-- **Current step:** reviewable implementation commit создан; синхронизировать checkpoint, push branch и открыть PR.
-- **Next exact action:** push exact branch head, открыть PR и дождаться required exact-head CI.
+- **Current step:** синхронизировать factual pre-merge checkpoint; после final docs-only exact-head gates выполнить merge.
+- **Next exact action:** push checkpoint commit, дождаться required checks и merge PR `#299`.
 - **Validation / Evidence:** full Studio Vitest `705 passed`; full ESLint и TypeScript/Vite/PWA production build passed; focused Python filename/processor/download suite `32 passed`; portable Python `1363 passed, 5 skipped, 9 host-only shell cases deselected`; lightweight repository checks, Python compileall и `git diff --check` passed. Отдельный unfiltered portable run дал те же `1363 passed, 5 skipped` и `9 failed` только в двух unchanged shell modules: Windows выбрал WSL `bash.exe`, который не может открыть workspace path с кириллицей; Linux exact CI остаётся acceptance gate этих cases.
-- **PR / CI / deployment:** PR отсутствует; production web/API/worker остаются на `main@924c05385522570066325aab0287f0e5ac7b475a`, schema `0037_ux_audit_controls`.
+- **PR / CI / deployment:** PR `#299` MERGEABLE/CLEAN, без comments/reviews. Exact implementation-head CI `33908723893` и Studio/browser CI `33908724010` success; initial browser E2E на `60b64bd` корректно выявил устаревшее ожидание `Обработанное аудио.wav`, после замены на source-derived `browser-local.wav` final head прошёл. Production web/API/worker остаются на `main@924c05385522570066325aab0287f0e5ac7b475a`, schema `0037_ux_audit_controls`.
 - **Blockers / unverified assumptions:** implementation blocker не выявлен; production создание нового media output не авторизовано как LIVE fixture и заменяется read-only UI/runtime identity verification плюс exact tests.
 
 ## Previous Goal closure — `BULK-CLEANUP-VISIBILITY-HOTFIX-01`
