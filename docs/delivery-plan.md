@@ -2,8 +2,38 @@
 
 ## Current Goal
 
+- **ID / title:** `BULK-CLEANUP-VISIBILITY-HOTFIX-01` — согласовать план очистки с фактически видимым списком файлов.
+- **State:** `IN_PROGRESS` — причина production UX mismatch подтверждена; backend/frontend fix, operational synchronization, local validation и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
+- **Authorization source:** explicit owner browser comment 2026-09-04: «пишет 7 файлов, а по факту файлов нет».
+- **Scope:** оставить безопасную очистку всех Studio-owned записей, но отдельно считать и показывать источники в текущем browser list и истёкшие local-upload записи, уже скрытые retention policy; включить visibility classification в preview token; сохранить confirmation, ownership, blocked reasons и Drive-safe boundary; покрыть backend/frontend regressions, reviewable PR, exact CI, web/API delivery и bounded preview-only LIVE.
+- **Non-goals:** изменение retention сроков или source-list availability; удаление production данных в ходе проверки; Google Drive/Docs mutation; новая schema migration; paid STT; изменение canonical product denominator или commercial contour.
+- **Goal AC:**
+  1. `BCV-01`: preview возвращает взаимно согласованные `listed_count` и `hidden_expired_count`, сумма которых равна `eligible_count + blocked_count` для exact snapshot.
+  2. `BCV-02`: UI отдельно показывает число файлов в текущем списке и число истёкших записей, скрытых retention policy, не называя скрытые записи видимыми файлами.
+  3. `BCV-03`: visibility входит в replay-safe preview token; apply по-прежнему требует recent authentication, explicit confirmation и не удаляет Google Drive content.
+  4. `BCV-04`: focused backend/frontend tests, reviewable PR, exact-head/main CI, applicable API/web delivery и bounded preview-only LIVE проходят без destructive apply.
+- **Required Evidence:** `SPEC N/A | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** локальный PostgreSQL недоступен, поэтому API integration regression требует CI; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
+- **Stop condition:** все 4 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-04T16:32:15Z`.
+- **Base branch/SHA:** exact synced `origin/main@83d461ee20cdb0b1275213f9b99397b292c9167d`.
+- **Working branch:** `codex/ux-bulk-cleanup-count-hotfix` from exact `origin/main`.
+- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
+- **Last verified revision:** implementation revision `c3fa05094f242e225a96cea60d27b1c76b279e4a`.
+- **Completed:** production screenshot и source/API comparison подтвердили mismatch: list endpoint скрывает истёкшие local uploads, а cleanup preview намеренно сохраняет их eligible для окончательного удаления. Backend preview получил separate listed/hidden-expired counters и visibility-bound token; PWA получила explicit explanatory copy; closure предыдущей Goal и canonical operational Evidence синхронизированы без изменения product denominator.
+- **Current step:** синхронизировать pre-merge checkpoint, повторно подтвердить required checks финального head и merge PR `#298`.
+- **Next exact action:** зафиксировать checkpoint в текущем PR и дождаться required CI финального head.
+- **Validation / Evidence:** Python compileall, lightweight CI checks, `git diff --check` и production frontend build passed; `tests/test_studio_source_deletion.py` — `28 passed`; полный `App.test.tsx` — `227 passed`; финальный focused copy regression — `2 passed`; changed-file ESLint passed. PostgreSQL-backed `test_studio_api_core.py` локально не запустился из-за отсутствующего `127.0.0.1:5432`, product assertion не выполнялась и требует exact CI.
+- **PR / CI / deployment:** PR `#298` (`c3fa05094f242e225a96cea60d27b1c76b279e4a`) MERGEABLE/CLEAN, без comments/reviews; exact implementation-head CI `33895266704` и Studio/browser CI `33895266688` success. Production остаётся на `main@83d461ee20cdb0b1275213f9b99397b292c9167d`, schema `0037_ux_audit_controls`.
+- **Blockers / unverified assumptions:** implementation blocker не выявлен; destructive production cleanup не входит в LIVE hotfix.
+
+## Previous Goal closure — `UX-AUDIT-CONTROLS-01`
+
 - **ID / title:** `UX-AUDIT-CONTROLS-01` — понятные режимы, destinations, recovery, billing, storage cleanup и diagnostics.
-- **State:** `IN_PROGRESS` — Google Docs и canonical requirements точечно дополнены; implementation, local validation и exact-head CI завершены, delivery/LIVE ещё не выполнены.
+- **State:** `DONE` — PR `#297` merged; exact-main CI, protected migration/API/web/worker delivery и bounded read-only LIVE выполнены на `main@83d461ee20cdb0b1275213f9b99397b292c9167d`.
 - **Authorization source:** explicit owner instruction 2026-09-04: «сначала обнови документ требований… Затем формируй goal по результатам UX аудита и приступай к правкам».
 - **Scope:** реализовать новый canonical `UXCTL-01..14`: показывать только реально различающиеся STT modes и объяснять отличия; включать fragmentation явным checkbox, наследовать общую Drive folder и разрешать per-fragment override с resolved preflight; дать collapsible и explicit resolution flow для provider-uncertain jobs; отделить base plan от PAYG/prepaid balance; добавить preview/confirmation/report для bulk удаления только Studio-owned files; сделать diagnostic events compact, severity-first и human-readable без потери blocker/source context; покрыть API/PWA/data contracts, tests, reviewable PR, exact CI и applicable delivery/LIVE.
 - **Non-goals:** commercial contour; изменение provider tariffs или billing calculations; автоматический cross-provider fallback; удаление Google Drive sources/documents; destructive cleanup без отдельного owner action; paid STT/provider canary; изменение Colab; новая design system или полный visual redesign.
@@ -18,11 +48,11 @@
   8. `UXA-08`: новые owner-scoped mutation boundaries имеют CSRF/recent-confirmation/audit, fail-closed replay и concurrency-safe behavior; additive migration используется только для durable resolution state.
   9. `UXA-09`: focused backend/frontend/integration/browser regressions покрывают positive, negative, ownership, concurrency и narrow viewport states.
   10. `UXA-10`: reviewable PR и exact-head CI success; applicable web/API/worker/migration delivery подтверждает exact identities, а bounded LIVE не выполняет paid STT, Google mutation или destructive bulk cleanup без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 - **Known blockers/dependencies:** production destructive cleanup, provider call и Google mutation остаются action-time gates и не требуются для safe UI/read-only LIVE; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 10 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `UX-AUDIT-CONTROLS-01`
 
 - **Updated (UTC):** `2026-09-04T10:00:13Z`.
 - **Base branch/SHA:** exact synced `origin/main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`.
@@ -30,11 +60,11 @@
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
 - **Last verified revision:** exact-head implementation revision `c47ce2bf8044744abab37c9c0ee0594346c383d0`.
 - **Completed:** Google Doc `Требования к проекту VoiceOps Studio` revision `ANLCKQlhXCiyRDsxLHF_o-wX4fktyA1eq2i7ZHalVZEdAsqB54Zv2QLevIMKSJb-6sd2T69WzDwMMEfmplaJ7Kc7ZzuijNaU0L1YNZliGBg` получил шесть material requirements в существующих sections без structural change; final readback подтвердил по одному list item. Canonical `UXCTL-01..14`, additive schema `0037`, owner-scoped bulk Studio-file deletion preview/apply, explicit uncertain-job resolution, truthful STT mode grouping, explicit fragmentation/default and per-fragment Drive destinations, readable ElevenLabs plan/PAYG labels and compact actionable diagnostics реализованы вместе с API/PWA/schema regressions и operational docs.
-- **Current step:** PR `#297` mergeable; exact-head backend, Studio и authenticated browser E2E checks на `c47ce2b` завершены success. Перед merge выполняется единственная operational metadata synchronization.
-- **Next exact action:** зафиксировать и отправить эту metadata synchronization, дождаться exact metadata-head CI, затем выполнить merge и applicable protected migration/API/web delivery с bounded read-only LIVE.
+- **Current step:** Goal закрыта; destructive bulk cleanup, paid STT и Google mutation не выполнялись.
+- **Next exact action:** none; следующий scope требует новой explicit owner authorization.
 - **Validation / Evidence:** Google Docs final connector readback; Python compileall и lightweight CI checks passed; focused schema/source/deletion/DTO/account suite `113 passed`; diagnostics/report suite `22 passed, 1 deselected`; full frontend Vitest `703 passed`; ESLint, TypeScript/Vite/PWA production build, focused `JobCard` `5 passed`, Playwright discovery и `git diff --check` passed. Локальный PostgreSQL отсутствует, поэтому новый PostgreSQL-backed active-job regression подтверждён в exact-head CI. Initial CI последовательно выявил invalid enum только в новой fixture, затем устаревшие E2E assumptions о раскрытой attention-card и реальный product defect: processing job с uncertain attempt ошибочно получал `history_attention_required`; fixes нормализовали fixture/selectors и ограничили attention predicate terminal statuses, после чего все exact-head suites прошли.
-- **PR / CI / deployment:** PR `#297` на `c47ce2bf8044744abab37c9c0ee0594346c383d0` mergeable. Exact-head CI `33860478948` / job `100983529853`, Studio `33860478916` / job `100983529765` и authenticated browser E2E job `100983529940` завершены success. Delivery не выполнялась.
-- **Blockers / unverified assumptions:** implementation blocker не выявлен. Production provider call, Google mutation и destructive bulk cleanup не разрешены этой проверкой и не нужны для bounded LIVE; applicable protected migration approval остаётся delivery gate, если GitHub environment запросит owner approval.
+- **PR / CI / deployment:** PR `#297`, exact-head `9a9daa40cdfc00c46992ce89307a8102bd8151d5`, merge `83d461ee20cdb0b1275213f9b99397b292c9167d`; exact-main CI `33862095356` и Studio/browser `33862095375` success. Web CD `33862095305`; protected migration/API `33863624454` применила `0036 -> 0037_ux_audit_controls` со snapshot `52d07afd08e0`; worker deploy/status `33864051036` / `33864415973` success с exact identity и `health=healthy`.
+- **Blockers / unverified assumptions:** none для Goal DoD. Bounded authenticated LIVE подтвердил truthful mode copy, explicit fragmentation checkbox, collapsible old errors, separated subscription/PAYG labels, bulk cleanup boundary и collapsed diagnostics; public `/api/readyz` подтвердил schema `0037`, PostgreSQL и Redis. Provider call, Google mutation и destructive bulk cleanup не выполнялись.
 
 ## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
 
@@ -325,7 +355,7 @@ DB least privilege, security hardening и UX polish изменились бол�
 
 ## Candidate next Goals
 
-Current Goal `UX-AUDIT-CONTROLS-01` выполняется; Candidate next Goal не выбирается до её terminal state.
+Current Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
 
 ## Risks и boundaries
 

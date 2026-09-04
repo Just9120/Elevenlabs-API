@@ -67,6 +67,8 @@ class BulkSourceDeletionPreview:
     eligible_ids: tuple[str, ...]
     preview_token: str
     blocked_reasons: dict[str, int]
+    listed_count: int
+    hidden_expired_count: int
     eligible_bytes: int
     eligible_unknown_size_count: int
     blocked_bytes: int
@@ -76,6 +78,8 @@ class BulkSourceDeletionPreview:
         return {
             "preview_token": self.preview_token,
             "eligible_count": len(self.eligible_ids),
+            "listed_count": self.listed_count,
+            "hidden_expired_count": self.hidden_expired_count,
             "eligible_bytes": self.eligible_bytes,
             "eligible_unknown_size_count": self.eligible_unknown_size_count,
             "blocked_count": sum(self.blocked_reasons.values()),
@@ -105,6 +109,15 @@ def _aware(value: datetime) -> datetime:
 
 def is_source_expired(source: Source, now: datetime) -> bool:
     return bool(source.source_type == SourceType.local_upload and source.expires_at is not None and _aware(source.expires_at) <= _aware(now))
+
+
+def is_source_listed_for_browser(source: Source, now: datetime) -> bool:
+    if source.source_type != SourceType.local_upload:
+        return True
+    return bool(
+        source.upload_status != SourceUploadStatus.expired
+        and (source.expires_at is None or _aware(source.expires_at) > _aware(now))
+    )
 
 
 def browser_cleanup_status(source: Source) -> str:
@@ -215,15 +228,22 @@ def bulk_source_deletion_preview(
     sources = list(db.execute(stmt).scalars().all())
     eligible_ids: list[str] = []
     blocked_reasons: dict[str, int] = {}
+    listed_count = hidden_expired_count = 0
     eligible_bytes = blocked_bytes = 0
     eligible_unknown = blocked_unknown = 0
     preview_entries: list[dict[str, str]] = []
     for source in sources:
+        is_listed = is_source_listed_for_browser(source, now)
+        if is_listed:
+            listed_count += 1
+        else:
+            hidden_expired_count += 1
         reason = deletion_readiness(db, source, now=now)
         preview_entries.append(
             {
                 "source_id": source.id,
                 "reason": reason.value,
+                "visibility": "listed" if is_listed else "hidden_expired",
                 "updated_at": _aware(source.updated_at).isoformat(),
             }
         )
@@ -255,6 +275,8 @@ def bulk_source_deletion_preview(
             ).encode("utf-8")
         ).hexdigest(),
         blocked_reasons,
+        listed_count,
+        hidden_expired_count,
         eligible_bytes,
         eligible_unknown,
         blocked_bytes,

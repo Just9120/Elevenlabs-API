@@ -175,6 +175,8 @@ def test_bulk_deletion_preview_counts_eligible_blocked_bytes_and_never_drive_con
     assert preview.payload() == {
         "preview_token": preview.preview_token,
         "eligible_count": 2,
+        "listed_count": 3,
+        "hidden_expired_count": 0,
         "eligible_bytes": 200,
         "eligible_unknown_size_count": 0,
         "blocked_count": 1,
@@ -183,6 +185,36 @@ def test_bulk_deletion_preview_counts_eligible_blocked_bytes_and_never_drive_con
         "blocked_reasons": {"processing_job_uses_source": 1},
         "google_drive_files_deleted": 0,
     }
+
+
+def test_bulk_deletion_preview_separates_expired_hidden_sources_from_browser_list(sqlite_db):
+    from studio_api.source_deletion import bulk_source_deletion_preview
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    expired = _local_source(
+        sqlite_db,
+        m,
+        project,
+        now,
+        key="expired-hidden",
+        expires_delta=timedelta(seconds=-1),
+    )
+    expired.size_bytes = 508_110_000
+    sqlite_db.commit()
+
+    preview = bulk_source_deletion_preview(
+        sqlite_db,
+        owner_user_id=user.id,
+        project_id=project.id,
+        now=now,
+    )
+
+    assert preview is not None
+    assert preview.payload()["eligible_count"] == 1
+    assert preview.payload()["listed_count"] == 0
+    assert preview.payload()["hidden_expired_count"] == 1
+    assert preview.payload()["eligible_bytes"] == 508_110_000
 
 
 @pytest.mark.parametrize(

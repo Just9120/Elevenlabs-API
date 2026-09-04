@@ -36,6 +36,8 @@ type SourceDeletionResponse = {
 type BulkSourceDeletionPreview = {
   preview_token: string;
   eligible_count: number;
+  listed_count: number;
+  hidden_expired_count: number;
   eligible_bytes: number;
   eligible_unknown_size_count: number;
   blocked_count: number;
@@ -149,7 +151,10 @@ export function SourcesPanel({
         !value ||
         !/^[a-f0-9]{64}$/.test(value.preview_token) ||
         !Number.isInteger(value.eligible_count) ||
+        !Number.isInteger(value.listed_count) ||
+        !Number.isInteger(value.hidden_expired_count) ||
         !Number.isInteger(value.blocked_count) ||
+        value.listed_count + value.hidden_expired_count !== value.eligible_count + value.blocked_count ||
         value.google_drive_files_deleted !== 0
       ) {
         throw new Error("invalid_bulk_preview");
@@ -371,7 +376,13 @@ export function SourcesPanel({
         <section className="bulk-deletion-preview" aria-label="План очистки файлов Studio">
           <h4>План очистки</h4>
           <p>
-            Можно убрать: <b>{bulkPreview.eligible_count}</b> · известный объём {formatBytes(bulkPreview.eligible_bytes)}.
+            Сейчас в списке файлов: <b>{bulkPreview.listed_count}</b>.
+            {bulkPreview.hidden_expired_count > 0
+              ? <> Истёкших записей, скрытых после окончания срока хранения: <b>{bulkPreview.hidden_expired_count}</b>.</>
+              : ""}
+          </p>
+          <p>
+            К окончательной очистке готовы записи Studio: <b>{bulkPreview.eligible_count}</b> · известный размер исходных файлов {formatBytes(bulkPreview.eligible_bytes)}.
             {bulkPreview.eligible_unknown_size_count > 0
               ? ` Без размера: ${bulkPreview.eligible_unknown_size_count}.`
               : ""}
@@ -387,7 +398,7 @@ export function SourcesPanel({
             </ul>
           )}
           <p className="notice">
-            Удаляются только записи и временные копии Studio. Исходные файлы Google Drive останутся на месте.
+            Удаляются только записи и оставшиеся временные копии Studio. Исходные файлы Google Drive останутся на месте.
           </p>
           <div className="actions">
             <button
