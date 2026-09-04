@@ -110,6 +110,7 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
         output_source = db.get(Source, persisted.output_source_id)
         assert output_source.reference_class == "audio_processing"
         assert output_source.s3_bucket == "audio-private"
+        assert output_source.original_filename == "Готовая запись.flac"
         db.refresh(source)
         assert source.upload_status is SourceUploadStatus.deleted
         assert source.storage_cleanup_status.value == "pending"

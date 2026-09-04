@@ -43,11 +43,11 @@ function safeTitle(value: string) {
   ).join("");
   return sanitized
     .replace(/[. ]+$/g, "")
-    .slice(0, 180) || "Обработанное аудио";
+    .slice(0, 180);
 }
 
 function stem(name: string) {
-  return safeTitle(name.replace(/\.[^.]+$/, ""));
+  return safeTitle(name.replace(/\.[^.]+$/, "")) || "Обработанное аудио";
 }
 
 function copyChannels(audio: PcmAudio, mode: LocalAudioChannelMode): Float32Array[] {
@@ -230,10 +230,13 @@ export async function processLocalAudioFiles(
     for (const [index, audio] of output.entries()) {
       ensureActive(signal);
       onProgress?.({ stage: "encoding", percent: 60 + Math.round(((index + 1) / output.length) * 35), filename: null });
-      const suffix = output.length > 1 ? ` — ${stem(files[index].name)}` : "";
+      const requestedTitle = safeTitle(options.title);
+      const sourceTitle = stem(files[index].name);
+      const outputTitle = requestedTitle || sourceTitle;
+      const suffix = output.length > 1 && requestedTitle ? ` — ${sourceTitle}` : "";
       results.push({
         blob: encodeWav(audio),
-        filename: `${safeTitle(options.title)}${suffix}.wav`,
+        filename: `${outputTitle}${suffix}.wav`,
         inputDurationSeconds: inputGroups[index].reduce((total, item) => total + item.channels[0].length / item.sampleRate, 0),
         outputDurationSeconds: audio.channels[0].length / audio.sampleRate,
       });

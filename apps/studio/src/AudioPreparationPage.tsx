@@ -151,7 +151,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [operationMode, setOperationMode] = useState<OperationMode>("separate");
   const [manualOrder, setManualOrder] = useState(false);
   const [ephemeral, setEphemeral] = useState<Set<string>>(new Set());
-  const [title, setTitle] = useState("Обработанное аудио");
+  const [title, setTitle] = useState("");
   const [preset, setPreset] = useState("processing_only");
   const [format, setFormat] = useState("copy");
   const [mono, setMono] = useState("preserve");
@@ -523,7 +523,11 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
       const created: AudioJob[] = [];
       for (const group of groups) {
         const source = sources.find((candidate) => candidate.id === group[0]);
-        const jobTitle = groups.length > 1 ? `${title} — ${sourceStem(source)}` : title;
+        const requestedTitle = title.trim();
+        const sourceTitle = sourceStem(source);
+        const jobTitle = requestedTitle
+          ? groups.length > 1 ? `${requestedTitle} — ${sourceTitle}` : requestedTitle
+          : sourceTitle;
         const value = await mutate<unknown>(`/projects/${project.id}/audio-preparations`, {
           method: "POST",
           body: JSON.stringify({
@@ -694,14 +698,23 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           <label>Сценарий<select value={preset} onChange={(e) => applyPreset(e.target.value as keyof typeof presetDefaults)}><option value="processing_only">Свои настройки</option><option value="lecture">Лекция</option><option value="call">Созвон</option></select></label>
           <label>Формат результата<select aria-label="Формат результата" value={format} disabled={processingPath === "local"} onChange={(e) => applyFormat(e.target.value)}><option value="copy">Сохранить исходный формат</option><option value="wav">WAV</option><option value="flac">FLAC</option></select>{processingPath === "local" && <small>Обработка на устройстве создаёт WAV. Другие варианты доступны при обработке через Studio.</small>}{processingPath === "studio" && format === "flac" && <><small>FLAC сохраняет исходную частоту дискретизации без потерь качества.</small><details className="technical-details"><summary>Технические сведения о FLAC</summary><small>FLAC создаётся в 16-bit PCM без lossy-сжатия.</small></details></>}</label>
           <label>Звуковые каналы<select value={mono} onChange={(e) => applyMono(e.target.value)}><option value="preserve">Сохранить как в оригинале</option><option value="mixdown">Объединить в mono</option><option value="left">Только левый канал</option><option value="right">Только правый канал</option></select></label>
-          <label>Название результата<input value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>
+          <label>
+            Название результата
+            <input
+              value={title}
+              maxLength={160}
+              placeholder="Имя исходного файла"
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <small>Необязательно. Если оставить поле пустым, используется имя исходного файла.</small>
+          </label>
         </div>
         {format !== "copy" && <p className="muted">Для изменения каналов или пауз файл будет перекодирован в выбранный формат.</p>}
         <label className="audio-source-choice"><input type="checkbox" checked={silenceEnabled} onChange={(e) => applySilence(e.target.checked)} /><span>Уменьшить длинные паузы в аудио или видео</span></label>
         {silenceEnabled && <details className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input type="number" min="-60" max="-10" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /><small>Звук тише {threshold} dB считается паузой.</small></label><label>Минимальная пауза, сек<input type="number" min="0.2" max="10" step="0.1" value={minimum} onChange={(e) => setMinimum(Number(e.target.value))} /></label><label>Сколько паузы оставить, сек<input type="number" min="0" max="5" step="0.1" value={keep} onChange={(e) => setKeep(Number(e.target.value))} /></label></div></details>}
         {processingPath === "studio" ? <fieldset className="audio-drive-save"><legend>Сохранение</legend><label><input type="checkbox" checked={saveToDrive} onChange={(e) => setSaveToDrive(e.target.checked)} /> Автоматически сохранить копию в Google Drive</label>{saveToDrive && <div className="actions"><button type="button" onClick={chooseOutputFolder} disabled={busy}>Выбрать папку</button>{driveFolder && <span>{driveFolder.name}</span>}</div>}<small>Скачать результат и передать его в транскрибацию можно будет после обработки независимо от этой настройки.</small></fieldset> : <p className="notice">Локальный результат останется в браузере до закрытия или перезагрузки вкладки. После обработки его можно скачать либо явно загрузить в Studio для Google Drive или транскрибации.</p>}
         {localProgress && <div className="upload-progress" aria-live="polite"><p><strong>{localProgress.stage === "decoding" ? "Декодируем" : localProgress.stage === "processing" ? "Обрабатываем" : localProgress.stage === "encoding" ? "Создаём WAV" : "Читаем файл"}</strong>{localProgress.filename ? `: ${localProgress.filename}` : ""}</p><progress aria-label="Прогресс локальной обработки" max="100" value={localProgress.percent}>{localProgress.percent}%</progress><small>{localProgress.percent}% · исходные файлы не отправляются в сеть</small><button type="button" onClick={() => localAbort.current?.abort()}>Отменить локальную обработку</button></div>}
-        <button className="primary" type="button" disabled={busy || planCount === 0 || !title.trim() || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
+        <button className="primary" type="button" disabled={busy || planCount === 0 || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
       </section>}
       {sourceMode !== "direct-drive" && localResults.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Локальные результаты</h2>{localResults.map((result, index) => <article className="audio-job-result" key={result.url}><h3>{localResults.length > 1 ? `Результат ${index + 1}: ${result.filename}` : result.filename}</h3><p>Исходно: {duration(result.inputDurationSeconds)} · результат: {duration(result.outputDurationSeconds)}</p><div className="actions"><a className="button-like primary" href={result.url} download={result.filename}>Скачать файл</a><button type="button" onClick={() => void uploadLocalResult(result)} disabled={busy}>Загрузить в Studio для Drive или транскрибации</button></div></article>)}</section>}
       {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{!terminal.has(job.status) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>}{job.output?.source_id && <button className="primary" type="button" onClick={() => transcribeOutput(job)}>Использовать для транскрибации</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput(job)}>Использовать в новой обработке</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}

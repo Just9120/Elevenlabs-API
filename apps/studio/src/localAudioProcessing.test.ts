@@ -98,4 +98,31 @@ describe("browser-local audio processing", () => {
     expect(progress.at(-1)).toBe(100);
     expect(close).toHaveBeenCalledOnce();
   });
+
+  it("uses the source filename when the optional result name is empty", async () => {
+    class FakeAudioContext {
+      async close() { return undefined; }
+      async decodeAudioData() {
+        const channel = Float32Array.from([0.2, -0.2]);
+        return {
+          length: 2,
+          numberOfChannels: 1,
+          sampleRate: 48_000,
+          getChannelData: () => channel,
+        } as AudioBuffer;
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const file = new File(["encoded"], "Исходная запись.webm", { type: "audio/webm" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("encoded").buffer,
+    });
+
+    const [result] = await processLocalAudioFiles(
+      [file],
+      options({ operationMode: "separate", title: "" }),
+    );
+
+    expect(result.filename).toBe("Исходная запись.wav");
+  });
 });

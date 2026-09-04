@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
-from .source_storage import safe_filename
+from .source_storage import normalize_source_display_filename
 
 
 MAX_AUDIO_INPUTS = 50
@@ -24,6 +24,7 @@ SILENCE_MIN_DURATION_RANGE = (0.2, 10.0)
 SILENCE_KEEP_DURATION_RANGE = (0.0, 5.0)
 ALLOWED_TEMPLATE_FIELDS = {"date", "time", "project", "title"}
 TEMPLATE_FIELD_PATTERN = re.compile(r"\{([a-z]+)\}")
+UNSAFE_OUTPUT_FILENAME_PATTERN = re.compile(r'[<>:"/\\|?*]+')
 SILENCE_END_PATTERN = re.compile(
     r"silence_end:\s*(?P<end>[0-9]+(?:\.[0-9]+)?)\s*\|\s*silence_duration:\s*(?P<duration>[0-9]+(?:\.[0-9]+)?)"
 )
@@ -516,17 +517,23 @@ def render_output_filename(
     moment = created_at or datetime.now(timezone.utc)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
+    def safe_output_stem(value: str) -> str:
+        normalized = normalize_source_display_filename(value, max_length=220)
+        stem = normalized.rsplit(".", 1)[0].strip(" ._")
+        stem = UNSAFE_OUTPUT_FILENAME_PATTERN.sub("_", stem).strip(" ._")
+        return stem or "processed-audio"
+
     values = {
         "date": moment.astimezone(timezone.utc).strftime("%Y-%m-%d"),
         "time": moment.astimezone(timezone.utc).strftime("%H-%M-%SZ"),
-        "project": safe_filename(project_title).rsplit(".", 1)[0],
-        "title": safe_filename(title).rsplit(".", 1)[0],
+        "project": safe_output_stem(project_title),
+        "title": safe_output_stem(title),
     }
     rendered = TEMPLATE_FIELD_PATTERN.sub(lambda match: values[match.group(1)], options.output_name_template)
     extension = options.output_format.value
     if options.output_format is AudioOutputFormat.copy:
         extension = "audio"
-    stem = safe_filename(rendered).rsplit(".", 1)[0].strip(" ._") or "processed-audio"
+    stem = safe_output_stem(rendered)
     return f"{stem[:220]}.{extension}"
 
 

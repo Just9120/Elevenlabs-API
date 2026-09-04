@@ -68,6 +68,9 @@ describe("AudioPreparationPage", () => {
     const source = await screen.findByRole("checkbox", { name: /meeting\.wav/i });
     expect(screen.getByText(/максимум через 24 часа/i)).toBeInTheDocument();
     const preview = screen.getByRole("button", { name: "Проверить файлы и рассчитать" });
+    expect(screen.getByRole("textbox", { name: /Название результата/ })).toHaveValue("");
+    expect(screen.getByPlaceholderText("Имя исходного файла")).toBeInTheDocument();
+    expect(screen.getByText(/если оставить поле пустым, используется имя исходного файла/i)).toBeInTheDocument();
     expect(preview).toBeDisabled();
     await userEvent.click(source);
     await waitFor(() => expect(preview).toBeEnabled());
@@ -164,6 +167,7 @@ describe("AudioPreparationPage", () => {
 
     await waitFor(() => expect(created).toHaveLength(3));
     expect(created.map((body) => body.source_ids)).toEqual([["source-b"], ["source-c"], ["source-a"]]);
+    expect(created.map((body) => body.title)).toEqual(["anything-b", "anything-c", "anything-a"]);
   });
 
   it("shows and submits an explicit metadata-ordered concatenation plan", async () => {
@@ -198,7 +202,7 @@ describe("AudioPreparationPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Проверить файлы и рассчитать" }));
 
     await waitFor(() => expect(created).not.toBeNull());
-    expect(created).toMatchObject({ source_ids: ["source-c", "source-b", "source-a"], manual_order: true });
+    expect(created).toMatchObject({ title: "arbitrary-y", source_ids: ["source-c", "source-b", "source-a"], manual_order: true });
   });
 
   it("keeps device files browser-local until the user explicitly chooses Studio upload", async () => {
