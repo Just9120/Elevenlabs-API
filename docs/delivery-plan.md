@@ -22,10 +22,10 @@
 - **Base branch/SHA:** exact synced `origin/main@924c05385522570066325aab0287f0e5ac7b475a`.
 - **Working branch:** `codex/audio-output-filename-hotfix` from exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** base `924c05385522570066325aab0287f0e5ac7b475a`; implementation пока не committed.
+- **Last verified revision:** implementation `61ecb2ff44a969f499253fed6399aff981e87826` покрыта локальными checks; checkpoint update следует отдельным commit и не расширяет runtime scope.
 - **Completed:** exact defect path подтверждён: default Cyrillic title проходил через ASCII-only sanitization и становился fallback `source`; UI одновременно не наследовал source name. Поле стало optional, fallback разрешается до dispatch для single/separate/concat, local WAV использует то же правило, server output сохраняет Unicode filename, а presigned download передаёт Unicode через RFC 5987 с безопасным ASCII fallback. Предыдущая Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` reconciled по PR `#298`, exact-main CI/CD и authenticated preview-only LIVE: `0` текущих и `7` скрытых истёкших записей показаны раздельно, destructive apply не выполнялся.
-- **Current step:** local validation и diff review завершены; подготовить reviewable commit/PR.
-- **Next exact action:** зафиксировать exact implementation files, push branch и открыть PR.
+- **Current step:** reviewable implementation commit создан; синхронизировать checkpoint, push branch и открыть PR.
+- **Next exact action:** push exact branch head, открыть PR и дождаться required exact-head CI.
 - **Validation / Evidence:** full Studio Vitest `705 passed`; full ESLint и TypeScript/Vite/PWA production build passed; focused Python filename/processor/download suite `32 passed`; portable Python `1363 passed, 5 skipped, 9 host-only shell cases deselected`; lightweight repository checks, Python compileall и `git diff --check` passed. Отдельный unfiltered portable run дал те же `1363 passed, 5 skipped` и `9 failed` только в двух unchanged shell modules: Windows выбрал WSL `bash.exe`, который не может открыть workspace path с кириллицей; Linux exact CI остаётся acceptance gate этих cases.
 - **PR / CI / deployment:** PR отсутствует; production web/API/worker остаются на `main@924c05385522570066325aab0287f0e5ac7b475a`, schema `0037_ux_audit_controls`.
 - **Blockers / unverified assumptions:** implementation blocker не выявлен; production создание нового media output не авторизовано как LIVE fixture и заменяется read-only UI/runtime identity verification плюс exact tests.
