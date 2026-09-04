@@ -140,8 +140,10 @@ import {
   type VerifiedOutputFolder,
 } from "./batchComposerModel";
 import {
+  distinctBatchModes,
   requestSttDictionaries,
   requestSttProviderCatalog,
+  sttModeExplanation,
   sttModeLabel,
   type SttDictionary,
   type SttProviderCapability,
@@ -1437,7 +1439,7 @@ function navigateTabList<T extends string>(
   onSelect(values[nextIndex]);
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
-type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss";
+type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss" | "attention";
 type JobMutationNotice = {
   projectId: string;
   kind: JobMutationKind;
@@ -1919,9 +1921,20 @@ function PreparationPanel({
   const selectedProviderCapability = providerCatalog.find(
     (provider) => provider.provider === selectedProvider,
   );
+  const visibleBatchModes = selectedProviderCapability
+    ? distinctBatchModes(selectedProviderCapability.modes)
+    : [];
   const selectedModeCapability = selectedProviderCapability?.modes.find(
     (mode) => mode.mode === operatingMode,
   );
+  useEffect(() => {
+    if (
+      visibleBatchModes.length > 0 &&
+      !visibleBatchModes.some((mode) => mode.mode === operatingMode)
+    ) {
+      setOperatingMode(visibleBatchModes[0].mode as SttOperatingMode);
+    }
+  }, [selectedProvider, providerCatalog, operatingMode]);
   useEffect(() => {
     if (credentialsLoading || credentialsError) return;
     const sessionKey = `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`;
@@ -2018,7 +2031,7 @@ function PreparationPanel({
   const duplicateRowIds = new Set<string>();
   const seenPairs = new Map<string, string>();
   rows.forEach((row) => {
-    if (!row.source_id || !row.output_folder?.folder_id) return;
+    if (!row.source_id) return;
     let expanded;
     try {
       expanded = expandComposerRows([row]);
@@ -2072,13 +2085,23 @@ function PreparationPanel({
         reason: `Задача ${rowNumber}: выбранный файл больше недоступен`,
       };
     }
-    if (!row.output_folder?.folder_id) {
+    const unresolvedFolder = row.segmentation_enabled
+      ? row.segments.some(
+          (segment) =>
+            !segment.output_folder?.folder_id && !row.output_folder?.folder_id,
+        )
+      : !row.output_folder?.folder_id;
+    if (unresolvedFolder) {
       return {
         ready: false,
-        reason: `Задача ${rowNumber}: выберите папку результата`,
+        reason: row.segmentation_enabled
+          ? `Задача ${rowNumber}: выберите общую папку или папку для каждого фрагмента`
+          : `Задача ${rowNumber}: выберите папку результата`,
       };
     }
-    const segmentIssue = composerSegmentPlanIssue(row.segments);
+    const segmentIssue = row.segmentation_enabled
+      ? composerSegmentPlanIssue(row.segments)
+      : null;
     if (segmentIssue) {
       return {
         ready: false,
@@ -2131,7 +2154,7 @@ function PreparationPanel({
     }
   })();
   const plannedJobCount = rows.reduce(
-    (count, row) => count + row.segments.length,
+    (count, row) => count + (row.segmentation_enabled ? row.segments.length : 1),
     0,
   );
   const batchLimitBlocker =
@@ -3142,10 +3165,25 @@ function PreparationPanel({
   function applyVerifiedOutputFolder(
     rowId: string,
     outputFolder: VerifiedOutputFolder,
+    segmentId?: string,
   ) {
     setRows((current) => {
       const target = current.find((row) => row.id === rowId);
       if (!target) return current;
+      if (segmentId) {
+        return current.map((row) =>
+          row.id === rowId
+            ? {
+                ...row,
+                segments: row.segments.map((segment) =>
+                  segment.id === segmentId
+                    ? { ...segment, output_folder: { ...outputFolder } }
+                    : segment,
+                ),
+              }
+            : row,
+        );
+      }
       const fillUnassignedRows = target.output_folder === null;
       return current.map((row) =>
         row.id === rowId || (fillUnassignedRows && row.output_folder === null)
@@ -3188,7 +3226,7 @@ function PreparationPanel({
       return next;
     });
   }
-  async function chooseRowFolder(rowId: string) {
+  async function chooseRowFolder(rowId: string, segmentId?: string) {
     if (!driveSourcePickerEnabled || rowFolderPickerRef.current) return;
     const operation: GooglePickerOperation = {
       projectId: project.id,
@@ -3266,7 +3304,7 @@ function PreparationPanel({
         name: verified.name,
         web_view_url: verified.web_view_url,
       };
-      applyVerifiedOutputFolder(rowId, outputFolder);
+      applyVerifiedOutputFolder(rowId, outputFolder, segmentId);
       outcome = {
         message:
           "Папка Google Drive проверена, но прежняя задача больше не открыта. Выберите папку для задачи повторно.",
@@ -4211,6 +4249,75 @@ function PreparationPanel({
       finishJobMutation("dismiss", jobId, notice);
     }
   }
+  async function resolveJobAttention(
+    jobId: string,
+    resolution: "acknowledged_no_result" | "linked_later_result",
+    linkedJobId?: string,
+  ) {
+    if (!beginJobMutation("attention", jobId)) return;
+    let notice: JobMutationNotice | undefined;
+    try {
+      const candidate = await csrfMutate<unknown>(
+        `/jobs/${jobId}/attention-resolution`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            resolution,
+            linked_job_id: linkedJobId ?? null,
+            confirm_possible_spend: true,
+          }),
+        },
+      );
+      const parsed = parseJobSummaryResponse(candidate, project.id, jobId);
+      if (
+        !parsed ||
+        parsed.history_attention_required !== false ||
+        !parsed.history_attention_resolved_at
+      ) {
+        throw new Error("invalid_attention_resolution_response");
+      }
+      setDetail((current) => ({
+        ...current,
+        [jobId]: { loading: false, error: "", job: parsed },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "attention",
+        jobId,
+        message:
+          resolution === "linked_later_result"
+            ? "Старая ошибка связана с подтверждённым результатом и убрана в историю."
+            : "Отмечено, что подтверждённого результата нет. Задача убрана в историю, решение сохранено в журнале.",
+        tone: "notice",
+      };
+      await onReloadJobs(project.id);
+    } catch (error) {
+      const reason =
+        error instanceof ApiError &&
+        error.data &&
+        typeof error.data === "object" &&
+        "detail" in error.data &&
+        typeof (error.data as { detail?: unknown }).detail === "object"
+          ? ((error.data as { detail: { reason?: string } }).detail.reason ?? "")
+          : "";
+      notice = {
+        projectId: project.id,
+        kind: "attention",
+        jobId,
+        message:
+          reason === "linked_job_not_confirmed"
+            ? "Выбранная задача не подтверждает результат для того же файла и диапазона."
+            : error instanceof ApiError && error.status === 401
+              ? "Для решения войдите в аккаунт заново."
+              : "Не удалось сохранить решение. Обновите задачу и повторите.",
+        tone: "error",
+      };
+    } finally {
+      finishJobMutation("attention", jobId, notice);
+    }
+  }
   function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
@@ -4264,6 +4371,16 @@ function PreparationPanel({
           jobMutationKey("dismiss", job.id),
         )}
         onDismissTerminal={dismissTerminalJob}
+        attentionResolutionPending={pendingJobMutations.has(
+          jobMutationKey("attention", job.id),
+        )}
+        attentionCandidates={displayJobs.filter(
+          (candidate) =>
+            candidate.id !== job.id &&
+            candidate.status === "completed" &&
+            candidate.created_at > job.created_at,
+        )}
+        onResolveAttention={resolveJobAttention}
         csrf={csrf}
         onCsrf={onCsrf}
         onSpeakerUpdated={async (jobId) => {
@@ -4418,46 +4535,53 @@ function PreparationPanel({
                 </option>
               </select>
             </label>
-            <label className="profile-selector">
-              Режим
-              <select
-                aria-label="Режим транскрибации"
-                value={operatingMode}
-                onChange={(event) => {
-                  const mode = event.target.value as SttOperatingMode;
-                  const capability = selectedProviderCapability?.modes.find(
-                    (item) => item.mode === mode,
-                  );
-                  setOperatingMode(mode);
-                  if (capability?.diarization === false) {
-                    setDiarizationEnabled(false);
-                  }
-                  if (capability?.dictionaries === false) {
-                    setSelectedDictionaryIds([]);
-                  }
-                  setRows((current) =>
-                    current.map(clearComposerReprocessDecisions),
-                  );
-                }}
-              >
-                {(selectedProviderCapability?.modes.filter(
-                  (mode) => mode.mode !== "realtime",
-                ) ?? [
-                  { mode: "economic" as const, health: { available: true } },
-                  { mode: "standard" as const, health: { available: true } },
-                  { mode: "premium" as const, health: { available: true } },
-                ]).map((mode) => (
-                  <option
-                    key={mode.mode}
-                    value={mode.mode}
-                    disabled={!mode.health.available}
-                  >
-                    {sttModeLabel(mode.mode)}
-                    {!mode.health.available ? " — временно недоступен" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {visibleBatchModes.length > 1 ? (
+              <label className="profile-selector">
+                Режим
+                <select
+                  aria-label="Режим транскрибации"
+                  value={operatingMode}
+                  onChange={(event) => {
+                    const mode = event.target.value as SttOperatingMode;
+                    const capability = selectedProviderCapability?.modes.find(
+                      (item) => item.mode === mode,
+                    );
+                    setOperatingMode(mode);
+                    if (capability?.diarization === false) {
+                      setDiarizationEnabled(false);
+                    }
+                    if (capability?.dictionaries === false) {
+                      setSelectedDictionaryIds([]);
+                    }
+                    setRows((current) =>
+                      current.map(clearComposerReprocessDecisions),
+                    );
+                  }}
+                >
+                  {visibleBatchModes.map((mode) => (
+                    <option
+                      key={mode.mode}
+                      value={mode.mode}
+                      disabled={!mode.health.available}
+                    >
+                      {sttModeLabel(mode.mode)}
+                      {!mode.health.available ? " — временно недоступен" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : visibleBatchModes[0] ? (
+              <p className="muted">
+                Режим: <b>{sttModeLabel(visibleBatchModes[0].mode)}</b>. Других
+                реально отличающихся режимов провайдер сейчас не предлагает.
+              </p>
+            ) : null}
+            {selectedModeCapability && (
+              <p className="muted stt-mode-explanation">
+                {sttModeExplanation(selectedModeCapability)}. Стоимость здесь не
+                сравнивается: провайдер не передал подтверждённые тарифы по режимам.
+              </p>
+            )}
             {selectedCredentialId && !credentialsError && !providerBlocker && (
               <span className="provider-ready">Подключён и готов</span>
             )}
@@ -4970,10 +5094,19 @@ function PreparationPanel({
                       )}
                     </section>
                     <div className="folder-cell">
-                      <span className="field-label">Папка результата</span>
+                      <span className="field-label">
+                        {row.segmentation_enabled
+                          ? "Папка по умолчанию"
+                          : "Папка результата"}
+                      </span>
                       <span>
                         {row.output_folder?.name || "Папка не выбрана"}
                       </span>
+                      {row.segmentation_enabled && (
+                        <small className="muted">
+                          Используется для фрагментов без собственной папки.
+                        </small>
+                      )}
                       {row.output_folder?.web_view_url &&
                         isApprovedOutputUrl(row.output_folder.web_view_url) && (
                           <ResourceExternalLink
@@ -5070,18 +5203,56 @@ function PreparationPanel({
                       </details>
                     </div>
                   </div>
-                  <details
+                  {!row.segmentation_enabled && (
+                    <label className="composer-document-title">
+                      Название документа
+                      <input
+                        value={row.segments[0]?.title ?? ""}
+                        onChange={(event) => {
+                          const first = row.segments[0];
+                          if (first) {
+                            updateSegment(row.id, first.id, {
+                              title: event.target.value,
+                            });
+                          }
+                        }}
+                        maxLength={160}
+                        placeholder="Необязательно"
+                        aria-label={`Название документа задачи ${index + 1}`}
+                      />
+                      <small className="muted">
+                        Необязательно. Если оставить пустым, Google Docs получит
+                        имя исходного файла.
+                      </small>
+                    </label>
+                  )}
+                  <section
                     className="segment-plan-panel"
                     aria-label={`Фрагментация задачи ${index + 1}`}
                   >
-                    <summary className="segment-plan-summary">
-                      <span>Разделить файл на фрагменты</span>
-                      <span className="muted">
-                        {row.segments.length === 1
-                          ? "Весь файл"
-                          : `${row.segments.length} фрагмента`}
+                    <label className="segment-plan-summary transcription-toggle">
+                      <input
+                        type="checkbox"
+                        checked={row.segmentation_enabled}
+                        onChange={(event) =>
+                          updateRow(row.id, {
+                            segmentation_enabled: event.target.checked,
+                            segments: row.segments.map((segment) => ({
+                              ...segment,
+                              reprocess_existing: false,
+                            })),
+                          })
+                        }
+                      />
+                      <span>
+                        <strong>Разделить файл на фрагменты</strong>
+                        <small>
+                          Каждый фрагмент станет отдельной задачей и документом.
+                        </small>
                       </span>
-                    </summary>
+                    </label>
+                    {row.segmentation_enabled && (
+                    <div className="segment-plan-content">
                     <label className="segment-count-control">
                       Количество фрагментов
                       <input
@@ -5107,8 +5278,8 @@ function PreparationPanel({
                         aria-label={`Количество фрагментов задачи ${index + 1}`}
                       />
                       <small className="muted">
-                        Каждый фрагмент станет отдельной задачей и отдельным
-                        документом в выбранной папке. Максимум: {MAX_BATCH_ITEMS}.
+                        Общая папка используется по умолчанию; ниже можно выбрать
+                        отдельную папку. Максимум: {MAX_BATCH_ITEMS}.
                       </small>
                     </label>
                     <ol className="segment-editor-list">
@@ -5185,6 +5356,49 @@ function PreparationPanel({
                                 получит имя исходного файла.
                               </small>
                             </label>
+                            <div className="segment-folder-control">
+                              <span className="field-label">Папка фрагмента</span>
+                              <span>
+                                {segment.output_folder?.name ??
+                                  row.output_folder?.name ??
+                                  "Папка не выбрана"}
+                              </span>
+                              <small className="muted">
+                                {segment.output_folder
+                                  ? "Собственная папка этого фрагмента."
+                                  : row.output_folder
+                                    ? "Наследуется папка по умолчанию."
+                                    : "Выберите папку по умолчанию или собственную папку."}
+                              </small>
+                              <div className="resource-actions">
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  disabled={!driveSourcePickerEnabled || pickerBusy}
+                                  aria-label={`Выбрать папку фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
+                                  onClick={() =>
+                                    void chooseRowFolder(row.id, segment.id)
+                                  }
+                                >
+                                  {segment.output_folder ? "Изменить" : "Выбрать отдельно"}
+                                </button>
+                                {segment.output_folder && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    aria-label={`Наследовать общую папку для фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
+                                    onClick={() =>
+                                      updateSegment(row.id, segment.id, {
+                                        output_folder: null,
+                                        reprocess_existing: false,
+                                      })
+                                    }
+                                  >
+                                    Наследовать общую
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </li>
                         );
                       })}
@@ -5194,7 +5408,9 @@ function PreparationPanel({
                         {composerSegmentPlanIssue(row.segments)}
                       </p>
                     )}
-                  </details>
+                    </div>
+                    )}
+                  </section>
                   {invalidSourceRowIds.has(row.id) && (
                     <p className="error">
                       Выбранный файл больше недоступен. Выберите готовый файл
@@ -6795,6 +7011,12 @@ const diagnosticsMetadataKeys = new Set([
   "output_count",
   "final_job_status",
   "endpoint_group",
+  "blocker",
+  "source_type",
+  "deletion_reason",
+  "cleanup_outcome",
+  "deleted_count",
+  "blocked_count",
 ]);
 const pwaEventLabels: Record<string, string> = {
   PWA_APP_ERROR: "Ошибка веб-приложения",
@@ -6814,12 +7036,97 @@ const diagnosticsMetadataLabels: Record<string, string> = {
   upstream_request_id: "request ID исходного ответа",
   rejection_category: "категория rejected promise",
   endpoint_group: "группа API",
+  blocker: "причина блокировки",
+  source_type: "тип источника",
+  deletion_reason: "причина удаления",
+  cleanup_outcome: "результат очистки",
+  deleted_count: "удалено",
+  blocked_count: "пропущено",
 };
 function pwaEventLabel(code: string) {
   return pwaEventLabels[code] ?? null;
 }
 function diagnosticsMetadataLabel(key: string) {
   return diagnosticsMetadataLabels[key] ?? null;
+}
+function diagnosticEventPresentation(event: DiagnosticsEvent) {
+  const blocker = String(event.metadata?.blocker ?? "");
+  const blockerLabels: Record<string, string> = {
+    queued_job_uses_source: "Файл используется задачей в очереди",
+    processing_job_uses_source: "Файл сейчас обрабатывается",
+    retryable_failed_job_uses_source: "Файл нужен для безопасного повтора",
+    audio_preparation_uses_source: "Файл используется подготовкой аудио",
+  };
+  if (event.event_code === "SOURCE_DELETION_BLOCKED") {
+    return {
+      title: blockerLabels[blocker] ?? "Studio безопасно остановила удаление файла",
+      action: "Завершите или отмените связанную операцию, затем повторите удаление.",
+    };
+  }
+  if (event.event_code === "PWA_API_REQUEST_FAILED") {
+    const status = Number(event.metadata?.http_status ?? 0);
+    return status === 409
+      ? {
+          title: "Действие не выполнено: состояние уже изменилось",
+          action: "Обновите данные на экране и повторите безопасное действие.",
+        }
+      : status === 401 || status === 403
+        ? {
+            title: "Действию не хватило авторизации",
+            action: "Войдите заново или проверьте доступ, затем повторите.",
+          }
+        : {
+            title: "Веб-приложение не получило подтверждение от API",
+            action: "Обновите экран. Если проблема повторяется, скачайте диагностический пакет.",
+        };
+  }
+  const workflowEvents: Record<string, { title: string; action: string }> = {
+    JOB_CREATED: {
+      title: "Задача транскрибации создана",
+      action: "Дополнительных действий не требуется.",
+    },
+    JOB_COMPLETED: {
+      title: "Транскрибация завершена",
+      action: "Результат можно открыть в рабочей области.",
+    },
+    JOB_CANCELLED: {
+      title: "Транскрибация отменена",
+      action: "Повторите запуск только если результат всё ещё нужен.",
+    },
+    PROVIDER_REQUEST_FAILED: {
+      title: "Сервис распознавания не завершил запрос",
+      action: "Проверьте причину ниже и доступное безопасное действие в задаче.",
+    },
+    API_REQUEST_FAILED: {
+      title: "API не подтвердил действие",
+      action: "Обновите экран и повторите действие. При повторении скачайте диагностический пакет.",
+    },
+    SOURCE_BULK_DELETION_COMPLETED: {
+      title: "Очистка файлов Studio завершена",
+      action: "Проверьте количество удалённых и пропущенных файлов ниже.",
+    },
+  };
+  if (workflowEvents[event.event_code]) return workflowEvents[event.event_code];
+  const known = pwaEventLabel(event.event_code);
+  if (known) {
+    return {
+      title: known,
+      action: "Повторите действие после обновления экрана; технические сведения доступны ниже.",
+    };
+  }
+  if (event.level === "ERROR") {
+    return {
+      title: "Операция завершилась ошибкой",
+      action: "Откройте технические сведения или скачайте пакет для анализа.",
+    };
+  }
+  if (event.level === "WARNING") {
+    return {
+      title: "Studio зафиксировала предупреждение",
+      action: "Проверьте указанную причину и повторите действие при необходимости.",
+    };
+  }
+  return { title: "Операция Studio выполнена", action: "Дополнительных действий не требуется." };
 }
 function debugRemainingText(expiresAt?: string | null) {
   if (!expiresAt) return "—";
@@ -9121,6 +9428,52 @@ function DiagnosticsSettings({
         label.toLocaleLowerCase("ru-RU").includes(operationSearch),
     )
     .slice(0, 5);
+  const priorityTimeline = timeline.filter(
+    (event) => event.level === "ERROR" || event.level === "WARNING",
+  );
+  const informationalTimeline = timeline.filter(
+    (event) => event.level !== "ERROR" && event.level !== "WARNING",
+  );
+  const renderDiagnosticEvent = (event: DiagnosticsEvent) => {
+    const presentation = diagnosticEventPresentation(event);
+    return (
+      <li key={event.id} className={`diagnostics-event ${event.level.toLowerCase()}`}>
+        <details>
+          <summary className="diagnostics-event-header">
+            <strong>{presentation.title}</strong>
+            <span>·</span>
+            <span>{diagnosticsLevelLabel(event.level)}</span>
+            <span>·</span>
+            <span>{diagnosticsComponentLabel(event.component)}</span>
+            <span>·</span>
+            <time dateTime={event.occurred_at}>{formatTime(event.occurred_at)}</time>
+            <span>·</span>
+            <span>повторов: {event.occurrence_count ?? 1}</span>
+          </summary>
+          <p>{presentation.action}</p>
+          <p className="muted">Технический код: <code>{event.event_code}</code></p>
+          {event.metadata && (
+            <dl className="diagnostics-metadata">
+              {Object.entries(event.metadata)
+                .filter(([key]) => diagnosticsMetadataKeys.has(key))
+                .slice(0, 12)
+                .map(([key, value]) => (
+                  <div key={key}>
+                    <dt>
+                      <span>{safeText(key)}</span>
+                      {diagnosticsMetadataLabel(key) && (
+                        <span className="metadata-local-label"> · {diagnosticsMetadataLabel(key)}</span>
+                      )}
+                    </dt>
+                    <dd>{safeText(value)}</dd>
+                  </div>
+                ))}
+            </dl>
+          )}
+        </details>
+      </li>
+    );
+  };
   return (
     <div className="diagnostics-page">
       <h2>Для поддержки</h2>
@@ -9459,62 +9812,35 @@ function DiagnosticsSettings({
         {eventsState === "ready" && timeline.length === 0 && (
           <p className="notice">За выбранный период событий нет.</p>
         )}
-        <ul className="diagnostics-events">
-          {timeline.map((event) => (
-            <li key={event.id} className="diagnostics-event">
-              <details>
-              <summary className="diagnostics-event-header">
-                <strong>{event.event_code}</strong>
-                {pwaEventLabel(event.event_code) && (
-                  <span className="pwa-event-label">
-                    {pwaEventLabel(event.event_code)}
-                  </span>
-                )}
-                <span>·</span>
-                <span>{diagnosticsLevelLabel(event.level)}</span>
-                <span>·</span>
-                <span>{diagnosticsComponentLabel(event.component)}</span>
-                <span>·</span>
-                <time dateTime={event.occurred_at}>
-                  {formatTime(event.occurred_at)}
-                </time>
-                <span>·</span>
-                <span>повторов: {event.occurrence_count ?? 1}</span>
-              </summary>
-              {event.metadata && (
-                <dl className="diagnostics-metadata">
-                  {Object.entries(event.metadata)
-                    .filter(([key]) => diagnosticsMetadataKeys.has(key))
-                    .slice(0, 8)
-                    .map(([key, value]) => (
-                      <div key={key}>
-                        <dt>
-                          <span>{safeText(key)}</span>
-                          {diagnosticsMetadataLabel(key) && (
-                            <span className="metadata-local-label">
-                              {" "}
-                              · {diagnosticsMetadataLabel(key)}
-                            </span>
-                          )}
-                        </dt>
-                        <dd>{safeText(value)}</dd>
-                      </div>
-                    ))}
-                </dl>
-              )}
+        {timeline.length > 0 && (
+          <details className="diagnostics-event-log">
+            <summary>
+              Журнал событий · требует внимания {priorityTimeline.length} · информационных {informationalTimeline.length}
+            </summary>
+            {priorityTimeline.length > 0 && (
+              <ul className="diagnostics-events priority-events">
+                {priorityTimeline.map(renderDiagnosticEvent)}
+              </ul>
+            )}
+            {informationalTimeline.length > 0 && (
+              <details className="diagnostics-informational-events">
+                <summary>Информационные события ({informationalTimeline.length})</summary>
+                <ul className="diagnostics-events">
+                  {informationalTimeline.map(renderDiagnosticEvent)}
+                </ul>
               </details>
-            </li>
-          ))}
-        </ul>
-        {nextCursor && eventsState !== "error" && (
-          <button
-            type="button"
-            disabled={eventsState === "loading"}
-            aria-busy={eventsState === "loading" || undefined}
-            onClick={() => loadEvents(nextCursor)}
-          >
-            Показать ещё
-          </button>
+            )}
+            {nextCursor && eventsState !== "error" && (
+              <button
+                type="button"
+                disabled={eventsState === "loading"}
+                aria-busy={eventsState === "loading" || undefined}
+                onClick={() => loadEvents(nextCursor)}
+              >
+                Показать ещё
+              </button>
+            )}
+          </details>
         )}
       </section>
       <section

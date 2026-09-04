@@ -4,6 +4,15 @@ This document is historical. Codex and other coding agents must not read it duri
 
 The archive preserves traceability from documents consolidated during `DOCS-AUTHORITY-RESET-01`. It intentionally avoids secrets, production credentials, private account data, transcript bodies, document IDs/URLs, raw provider responses, and raw Google responses.
 
+## Archived `STT-MULTIPROVIDER-CONTINUITY-01` delivery — PRs #295–#296
+
+- Final baseline: `main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`; functional merge `436efcc9997f724ba3ec9107122ef3ed12d50525`, migration-owner recovery merge `b9e83131120ef075ea6bcbf6fd64e3d6e594b966`.
+- Outcome: provider-neutral batch/realtime contracts, capability modes, independent BYOK/health boundaries, Yandex v3 batch/deferred/realtime, owner dictionaries, separate capture/STT errors, OBS overlay and explicit YouTube/allowlisted HTTPS consumers; legacy enum ownership recovery preserved least privilege.
+- CI: PR #296 exact-head checks passed; exact-main repository run `33817904621` and Studio/browser run `33817904611` succeeded.
+- Delivery: web from PR #295 merge; protected migration/API run `33818588686` advanced schema `0035_job_notifications -> 0036_stt_multiprovider` from verified snapshot and deployed API; worker run `33819107379` deployed exact `b9e8313`, final status `33819343560` reported healthy matching image identity.
+- LIVE boundary: production Yandex/provider calls and external caption sends were not performed; unavailable/unconfigured states are intentional and no-spend LIVE is sufficient for the approved Goal.
+- Cleanup: merged remote working branches were pruned; local `main` and `origin/main` were exact before the next Goal branch was created. Unrelated untracked pnpm files and inaccessible test temp directories remained untouched.
+
 ## Archived `PWA-REALTIME-STABILITY-READINESS-01` delivery — PRs #228–#230
 
 - Final baseline: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`.

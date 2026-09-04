@@ -106,6 +106,9 @@ export type TranscriptionJob = {
   batch?: JobBatchReference | null;
   terminal_dismissed_at?: string | null;
   history_attention_required?: boolean;
+  history_attention_resolved_at?: string | null;
+  history_attention_resolution?: "acknowledged_no_result" | "linked_later_result" | null;
+  history_attention_linked_job_id?: string | null;
   source_count: number;
   sources?: JobSource[];
   created_at: string;

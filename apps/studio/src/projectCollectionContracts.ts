@@ -456,6 +456,9 @@ function parseJob(
   const diarizationEnabled = candidate.diarization_enabled;
   const terminalDismissedAt = candidate.terminal_dismissed_at;
   const historyAttentionRequired = candidate.history_attention_required;
+  const historyAttentionResolvedAt = candidate.history_attention_resolved_at;
+  const historyAttentionResolution = candidate.history_attention_resolution;
+  const historyAttentionLinkedJobId = candidate.history_attention_linked_job_id;
   const speakerIdentities = parseOptionalSpeakerIdentities(
     candidate.speaker_identities,
   );
@@ -482,6 +485,15 @@ function parseJob(
       !isNullableIsoDate(terminalDismissedAt)) ||
     (historyAttentionRequired !== undefined &&
       typeof historyAttentionRequired !== "boolean") ||
+    (historyAttentionResolvedAt !== undefined &&
+      !isNullableIsoDate(historyAttentionResolvedAt)) ||
+    (historyAttentionResolution !== undefined &&
+      historyAttentionResolution !== null &&
+      historyAttentionResolution !== "acknowledged_no_result" &&
+      historyAttentionResolution !== "linked_later_result") ||
+    (historyAttentionLinkedJobId !== undefined &&
+      historyAttentionLinkedJobId !== null &&
+      !boundedString(historyAttentionLinkedJobId, 36)) ||
     !isNonNegativeInteger(candidate.source_count) ||
     !isIsoDate(candidate.created_at) ||
     !isIsoDate(candidate.updated_at) ||
@@ -510,6 +522,18 @@ function parseJob(
       : {}),
     ...(historyAttentionRequired !== undefined
       ? { history_attention_required: historyAttentionRequired }
+      : {}),
+    ...(historyAttentionResolvedAt !== undefined
+      ? { history_attention_resolved_at: historyAttentionResolvedAt }
+      : {}),
+    ...(historyAttentionResolution !== undefined
+      ? { history_attention_resolution: historyAttentionResolution }
+      : {}),
+    ...(historyAttentionLinkedJobId !== undefined
+      ? {
+          history_attention_linked_job_id:
+            historyAttentionLinkedJobId as string | null,
+        }
       : {}),
     source_count: candidate.source_count,
     created_at: candidate.created_at,

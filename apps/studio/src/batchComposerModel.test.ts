@@ -47,6 +47,7 @@ describe("batch composer model", () => {
       id: "00000000-0000-4000-8000-000000000001",
       source_id: "",
       output_folder: null,
+      segmentation_enabled: false,
       segments: [
         {
           id: "00000000-0000-4000-8000-000000000002",
@@ -55,6 +56,7 @@ describe("batch composer model", () => {
           ends_at_source_end: true,
           title: "",
           reprocess_existing: false,
+          output_folder: null,
         },
       ],
     });
@@ -144,6 +146,7 @@ describe("batch composer model", () => {
             name: "Project one",
             web_view_url: null,
           },
+          segmentation_enabled: true,
           segments: [
             {
               id: "segment-a",
@@ -160,6 +163,11 @@ describe("batch composer model", () => {
               ends_at_source_end: false,
               title: "Second fragment",
               reprocess_existing: true,
+              output_folder: {
+                folder_id: "fragment-two",
+                name: "Fragment two",
+                web_view_url: null,
+              },
             },
             {
               id: "segment-c",
@@ -188,7 +196,7 @@ describe("batch composer model", () => {
       },
       {
         source_id: "source-1",
-        output_folder_id: "project-one",
+        output_folder_id: "fragment-two",
         title: "Second fragment",
         reprocess_existing: true,
         media_clip_start_seconds: 610,
@@ -254,6 +262,7 @@ describe("batch composer model", () => {
         name: "Shared folder",
         web_view_url: null,
       },
+      segmentation_enabled: true,
       segments: resizeComposerSegments(newComposerRow().segments, count).map(
         (segment, index) => ({
           ...segment,

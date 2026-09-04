@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository/runtime baseline: functional production web/API/worker `main@e5c43feac06e1649f1bd0903953ef5de7f925b87`. Exact-main repository/Studio CI, protected migration recovery, web/API/worker delivery, public health, isolated worker identity and schema `0034_personal_security` подтверждены. Owner-authorized long-media LIVE evidence proved continuous progress and the transaction-free source-preparation boundary. Checkpoint persistence под restricted worker role и recovery-job visibility после очистки истории исправлены без broadening grants или automatic provider retry.
+Verified repository/runtime baseline: production web из functional merge `main@436efcc9997f724ba3ec9107122ef3ed12d50525`; production checkout/API/worker `main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`, schema `0036_stt_multiprovider`. Exact-main repository/Studio CI, protected migration/API delivery, worker rollout и final healthy identity подтверждены. Yandex credential/provider calls и external caption sends не выполнялись и остаются explicit opt-in boundaries.
 
-Current operational Goal: `JOB-RELIABILITY-NOTIFICATIONS-01`, state `IN_PROGRESS` по explicit owner authorization 2026-09-03. Scope закрывает remaining `JOBREL-05/09/10` и `JOBNOT-01..06`: только доказуемо safe automatic retry, durable terminal outbox и explicit opt-in Web Push/email/Telegram. Local CODE/TEST implementation существует на isolated branch; CI, protected migration/deployment и bounded LIVE ещё не подтверждены. Provider/Google uncertainty, paid canary, несанкционированная внешняя отправка и commercial contour не входят в Goal.
+Current operational Goal: `UX-AUDIT-CONTROLS-01`, state `IN_PROGRESS` по explicit owner authorization 2026-09-04. Scope реализует `UXCTL-01..14`: truthful STT modes, explicit fragmentation и per-fragment destinations, safe uncertain-job resolution, readable subscription/PAYG semantics, bounded bulk Studio-file cleanup и compact actionable diagnostics. Commercial contour, paid STT, Google mutation и destructive production cleanup без отдельного action-time подтверждения не входят в Goal.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **78,8% (`241/306`)** | `PUX-13`, `JOBREL-17` и recovery visibility закрыты exact-main CI/deployment/LIVE; current functional baseline `30f21a66` |
-| Non-commercial scope | **80,8% (`273/338`)** | Colab `32/32` + personal PWA `241/306` |
+| Personal Studio PWA | **97,3% (`327/336`)** | previous notification/STT Goals reconciled; `UXCTL-01..14` implemented and confirmed by exact-head CODE/TEST/CI, delivery pending |
+| Non-commercial scope | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `327/336` |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **47,1% (`273/580`)** | `273 / (338 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **58,9% (`359/610`)** | `359 / (368 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Owner decisions 2026-08-28 сначала добавили `14` atomic AC по Picker/diarization UX и versionless `transcript_doc`; direct Drive upload добавил ещё `6`, сформировав baseline `552`. Explicit owner instruction 2026-08-29 добавила `PTM-01..08`, затем `PD-14` и `PTM-09`, подняв denominator до `562` и completed numerator до `246`. Explicit owner approval 2026-08-30 добавил `12` atomic UX AC `PUX-01..12`, подняв denominator до `574`; previous delivery закрыл `STORAG-17..21` и довёл exact-main numerator до `264`. Explicit owner decision о provider account reconciliation добавил `USAGEC-03..06`, подняв denominator до `578`, non-commercial до `336`, personal PWA до `304`. Worker runtime Evidence подняло numerator до `266`; account LIVE — до `269`; одна persisted canary закрыла `USAGEC-01/02` и дала `271/578`. Explicit owner Goal 2026-09-01 добавила `PUX-13` и `JOBREL-17`, поэтому current denominator равен `580`, non-commercial `338`, personal PWA `306`; exact CI/deployment/LIVE сначала на `295033c8`, затем delivered baselines `11a9d169` и `cf8a459` закрыли оба AC и сохранили numerator `273`. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед текущей Goal даёт `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; все 14 AC реализованы и подтверждены exact-head CODE/TEST/CI, что поднимает numerator до `359/610`, а DEPLOY/LIVE остаются открыты. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
 
 ### Commercial scope decision
 
@@ -190,6 +190,29 @@ Status: **🟩 READY — 100% (`8/8`)**. Все восемь explicit owner brow
 | `UXPOL-08` | ElevenLabs account/cost panel объясняет план, использовано/осталось, overage и invoice простым русским языком; raw provider units/provenance находятся под optional disclosure. | ✅ |
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Functional merge `e5c43feac06e1649f1bd0903953ef5de7f925b87`, exact-main Studio/browser run `33718805456`, web delivery `33719123640` and authenticated read-only production inspection confirmed the richer dashboard, `Подготовка документов`, progressive maintenance/support disclosures, bounded diagnostic pagination, JSON/Markdown guidance, case-insensitive operation hints and human-readable ElevenLabs accounting without external mutation.
+
+### Эпик `PWA-UX-CONTROLS-04` — честные controls, recovery и compact diagnostics
+
+Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все product AC реализованы и подтверждены exact-head CODE/TEST/CI; applicable DEPLOY/LIVE ещё не выполнены, поэтому эпик не `READY`.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `UXCTL-01` | Отдельный STT mode показывается только если effective provider capability реально отличается model, transport, features, speed или cost; эквивалентные modes объединяются. | ✅ |
+| `UXCTL-02` | Для каждого различающегося STT mode до dispatch доступно краткое понятное объяснение фактических отличий без неподтверждённых обещаний. | ✅ |
+| `UXCTL-03` | Fragmentation включается отдельным явным checkbox и в выключенном состоянии не создаёт segment-specific controls. | ✅ |
+| `UXCTL-04` | Общая output folder является default destination всех fragments. | ✅ |
+| `UXCTL-05` | Каждый fragment может переопределить output folder; composer/preflight показывает resolved destination каждого fragment до создания jobs. | ✅ |
+| `UXCTL-06` | Attention-required terminal job остаётся видимой до решения, но её подробности можно свернуть без изменения durable state. | ✅ |
+| `UXCTL-07` | Пользователь может повторно проверить uncertain result, связать job с подтверждённым более поздним результатом либо явно подтвердить отсутствие результата с предупреждением о возможном расходе; только resolved job переходит в обычный history lifecycle, audit сохраняется. | ✅ |
+| `UXCTL-08` | ElevenLabs account UI отдельно показывает base subscription plan и PAYG/prepaid balance и переводит raw provider values в понятные пользовательские labels. | ✅ |
+| `UXCTL-09` | Порядок расходования subscription credits и PAYG отображается только при наличии подтверждённых provider data и не выводится из предположений Studio. | ✅ |
+| `UXCTL-10` | Bulk cleanup preview показывает eligible/blocked Studio-owned files, aggregate bytes и явно сообщает, что Google Drive sources/documents не удаляются. | ✅ |
+| `UXCTL-11` | Bulk cleanup apply требует explicit confirmation, удаляет только eligible Studio-owned files, безопасно пропускает blocked files и возвращает bounded summary по причинам. | ✅ |
+| `UXCTL-12` | Diagnostic event сначала показывает human-readable problem/action summary; technical event code, request/trace IDs и расширенные metadata находятся под disclosure. | ✅ |
+| `UXCTL-13` | Diagnostic projection сохраняет safe blocker reason и source/object type, необходимые для понимания failed или blocked действия. | ✅ |
+| `UXCTL-14` | Весь diagnostic event log можно свернуть; errors/warnings приоритетны, informational events доступны по запросу, список остаётся bounded/paginated. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
@@ -579,50 +602,50 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅` дл
 
 ### Эпик `STT-PROVIDER-ABSTRACTION-01` — provider-neutral STT contract
 
-Status: **🟦 IN PROGRESS — 7,1% (`1/14`)**. Provider-neutral implementation и локальные regression checks готовы; AC остаются открыты до exact CI, protected delivery и bounded LIVE.
+Status: **🟩 READY — 100% (`14/14`)**. Provider-neutral implementation, exact CI, web/API/worker delivery и bounded no-spend production Evidence подтверждены delivery `STT-MULTIPROVIDER-CONTINUITY-01`.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `STTPRO-01` | Batch STT выполняется через provider-neutral interface. | — |
-| `STTPRO-02` | Realtime STT выполняется через provider-neutral interface. | — |
-| `STTPRO-03` | Provider capability metadata фиксирует supported operating modes. | — |
-| `STTPRO-04` | Provider capability metadata фиксирует supported languages. | — |
-| `STTPRO-05` | Provider capability metadata фиксирует diarization support. | — |
-| `STTPRO-06` | Provider capability metadata фиксирует dictionary support. | — |
-| `STTPRO-07` | Provider capability metadata фиксирует file constraints. | — |
-| `STTPRO-08` | User-facing economic mode маппится на configured provider capability. | — |
-| `STTPRO-09` | User-facing standard mode маппится на configured provider capability. | — |
-| `STTPRO-10` | User-facing premium mode маппится на configured provider capability. | — |
-| `STTPRO-11` | User-facing realtime mode маппится на configured provider capability. | — |
-| `STTPRO-12` | Provider/mode health может остановить новый dispatch после массовых failures. | — |
+| `STTPRO-01` | Batch STT выполняется через provider-neutral interface. | ✅ |
+| `STTPRO-02` | Realtime STT выполняется через provider-neutral interface. | ✅ |
+| `STTPRO-03` | Provider capability metadata фиксирует supported operating modes. | ✅ |
+| `STTPRO-04` | Provider capability metadata фиксирует supported languages. | ✅ |
+| `STTPRO-05` | Provider capability metadata фиксирует diarization support. | ✅ |
+| `STTPRO-06` | Provider capability metadata фиксирует dictionary support. | ✅ |
+| `STTPRO-07` | Provider capability metadata фиксирует file constraints. | ✅ |
+| `STTPRO-08` | User-facing economic mode маппится на configured provider capability. | ✅ |
+| `STTPRO-09` | User-facing standard mode маппится на configured provider capability. | ✅ |
+| `STTPRO-10` | User-facing premium mode маппится на configured provider capability. | ✅ |
+| `STTPRO-11` | User-facing realtime mode маппится на configured provider capability. | ✅ |
+| `STTPRO-12` | Provider/mode health может остановить новый dispatch после массовых failures. | ✅ |
 | `STTPRO-13` | Automatic cross-provider fallback не выполняется. | ✅ |
-| `STTPRO-14` | BYOK eligibility конфигурируется отдельно для каждого provider. | — |
+| `STTPRO-14` | BYOK eligibility конфигурируется отдельно для каждого provider. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Local branch содержит typed batch/realtime capability contract, deterministic mode mapping, per-provider BYOK selection и isolated health circuit; unsupported combinations и automatic cross-provider fallback fail closed. Backend focused/schema/operational suites, full frontend Vitest, ESLint и production build прошли; exact-head CI ещё не запускался.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE N/A`. PR `#295` merged как `436efcc9997f724ba3ec9107122ef3ed12d50525`; recovery PR `#296` merged как `b9e83131120ef075ea6bcbf6fd64e3d6e594b966`. Exact-main CI `33817904621`, Studio/browser `33817904611`, web delivery from PR `#295`, protected migration/API `33818588686`, worker deploy/status `33819107379` / `33819343560` confirmed exact identities. Paid provider LIVE не требовался и не выполнялся.
 
 ### Эпик `YANDEX-STT-01` — Yandex SpeechKit provider
 
-Status: **🟦 IN PROGRESS — 0% (`0/5`)**. Yandex v3 batch/deferred/realtime implementation готова локально; AC остаются открыты до required CI/DEPLOY/LIVE Evidence.
+Status: **🟩 READY — 100% (`5/5`)**. Yandex v3 contracts, persistence и realtime relay подтверждены CI/deployment; отсутствие production credential честно отображается и не требует paid LIVE.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `YANDEX-01` | Yandex SpeechKit поддерживает обычную batch transcription. | — |
-| `YANDEX-02` | Yandex SpeechKit поддерживает deferred transcription. | — |
-| `YANDEX-03` | Yandex SpeechKit поддерживает realtime transcription. | — |
-| `YANDEX-04` | Deferred Yandex jobs сохраняют provider operation ID. | — |
-| `YANDEX-05` | Deferred Yandex jobs poll и сохраняют terminal provider result. | — |
+| `YANDEX-01` | Yandex SpeechKit поддерживает обычную batch transcription. | ✅ |
+| `YANDEX-02` | Yandex SpeechKit поддерживает deferred transcription. | ✅ |
+| `YANDEX-03` | Yandex SpeechKit поддерживает realtime transcription. | ✅ |
+| `YANDEX-04` | Deferred Yandex jobs сохраняют provider operation ID. | ✅ |
+| `YANDEX-05` | Deferred Yandex jobs poll и сохраняют terminal provider result. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Реализованы normal/deferred dispatch, durable opaque operation ID, bounded polling/terminal persistence и short-lived Studio WebSocket relay к Yandex bidirectional gRPC с лимитами `5 минут` / `10 MiB`. Yandex остаётся default-disabled и не вызывался в LIVE; локальные transport, schema, negative и boundary tests прошли.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE N/A`. Delivery chain совпадает с `STT-PROVIDER-ABSTRACTION-01`; Yandex остаётся default-disabled и не вызывался без credential/owner action.
 
 ### Эпик `PWA-DICTIONARIES-01` — пользовательские словари
 
-Status: **🟦 IN PROGRESS — 0% (`0/1`)**. Owner-scoped dictionary implementation готова локально; AC остаётся открытым до required CI/DEPLOY/LIVE Evidence.
+Status: **🟩 READY — 100% (`1/1`)**. Owner-scoped dictionary contract подтверждён exact CI и production API/worker delivery.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `PWADIC-01` | Owner-scoped dictionaries поддерживают terms, surnames, names и abbreviations для улучшения STT. | — |
+| `PWADIC-01` | Owner-scoped dictionaries поддерживают terms, surnames, names и abbreviations для улучшения STT. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Добавлены bounded normalized entries типов `term`, `surname`, `name`, `abbreviation`, owner-isolated idempotent CRUD и provider/mode-aware hint projection; локальные API/schema/ownership tests прошли.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE N/A`. Exact delivery chain — PR `#295`, recovery PR `#296`, runs `33817904621`, `33817904611`, `33818588686`, `33819107379` и `33819343560`; provider call для проверки CRUD не требуется.
 
 ### Эпик `PWA-WORKER-ISOLATION-02` — worker resource и privilege boundary
 
@@ -655,7 +678,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exa
 
 ### Эпик `JOB-RELIABILITY-02` — durable batch execution contract
 
-Status: **🟦 IN PROGRESS — 82,4% (`14/17`)**.
+Status: **🟩 READY — 100% (`17/17`)**. Safe automatic retry и guaranteed terminal outbox/notification boundaries закрыты delivery `JOB-RELIABILITY-NOTIFICATIONS-01`.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
@@ -663,12 +686,12 @@ Status: **🟦 IN PROGRESS — 82,4% (`14/17`)**.
 | `JOBREL-02` | Каждая job сохраняет явное processing-stage state. | ✅ |
 | `JOBREL-03` | Каждая job сохраняет last safe checkpoint. | ✅ |
 | `JOBREL-04` | Interrupted jobs восстанавливаются после backend/worker restart. | ✅ |
-| `JOBREL-05` | Автоматически повторяются только доказуемо безопасные transient failures. | — |
+| `JOBREL-05` | Автоматически повторяются только доказуемо безопасные transient failures. | ✅ |
 | `JOBREL-06` | Retry/recovery не дублирует provider operations. | ✅ |
 | `JOBREL-07` | Retry/recovery не дублирует Google Docs outputs. | ✅ |
 | `JOBREL-08` | Retry/recovery не дублирует storage files. | ✅ |
-| `JOBREL-09` | Retry/recovery не дублирует notifications. | — |
-| `JOBREL-10` | Critical job/queue/service events имеют guaranteed-delivery mechanism. | — |
+| `JOBREL-09` | Retry/recovery не дублирует notifications. | ✅ |
+| `JOBREL-10` | Critical job/queue/service events имеют guaranteed-delivery mechanism. | ✅ |
 | `JOBREL-11` | Queued transcription можно отменить. | ✅ |
 | `JOBREL-12` | Для running transcription можно запросить cancel; она останавливается на safe boundaries. | ✅ |
 | `JOBREL-13` | Server job продолжается после закрытия PWA пользователем. | ✅ |
@@ -677,36 +700,36 @@ Status: **🟦 IN PROGRESS — 82,4% (`14/17`)**.
 | `JOBREL-16` | Target write readiness проверяется до provider dispatch. | ✅ |
 | `JOBREL-17` | После immutable authoritative snapshot долгие source availability/materialization и media preparation операции не удерживают idle worker DB transaction; после I/O выполняется fresh fail-closed lifecycle/source/credential/output revalidation до любого provider call. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅` для уже выполненных AC. Exact `main@295033c8`, repository CI `33495743363`, platform/worker delivery `33495743305` / `33496421647` и final worker status `33496797208` подтверждены. Production job `66e70976-2f26-4ed0-93d6-8436784b9fdd` прошла long source preparation за прежней `idle_in_transaction_session_timeout=60s` boundary и достигла provider dispatch без `lifecycle_changed_before_provider_call`; subsequent provider rejection не создал usage и сохранил fail-closed retry state. New `JOBREL-05/09/10` implementation имеет local `CODE ◐ | TEST ◐`; CI/DEPLOY/LIVE ещё не выполнены, поэтому AC остаются незакрытыми.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Existing execution Evidence сохраняется; PR `#294` и exact-main/deployment/no-send LIVE дополнительно подтвердили bounded retry classifier, atomic terminal outbox, claim recovery и отсутствие duplicate notification side effects.
 
 ### Эпик `JOB-NOTIFICATIONS-01` — уведомления о завершении/error
 
-Status: **🟦 IN PROGRESS — 0% (`0/6`)**.
+Status: **🟩 READY — 100% (`6/6`)**. Все каналы имеют explicit opt-in, bounded delivery и honest disabled/unconfigured state; внешний send не требовался.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `JOBNOT-01` | Web Push уведомляет об успешном завершении. | — |
-| `JOBNOT-02` | Web Push уведомляет о terminal error. | — |
-| `JOBNOT-03` | Email уведомляет об успешном завершении. | — |
-| `JOBNOT-04` | Email уведомляет о terminal error. | — |
-| `JOBNOT-05` | Telegram может уведомлять об успешном завершении. | — |
-| `JOBNOT-06` | Telegram может уведомлять о terminal error. | — |
+| `JOBNOT-01` | Web Push уведомляет об успешном завершении. | ✅ |
+| `JOBNOT-02` | Web Push уведомляет о terminal error. | ✅ |
+| `JOBNOT-03` | Email уведомляет об успешном завершении. | ✅ |
+| `JOBNOT-04` | Email уведомляет о terminal error. | ✅ |
+| `JOBNOT-05` | Telegram может уведомлять об успешном завершении. | ✅ |
+| `JOBNOT-06` | Telegram может уведомлять о terminal error. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`. Local branch содержит opt-in API/PWA, encrypted Web Push subscription lifecycle, email/Telegram transports и durable bounded terminal outbox; completion ждёт exact-head CI, protected delivery и bounded no-send LIVE.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. PR `#294` merged; exact-main CI, protected migration/API/web/worker delivery и bounded no-send production inspection подтвердили contracts без несанкционированного сообщения.
 
 ### Эпик `REALTIME-CONTINUITY-02` — expanded realtime consumers
 
-Status: **🟦 IN PROGRESS — 0% (`0/5`)**. Realtime continuity/consumer implementation готова локально; AC остаются открыты до required CI/DEPLOY/LIVE Evidence.
+Status: **🟩 READY — 100% (`5/5`)**. Capture/STT recovery и isolated consumer contracts подтверждены exact CI/deployment; external sends не требовались.
 
 | AC | Requirement | Выполнено |
 |---|---|:---:|
-| `REALTI-01` | Capture-source loss и STT-connection loss отображаются как разные user-visible errors. | — |
-| `REALTI-02` | Realtime subtitles доступны через отдельный browser/OBS overlay. | — |
-| `REALTI-03` | Realtime subtitles могут передаваться в YouTube Live. | — |
-| `REALTI-04` | Realtime subtitles могут передаваться другому явно поддержанному external consumer. | — |
-| `REALTI-05` | Failure одного external realtime consumer не останавливает primary session. | — |
+| `REALTI-01` | Capture-source loss и STT-connection loss отображаются как разные user-visible errors. | ✅ |
+| `REALTI-02` | Realtime subtitles доступны через отдельный browser/OBS overlay. | ✅ |
+| `REALTI-03` | Realtime subtitles могут передаваться в YouTube Live. | ✅ |
+| `REALTI-04` | Realtime subtitles могут передаваться другому явно поддержанному external consumer. | ✅ |
+| `REALTI-05` | Failure одного external realtime consumer не останавливает primary session. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`. Capture/STT reason codes разделены; отдельный browser/OBS overlay изолирован по project; YouTube HTTP captions и allowlisted HTTPS webhook являются explicit ephemeral opt-in consumers с bounded text, fail-closed destination validation и независимым error state. External send локально и в production не выполнялся.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE N/A`. Delivery chain совпадает с `STT-PROVIDER-ABSTRACTION-01`; YouTube/webhook остаются explicit ephemeral opt-in, и external send локально/в production не выполнялся.
 
 ### Эпик `TRANSCRIPT-EXPORTS-02` — дополнительные export formats
 

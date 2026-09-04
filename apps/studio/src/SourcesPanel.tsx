@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import { runBoundedRequest } from "./jobMutationRequest";
 import { formatBytes, formatTime } from "./formatters";
@@ -29,6 +31,35 @@ type SourceDeletionResponse = {
   ok: boolean;
   source_state?: string;
   storage_cleanup?: "not_applicable" | "pending" | "completed";
+};
+
+type BulkSourceDeletionPreview = {
+  preview_token: string;
+  eligible_count: number;
+  eligible_bytes: number;
+  eligible_unknown_size_count: number;
+  blocked_count: number;
+  blocked_bytes: number;
+  blocked_unknown_size_count: number;
+  blocked_reasons: Record<string, number>;
+  google_drive_files_deleted: 0;
+};
+
+type BulkSourceDeletionResponse = {
+  ok: true;
+  deleted_count: number;
+  blocked_count: number;
+  blocked_reasons: Record<string, number>;
+  cleanup_counts: Record<string, number>;
+  google_drive_files_deleted: 0;
+};
+
+const bulkBlockerLabels: Record<string, string> = {
+  queued_job_uses_source: "используются ожидающей задачей",
+  processing_job_uses_source: "используются текущей обработкой",
+  retryable_failed_job_uses_source: "нужны для безопасного повтора",
+  audio_preparation_uses_source: "используются подготовкой аудио",
+  unsupported_source_state: "имеют неподдерживаемое состояние",
 };
 
 function isExpectedDeletionResponse(
@@ -101,6 +132,77 @@ export function SourcesPanel({
     notice: SourceDeletionNotice,
   ) => void;
 }) {
+  const [bulkPreview, setBulkPreview] = useState<BulkSourceDeletionPreview | null>(null);
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState("");
+
+  async function previewBulkDeletion() {
+    if (bulkPending) return;
+    setBulkPending(true);
+    setBulkMessage("");
+    try {
+      const value = await api<BulkSourceDeletionPreview>(
+        `/projects/${project.id}/sources/bulk-deletion/preview`,
+        { cache: "no-store" },
+      );
+      if (
+        !value ||
+        !/^[a-f0-9]{64}$/.test(value.preview_token) ||
+        !Number.isInteger(value.eligible_count) ||
+        !Number.isInteger(value.blocked_count) ||
+        value.google_drive_files_deleted !== 0
+      ) {
+        throw new Error("invalid_bulk_preview");
+      }
+      setBulkPreview(value);
+    } catch {
+      setBulkMessage("Не удалось подготовить безопасный план очистки.");
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
+  async function applyBulkDeletion() {
+    if (!bulkPreview || bulkPending || bulkPreview.eligible_count === 0) return;
+    setBulkPending(true);
+    setBulkMessage("");
+    try {
+      const value = await mutateWithCsrfRetry<BulkSourceDeletionResponse>(
+        `/projects/${project.id}/sources/bulk-deletion`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            confirm_delete: true,
+            expected_preview_token: bulkPreview.preview_token,
+            expected_eligible_count: bulkPreview.eligible_count,
+            expected_blocked_count: bulkPreview.blocked_count,
+          }),
+        },
+      );
+      if (!value || value.ok !== true || value.google_drive_files_deleted !== 0) {
+        throw new Error("invalid_bulk_result");
+      }
+      setBulkPreview(null);
+      setBulkMessage(
+        `Из Studio убрано файлов: ${value.deleted_count}. Пропущено: ${value.blocked_count}. Файлы Google Drive не удалялись.`,
+      );
+      onReload(project.id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setBulkMessage("Для очистки войдите в аккаунт заново и повторите проверку.");
+      } else if (error instanceof ApiError && error.status === 409) {
+        setBulkPreview(null);
+        setBulkMessage("Состояние файлов изменилось. Нажмите «Очистить все файлы», чтобы проверить новый план.");
+      } else {
+        setBulkMessage("Studio не подтвердила массовую очистку. Обновите список и повторите проверку.");
+        onReload(project.id);
+      }
+    } finally {
+      setBulkPending(false);
+    }
+  }
   function confirmedDeletionMessage(
     source: Source,
     storageCleanup?: SourceDeletionResponse["storage_cleanup"],
@@ -252,7 +354,56 @@ export function SourcesPanel({
   }
   return (
     <section className="sources" aria-label="Сохранённые файлы Studio">
-      <h3>Сохранённые файлы Studio</h3>
+      <div className="split">
+        <h3>Сохранённые файлы Studio</h3>
+        <button
+          type="button"
+          className="danger"
+          disabled={bulkPending}
+          aria-busy={bulkPending || undefined}
+          onClick={() => void previewBulkDeletion()}
+        >
+          {bulkPending ? "Проверяем…" : "Очистить все файлы"}
+        </button>
+      </div>
+      {bulkMessage && <p className="notice" role="status">{bulkMessage}</p>}
+      {bulkPreview && (
+        <section className="bulk-deletion-preview" aria-label="План очистки файлов Studio">
+          <h4>План очистки</h4>
+          <p>
+            Можно убрать: <b>{bulkPreview.eligible_count}</b> · известный объём {formatBytes(bulkPreview.eligible_bytes)}.
+            {bulkPreview.eligible_unknown_size_count > 0
+              ? ` Без размера: ${bulkPreview.eligible_unknown_size_count}.`
+              : ""}
+          </p>
+          <p>
+            Будут пропущены: <b>{bulkPreview.blocked_count}</b> · известный объём {formatBytes(bulkPreview.blocked_bytes)}.
+          </p>
+          {Object.keys(bulkPreview.blocked_reasons).length > 0 && (
+            <ul>
+              {Object.entries(bulkPreview.blocked_reasons).map(([reason, count]) => (
+                <li key={reason}>{bulkBlockerLabels[reason] ?? "нельзя безопасно удалить"}: {count}</li>
+              ))}
+            </ul>
+          )}
+          <p className="notice">
+            Удаляются только записи и временные копии Studio. Исходные файлы Google Drive останутся на месте.
+          </p>
+          <div className="actions">
+            <button
+              type="button"
+              className="danger"
+              disabled={bulkPending || bulkPreview.eligible_count === 0}
+              onClick={() => void applyBulkDeletion()}
+            >
+              Подтвердить очистку ({bulkPreview.eligible_count})
+            </button>
+            <button type="button" className="secondary" disabled={bulkPending} onClick={() => setBulkPreview(null)}>
+              Отмена
+            </button>
+          </div>
+        </section>
+      )}
       {Object.values(deletionNotices)
         .filter((notice) => notice.projectId === project.id)
         .map((notice) => (

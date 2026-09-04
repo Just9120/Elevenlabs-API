@@ -366,7 +366,7 @@ def test_job_usage_cost_payload_supports_confirmed_zero_without_tariff_use():
 def test_accounting_migration_is_additive_direct_successor():
     cfg = Config("apps/studio-api/alembic.ini")
     scripts = ScriptDirectory.from_config(cfg)
-    assert scripts.get_heads() == ["0036_stt_multiprovider"]
+    assert scripts.get_heads() == ["0037_ux_audit_controls"]
     revision = scripts.get_revision("0030_provider_usage_accounting")
     assert revision is not None and revision.down_revision == "0029_source_reference_class"
     path = ROOT / "apps/studio-api/alembic/versions/0030_provider_usage_accounting.py"

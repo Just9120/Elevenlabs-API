@@ -1574,6 +1574,15 @@ code {
 .segment-plan-panel[open] .segment-plan-summary {
   margin-bottom: 0.75rem;
 }
+.segment-plan-content,
+.segment-folder-control {
+  display: grid;
+  gap: 0.65rem;
+}
+.segment-folder-control {
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--studio-border);
+}
 .segment-count-control {
   max-width: 20rem;
 }
@@ -2216,6 +2225,24 @@ code {
   padding-left: 0;
   list-style: none;
 }
+.diagnostics-event-log,
+.diagnostics-informational-events {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.diagnostics-event-log > summary,
+.diagnostics-informational-events > summary,
+.attention-job-details > summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.diagnostics-event.error {
+  border-left: 4px solid var(--studio-error);
+}
+.diagnostics-event.warning {
+  border-left: 4px solid var(--warning, #f5a524);
+}
 
 .operational-incidents {
   display: grid;
@@ -2467,6 +2494,31 @@ code {
 
 .job-terminal-notice button {
   width: auto;
+}
+.attention-resolution-controls,
+.attention-job-details,
+.bulk-deletion-preview {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+}
+.attention-resolution-controls label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--studio-text);
+}
+.attention-job-details {
+  margin-top: 0.75rem;
+}
+.bulk-deletion-preview {
+  border: 1px solid color-mix(in srgb, var(--studio-error) 45%, var(--studio-border));
+  border-radius: 14px;
+  padding: 0.85rem;
+  background: var(--studio-soft);
+}
+.bulk-deletion-preview h4,
+.bulk-deletion-preview p {
+  margin: 0;
 }
 
 .recent-jobs {

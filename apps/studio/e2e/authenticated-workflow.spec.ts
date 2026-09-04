@@ -190,14 +190,27 @@ test('authenticated user opens transcriptions and reads a completed job result',
     name: 'События диагностики',
   });
   await expect(
+    diagnosticEvents.getByText(/Журнал событий · требует внимания 0 · информационных 3/),
+  ).toBeVisible();
+  await expect(
     diagnosticEvents.getByText('JOB_COMPLETED', { exact: true }),
+  ).toBeHidden();
+  await diagnosticEvents.getByText(/Журнал событий ·/).click();
+  await diagnosticEvents.getByText('Информационные события (3)', { exact: true }).click();
+  await expect(
+    diagnosticEvents.getByText('Транскрибация завершена', { exact: true }),
   ).toBeVisible();
   await expect(
-    diagnosticEvents.getByText('OUTPUT_PERSISTED', { exact: true }),
+    diagnosticEvents.getByText('Задача транскрибации создана', { exact: true }),
   ).toBeVisible();
-  await expect(
-    diagnosticEvents.getByText('JOB_CREATED', { exact: true }),
-  ).toBeVisible();
+  const eventDetails = diagnosticEvents.locator('li.diagnostics-event details');
+  await expect(eventDetails).toHaveCount(3);
+  for (let index = 0; index < 3; index += 1) {
+    await eventDetails.nth(index).locator('summary').click();
+  }
+  await expect(diagnosticEvents.getByText('JOB_COMPLETED', { exact: true })).toBeVisible();
+  await expect(diagnosticEvents.getByText('OUTPUT_PERSISTED', { exact: true })).toBeVisible();
+  await expect(diagnosticEvents.getByText('JOB_CREATED', { exact: true })).toBeVisible();
   await expect(diagnosticEvents).toContainText('final_job_status');
   await expect(diagnosticEvents).toContainText('completed');
   await expect(diagnosticEvents).toContainText('output_count');
@@ -795,6 +808,11 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   const uncertainJobId = await jobCard.getAttribute('data-job-id');
   expect(uncertainJobId).toMatch(/^[0-9a-f-]{36}$/);
 
+  const uncertainDetails = jobCard.locator('details.attention-job-details');
+  await expect(uncertainDetails).not.toHaveAttribute('open', '');
+  await uncertainDetails.locator(':scope > summary').click();
+  await expect(jobCard.getByRole('button', { name: 'Открыть' })).toBeVisible();
+
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryResponsePromise = page.waitForResponse(
     (response) =>
@@ -881,6 +899,11 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   ).toHaveCount(0);
   const reconciliationJobId = await jobCard.getAttribute('data-job-id');
   expect(reconciliationJobId).toMatch(/^[0-9a-f-]{36}$/);
+
+  const reconciliationDetails = jobCard.locator('details.attention-job-details');
+  await expect(reconciliationDetails).not.toHaveAttribute('open', '');
+  await reconciliationDetails.locator(':scope > summary').click();
+  await expect(jobCard.getByRole('button', { name: 'Открыть' })).toBeVisible();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const retryResponsePromise = page.waitForResponse(

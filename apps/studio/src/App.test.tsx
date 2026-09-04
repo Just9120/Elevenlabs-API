@@ -929,6 +929,53 @@ async function chooseResultFolder(
   }
 }
 
+async function chooseSegmentResultFolder(
+  rowNumber: number,
+  segmentNumber: number,
+  folderId: string,
+  expectedDisplayName: string,
+) {
+  vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+    action: "picked",
+    docs: [{ id: folderId }],
+  } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+  const previousFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (
+      url.endsWith("/api/google/picker/session") &&
+      init?.method === "POST"
+    ) {
+      return json({
+        access_token: "ya29.test-access-token",
+        api_key: "public-picker-key",
+        app_id: "123456789",
+        scope_ready: true,
+      });
+    }
+    if (
+      url.includes("/api/projects/") &&
+      url.endsWith("/output-folders/google-picker/verify") &&
+      init?.method === "POST" &&
+      JSON.parse(String(init.body)).folder_id === folderId
+    ) {
+      return json({
+        name: expectedDisplayName,
+        web_view_url: `https://drive.google.com/drive/folders/${folderId}`,
+      });
+    }
+    return previousFetch?.(url, init) ?? json({ ok: true });
+  });
+  await userEvent.click(
+    screen.getByRole("button", {
+      name: `Выбрать папку фрагмента ${segmentNumber} задачи ${rowNumber}`,
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByText(expectedDisplayName)).toBeInTheDocument(),
+  );
+}
+
 async function reviewAndConfirmBatch() {
   await userEvent.click(
     screen.getByRole("button", { name: /\u041fроверить задачи \(\d+\)/ }),
@@ -1668,6 +1715,81 @@ describe("Studio PWA", () => {
       screen.getByText("Лекция 1. Личность как психологическое явление.flac"),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("______");
+  });
+
+  it("previews and confirms a Studio-only bulk file cleanup", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources/bulk-deletion/preview" &&
+        !init?.method
+      ) {
+        return json({
+          preview_token: "a".repeat(64),
+          eligible_count: 2,
+          eligible_bytes: 3_072,
+          eligible_unknown_size_count: 0,
+          blocked_count: 1,
+          blocked_bytes: 4_096,
+          blocked_unknown_size_count: 0,
+          blocked_reasons: { processing_job_uses_source: 1 },
+          google_drive_files_deleted: 0,
+        });
+      }
+      if (
+        url === "/api/projects/p1/sources/bulk-deletion" &&
+        init?.method === "POST"
+      ) {
+        return json({
+          ok: true,
+          deleted_count: 2,
+          blocked_count: 1,
+          blocked_reasons: { processing_job_uses_source: 1 },
+          cleanup_counts: { not_applicable: 1, pending: 1 },
+          google_drive_files_deleted: 0,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить все файлы" }),
+    );
+
+    const plan = await screen.findByRole("region", {
+      name: "План очистки файлов Studio",
+    });
+    expect(plan).toHaveTextContent("Можно убрать: 2");
+    expect(plan).toHaveTextContent("Будут пропущены: 1");
+    expect(plan).toHaveTextContent("используются текущей обработкой: 1");
+    expect(plan).toHaveTextContent(
+      "Исходные файлы Google Drive останутся на месте",
+    );
+
+    await userEvent.click(
+      within(plan).getByRole("button", { name: "Подтвердить очистку (2)" }),
+    );
+    expect(
+      await screen.findByText(
+        "Из Studio убрано файлов: 2. Пропущено: 1. Файлы Google Drive не удалялись.",
+      ),
+    ).toBeInTheDocument();
+
+    const mutation = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/p1/sources/bulk-deletion" &&
+        init?.method === "POST",
+    );
+    expect(mutation).toBeDefined();
+    expect(JSON.parse(String(mutation?.[1]?.body))).toEqual({
+      confirm_delete: true,
+      expected_preview_token: "a".repeat(64),
+      expected_eligible_count: 2,
+      expected_blocked_count: 1,
+    });
   });
 
   it("removes a Drive source only from the active project list", async () => {
@@ -4922,7 +5044,7 @@ describe("Studio PWA", () => {
     ).toBe(false);
 
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
+      screen.getByLabelText("Название документа задачи 1"),
       " Уточнение",
     );
     await waitFor(() =>
@@ -4958,6 +5080,22 @@ describe("Studio PWA", () => {
     expect(
       within(preview).getByText("Разделение спикеров: выключено"),
     ).not.toHaveClass("is-enabled");
+  });
+
+  it("shows only materially distinct provider modes and explains the effective choice", async () => {
+    renderApp();
+    await openProjectsPage();
+
+    expect(
+      screen.queryByLabelText("Режим транскрибации"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Других реально отличающихся режимов провайдер сейчас не предлагает/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/scribe_v2 · обработка: обычная/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Стоимость здесь не сравнивается/),
+    ).toBeInTheDocument();
   });
 
   it("offers and persists system, light, and dark appearance choices", async () => {
@@ -5001,14 +5139,12 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1, "folder-segments");
 
-    const fragmentationDisclosure = screen
-      .getByText("Разделить файл на фрагменты")
-      .closest("details");
-    expect(fragmentationDisclosure).not.toHaveAttribute("open");
-    await userEvent.click(
-      screen.getByText("Разделить файл на фрагменты"),
-    );
-    expect(fragmentationDisclosure).toHaveAttribute("open");
+    const fragmentationToggle = screen.getByRole("checkbox", {
+      name: /Разделить файл на фрагменты/,
+    });
+    expect(fragmentationToggle).not.toBeChecked();
+    await userEvent.click(fragmentationToggle);
+    expect(fragmentationToggle).toBeChecked();
 
     const count = screen.getByLabelText("Количество фрагментов задачи 1");
     fireEvent.change(count, { target: { value: "3" } });
@@ -5043,13 +5179,16 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название фрагмента 3 задачи 1"),
       "Часть три",
     );
-    await userEvent.click(
-      screen.getByText("Разделить файл на фрагменты"),
+    await chooseSegmentResultFolder(
+      1,
+      2,
+      "folder-second-segment",
+      "Папка второго фрагмента",
     );
-    expect(fragmentationDisclosure).not.toHaveAttribute("open");
-    await userEvent.click(
-      screen.getByText("Разделить файл на фрагменты"),
-    );
+    expect(screen.getByText("Собственная папка этого фрагмента.")).toBeInTheDocument();
+    await userEvent.click(fragmentationToggle);
+    expect(fragmentationToggle).not.toBeChecked();
+    await userEvent.click(fragmentationToggle);
     expect(screen.getByLabelText("Количество фрагментов задачи 1")).toHaveValue(3);
     expect(
       screen.getByLabelText("Название фрагмента 2 задачи 1"),
@@ -5082,7 +5221,7 @@ describe("Studio PWA", () => {
       }),
       expect.objectContaining({
         source_id: "s1",
-        output_folder_id: "folder-segments",
+        output_folder_id: "folder-second-segment",
         title: "Часть два",
         media_clip_start_seconds: 610,
         media_clip_end_seconds: 915,
@@ -6139,7 +6278,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(2, "ready-local.ogg");
     await chooseResultFolder(2);
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
+      screen.getByLabelText("Название документа задачи 1"),
       "Created from UI",
     );
     const profileSelect = screen.queryByLabelText("Профиль подключения");
@@ -6969,7 +7108,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1, "folder-one");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
+      screen.getByLabelText("Название документа задачи 1"),
       "First draft title",
     );
     await userEvent.click(
@@ -6978,7 +7117,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(2, "local-temp.ogg");
     await chooseResultFolder(2, "folder-two");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 2"),
+      screen.getByLabelText("Название документа задачи 2"),
       "Second draft title",
     );
 
@@ -6995,12 +7134,12 @@ describe("Studio PWA", () => {
     );
     expect(rows[0]).toHaveTextContent("Default folder");
     expect(
-      within(rows[0]).getByLabelText("Название фрагмента 1 задачи 1"),
+      within(rows[0]).getByLabelText("Название документа задачи 1"),
     ).toHaveValue("First draft title");
     expect(rows[1]).toHaveTextContent("local-temp.ogg");
     expect(rows[1]).toHaveTextContent("Default folder");
     expect(
-      within(rows[1]).getByLabelText("Название фрагмента 1 задачи 2"),
+      within(rows[1]).getByLabelText("Название документа задачи 2"),
     ).toHaveValue("Second draft title");
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -7265,7 +7404,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "project-a-source.ogg");
     await chooseResultFolder(1, "folder-a");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
+      screen.getByLabelText("Название документа задачи 1"),
       "Project A row title",
     );
     await userEvent.click(
@@ -7304,7 +7443,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "project-b-source.ogg");
     await chooseResultFolder(1, "folder-b");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
+      screen.getByLabelText("Название документа задачи 1"),
       "B clean submit",
     );
     await reviewAndConfirmBatch();
@@ -11165,7 +11304,7 @@ describe("Studio PWA", () => {
       await waitFor(() =>
         expect(
           within(row).getByLabelText(
-            `Название фрагмента 1 задачи ${position}`,
+            `Название документа задачи ${position}`,
           ),
         ).toHaveValue(title),
       );
@@ -11178,7 +11317,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1, "folder-one");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 1"),
+      screen.getByLabelText("Название документа задачи 1"),
       "Alpha title",
     );
     await userEvent.click(
@@ -11193,7 +11332,7 @@ describe("Studio PWA", () => {
     );
     await chooseExistingSource(2, "local-temp");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 2"),
+      screen.getByLabelText("Название документа задачи 2"),
       "Bravo title",
     );
     await userEvent.click(
@@ -11215,7 +11354,7 @@ describe("Studio PWA", () => {
     );
     await screen.findByText("Загружено файлов: 1.");
     await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 задачи 3"),
+      screen.getByLabelText("Название документа задачи 3"),
       "Charlie title",
     );
     await userEvent.click(
@@ -11538,14 +11677,16 @@ describe("Studio PWA", () => {
     await screen.findByText("Добавлено файлов из папки: 2.");
     expect(screen.getByLabelText("Задача 1")).toHaveTextContent("a.mp3");
     expect(screen.getByLabelText("Задача 2")).toHaveTextContent("b.mp3");
-    expect(
-      screen.getAllByRole("checkbox", { name: "До конца файла" }),
-    ).toHaveLength(2);
-    for (const checkbox of screen.getAllByRole("checkbox", {
-      name: "До конца файла",
-    })) {
-      expect(checkbox).toBeChecked();
+    const fragmentationToggles = screen.getAllByRole("checkbox", {
+      name: /Разделить файл на фрагменты/,
+    });
+    expect(fragmentationToggles).toHaveLength(2);
+    for (const checkbox of fragmentationToggles) {
+      expect(checkbox).not.toBeChecked();
     }
+    expect(
+      screen.queryByRole("checkbox", { name: "До конца файла" }),
+    ).not.toBeInTheDocument();
 
     await chooseResultFolder(1, "folder-shared", "Shared results");
     expect(screen.getByLabelText("Задача 1")).toHaveTextContent(
@@ -14116,7 +14257,7 @@ describe("settings diagnostics", () => {
 
     renderApp();
     await openDiagnosticsSettings();
-    await screen.findByText("JOB_CREATED");
+    await screen.findByText("Задача транскрибации создана");
     expect(screen.getAllByText("Информация").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Фоновая обработка").length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toContain("JOB_CREATEDINFO");
@@ -14345,17 +14486,19 @@ describe("settings diagnostics", () => {
       document.querySelectorAll<HTMLElement>(".diagnostics-event-header"),
     );
     const createdHeader = headers.find((header) =>
-      header.textContent?.includes("JOB_CREATED"),
+      header.textContent?.includes("Задача транскрибации создана"),
     );
     const cancelledHeader = headers.find((header) =>
-      header.textContent?.includes("JOB_CANCELLED"),
+      header.textContent?.includes("Транскрибация отменена"),
     );
-    expect(createdHeader?.textContent).toContain("JOB_CREATED·Информация");
-    expect(cancelledHeader?.textContent).toContain("JOB_CANCELLED·Информация");
-    expect(createdHeader?.textContent).not.toContain("JOB_CREATEDИнформация");
-    expect(cancelledHeader?.textContent).not.toContain(
-      "JOB_CANCELLEDИнформация",
+    expect(createdHeader?.textContent).toContain(
+      "Задача транскрибации создана·Информация",
     );
+    expect(cancelledHeader?.textContent).toContain(
+      "Транскрибация отменена·Информация",
+    );
+    expect(createdHeader?.textContent).not.toContain("JOB_CREATED");
+    expect(cancelledHeader?.textContent).not.toContain("JOB_CANCELLED");
     for (const separator of document.querySelectorAll(
       ".diagnostics-event-header span",
     )) {

@@ -33,6 +33,9 @@ JOB_KEYS = {
     "diarization_enabled",
     "media_clip",
     "terminal_dismissed_at",
+    "history_attention_resolved_at",
+    "history_attention_resolution",
+    "history_attention_linked_job_id",
     "source_count",
     "created_at",
     "updated_at",
@@ -132,6 +135,9 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     assert payload["diarization_enabled"] is False
     assert payload["media_clip"] is None
     assert payload["terminal_dismissed_at"] is None
+    assert payload["history_attention_resolved_at"] is None
+    assert payload["history_attention_resolution"] is None
+    assert payload["history_attention_linked_job_id"] is None
     assert payload["speaker_identities"] == []
     assert payload["usage_cost"] == {
         "accounting_status": "unavailable",

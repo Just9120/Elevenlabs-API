@@ -64,6 +64,19 @@ function subscriptionStatus(value: string) {
   return labels[value] ?? value;
 }
 
+function subscriptionTierLabel(value: string) {
+  const labels: Record<string, string> = {
+    free: "Бесплатный",
+    starter: "Starter",
+    creator: "Creator",
+    pro: "Pro",
+    scale: "Scale",
+    business: "Business",
+    enterprise: "Enterprise",
+  };
+  return labels[value.toLowerCase()] ?? value;
+}
+
 function snapshotLabel(account: ElevenLabsAccount) {
   if (account.state === "current") return "Актуально";
   if (account.state === "stale") return "Последние подтверждённые данные";
@@ -108,12 +121,20 @@ function AccountCard({
         <>
           <div className="analytics-total-grid provider-account-metrics">
             <article>
-              <span>План</span>
-              <strong>{subscription.tier}</strong>
-              <small>{subscriptionStatus(subscription.status)}</small>
+              <span>Основная подписка</span>
+              <strong>
+                {subscription.tier.toLowerCase() === "payg"
+                  ? "Нет данных"
+                  : subscriptionTierLabel(subscription.tier)}
+              </strong>
+              <small>
+                {subscription.tier.toLowerCase() === "payg"
+                  ? "ElevenLabs вернул способ оплаты PAYG, но не название плана"
+                  : subscriptionStatus(subscription.status)}
+              </small>
             </article>
             <article>
-              <span>Использовано по плану</span>
+              <span>Лимит API в текущем периоде</span>
               <strong>
                 {formatCount(subscription.period_usage)} из{" "}
                 {formatCount(subscription.period_limit)}
@@ -121,7 +142,7 @@ function AccountCard({
               <small>Осталось: {formatCount(subscription.period_remaining)}</small>
             </article>
             <article>
-              <span>Дополнительные расходы</span>
+              <span>PAYG / оплата сверх лимита</span>
               <strong>
                 {formatMoneyAmount(
                   subscription.current_overage.amount,
@@ -129,7 +150,9 @@ function AccountCard({
                 )}
               </strong>
               <small>
-                Почасовая оплата сверх плана {subscription.usage_based_billing.enabled ? "включена" : "выключена"}
+                {subscription.usage_based_billing.enabled
+                  ? "Оплата по фактическому использованию включена"
+                  : "Оплата по фактическому использованию выключена"}
               </small>
             </article>
             <article>
@@ -153,6 +176,10 @@ function AccountCard({
             Новый расчётный период: {formatTime(subscription.reset_at)}. Единицы
             использования показаны без пересчёта в минуты, потому что ElevenLabs
             не передаёт для этого подтверждённый коэффициент.
+          </p>
+          <p className="muted">
+            Основная подписка и PAYG показаны отдельно. Порядок списания между
+            ними не указан: ElevenLabs не передал его в данных аккаунта.
           </p>
           {subscription.pending_change_present && (
             <p className="notice" role="status">
