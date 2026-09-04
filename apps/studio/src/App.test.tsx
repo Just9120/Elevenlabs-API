@@ -1728,6 +1728,8 @@ describe("Studio PWA", () => {
         return json({
           preview_token: "a".repeat(64),
           eligible_count: 2,
+          listed_count: 3,
+          hidden_expired_count: 0,
           eligible_bytes: 3_072,
           eligible_unknown_size_count: 0,
           blocked_count: 1,
@@ -1762,7 +1764,10 @@ describe("Studio PWA", () => {
     const plan = await screen.findByRole("region", {
       name: "План очистки файлов Studio",
     });
-    expect(plan).toHaveTextContent("Можно убрать: 2");
+    expect(plan).toHaveTextContent("Сейчас в списке файлов: 3");
+    expect(plan).toHaveTextContent(
+      "К окончательной очистке готовы записи Studio: 2",
+    );
     expect(plan).toHaveTextContent("Будут пропущены: 1");
     expect(plan).toHaveTextContent("используются текущей обработкой: 1");
     expect(plan).toHaveTextContent(
@@ -1790,6 +1795,49 @@ describe("Studio PWA", () => {
       expected_eligible_count: 2,
       expected_blocked_count: 1,
     });
+  });
+
+  it("explains expired cleanup records that are hidden from the current file list", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources/bulk-deletion/preview" &&
+        !init?.method
+      ) {
+        return json({
+          preview_token: "b".repeat(64),
+          eligible_count: 7,
+          listed_count: 0,
+          hidden_expired_count: 7,
+          eligible_bytes: 508_110_000,
+          eligible_unknown_size_count: 0,
+          blocked_count: 0,
+          blocked_bytes: 0,
+          blocked_unknown_size_count: 0,
+          blocked_reasons: {},
+          google_drive_files_deleted: 0,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить все файлы" }),
+    );
+
+    const plan = await screen.findByRole("region", {
+      name: "План очистки файлов Studio",
+    });
+    expect(plan).toHaveTextContent("Сейчас в списке файлов: 0");
+    expect(plan).toHaveTextContent(
+      "Истёкших записей, скрытых после окончания срока хранения: 7",
+    );
+    expect(plan).toHaveTextContent(
+      "К окончательной очистке готовы записи Studio: 7",
+    );
   });
 
   it("removes a Drive source only from the active project list", async () => {

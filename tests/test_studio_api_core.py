@@ -2973,6 +2973,8 @@ def test_bulk_source_deletion_is_owner_scoped_confirmed_and_drive_safe():
     assert len(preview_payload.pop("preview_token")) == 64
     assert preview_payload == {
         "eligible_count": 2,
+        "listed_count": 3,
+        "hidden_expired_count": 0,
         "eligible_bytes": 52,
         "eligible_unknown_size_count": 0,
         "blocked_count": 1,

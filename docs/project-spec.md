@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository/runtime baseline: production web из functional merge `main@436efcc9997f724ba3ec9107122ef3ed12d50525`; production checkout/API/worker `main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`, schema `0036_stt_multiprovider`. Exact-main repository/Studio CI, protected migration/API delivery, worker rollout и final healthy identity подтверждены. Yandex credential/provider calls и external caption sends не выполнялись и остаются explicit opt-in boundaries.
+Verified repository/runtime baseline: production web/API/worker используют functional merge `main@83d461ee20cdb0b1275213f9b99397b292c9167d`, schema `0037_ux_audit_controls`. Exact-main repository/Studio CI, protected migration/API delivery, worker rollout, final healthy identity и bounded authenticated read-only LIVE подтверждены. Yandex credential/provider calls, destructive bulk cleanup и external caption sends не выполнялись и остаются explicit opt-in boundaries.
 
-Current operational Goal: `UX-AUDIT-CONTROLS-01`, state `IN_PROGRESS` по explicit owner authorization 2026-09-04. Scope реализует `UXCTL-01..14`: truthful STT modes, explicit fragmentation и per-fragment destinations, safe uncertain-job resolution, readable subscription/PAYG semantics, bounded bulk Studio-file cleanup и compact actionable diagnostics. Commercial contour, paid STT, Google mutation и destructive production cleanup без отдельного action-time подтверждения не входят в Goal.
+Current operational Goal: `BULK-CLEANUP-VISIBILITY-HOTFIX-01`, state `IN_PROGRESS` по explicit owner browser comment 2026-09-04. Scope согласует cleanup preview с фактически видимым source list: отдельно показывает текущие файлы и истёкшие записи, скрытые retention policy, без изменения lifecycle, destructive boundary или canonical product denominator.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **97,3% (`327/336`)** | previous notification/STT Goals reconciled; `UXCTL-01..14` implemented and confirmed by exact-head CODE/TEST/CI, delivery pending |
-| Non-commercial scope | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `327/336` |
+| Personal Studio PWA | **97,3% (`327/336`)** | previous notification/STT Goals reconciled; `UXCTL-01..14` confirmed by exact-main CODE/TEST/CI/DEPLOY/LIVE; current minor hotfix не меняет denominator |
+| Non-commercial scope | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `327/336`; current minor hotfix не меняет numerator/denominator |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
 | Полный canonical scope | **58,9% (`359/610`)** | `359 / (368 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед текущей Goal даёт `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; все 14 AC реализованы и подтверждены exact-head CODE/TEST/CI, что поднимает numerator до `359/610`, а DEPLOY/LIVE остаются открыты. Проценты не означают READY; unresolved `SPEC gaps` не входят в denominator.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед UX Goal дал `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; все 14 AC подтверждены CODE/TEST/CI/DEPLOY/LIVE, что сохраняет numerator `359/610`. Текущий minor hotfix уточняет представление уже учтённого `UXCTL-10` и не меняет denominator. Проценты не означают READY для всего продукта; unresolved `SPEC gaps` не входят в denominator.
 
 ### Commercial scope decision
 
@@ -193,7 +193,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Fun
 
 ### Эпик `PWA-UX-CONTROLS-04` — честные controls, recovery и compact diagnostics
 
-Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все product AC реализованы и подтверждены exact-head CODE/TEST/CI; applicable DEPLOY/LIVE ещё не выполнены, поэтому эпик не `READY`.
+Status: **🟩 READY — 100% (`14/14`)**. Все product AC подтверждены exact-main CODE/TEST/CI, applicable protected delivery и bounded authenticated LIVE на merge `83d461ee20cdb0b1275213f9b99397b292c9167d`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -212,7 +212,7 @@ Status: **🟦 IN PROGRESS — 100% (`14/14`)**. Все product AC реализ�
 | `UXCTL-13` | Diagnostic projection сохраняет safe blocker reason и source/object type, необходимые для понимания failed или blocked действия. | ✅ |
 | `UXCTL-14` | Весь diagnostic event log можно свернуть; errors/warnings приоритетны, informational events доступны по запросу, список остаётся bounded/paginated. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. PR `#297`, exact-main CI `33862095356` и Studio/browser `33862095375`, web CD `33862095305`, protected migration/API `33863624454`, worker deploy/status `33864051036` / `33864415973` и bounded read-only production inspection подтвердили exact merge `83d461ee20cdb0b1275213f9b99397b292c9167d`, schema `0037_ux_audit_controls` и healthy component identity без provider spend, Google mutation или destructive cleanup.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
