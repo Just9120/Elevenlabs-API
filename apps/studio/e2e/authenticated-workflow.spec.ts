@@ -810,7 +810,7 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
 
   const uncertainDetails = jobCard.locator('details.attention-job-details');
   await expect(uncertainDetails).not.toHaveAttribute('open', '');
-  await uncertainDetails.locator('summary').click();
+  await uncertainDetails.locator(':scope > summary').click();
   await expect(jobCard.getByRole('button', { name: 'Открыть' })).toBeVisible();
 
   const integrationRequests = trackExternalOrJobMutations(page);
@@ -902,7 +902,7 @@ test('unresolved output reconciliation waits for an explicit safe action', async
 
   const reconciliationDetails = jobCard.locator('details.attention-job-details');
   await expect(reconciliationDetails).not.toHaveAttribute('open', '');
-  await reconciliationDetails.locator('summary').click();
+  await reconciliationDetails.locator(':scope > summary').click();
   await expect(jobCard.getByRole('button', { name: 'Открыть' })).toBeVisible();
 
   const integrationRequests = trackExternalOrJobMutations(page);
