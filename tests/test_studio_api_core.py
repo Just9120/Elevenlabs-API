@@ -5464,7 +5464,7 @@ def _add_uncertain_history_job(project_id: str, source_id: str, *, created_at: d
             job_id=job.id,
             source_id=source_id,
             position=0,
-            status=JobSourceStatus.failed,
+            status=JobSourceStatus.queued,
         )
         db.add(relation)
         db.flush()
@@ -5520,7 +5520,7 @@ def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_
             job_id=later_job.id,
             source_id=source_id,
             position=0,
-            status=JobSourceStatus.completed,
+            status=JobSourceStatus.queued,
         )
         db.add(relation)
         db.flush()

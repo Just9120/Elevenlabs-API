@@ -24,16 +24,16 @@
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-04T08:35:58Z`.
+- **Updated (UTC):** `2026-09-04T09:29:33Z`.
 - **Base branch/SHA:** exact synced `origin/main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`.
 - **Working branch:** `codex/ux-audit-controls` from exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
 - **Last verified revision:** implementation commit `9d3befa6770e19a2a9a08264c075fd2e81800de8`.
 - **Completed:** Google Doc `Требования к проекту VoiceOps Studio` revision `ANLCKQlhXCiyRDsxLHF_o-wX4fktyA1eq2i7ZHalVZEdAsqB54Zv2QLevIMKSJb-6sd2T69WzDwMMEfmplaJ7Kc7ZzuijNaU0L1YNZliGBg` получил шесть material requirements в существующих sections без structural change; final readback подтвердил по одному list item. Canonical `UXCTL-01..14`, additive schema `0037`, owner-scoped bulk Studio-file deletion preview/apply, explicit uncertain-job resolution, truthful STT mode grouping, explicit fragmentation/default and per-fragment Drive destinations, readable ElevenLabs plan/PAYG labels and compact actionable diagnostics реализованы вместе с API/PWA/schema regressions и operational docs.
-- **Current step:** focused implementation commit создан; branch готов к push, PR и exact-head CI.
-- **Next exact action:** отправить `codex/ux-audit-controls`, открыть PR и дождаться required exact-head checks; исправить только фактические regressions текущей Goal.
+- **Current step:** PR `#297` открыт; initial backend CI нашёл только ошибку новой test fixture (`JobSourceStatus.failed/completed` при canonical enum `queued/skipped`), обе строки исправлены без product-code change.
+- **Next exact action:** зафиксировать и отправить regression fix, затем дождаться нового exact-head backend/Studio/browser CI.
 - **Validation / Evidence:** Google Docs final connector readback; Python compileall и lightweight CI checks passed; focused schema/source/deletion/DTO/account suite `113 passed`; diagnostics/report suite `22 passed, 1 deselected`; full frontend Vitest `703 passed`; ESLint, TypeScript/Vite/PWA production build, Playwright discovery и `git diff --check` passed. PostgreSQL-backed API execution и Linux preflight остаются CI Evidence: локальный PostgreSQL отсутствует, а native Windows pytest temp-root имеет pre-existing access failure.
-- **PR / CI / deployment:** новой Goal PR ещё не создан; delivery не выполнялась.
+- **PR / CI / deployment:** PR `#297` открыт на `f3bbc8de5a2f78a8afa721e91b1cf0fd039ecacf`; initial CI `33858232909` завершил `1723 passed, 1 failed`, где единственный failure — invalid enum в новом API test setup. Studio/browser run `33858232870` ещё выполняется. Delivery не выполнялась.
 - **Blockers / unverified assumptions:** implementation blocker не выявлен. Точный PostgreSQL/API integration result, Linux preflight и browser E2E требуют CI; production provider call, Google mutation и destructive bulk cleanup не разрешены этой проверкой и не нужны для bounded LIVE.
 
 ## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
