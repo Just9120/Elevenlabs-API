@@ -2,33 +2,39 @@
 
 ## Current Goal
 
-- **ID / title:** `BULK-CLEANUP-VISIBILITY-HOTFIX-01` — согласовать план очистки с фактически видимым списком файлов.
-- **State:** `IN_PROGRESS` — причина production UX mismatch подтверждена; backend/frontend fix, operational synchronization, local validation и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
-- **Authorization source:** explicit owner browser comment 2026-09-04: «пишет 7 файлов, а по факту файлов нет».
-- **Scope:** оставить безопасную очистку всех Studio-owned записей, но отдельно считать и показывать источники в текущем browser list и истёкшие local-upload записи, уже скрытые retention policy; включить visibility classification в preview token; сохранить confirmation, ownership, blocked reasons и Drive-safe boundary; покрыть backend/frontend regressions, reviewable PR, exact CI, web/API delivery и bounded preview-only LIVE.
-- **Non-goals:** изменение retention сроков или source-list availability; удаление production данных в ходе проверки; Google Drive/Docs mutation; новая schema migration; paid STT; изменение canonical product denominator или commercial contour.
+- **ID / title:** `AUDIO-OUTPUT-FILENAME-HOTFIX-01` — пользовательское имя результата с fallback на имя исходного файла.
+- **State:** `IN_PROGRESS` — production defect `source.flac` локализован; implementation, local validation, reviewable PR и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
+- **Authorization source:** explicit owner instruction 2026-09-04: «нужно поле для задания имени. Если имя не задано, то переносится имя исходного файла»; owner отдельно подтвердил, что `source.flac` был фактическим именем output до ручного переименования.
+- **Scope:** сделать `Название результата` необязательным; при пустом поле использовать stem исходного filename; для separate mode применять имя соответствующего source, для concat — первого файла в подтверждённом порядке; сохранять введённое Unicode/кириллическое имя в Studio Source, Google Drive и browser download; оставить internal object key безопасным и отдельным от user-visible filename; согласовать local/server paths; покрыть regressions, reviewable PR, exact CI, web/API/worker delivery и bounded non-mutating LIVE.
+- **Non-goals:** переименование существующих output/Google Drive files; paid STT; обработка или загрузка нового production media ради проверки; изменение audio processing parameters, storage/retention, schema, commercial contour или Google Docs.
 - **Goal AC:**
-  1. `BCV-01`: preview возвращает взаимно согласованные `listed_count` и `hidden_expired_count`, сумма которых равна `eligible_count + blocked_count` для exact snapshot.
-  2. `BCV-02`: UI отдельно показывает число файлов в текущем списке и число истёкших записей, скрытых retention policy, не называя скрытые записи видимыми файлами.
-  3. `BCV-03`: visibility входит в replay-safe preview token; apply по-прежнему требует recent authentication, explicit confirmation и не удаляет Google Drive content.
-  4. `BCV-04`: focused backend/frontend tests, reviewable PR, exact-head/main CI, applicable API/web delivery и bounded preview-only LIVE проходят без destructive apply.
-- **Required Evidence:** `SPEC N/A | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** локальный PostgreSQL недоступен, поэтому API integration regression требует CI; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
+  1. `AOF-01`: UI показывает необязательное поле имени; пустое значение не блокирует запуск и детерминированно использует исходный stem для single/separate/concat plans.
+  2. `AOF-02`: явное пользовательское имя имеет приоритет, а multi-output custom plan сохраняет уникальную связь с source без одинаковых имён.
+  3. `AOF-03`: кириллица/Unicode сохраняются в persisted output filename, Drive upload и RFC 5987 download metadata; internal storage key остаётся bounded ASCII-safe и не подменяет видимое имя.
+  4. `AOF-04`: local и server paths покрыты focused regressions; reviewable PR, exact-head/main CI, applicable web/API/worker delivery и bounded read-only LIVE подтверждают exact revision без provider/Google mutation.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** production end-to-end creation нового файла намеренно не входит в bounded LIVE без отдельного action-time решения; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 4 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-04T16:32:15Z`.
-- **Base branch/SHA:** exact synced `origin/main@83d461ee20cdb0b1275213f9b99397b292c9167d`.
-- **Working branch:** `codex/ux-bulk-cleanup-count-hotfix` from exact `origin/main`.
+- **Updated (UTC):** `2026-09-04T19:02:10Z`.
+- **Base branch/SHA:** exact synced `origin/main@924c05385522570066325aab0287f0e5ac7b475a`.
+- **Working branch:** `codex/audio-output-filename-hotfix` from exact `origin/main`.
 - **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** implementation revision `c3fa05094f242e225a96cea60d27b1c76b279e4a`.
-- **Completed:** production screenshot и source/API comparison подтвердили mismatch: list endpoint скрывает истёкшие local uploads, а cleanup preview намеренно сохраняет их eligible для окончательного удаления. Backend preview получил separate listed/hidden-expired counters и visibility-bound token; PWA получила explicit explanatory copy; closure предыдущей Goal и canonical operational Evidence синхронизированы без изменения product denominator.
-- **Current step:** синхронизировать pre-merge checkpoint, повторно подтвердить required checks финального head и merge PR `#298`.
-- **Next exact action:** зафиксировать checkpoint в текущем PR и дождаться required CI финального head.
-- **Validation / Evidence:** Python compileall, lightweight CI checks, `git diff --check` и production frontend build passed; `tests/test_studio_source_deletion.py` — `28 passed`; полный `App.test.tsx` — `227 passed`; финальный focused copy regression — `2 passed`; changed-file ESLint passed. PostgreSQL-backed `test_studio_api_core.py` локально не запустился из-за отсутствующего `127.0.0.1:5432`, product assertion не выполнялась и требует exact CI.
-- **PR / CI / deployment:** PR `#298` (`c3fa05094f242e225a96cea60d27b1c76b279e4a`) MERGEABLE/CLEAN, без comments/reviews; exact implementation-head CI `33895266704` и Studio/browser CI `33895266688` success. Production остаётся на `main@83d461ee20cdb0b1275213f9b99397b292c9167d`, schema `0037_ux_audit_controls`.
-- **Blockers / unverified assumptions:** implementation blocker не выявлен; destructive production cleanup не входит в LIVE hotfix.
+- **Last verified revision:** exact implementation head `a85bcb986d3728d02590e40736a2a9ceeef0f445` покрыта local checks и required PR CI; содержащий этот factual checkpoint docs-only commit runtime scope не расширяет.
+- **Completed:** exact defect path подтверждён: default Cyrillic title проходил через ASCII-only sanitization и становился fallback `source`; UI одновременно не наследовал source name. Поле стало optional, fallback разрешается до dispatch для single/separate/concat, local WAV использует то же правило, server output сохраняет Unicode filename, а presigned download передаёт Unicode через RFC 5987 с безопасным ASCII fallback. Предыдущая Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` reconciled по PR `#298`, exact-main CI/CD и authenticated preview-only LIVE: `0` текущих и `7` скрытых истёкших записей показаны раздельно, destructive apply не выполнялся.
+- **Current step:** синхронизировать factual pre-merge checkpoint; после final docs-only exact-head gates выполнить merge.
+- **Next exact action:** push checkpoint commit, дождаться required checks и merge PR `#299`.
+- **Validation / Evidence:** full Studio Vitest `705 passed`; full ESLint и TypeScript/Vite/PWA production build passed; focused Python filename/processor/download suite `32 passed`; portable Python `1363 passed, 5 skipped, 9 host-only shell cases deselected`; lightweight repository checks, Python compileall и `git diff --check` passed. Отдельный unfiltered portable run дал те же `1363 passed, 5 skipped` и `9 failed` только в двух unchanged shell modules: Windows выбрал WSL `bash.exe`, который не может открыть workspace path с кириллицей; Linux exact CI остаётся acceptance gate этих cases.
+- **PR / CI / deployment:** PR `#299` MERGEABLE/CLEAN, без comments/reviews. Exact implementation-head CI `33908723893` и Studio/browser CI `33908724010` success; initial browser E2E на `60b64bd` корректно выявил устаревшее ожидание `Обработанное аудио.wav`, после замены на source-derived `browser-local.wav` final head прошёл. Production web/API/worker остаются на `main@924c05385522570066325aab0287f0e5ac7b475a`, schema `0037_ux_audit_controls`.
+- **Blockers / unverified assumptions:** implementation blocker не выявлен; production создание нового media output не авторизовано как LIVE fixture и заменяется read-only UI/runtime identity verification плюс exact tests.
+
+## Previous Goal closure — `BULK-CLEANUP-VISIBILITY-HOTFIX-01`
+
+- **State:** `DONE` — PR `#298` merged как `main@924c05385522570066325aab0287f0e5ac7b475a`; exact-main repository CI `33896145219`, Studio/browser CI `33896144865` и Platform CD `33896144420` завершились success.
+- **Evidence:** `SPEC N/A | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Web/API deployment подтверждён exact merge identity; worker/migration не затрагивались. Authenticated production preview 2026-09-04 показал «Сейчас в списке файлов: 0» и «Истёкших записей…: 7»; confirmation не нажималась, данные и Google Drive не изменялись.
+- **Result:** cleanup preview больше не выдаёт скрытые retention records за видимые файлы; eligibility, blocked reasons, replay-safe token и destructive confirmation boundary сохранены.
 
 ## Previous Goal closure — `UX-AUDIT-CONTROLS-01`
 
@@ -333,29 +339,22 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; десять строк unresolved SPEC gaps/runtime risks не являются AC и исключены. Independent recount после `PERSONAL-SECURITY-UX-01`: `596` unique AC / `312` complete. Две ранее добавленные progress/reliability AC и шестнадцать DB/UX AC увеличили denominator на `18`; текущая Goal закрыла восемь DB least-privilege, девять remaining security и восемь UX AC. Evidence gate-ит READY.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; unresolved SPEC gaps/runtime risks не являются AC и исключены. Current denominator: `610` AC = `368` non-commercial + `242` commercial/cross-contour. Production defect reopened существующий `AP-11`, поэтому numerator временно уменьшен на один без изменения scope/denominator; Evidence gate-ит READY.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **52,3% (`312/596`)** | **49,3% (`285/578`)** | После previous snapshot добавлены `18` AC и подтверждены `27` AC; изменение `+3,0` п.п. |
-| **Non-commercial scope** | **88,1% (`312/354`)** | **84,8% (`285/336`)** | Colab `32/32` + personal PWA `280/322`; изменение `+3,3` п.п. |
+| **Полный canonical scope** | **58,7% (`358/610`)** | **58,9% (`359/610`)** | `AP-11` reopened по фактическому `source.flac`; denominator неизменен. |
+| **Non-commercial scope** | **97,3% (`358/368`)** | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `326/336`. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **87,0% (`280/322`)** | **83,2% (`253/304`)** | Две progress/reliability и `25` personal security/DB/UX AC подтверждены; denominator вырос на `18`, изменение `+3,8` п.п. |
-| `PWA-USER-EXPERIENCE-02` | **100% (`12/12`)** | **100% (`12/12`)** | PR `#259/#260`, CI, DEPLOY и bounded owner LIVE закрыли required Evidence; эпик READY. |
-| `STORAGE-LIFECYCLE-02` | **76,2% (`16/21`)** | **76,2% (`16/21`)** | Current Goal storage AC не меняет; broader retention/versioning/cross-store deletion остаются открыты. |
-| `PWA-WORKER-ISOLATION-02` | **100% (`3/3`) READY** | **100% (`3/3`) READY** | Final worker deploy/status повторно подтвердили exact identity, resource/privilege/network/DB isolation и bounded healthy runtime. |
-| `USAGE-COST-ACCOUNTING-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | `USAGEC-01/02/03/04/06` подтверждены; Current Goal не засчитывает `USAGEC-05` без отдельного bounded owner LIVE. |
-| `OBSERVABILITY-AUDIT-02` | **100% (`35/35`) READY** | **71,4% (`25/35`)** | PR `#280`–`#284`, exact CI, protected schema/API/web/worker delivery и suppressed owner LIVE закрыли десять оставшихся AC. |
-| `PWA-DATABASE-LEAST-PRIVILEGE-03` | **100% (`8/8`) READY** | **0% (`0/8`)** | Exact roles, protected secrets, recovery/preflight и negative privilege tests подтверждены CI, protected delivery и LIVE. |
-| `PWA-SECURITY-HARDENING-02` | **100% (`18/18`) READY** | **50% (`9/18`)** | Duration policy, recent re-auth, bounded reset/TOTP verification и optional enrollment/recovery/disable lifecycle закрыты. |
-| `PWA-UX-POLISH-03` | **100% (`8/8`) READY** | **0% (`0/8`)** | Все восемь owner annotations подтверждены exact Studio/browser CI, web delivery и authenticated LIVE. |
+| **Personal Studio PWA canonical** | **97,0% (`326/336`)** | **97,3% (`327/336`)** | Current Goal затрагивает только reopened `AP-11`. |
+| `PWA-AUDIO-PREPARATION-01` | **96,7% (`29/30`)** | **100% (`30/30`) READY** | Filename fallback/Unicode defect подтверждён production evidence; CODE/TEST ready, CI/DEPLOY/LIVE pending. |
 
-DB least privilege, security hardening и UX polish изменились более чем на `10` п.п.: `+100`, `+50` и `+100` п.п. соответственно объясняются закрытием exact `8`, `9` и `8` AC при неизменных denominator каждого эпика. Optional TOTP activation и destructive flows намеренно не выполнялись в LIVE; tested backend boundaries и доступный owner UI подтверждены без изменения account state. Worker isolation остаётся READY и дополнительно подтверждена final status run.
+Изменений более `10` п.п. нет. После полного delivery/LIVE hotfix `AP-11` может вернуться в numerator только по фактическому Evidence.
 
 ## Candidate next Goals
 
-Current Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
+Current Goal `AUDIO-OUTPUT-FILENAME-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
 
 ## Risks и boundaries
 

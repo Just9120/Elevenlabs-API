@@ -361,3 +361,5 @@ def test_render_filename_uses_only_allowlisted_metadata_and_extension():
     assert filename.startswith("2026-08-24_18-05-06Z_")
     assert filename.endswith(".wav")
     assert "/" not in filename and "\\" not in filename
+    assert "Проект_секрет" in filename
+    assert "Созвон_ команда" in filename

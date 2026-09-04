@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from urllib.parse import quote
 
 from botocore.exceptions import ClientError
 
@@ -298,7 +299,7 @@ class S3SourceStorage:
     def presigned_get_url(self, key: str, expires_seconds: int, *, download_name: str | None = None) -> str:
         params = {"Bucket": self.bucket, "Key": key}
         if download_name:
-            params["ResponseContentDisposition"] = f'attachment; filename="{safe_filename(download_name)}"'
+            params["ResponseContentDisposition"] = attachment_content_disposition(download_name)
         return self.client.generate_presigned_url(
             "get_object",
             Params=params,
@@ -449,3 +450,17 @@ def safe_filename(name: str) -> str:
     value = (name or "source").strip().replace("\\", "_").replace("/", "_")
     value = re.sub(r"[^A-Za-z0-9._ -]+", "_", value).strip(" ._")
     return (value or "source")[:180]
+
+
+def attachment_content_disposition(name: str) -> str:
+    display_name = normalize_source_display_filename(name)
+    ascii_name = safe_filename(display_name)
+    suffix = Path(display_name).suffix
+    if (
+        suffix
+        and re.fullmatch(r"\.[A-Za-z0-9]{1,24}", suffix)
+        and not ascii_name.casefold().endswith(suffix.casefold())
+    ):
+        ascii_name = f"download{suffix}"
+    encoded_name = quote(display_name, safe="")
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'

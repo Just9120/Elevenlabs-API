@@ -2848,7 +2848,7 @@ def test_project_patch_rejects_unverified_output_folder_binding_fields():
 
 
 def test_source_display_filename_normalization_preserves_unicode_and_extension():
-    from studio_api.source_storage import normalize_source_display_filename
+    from studio_api.source_storage import attachment_content_disposition, normalize_source_display_filename
     cyrillic = "Лекция 1. Личность как психологическое явление.flac"
     assert normalize_source_display_filename(cyrillic) == cyrillic
     assert normalize_source_display_filename(" Mix Лекция-01_(draft).mp3 ") == "Mix Лекция-01_(draft).mp3"
@@ -2859,6 +2859,9 @@ def test_source_display_filename_normalization_preserves_unicode_and_extension()
     normalized = normalize_source_display_filename(long_name)
     assert len(normalized) == 255
     assert normalized.endswith(".flac")
+    disposition = attachment_content_disposition("Обработанное аудио.flac")
+    assert 'filename="download.flac"' in disposition
+    assert "filename*=UTF-8''%D0%9E%D0%B1%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%B0%D0%BD%D0%BD%D0%BE%D0%B5%20%D0%B0%D1%83%D0%B4%D0%B8%D0%BE.flac" in disposition
 
 def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     import studio_api.main as main_mod
