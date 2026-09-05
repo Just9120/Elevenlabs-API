@@ -2,6 +2,39 @@
 
 ## Current Goal
 
+- **ID / title:** `AUDIO-REFERENCE-UPLOAD-HOTFIX-01` — восстановление прямой загрузки файлов в подготовку аудио.
+- **State:** `PENDING_EXTERNAL_GATE` — owner добавил exact-origin CORS в audio-reference через Cloudflare; approved synthetic multipart upload успешно завершён и persisted status «Готов» подтверждён через отдельную страницу. Публикация локальной frontend-защиты в GitHub, exact CI и web delivery ещё ожидают отдельного destination authorization после auto-review rejection.
+- **Authorization source:** explicit owner instruction 2026-09-05: «загрузка была в транскрибации… загрузка в обработку не работает. нужен фикс»; отдельно разрешён synthetic silence WAV около 17 МБ в Studio без обработки, STT и Google Drive.
+- **Scope:** установить отличие failing audio-reference upload от working transcription upload; исправить подтверждённую причину в существующей storage boundary, сохранить owner/class isolation и bounded same-part reconciliation; добавить regression checks и безопасные сообщения о сбое; reviewable PR, exact CI и applicable delivery. Production configuration mutation, если потребуется, остаётся отдельным exact action gate.
+- **Non-goals:** перенос исходников в Google Drive; подмена audio bucket transcription bucket; расширение credentials/CORS до wildcard; paid provider calls, audio processing и Google mutation; удаление пользовательских sources; новая architecture или product AC.
+- **Goal AC:**
+  1. `ARU-01`: причина failing audio upload подтверждена reproduction или безопасным runtime evidence, а не предположением по общему коду ошибки.
+  2. `ARU-02`: targeted fix сохраняет отдельные storage classes и working transcription path; ambiguous PUT сверяется со storage status до bounded same-part retry, invalid/unavailable status не выдаётся за успешную загрузку.
+  3. `ARU-03`: regression checks, exact PR CI и applicable delivery подтверждены; synthetic multipart audio upload достигает uploaded без processing/STT/Drive, либо конкретный external gate явно блокирует closure.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY ◐ | LIVE ◐` (production CORS recovery и successful audio upload подтверждены; локальные frontend reconciliation/error guards ещё не прошли PR/CI/delivery).
+- **Known blockers/dependencies:** auto-review ранее отклонил push/draft-PR из-за external-egress authorization; explicit permission на публикацию ветки в `Just9120/Elevenlabs-API` ещё не получено. CORS gate снят; public access/credential expansion не требуются и запрещены.
+- **Stop condition:** все 3 Goal AC и Evidence подтверждены либо reached external gate; следующая Goal автоматически не выбирается.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-05T11:05:00Z`.
+- **Base branch/SHA:** fetched `origin/main@dce709df90d4495f7775be93d631ee9a0d3e6f6d`.
+- **Working branch:** `codex/audio-upload-confirmation`.
+- **Last verified revision:** local implementation/checkpoint commit `26bf0e8bdc15b8d6f541b2d63cea6880d76103ce`; runtime source/tests unchanged from the prior validation, containing checkpoint amendment does not change runtime code.
+- **Working tree at start:** tracked state clean; pre-existing inaccessible pytest directories preserved.
+- **Completed:** approved synthetic 17 MiB silence WAV reproduced multipart_part_unconfirmed in Audio without processing, STT or Google writes. Audio-only frontend changes retain closed transport reason and part position, stop replay when status is unavailable/invalid, and accept authoritative completed state without another upload. Transcription code untouched. Operator-only read-only OPTIONS comparison prepared at ignored `tmp/check-audio-upload-cors.sh`; embedded Python syntax verified.
+- **Current step:** owner confirmed the prior screenshot was the transcription bucket, showed missing CORS in the audio-reference bucket, then reported saving the scoped rule. Approved repeat upload of the existing 17,825,836-byte silence WAV through Audio / «Загрузить в Studio» succeeded. A separate Settings/Files navigation confirmed «Готов», 17.00 MB and normal three-day retention; security audit independently showed completed local-source upload. No processing/preflight/STT/Google action was started. The temporary verification tab was closed; the original user tab was preserved.
+- **Next exact action:** after explicit owner permission to publish `codex/audio-upload-confirmation` to `Just9120/Elevenlabs-API`, push the reviewable frontend fix, create/check its PR, and continue exact CI/web delivery within this Goal. Do not repeat the CORS mutation or synthetic upload while this gate is unchanged.
+- **Validation / PR / CI / deployment:** focused Audio upload suite `10 passed`; full frontend suite before the final additive test `715 passed`; TypeScript, focused ESLint, Vite/PWA build, lightweight checks and diff check passed. Nine isolated operator-helper tests passed; the attempted helper CORS read failed before any write. Browser LIVE after owner CORS repair succeeded at 2026-09-05 11:03 UTC on web `dce709df90d4495f7775be93d631ee9a0d3e6f6d`, API/worker `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`, schema `0037_ux_audit_controls`; these identities were read from authenticated Diagnostics. This proves current production upload recovery, not deployment of the local frontend guards. Draft PR/CI pending; no new code merge/deployment.
+- **Blockers / unverified assumptions:** original CORS preflight failure and successful post-repair browser upload are confirmed; when/how the audio bucket lost or missed its CORS rule is not established. Direct API source-list navigation was previously blocked by client and was not bypassed; verification used the ordinary UI. Auto-review rejected push/draft-PR publication due to external-egress authorization; no workaround or repeat write attempted, explicit destination authorization still required. No secrets read or production config changed by the agent. The old failed synthetic Source and the new successful synthetic Source remain under normal cleanup/retention; no user Source was removed. No paid provider call, audio processing or Google write was performed.
+
+## Previous Goal closure — `SEGMENT-FOLDER-FAVORITES-HOTFIX-01`
+
+- **State:** `DONE` — PR `#300` merged as `dce709df90d4495f7775be93d631ee9a0d3e6f6d`; exact CI, web delivery and bounded LIVE verified in previous owner-facing final report.
+- **Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`; no provider/Google mutation.
+
+## Previous Goal contract — `SEGMENT-FOLDER-FAVORITES-HOTFIX-01` (pre-merge snapshot)
+
 - **ID / title:** `SEGMENT-FOLDER-FAVORITES-HOTFIX-01` — избранные папки в destination controls каждого фрагмента.
 - **State:** `IN_PROGRESS` — shared favorites UI и segment-scoped selection реализованы; frontend validation passed; PR/CI и web delivery pending.
 - **Authorization source:** explicit owner browser annotation 2026-09-05: «нет выбора избранных папок как вначале при выборе папки фрагмента»; narrow implementation продолжает существующие `PI-02` и `UXCTL-04/05` без нового product AC.
@@ -15,7 +48,7 @@
 - **Known blockers/dependencies:** none; previous pnpm files были удалены по explicit owner instruction, inaccessible pre-existing pytest directories не затрагиваются.
 - **Stop condition:** все 3 Goal AC и required Evidence выполнены либо возник external gate; следующий scope не выбирается автоматически.
 
-## Active execution checkpoint
+## Previous execution checkpoint — `SEGMENT-FOLDER-FAVORITES-HOTFIX-01`
 
 - **Updated (UTC):** `2026-09-05T05:42:59Z`.
 - **Base branch/SHA:** synced `origin/main@e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`.

@@ -380,7 +380,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
       { method: "POST" },
     );
     if (!isSafeMultipartPartCapability(capability, partNumber)) {
-      throw new DirectUploadAmbiguousError("multipart_part_capability_unavailable");
+      throw new Error("Studio не смогла подготовить безопасную загрузку части файла в хранилище обработки аудио.");
     }
     return capability;
   }
@@ -399,6 +399,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
       const end = Math.min(file.size, start + partSize);
       const blob = file.slice(start, end, file.type || "application/octet-stream");
       let confirmed = false;
+      let transportReason = "Браузер не получил однозначный ответ хранилища.";
       for (let attempt = 0; attempt < 2 && !confirmed; attempt += 1) {
         const capability = await issueMultipartPart(initiated.source_id, partNumber);
         let outcome: { ok: boolean; status: number } | null = null;
@@ -421,18 +422,33 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         } catch (reason) {
           if (!(reason instanceof DirectUploadAmbiguousError)) throw reason;
           ambiguous = true;
+          // Only closed transport codes are translated. Never reflect an arbitrary
+          // exception, signed URL or storage identity into the UI.
+          transportReason = reason.message === "direct_upload_timeout"
+            ? "Истекло время ожидания ответа хранилища."
+            : reason.message === "direct_upload_network_error"
+              ? "Браузер сообщил о сетевой ошибке или блокировке запроса к хранилищу."
+              : reason.message === "direct_upload_aborted"
+                ? "Отправка была прервана."
+                : "Браузер не получил однозначный ответ хранилища.";
         }
         if (outcome && !outcome.ok) {
-          throw new Error(`${file.name}: часть файла не загрузилась (HTTP ${outcome.status}). Повторите попытку.`);
+          throw new Error(`Хранилище обработки аудио отклонило часть ${partNumber} из ${partCount} (HTTP ${outcome.status}). Загрузка не завершена.`);
         }
         const status = await readMultipartUploadStatus(initiated.source_id, partCount);
-        confirmed = status?.uploadedParts.includes(partNumber) === true;
+        if (!status) {
+          throw new Error(`Не удалось проверить приём части ${partNumber} из ${partCount} в хранилище обработки аудио. ${ambiguous ? transportReason + " " : ""}Повторная отправка остановлена до проверки состояния загрузки.`);
+        }
+        // A different request may have completed this exact owner-scoped session.
+        // Completed status intentionally contains no part list: do not re-upload.
+        if (status.status === "completed") return;
+        confirmed = status.uploadedParts.includes(partNumber);
         if (!confirmed && !ambiguous) {
-          throw new Error(`${file.name}: Studio не подтвердила загруженную часть файла.`);
+          throw new Error(`Хранилище ответило на отправку части ${partNumber} из ${partCount}, но проверка Studio пока не подтвердила её сохранение. Загрузка не завершена.`);
         }
       }
       if (!confirmed) {
-        throw new DirectUploadAmbiguousError("multipart_part_unconfirmed");
+        throw new Error(`Не удалось загрузить часть ${partNumber} из ${partCount} в хранилище обработки аудио после двух попыток. ${transportReason} Проверка Studio не подтвердила сохранение этой части. Обработка не запускалась.`);
       }
       onProgress({
         loadedBytes: end,
