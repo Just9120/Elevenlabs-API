@@ -1,205 +1,127 @@
-# AGENTS.md
+# Инструкции для работы в репозитории
 
-> Repository instruction contract: `goal-driven-v1`
+Документацию веди на русском; technical terms, identifiers и commands сохраняй. Права приложения определяют возможности, запрос пользователя — scope.
 
-## 1. Назначение и scope
+## 1. Источники и routing
 
-Этот файл — repository-specific router и durable execution kernel для coding agents. Он определяет canonical documents, source authority, Goal authorization, readiness, checkpoint/recovery, repository boundaries и project commands.
+| Источник | Назначение и чтение |
+| --- | --- |
+| Согласованные требования и явные решения пользователя | Product intent; аудит, декомпозиция, изменение или конфликт требований |
+| `README.md` | Назначение, quickstart, ссылки на необходимые canonical/operational документы |
+| Корневой и вложенные `AGENTS.md` / `AGENTS.override.md` | Инструкции своей области; старт, смена subtree, изменение инструкций |
+| `docs/project-spec.md` | Canonical продуктовый контракт полного scope; аудит, планирование, затронутые требования |
+| `docs/delivery-plan.md` | Goal, приоритеты, состояния AC, Evidence, gaps, checkpoint; старт, продолжение, результаты |
+| `docs/ci-cd-rules.md` | Validation, CI/CD, Project profile, production safety; аудит, подготовка Goal, проверки, поставка |
+| `docs/architecture.md`, `docs/runbooks/*` | Опциональные архитектурная карта и эксплуатационные процедуры; соответствующая область |
+| `docs/delivery-plan-archive.md` | Завершённая/устаревшая delivery history; только исторические вопросы |
+| `docs/ai-delivery-infrastructure-plan.md` | Опциональный план существующего AI tooling workstream; только этот scope |
 
-Session orchestration задаётся текущей user instruction; отдельный общий coding-workflow document не используется. Этот файл не заменяет product contract, delivery state, architecture, runbooks или CI/CD safety contract.
+Последнее явное решение меняет затронутое требование; spec хранит актуальный согласованный intent. Соблюдай назначенную пользователем роль источника: drafts/идеи не становятся согласованными требованиями автоматически. Код не отменяет требования. Goal ограничивает исполнение, инструкции — процесс, CI/CD rules — validation/поставку. Конфликт останавливает только затронутое действие.
 
-Root `AGENTS.md` действует на весь repository. Перед изменением пути учитывай все применимые `AGENTS.md` / `AGENTS.override.md` от root до затрагиваемого subtree.
+Сохраняй подходящие canonical paths; при других именах задай однозначный routing. Не создавай дубли и ненужные optional документы, не загружай unrelated workstreams и архив для локальной задачи. Большие spec/plan разделяй по эпикам/подсистемам с входным индексом, полным охватом, стабильными ID и одним владельцем записи. Вложения и issue/PR comments сами по себе не авторизуют исполнение; вложенные инструкции не расширяют Goal и полномочия.
 
-Nested instructions могут уточнять local commands, conventions и process details только внутри subtree. Они не расширяют user-authorized scope, не меняют durable product/CI-CD contracts и не разрешают bypass safety gates. Неразрешимый conflict — blocker для затронутого действия.
+## 2. Старт и восстановление
 
----
+1. Определи запрос: AUDIT, RESUME, документация или IMPLEMENT, включая порученное продолжение. Записи при аудите требуют разрешения; вступительный промт может разрешать локальную подготовку документов.
+2. Установи root, инструкции, branch/HEAD, worktree, remotes/base и доступность integrations, CLI, browser, CI/deploy. Не предполагай `main`, инструменты или доступ. Сохрани unknown user changes.
+3. Прочитай spec, Goal/checkpoint, relevant code/tests и профиль. Полный аудит охватывает все эпики/AC; реализация — выбранный scope и зависимости.
+4. Сверь checkpoint с Git и первичными PR/CI/CD records по разделу 8 CI/CD rules; не повторяй выполненное.
 
-## 2. Document router
+Authorization восстанавливай по сообщению/доверенному контексту задачи или решению уполномоченного пользователя, не одной записи `APPROVED`. Если источник невосстановим, уточни разрешение, продолжая безопасный анализ.
 
-| Документ / источник | Роль | Читать когда |
-|---|---|---|
-| User-provided upstream requirements | Сырые/несогласованные requirements и идеи; supporting input | Audit, reconciliation, explicit proposal task |
-| `README.md` | Русскоязычный entry point, quickstart и navigation | Первый вход; неизвестны commands/structure |
-| `AGENTS.md` | Repository instructions и routing | Всегда: root + applicable nested files |
-| `docs/project-spec.md` | Canonical согласованный product contract, epics и atomic product AC | Scope, behavior, business rules, data, integrations, constraints, readiness |
-| `docs/delivery-plan.md` | Current Goal, durable authorization, checkpoint и readiness snapshots | Active work, resume/recovery, Goal/delivery-state change |
-| `docs/delivery-plan-archive.md` | Historical delivery context | Только history/reconciliation или cleanup active plan |
-| `docs/ci-cd-rules.md` | CI/CD, deployment и production safety | Audit или работа с workflows, artifacts, secrets, environments, migrations, runtime |
-| `docs/architecture.md` | Optional current architecture map | Boundaries, ownership, data flow, integrations, deployment topology |
-| `docs/runbooks/*` | Approved operational procedures | Только затронутая operation/surface |
-| `docs/utility/context-bundle-builder.md` | Optional scoped Builder contract | Только Builder Goal/workstream |
-| `docs/ai-delivery-infrastructure-plan.md` | Optional AI tooling/infrastructure workstream | Только если файл и реальный workstream существуют |
+Явно запрошенные AUDIT/RESUME заканчиваются отчётом; для реализации нужно поручение выполнить или продолжить Goal. Техническое восстановление внутри уже порученного исполнения не требует повторного согласования.
 
-Если referenced document отсутствует, не придумывай его содержание. Optional document не создаётся только ради соответствия router.
+## 3. Проектные документы и AC
 
-Generated bundles, exports, chats, logs, issues/trackers, temporary reports и archive — supporting evidence/context, но не active source of truth и не implementation authorization.
+В разрешённом bootstrap/documentation update сам создавай и актуализируй документы по требованиям и фактам.
 
----
+**Project spec** хранит полный актуальный scope проекта: назначение и границы; источники с доступной версией/датой проверки; эпики/features, business rules, интерфейсы, данные, зависимости и durable constraints; атомарные AC со стабильными ID и трассировкой; применимые NFR; вопросы и существенные решения с основаниями.
 
-## 3. Authority и Evidence
+Если дан только согласованный результат, сам выдели роли, сценарии и эпики. AC задаёт условия/действие, наблюдаемый результат и способ проверки; учитывай существенные ошибки, границы и права доступа. Каждое требование покрой AC либо явным gap; каждый AC обоснуй требованием. Технические задачи отделяй от product AC. Не придумывай согласованные features, численные SLO или ограничения. Декомпозиция без изменения смысла не требует утверждения каждого AC; существенный неразрешённый выбор поведения вынеси пользователю.
 
-### Normative authority
+По изменению требований пользователем оцени impact на AC, архитектуру, данные/миграции, совместимость, зависимости и tests; обнови spec, plan и validation. Сохраняй ID неизменившихся AC, revision изменённых и связи заменённых/разделённых. Исключённые AC сохраняй с основанием, не считай выполненными. Старый PASS не подтверждает изменённый AC.
 
-1. Текущая explicit user instruction.
-2. `docs/project-spec.md` — durable requirements, business rules, product AC и constraints.
-3. Approved `Current Goal` в `docs/delivery-plan.md` — execution authorization только в пределах product contract и согласованного scope.
-4. Applicable repository `AGENTS.md` — process, routing и repository boundaries.
-5. `docs/architecture.md`, relevant runbooks и scoped utility contracts — supporting contracts внутри своей surface.
+Новые требования не расширяют Goal автоматически. При явном изменении Goal обнови baseline, DoD и план без повторного согласования поручения; неоднозначное влияние уточни. Не меняй обязательность требований ради процента.
 
-`docs/ci-cd-rules.md` — обязательный safety contract для применимой CI/CD/production работы; изменять его можно только по explicit CI/CD policy task.
+**Delivery plan** — единственный реестр текущих статусов и процентов; spec ссылается на него. Структура:
 
-Upstream requirements, ideas, issues и historical notes не меняют `docs/project-spec.md` автоматически. Расхождение фиксируется как requirement drift, `SPEC` gap или proposal; implementation и изменение denominator требуют решения пользователя.
+- Current Goal, batches, зависимости, branches/PR;
+- все актуальные AC: состояние, Evidence, частичная реализация и приёмка;
+- gaps, defects, tech debt, blockers, приоритеты и next items;
+- очередь Manual Validation;
+- checkpoint и сводки по эпикам/проекту.
 
-### Evidence strength для actual-state claims
+Backlog item: ID, AC/область, проблема, влияние, приоритет, зависимости. Технические критерии храни в Goal. Evidence связывай с первичными records по разделу 8 CI/CD rules.
 
-```text
-LIVE/runtime observation
-→ deployment record exact revision/artifact
-→ CI/check exact revision
-→ automated/manual test
-→ code/config exact revision
-→ documentation/historical claim
-```
+Храни только текущий и предыдущий snapshot процентов с датой и baseline. Более старые оценки не накапливай, в том числе в архиве; Git history не переписывай. Завершённую/устаревшую delivery history переноси в архив при необходимости, создавая его при первом переносе. Актуальные AC, Evidence и незакрытые обязательства оставляй в плане; raw logs/tool calls не накапливай.
 
-Intended behavior и actual state не смешиваются. Conflict между ними описывается как drift.
+## 4. Goal и автономность
 
----
+Goal задаёт пользователь результатом, эпиками/AC/задачами или правилом выбора. До реализации зафиксируй выбранные/сформированные AC, основания и зависимости. Не подменяй сложные AC лёгкими и не дроби их ради квоты. «Подготовь Goal» не разрешает исполнение; «спроектируй и реализуй» разрешает оба действия.
 
-## 4. Старт, resume и recovery
+Current Goal: ID, результат, baseline AC/задач, non-goals, зависимости, DoD с required Evidence, Validation Plan, batches и blockers; authorization с датой, доступной ссылкой/ID сообщения и scope. Идентификаторы не выдумывай.
 
-На старте:
+Перед реализацией проверь встроенную Goal чата, активируй порученную пользователем Goal инструментом и проверь результат; существующую продолжай без дублирования. Запись в плане не заменяет активацию. AUDIT/RESUME/подготовка не разрешают запуск исполнения. Сверяй scope/DoD на checkpoints; после фактического DoD заверши Goal инструментом. Соблюдай lifecycle приложения: не закрывай незавершённую Goal ради другой.
 
-1. Установи root и applicable instructions.
-2. Проверь branch, `HEAD`, worktree, remotes и фактическую base branch.
-3. Если существует `docs/delivery-plan.md`, прочитай Current Goal и checkpoint.
-4. `APPROVED`/`IN_PROGRESS` Goal с подтверждённым checkpoint продолжай как `RESUME`.
-5. При расхождении checkpoint с Git/GitHub/CI/CD state сначала выполни `RECOVERY`.
-6. Если active approved Goal отсутствует, следуй текущей user instruction; proposed/candidate Goal implementation не авторизует.
-7. Читай только relevant source-of-truth sections, code, tests и configuration; broad context используй для audit/reconciliation/architecture/release work.
+При недоступности инструмента сообщи «Встроенная Goal не активирована» и причину; сохрани Goal/checkpoint и продолжай разрешённую работу, если активация не задана условием старта. Если переключение требует пользователя, сообщи нужное действие. Не обещай продолжение после ответа без работающего механизма приложения.
 
-При recovery actual state имеет приоритет над checkpoint как evidence, но не меняет requirements или Goal scope автоматически. Не повторяй implementation «на всякий случай», не создавай duplicate PR и не удаляй unknown changes.
+Внутри Goal автономно выполняй реализацию, checks, commits/PR, review, исправления, ожидание CI/CD, merge и установленную поставку. Учитывай локальный/PR-only scope. Отдельное решение требуется для расширения scope, изменения требований, нового платного сервиса/внешней передачи данных, privileged/destructive operations и safety exceptions. Согласованная процедура не требует разрешения на каждый шаг.
 
----
+Состояния в плане: `PROPOSED` — исполнение не разрешено; `IN_PROGRESS` — выполняется; `PENDING_EXTERNAL_GATE` — нужен внешний доступ/approval/восстановление; `BLOCKED` — неустранимая агентом причина/решение; `DONE` — DoD выполнен. Lifecycle приложения действует отдельно.
 
-## 5. Goal contract и authorization
+Исправимые failures/конфликты и работающий CI — часть исполнения. Продолжай независимые batches; всю Goal отмечай ожидающей/заблокированной, только когда полезной независимой работы нет. Сохрани причину, проверенные варианты и нужное действие. Новые сообщения учитывай в текущем scope; при несовместимом поручении зафиксируй checkpoint и судьбу прежней Goal.
 
-Goal states:
+## 5. AC, Evidence и проценты
 
-```text
-PROPOSED | APPROVED | IN_PROGRESS | BLOCKED | PENDING_EXTERNAL_GATE | DONE
-```
+AC: ⬜ `BACKLOG` — не начат; 🟦 `IN_PROGRESS` — реализация неполна; 🟨 `IMPLEMENTED` — поведение реализовано, приёмка неполна; 🟩 `READY` — AC и все обязательные подтверждения выполнены. ⛔ `BLOCKED` — дополнительный модификатор с причиной. Известный дефект обязательного поведения возвращает AC в `IN_PROGRESS`.
 
-Implementation авторизована только current explicit user instruction либо Current Goal со state `APPROVED` / `IN_PROGRESS`, durable authorization source и неизменённым согласованным scope.
+Эпик: `BACKLOG` до начала; `IN_PROGRESS` при неполной реализации; `IMPLEMENTED`, если реализованы все AC; `READY`, если все AC READY и DoD эпика выполнен. Operational/live эпикам обязательны `DEPLOY` и `LIVE PASS` нужной версии/окружения; остальным допустим обоснованный `N/A`. Тип эпика определяется результатом, не доступом.
 
-Current Goal фиксирует: stable ID/title, authorization source, scope, non-goals, Goal AC, required Evidence, known blockers/dependencies, state и stop condition.
+Evidence: type, результат, ссылка/команда/сценарий, revision/artifact, environment, время и ограничения. Типы: `SPEC`, `CODE`; `FORMAT`, `LINT`, `TYPECHECK`, `TEST`, `BUILD`; `AGENT_BROWSER`, `HUMAN_MANUAL`; `REVIEW`, `CI`, `DEPLOY`, `LIVE`.
 
-Внутри согласованной Goal агент действует самостоятельно: выбирает implementation strategy, декомпозирует работу, добавляет необходимые tests и исправляет небольшие связанные defects, без которых Goal нельзя безопасно довести до DoD.
+Результаты: ✅ `PASS` — подтверждено; ◐ `PARTIAL` — частично; ❌ `FAIL` — провал; — `PENDING` — подтверждения нет/ожидается; `N/A` — неприменимо с причиной. Одно Evidence может покрывать несколько AC ссылками. CODE не доказывает runtime; lint/typecheck/build не заменяют tests поведения; один успешный сценарий не подтверждает все AC.
 
-Новая authorization требуется для material change scope/non-goals/Goal AC/required Evidence, изменения durable product contract, новой architecture boundary/production dependency, destructive/privileged operation или перехода к следующей Goal.
+- Реализация = `(IMPLEMENTED + READY) / все актуальные product AC × 100%`.
+- Подтверждённая приёмка = `READY / все актуальные product AC × 100%`.
 
-Audit findings, backlog items, recommendations, TODO, issues, upstream ideas и `Candidate next Goals` сами по себе не авторизуют implementation.
+Частичные AC не получают доли; итог считай по сумме уникальных AC, не среднему процентов эпиков. Goal считай отдельно по её baseline. При неполном spec или неизвестном/нулевом denominator укажи SPEC gap: показывай только учтённую часть, без процента всего проекта. Даже 100% не заменяют отдельные gates DoD — показывай их рядом.
 
-После `DONE`, `BLOCKED` или `PENDING_EXTERNAL_GATE` остановись. К следующей Goal без явного согласования пользователя не переходи.
+После каждого аудита и каждого commit показывай оба процента всего проекта с числителем/denominator, даже если значения не изменились. Между аудитами пересчитывай затронутые AC и общие сводки по актуальному реестру; полный аудит после каждого commit не нужен. Обновляй Evidence после фактических проверок; commit не означает CI/merge/deploy.
 
----
+Проценты могут повышаться или снижаться при изменении согласованного scope/требований, обнаружении дефектов, ранее пропущенных или неверно понятых требований и пересмотре Evidence. Кратко объясняй изменения, отдельно отмечая изменение состава AC; предыдущую оценку используй только для сравнения. Пересчёт также нужен при смене denominator и закрытии Goal.
 
-## 6. Product readiness и Goal DoD
+План актуализируй до следующего содержательного commit; после commit показывай сводку в сообщении. Не создавай цепочку служебных commits только для записи собственного SHA или процентов. Фиксация результатов после merge — по разделу 8 CI/CD rules.
 
-Product/epic readiness считается только по canonical atomic product AC из `docs/project-spec.md`. Goal DoD считается по Goal AC из `docs/delivery-plan.md`.
+## 6. Validation и человеческая приёмка
 
-Goal AC не добавляются автоматически в product denominator и не меняют durable requirements. Они могут подтверждать existing product AC; отсутствующий requirement/AC фиксируется как `SPEC` gap/proposal.
+Validation Plan веди внутри Goal по CI/CD rules. Доступные UI-сценарии проверяй сам. Human-only очередь: AC ID, версия/окружение, шаги, ожидаемый результат, проверки агента, влияние. Основания: устройство, недоступный аккаунт, субъективная оценка. Manual Validation Goal запускает пользователь.
 
-```text
-Product status: ⬜ BACKLOG | 🟦 IN PROGRESS | 🟩 READY | ⛔ BLOCKED (modifier)
-Evidence: SPEC | CODE | TEST | CI | DEPLOY | LIVE
-Evidence status: ✅ confirmed | ◐ partial | ❌ failed | — absent | N/A not required
-```
+Human-only приёмка по умолчанию не блокирует Implementation Goal: AC остаётся `IMPLEMENTED`, `HUMAN_MANUAL PENDING`; итог — `HUMAN VALIDATION PENDING`, не READY. Исключения: явный gate пользователя/политики до текущего действия, необходимость подтвердить безопасность необратимой операции или зависимость реализации от решения человека. Ручная проверка в AC сама по себе не создаёт pre-merge gate. Известный дефект/required failure нельзя скрыть под ожидающей приёмкой. Missing GitHub/VPS/infra access — внешний gate, не human validation.
 
-`READY` означает `100%` in-scope product AC и `✅` для всех required Evidence. Completion требует явного denominator; subjective partial percentage запрещён — criterion декомпозируется без изменения смысла либо считается невыполненным.
+## 7. Commits, batches и Pull Requests
 
-После commit пересчитывай затронутую readiness только если изменилось выполнение product AC. Общую readiness пересчитывай перед PR, после material change scope/denominator, при выполнении product AC и при закрытии Goal. Evidence синхронизируй после фактических TEST/CI/DEPLOY/LIVE событий.
+Commit фиксирует связный проверенный шаг; push отправляет накопленные commits; PR объединяет проверяемый batch для review/merge. Проценты показывай после каждого commit независимо от push/PR.
 
----
+Goal может включать один или несколько PR без квоты. Batch выбирай по самостоятельному результату, зависимостям, безопасности merge, риску/миграциям, удобству review и стоимости CI. Избегай micro-PR и чрезмерного объединения несвязанных изменений; кратко фиксируй основание разбиения в плане.
 
-## 7. Delivery plan и checkpoint
+Самостоятельно поставляй законченные batches, не ожидая всей большой Goal. Длительная/ночная работа не задаёт число PR. Ветки, local validation, группировка pushes/fixes, review, merge и cleanup — раздел 3 CI/CD rules. Существенные findings текущего scope исправляй в нём; unrelated улучшения — в backlog.
 
-`docs/delivery-plan.md` — operational dashboard, durable Current Goal contract и verified execution state. Он должен содержать:
+## 8. Checkpoint, DoD и изменения правил
 
-- **Current Goal:** ID/title, state, authorization source, scope, non-goals, Goal AC, required Evidence, blockers.
-- **Active execution checkpoint:** updated UTC, base branch/SHA, working branch, last verified revision, worktree state, completed work, current step, one `Next exact action`, validation/Evidence, PR, CI, deployment, blockers, unverified assumptions и preserved pre-existing changes.
-- **Project readiness:** только current и previous independently calculated snapshots.
-- **Candidate next Goals:** proposals без implementation authorization.
+Checkpoint обновляй после значимых checks/batches, изменения PR/gates и перед прерыванием: время, Goal/baseline, base/branch/SHA/worktree, выполненное/оставшееся, ближайшее действие, ссылки на PR/CI/deploy, Evidence, blockers и сохраняемые user changes. Durable handoff и фиксация поставки — раздел 8 CI/CD rules.
 
-Checkpoint хранит только facts, decisions и exact identifiers; не хранит chain of thought, secrets, credentials или raw logs. `Last verified revision` — последний commit, состояние которого покрывает checkpoint; не создавай metadata-only commit loop ради ссылки на собственный containing commit.
+Implementation Goal DONE: реализация завершена, required проверки пройдены, существенные review findings закрыты, применимые merge/deploy/LIVE выполнены, Evidence и результат сохранены. Human-only очередь из раздела 6 не входит в её DoD. Локальная, audit/docs или PR-only Goal завершается в заданных границах.
 
-Обновляй checkpoint после base/branch change, commit, push/PR, CI/review, merge, deployment/LIVE, blocker/external gate и interruption.
+В разрешённом scope обновляй spec/plan, README, затронутые architecture/runbooks и Project profile. Общую политику Goal, полномочия, gates и safety rules меняй только по отдельному решению пользователя.
 
-`docs/delivery-plan-archive.md` создаётся при первой необходимости. Переноси туда closed Goals, obsolete checkpoints, старые snapshots и длинные PR/CI/deployment chains. Archive не является current source of truth, authorization или readiness input.
+Итог: состояние Goal, результат/AC, оба процента проекта, проверки/ограничения, PR/merge/deployed revision, human checks и blockers. Нет Evidence — PENDING или обоснованный N/A. Время и размер Goal не означают DONE. После закрытия остановись; следующую Goal выбирает пользователь.
 
----
+## 9. Особенности Elevenlabs-API
 
-## 8. Git и execution boundary
+Этот раздел дополняет полный неизменённый текст предоставленного владельцем референса выше. При последующих адаптациях сохраняй его положения и формулировки; сокращение или удаление требует отдельного поручения. Проектные дополнения не расширяют полномочия текущей задачи.
 
-Перед записью зафиксируй root, base branch/SHA, working branch и исходный worktree state.
-
-```text
-git fetch
-→ если local base clean и допускает safe fast-forward — sync
-→ иначе isolated branch/worktree от verified origin/<base>
-→ focused changes в отдельной feature/fix branch
-```
-
-Не смешивай изменения агента с unrelated pre-existing user changes и не выполняй destructive reset/clean, checkout-overwrite, force push или удаление unknown state без explicit authorization.
-
-После завершённой узкой задачи выполняй relevant checks и создавай reviewable commit. После согласованного implementation scope создавай/обновляй PR, анализируй required checks и продолжай исправления внутри той же Goal.
-
-Merge и applicable delivery выполняй самостоятельно только если это входит в Goal, обязательные gates выполнены и права позволяют. DEPLOY/LIVE подтверждай только фактическим Evidence; неприменимые dimensions получают `N/A` по Goal DoD.
-
-Post-deploy metadata write без отдельного PR допустим только через approved path/field-scoped mechanism с minimal permissions, exact deployed revision и loop protection. При отсутствии required mechanism зафиксируй blocker/technical debt; protection rules не обходи.
-
-После Goal closure безопасно обнови local base и удали только созданные этой работой merged branches/worktrees после проверки отсутствия unique commits или unrelated state. Затем остановись.
-
----
-
-## 9. Documentation write policy
-
-| Документ | Разрешённое update без изменения durable scope |
-|---|---|
-| `README.md` | Quickstart, commands, structure и canonical navigation при фактическом изменении |
-| `docs/project-spec.md` | Только отделённые operational fields: status, completion, Evidence, verified IDs, blocker, timestamp |
-| `docs/delivery-plan.md` | Current Goal, checkpoint, current/previous snapshots, blockers и next action |
-| `docs/delivery-plan-archive.md` | Closed/obsolete delivery history |
-| `docs/architecture.md` | Фактические architecture/runtime/data-flow changes |
-| `docs/runbooks/*` | Изменение соответствующей approved procedure |
-| `docs/ci-cd-rules.md` | Только explicit CI/CD policy task |
-| `AGENTS.md` | Только explicit repository-agent-policy task |
-| Scoped utility/tooling contract | Только соответствующий authorized workstream |
-
-Для agent-writable operational metadata в `docs/project-spec.md` используй визуально отделённый block. Без explicit user instruction не меняй durable scope, requirements, business rules, product AC, data ownership, public behavior или security/runtime constraints. Upstream requirements не синхронизируются в canonical contract автоматически.
-
-Все pre-merge documentation changes включай в текущий PR. Отдельный follow-up PR только ради delivery metadata не создавай, если synchronization должен выполнить approved post-deploy mechanism.
-
----
-
-## 10. CI/CD, validation и repository commands
-
-При audit или работе с workflows, artifacts, secrets, environments, deployment, production, migrations, stateful systems или post-deploy automation прочитай `docs/ci-cd-rules.md` и фактический Project CI/CD profile.
-
-Не меняй CI/CD safety contract, credential model, deployment topology или production operations без explicit scope. Failed, skipped, cancelled, timed-out, unavailable и not-run required checks не являются success.
-
-`UNSET` означает «определить по repository configuration», а не «придумать».
-
-| Назначение | Команда |
-|---|---|
-| Install | `UNSET` |
-| Format/lint | `UNSET` |
-| Typecheck | `UNSET` |
-| Focused tests | `UNSET` |
-| Full tests | `UNSET` |
-| Build | `UNSET` |
-| Run locally | `UNSET` |
-| CI-equivalent | `UNSET` |
-
-Не добавляй heavy testing infrastructure только ради заполнения таблицы.
-
-В итоговом отчёте укажи changed files, checks и terminal statuses, Current Goal state, PR/CI/deployment identifiers, limitations, blockers и remaining risks. Не заявляй merge, deployment, LIVE или Goal `DONE` без required Evidence.
+- Repository — `Just9120/Elevenlabs-API`; ожидаемые default/release branch — `main`, рабочие ветки — `codex/`. Перед consequential operation перепроверь remote/base и target; не подставляй ожидание вместо факта.
+- Два продукта: Colab entrypoints в корне и VoiceOps Studio. `apps/studio` — React/TypeScript/Vite PWA; `apps/studio-api` — Python/FastAPI API, worker, Alembic и provider adapters; `deploy/studio` и `scripts` — Compose/operations. Их runtime/credential/state boundaries различаются; personal implementation не доказывает commercial readiness. Generated protobuf и notebooks не считай dead/duplicate code без проверки callers.
+- Дополнительный routing: [processing contract](docs/studio-processing-contract.md), [validation runbook](docs/runbooks/validation.md), [Studio operations](docs/runbooks/studio-platform-ops.md), [Colab realtime](docs/runbooks/realtime-colab.md). Источники требований и проверенные версии — в [project-spec](docs/project-spec.md); фактические commands/settings/deployment lanes — только в разделе 10 [CI/CD rules](docs/ci-cd-rules.md). Optional AI tooling documents не создавать без соответствующего workstream.
+- Быстрые проверки из root: `python scripts/ci_checks.py`, `git diff --check`. Из `apps/studio`: `npm ci`, `npm run lint`, `npm run test -- --run`, `npm run build`; local web — `npm run dev`. Полный Python/DB/Playwright environment и constraints указаны в Project profile. Windows `pytest -q --portable` оставляет часть shell tests и не заменяет Linux CI. Production `.env` и реальные provider/Google calls не использовать для обычной проверки.
+- Для текущего delivery dashboard неизвестный numerator приёмки не подменять нулём: указывать ограничение Evidence. Перенос между словарями статусов не является автоматическим подтверждением AC. Last verified revision в checkpoint — фактически проверенный commit; секреты и raw logs туда не помещать.

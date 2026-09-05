@@ -1,409 +1,1211 @@
 # Delivery plan
 
-## Current Goal
+## Current Goal и граница исполнения
 
-- **ID / title:** `SEGMENT-FOLDER-FAVORITES-HOTFIX-01` — избранные папки в destination controls каждого фрагмента.
-- **State:** `IN_PROGRESS` — shared favorites UI и segment-scoped selection реализованы; frontend validation passed; PR/CI и web delivery pending.
-- **Authorization source:** explicit owner browser annotation 2026-09-05: «нет выбора избранных папок как вначале при выборе папки фрагмента»; narrow implementation продолжает существующие `PI-02` и `UXCTL-04/05` без нового product AC.
-- **Scope:** переиспользовать основной collapsible favorites list у каждого фрагмента; revalidate selected folder на existing API; применять override только к выбранному segment; сохранять default-folder inheritance, empty/loading/error states и текущие favorites actions; выполнить frontend checks, PR/CI, web delivery и bounded non-mutating LIVE.
-- **Non-goals:** backend/schema/worker changes; новые permissions или OAuth scopes; изменение списка избранного/Google Drive в production; запуск транскрибации; commercial contour; расширение product denominator.
-- **Goal AC:**
-  1. `SFF-01`: каждый включённый fragment имеет «Избранные папки» из того же owner-scoped списка, что и основная папка.
-  2. `SFF-02`: выбор требует successful server verification, меняет только нужный fragment, корректно попадает в preflight и допускает возврат к общей папке; failed verification сохраняет прежний destination.
-  3. `SFF-03`: shared UI сохраняет loading/empty/error/retry behavior; focused regression, frontend checks, exact CI, web delivery и read-only LIVE подтверждены.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** none; previous pnpm files были удалены по explicit owner instruction, inaccessible pre-existing pytest directories не затрагиваются.
-- **Stop condition:** все 3 Goal AC и required Evidence выполнены либо возник external gate; следующий scope не выбирается автоматически.
+Режим: **IMPLEMENT / DELIVERY существующего hotfix и согласованных документов**. Пользователь 2026-09-05 поручил merge и подтвердил включение audio-upload hotfix вместе с документами: «Да делай мердж». Это снимает прежнюю неопределённость publication scope. Следующая продуктовая Goal пока не выбрана.
+
+- **ID / title:** `AUDIO-REFERENCE-UPLOAD-HOTFIX-01` — поставка готового исправления подтверждения audio-reference upload.
+- **State:** `IN_PROGRESS`; текущий этап — PR/CI/merge и стандартная web-поставка. Готовый code commit `d62945912b3e470b2cb8b20912057a4a57c0f6f1` не переписывается.
+- **Authorization:** исходное поручение исправить audio upload от 2026-09-05; затем отдельные поручения AUDIT/обновить документы и правила; явное подтверждение merge **документов и hotfix** в текущем чате. Ранее разрешённый synthetic silence WAV около 17 МБ уже подтверждал storage/CORS recovery; повторный upload, processing/STT/Google mutation не входят в текущий delivery scope.
+- **Встроенная Goal:** активирована и проверена инструментами приложения 2026-09-05; objective — проверка и merge этого batch, стандартная web-поставка/read-only post-checks, sync local main и подготовка вариантов следующей Goal. Активной Goal до этого не было; дубликат не создавался.
+- **Scope:** готовый audio multipart hotfix и regression tests; шесть подготовленных документов (AGENTS, README, spec, plan, archive, CI/CD rules); PR в `Just9120/Elevenlabs-API`, applicable CI, merge в main, web CD и public read-only identity/health. Сам текст референса AGENTS сохраняется полностью, проектные пункты только добавляются.
+- **Non-goals:** новая продуктовая реализация по findings; изменение workflows/settings/credentials/CORS, backend/worker/migrations/edge; provider/Google/Telegram side effects; удаление пользовательских sources; следующая Goal.
+- **Связь с прежними Goal AC:** `ARU-01` — исторически подтверждённая CORS/storage причина; `ARU-02` — bounded same-part reconciliation, остановка при invalid/unavailable status, безопасные сообщения и completed-session handling; `ARU-03` — tests/CI и поставка исправления. Прежний successful synthetic upload остаётся historical Evidence, не выдаётся за повторный LIVE на новой версии.
+- **DoD текущего поручения:** согласованный diff проверен; существенные review findings закрыты; required PR CI successful на final revision; PR merged; стандартный web job successful, deployed web SHA совпадает с merge SHA и read-only health/build checks пройдены; local main синхронизирован; факты сохранены в первичных records и локальном durable checkpoint. Приёмка остальных 687 product AC не входит в этот DoD.
+- **Required Evidence:** CODE/TEST/FORMAT/LINT/TYPECHECK/BUILD подтверждены локально; REVIEW self-review PASS; CI/merge/DEPLOY/post-deploy LIVE ожидаются и пока не считаются PASS. Исторический real upload покрывает только прежний scenario/revision.
+- **Blockers:** перед публикацией актуальных blockers не выявлено. Ранее auto-review отказал в publication из-за scope; новая явная authorization записана выше. Любой новый отказ рассматривается по фактическому результату, без обхода защиты.
+- **Stop condition:** после DoD этого delivery поручения остановиться; предложить варианты следующей Goal без её запуска.
+
+### Batch и Validation Plan
+
+Один PR объединяет уже готовый hotfix commit и согласованные документы по явному выбору владельца. Это завершает подготовленное состояние перед новой Goal; новых code fixes в batch нет. Документация описывает весь проект и аудированный backlog, не расширяя hotfix behavior.
+
+| Проверка / риск | Команда / primary record | Среда / этап | Обязательность и текущее состояние |
+| --- | --- | --- | --- |
+| Reference/routing и AC consistency | Сравнение полного AGENTS prefix и CI/CD §§1–9 с референсами; 687 уникальных AC в spec/plan, 289 source rows, 40 local links | Local worktree перед commit | REQUIRED; PASS |
+| Whitespace / patch | `git diff --check`, совокупный diff относительно origin/main | Local pre-commit | REQUIRED; PASS |
+| Audio multipart regression | `node node_modules/vitest/vitest.mjs run src/AudioPreparationUpload.test.tsx` из apps/studio | Windows/Node 22, 2026-09-05 | REQUIRED; PASS, 10 tests, без real storage calls |
+| Frontend static/build | `node node_modules/eslint/bin/eslint.js .`, `node node_modules/typescript/bin/tsc -b`, `npm run build` | apps/studio, local перед commit | REQUIRED; PASS. Существующий chunk-size warning остаётся F15 |
+| Repository / Studio suites | `CI / checks`, `Studio PWA CI / studio`, `Studio PWA CI / browser-e2e` | GitHub Linux, final PR head/test-merge revision | REQUIRED перед merge; PENDING |
+| Review | Self-review diff, GitHub comments/conversations/mergeability и фактические protections | Final PR revision | REQUIRED; local review PASS, remote check PENDING |
+| Release | Studio Platform CD selected `deploy-web`, image/commit identity, `/build-meta.json`, `/api/healthz` | production web после merge | REQUIRED; PENDING. Skipped API/worker/migration не считаются deployments |
+| Human/product scenarios | Новый real upload/capture/provider/export end-to-end и весь audit backlog | По отдельной Manual Validation/продуктовой Goal | Вне текущего merge DoD; прежние ограничения приёмки сохранены |
+
+Будущие условия: CI success → merge → selected web CD success → exact web SHA/read-only health → sync main. Это условия, не прогнозные PASS/READY; второй набор будущих процентов не создаётся. PR/CI/CD records принадлежат ветке `codex/audio-upload-confirmation`; точные IDs записываются после получения и сверяются при AUDIT/RESUME. Post-deploy facts вне records сохраняются в этом локальном tracked файле до следующего содержательного commit, без отдельного служебного PR.
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-05T05:42:59Z`.
-- **Base branch/SHA:** synced `origin/main@e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`.
-- **Working branch:** `codex/segment-folder-favorites`.
-- **Working tree at Goal start:** tracked and visible untracked state clean; pre-existing inaccessible pytest directories preserved.
-- **Last verified revision:** implementation commit `921deece027cad2b608667bf2fbd798a9c7c9fa4`, covered by local frontend validation; final checkpoint-only commit не меняет runtime source.
-- **Completed:** shared favorites renderer подключён к row и segment folder controls; optional segment identity направляет verified result только в соответствующий segment; regression проверяет empty default, sibling isolation, inheritance reset, rejected verification и preflight destinations.
-- **Current step:** PR `#300`, required CI in progress; no review findings as of this checkpoint.
-- **Next exact action:** после required checks final PR head выполнить merge и проверить web delivery/LIVE.
-- **Validation / Evidence:** focused App suite `3 passed, 225 intentionally filtered`; full frontend `706 passed`; ESLint, TypeScript, Vite/PWA build и diff check passed. Initial sandbox denied esbuild spawn, approved rerun passed. No provider/Google production mutation.
-- **PR / CI / deployment:** PR `#300` targets `main`; initial checks `33947907470`, Studio/browser `33947907445` in progress on implementation head. Current Goal delivery/LIVE pending; API/worker/migration N/A.
-- **Blockers / unverified assumptions:** none for implementation; LIVE verification ограничивается UI/build identity без folder selection или provider dispatch.
+- Updated UTC: `2026-09-05T17:44:11Z`.
+- Root: `C:/Users/wait9/OneDrive/Документы/GitHub/Elevenlabs-API`; origin: `https://github.com/Just9120/Elevenlabs-API.git`.
+- Verified base/default: `main@dce709df90d4495f7775be93d631ee9a0d3e6f6d` по GitHub API и успешному `git -c http.sslBackend=openssl fetch origin main`. Разовая настройка TLS backend сохранила certificate verification; repo/global Git config не менялась.
+- Working branch: `codex/audio-upload-confirmation`; last verified code revision `d62945912b3e470b2cb8b20912057a4a57c0f6f1`; один code commit впереди main, conflicts нет. Шесть исходных незакоммиченных документов принадлежат завершённым задачам этого чата и явно включены владельцем в batch.
+- Preserved state: existing ignored/inaccessible pytest directories и остальные unknown files не трогались; source/workflows вне готового hotfix не менялись. Tmp diagnostics в ignored `tmp/audit-2026-09-05/` не публикуются.
+- Completed: полный AUDIT (289 source units, 687 AC), новые policy references с сохранением полного AGENTS, self-review code/docs и local validation из таблицы. Source-level реализация остаётся 356/687 (51.8%); полный numerator приёмки не установлен, нулём не заменяется.
+- Current step: документы committed в `45801805c8aeb6bdc7baae67af68d9b2e9d2bd73` поверх готового hotfix; ветка опубликована, [PR #301](https://github.com/Just9120/Elevenlabs-API/pull/301) OPEN/MERGEABLE. Tracked worktree после commit был clean; далее только локальный durable checkpoint без служебного commit.
+- PR CI на `45801805c8aeb6bdc7baae67af68d9b2e9d2bd73`: [CI 33981927044](https://github.com/Just9120/Elevenlabs-API/actions/runs/33981927044) FAIL в `tests/test_security_policy.py::test_project_spec_owns_durable_colab_security_constraints`: тест ожидает буквальный marker `Baseline repository and Studio CI must remain secretless`. В новой формулировке профиля смысл был сохранён, literal marker — нет. Исходная фраза восстановлена в Project profile; tests и универсальные §§1–9 не ослаблены. [Studio PWA CI 33981927029](https://github.com/Just9120/Elevenlabs-API/actions/runs/33981927029): studio и browser-e2e SUCCESS. После doc correction требуется CI новой revision; прежний FAIL не считается success.
+- Local doc-correction validation: `python -m pytest -q --portable -p no:cacheprovider tests/test_security_policy.py` — 3 passed; reference/687 AC/289 sources/40 links consistency и `git diff --check` — PASS. Product CODE numerator не изменился (356/687, 51.8%); full acceptance numerator по-прежнему не установлен.
+- **Next exact action:** отправить проверенную doc correction в тот же PR и дождаться terminal success трёх required jobs на новой revision; повторно сверить head/base и merge gates, выполнить разрешённый merge и applicable web delivery.
+- Primary records до этого batch: PR #300 merged в `dce709df90d4495f7775be93d631ee9a0d3e6f6d`; прошлый main CI/Studio CI successful. Эти runs не заменяют validation новой revision.
+- Historical runtime: 2026-09-05 11:03 UTC owner CORS recovery и successful synthetic multipart audio upload на web `dce709df90d4495f7775be93d631ee9a0d3e6f6d`, API/worker `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`. Audit public GET позже подтвердили web identity и API health/schema `0037_ux_audit_controls`; private scenarios и worker identity не перепроверялись.
 
-## Previous Goal closure — `AUDIO-OUTPUT-FILENAME-HOTFIX-01`
+### Локальное обновление repository rules — 2026-09-05
 
-- **State:** `DONE` — PR `#299` merged as `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`; CI, applicable delivery and bounded LIVE verified in the owner-facing final report of the previous Goal.
-- **Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Optional result name/source-name fallback confirmed; no new media/provider/Drive action was used for LIVE verification.
-- **Metadata reconciliation:** post-deploy facts recorded in the final report are incorporated in this next code-bearing scope; no metadata-only follow-up PR or direct push was used.
+- Основание: пользователь предоставил новые `repository/AGENTS.md` и `repository/ci-cd-rules.md`, поручил заменить старые правила и адаптировать их к проекту. Это отдельная локальная documentation task; предыдущая product Goal не возобновлена, code/workflows/settings и публикация не разрешены этим поручением.
+- Результат: после уточнения пользователя root AGENTS содержит полный неизменённый текст нового референса и отдельный §9 с проектными дополнениями; CI/CD §§1–9 заменены новым Safety contract, §10 содержит фактические команды, CI/CD profile, защищённые lanes и durable handoff. Старое имя migration class MANUAL_GATED сопоставлено EXPLICITLY_GATED с сохранением gates. Universal safety policy изменена по этому явному поручению, а не для снятия blocker.
+- Сохранены прежние локальные результаты AUDIT в README/spec/plan/archive. В отличие от предыдущего checkpoint, теперь изменены AGENTS и весь CI/CD document. Branch/HEAD не менялись; commit/push/PR/merge/deploy не выполнялись. Built-in product Goal не активировалась: поручена замена документов.
+- Scope и Evidence product AC этой задачей не пересматривались. Реестр ниже — snapshot предшествующего аудита с его оговорками: source-level 356/687 (51.8%), полный numerator приёмки не установлен. Введение словаря IMPLEMENTED/READY не является автоматической переклассификацией старых строк или runtime Evidence; следующая разрешённая сверка должна применять новые определения к каждому затронутому AC.
+- Validation документации на worktree поверх `d62945912b3e470b2cb8b20912057a4a57c0f6f1`, 2026-09-05: readback и self-review PASS; §§1–9 CI/CD совпадают с новым референсом; четыре проектные lane-секции сохранены с перенумерацией и явным соответствием migration class. Проверены 16 локальных links, 16 profile paths, сохранность README/spec/archive по SHA-256 и отсутствие code/workflow diff. `git diff --check` PASS; `python scripts/ci_checks.py` PASS. Full product suites не повторялись для изменения правил. При source review исключено неподтверждённое утверждение об общем remote deployment lock: найденный flock относится только к backup.
+- Размер AGENTS после восстановления полного референса: 127 строк, 24,896 bytes (24.3 KiB); вместе с существующим глобальным AGENTS — 29,298 bytes. Полный исходный файл сохранён byte-for-byte как префикс: удалений и замен в нём нет, добавлен только §9. [OpenAI рекомендует краткие практичные инструкции со ссылками](https://learn.chatgpt.com/guides/best-practices); [32 KiB — default лимит загрузки, а не рекомендуемый целевой размер](https://learn.chatgpt.com/docs/agent-configuration/agents-md). Точного лимита строк эти страницы не задают; global settings не менялись.
+- Уточнение пользователя: адаптация AGENTS должна только добавлять проектные строки. Предыдущая версия сокращала формулировки и объединяла разделы; это исправлено восстановлением всего референса без редактирования его текста. Validation: byte-for-byte prefix comparison PASS, ссылки проектного дополнения PASS, общий размер с глобальным AGENTS ниже 32 KiB, `git diff --check` PASS. CI/CD и результаты продуктового аудита этой коррекцией не изменены.
+- Documentation task завершена локально. **Next exact action для продукта:** дождаться выбранной владельцем Goal или явного продолжения hotfix.
 
-## Previous Goal contract — `AUDIO-OUTPUT-FILENAME-HOTFIX-01` (pre-merge snapshot)
+## Project readiness — текущий и предыдущий snapshots
 
-- **ID / title:** `AUDIO-OUTPUT-FILENAME-HOTFIX-01` — пользовательское имя результата с fallback на имя исходного файла.
-- **State:** `IN_PROGRESS` — production defect `source.flac` локализован; implementation, local validation, reviewable PR и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
-- **Authorization source:** explicit owner instruction 2026-09-04: «нужно поле для задания имени. Если имя не задано, то переносится имя исходного файла»; owner отдельно подтвердил, что `source.flac` был фактическим именем output до ручного переименования.
-- **Scope:** сделать `Название результата` необязательным; при пустом поле использовать stem исходного filename; для separate mode применять имя соответствующего source, для concat — первого файла в подтверждённом порядке; сохранять введённое Unicode/кириллическое имя в Studio Source, Google Drive и browser download; оставить internal object key безопасным и отдельным от user-visible filename; согласовать local/server paths; покрыть regressions, reviewable PR, exact CI, web/API/worker delivery и bounded non-mutating LIVE.
-- **Non-goals:** переименование существующих output/Google Drive files; paid STT; обработка или загрузка нового production media ради проверки; изменение audio processing parameters, storage/retention, schema, commercial contour или Google Docs.
-- **Goal AC:**
-  1. `AOF-01`: UI показывает необязательное поле имени; пустое значение не блокирует запуск и детерминированно использует исходный stem для single/separate/concat plans.
-  2. `AOF-02`: явное пользовательское имя имеет приоритет, а multi-output custom plan сохраняет уникальную связь с source без одинаковых имён.
-  3. `AOF-03`: кириллица/Unicode сохраняются в persisted output filename, Drive upload и RFC 5987 download metadata; internal storage key остаётся bounded ASCII-safe и не подменяет видимое имя.
-  4. `AOF-04`: local и server paths покрыты focused regressions; reviewable PR, exact-head/main CI, applicable web/API/worker delivery и bounded read-only LIVE подтверждают exact revision без provider/Google mutation.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** production end-to-end creation нового файла намеренно не входит в bounded LIVE без отдельного action-time решения; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
-- **Stop condition:** все 4 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
+Предыдущий snapshot документации: `359/610` (58,9%), Colab `32/32`, personal PWA `327/336`, commercial/cross-contour `0/242`. Это предыдущая оценка, не вход в текущий подсчёт.
 
-## Previous execution checkpoint — audio filename hotfix (pre-merge snapshot)
+Текущий source-level numerator — сумма строк CODE ✅ реестра ниже: **356/687 (51.8%)**. Denominator `610 + 77 = 687` уникальных AC; `RUNTIME-RISK-COLAB-01` и другие gap-записи в denominator не включены. Уменьшение относительно прежних процентов связано с новым scope и reopened/недоказанными AC, а не с изменением продуктового кода в AUDIT. Общие компоненты в source-level оценке считаются один раз; commercial delivery отдельно не подтверждён (EVC-13/31 остаются backlog).
 
-- **Updated (UTC):** `2026-09-04T19:02:10Z`.
-- **Base branch/SHA:** exact synced `origin/main@924c05385522570066325aab0287f0e5ac7b475a`.
-- **Working branch:** `codex/audio-output-filename-hotfix` from exact `origin/main`.
-- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** exact implementation head `a85bcb986d3728d02590e40736a2a9ceeef0f445` покрыта local checks и required PR CI; содержащий этот factual checkpoint docs-only commit runtime scope не расширяет.
-- **Completed:** exact defect path подтверждён: default Cyrillic title проходил через ASCII-only sanitization и становился fallback `source`; UI одновременно не наследовал source name. Поле стало optional, fallback разрешается до dispatch для single/separate/concat, local WAV использует то же правило, server output сохраняет Unicode filename, а presigned download передаёт Unicode через RFC 5987 с безопасным ASCII fallback. Предыдущая Goal `BULK-CLEANUP-VISIBILITY-HOTFIX-01` reconciled по PR `#298`, exact-main CI/CD и authenticated preview-only LIVE: `0` текущих и `7` скрытых истёкших записей показаны раздельно, destructive apply не выполнялся.
-- **Current step:** синхронизировать factual pre-merge checkpoint; после final docs-only exact-head gates выполнить merge.
-- **Next exact action:** push checkpoint commit, дождаться required checks и merge PR `#299`.
-- **Validation / Evidence:** full Studio Vitest `705 passed`; full ESLint и TypeScript/Vite/PWA production build passed; focused Python filename/processor/download suite `32 passed`; portable Python `1363 passed, 5 skipped, 9 host-only shell cases deselected`; lightweight repository checks, Python compileall и `git diff --check` passed. Отдельный unfiltered portable run дал те же `1363 passed, 5 skipped` и `9 failed` только в двух unchanged shell modules: Windows выбрал WSL `bash.exe`, который не может открыть workspace path с кириллицей; Linux exact CI остаётся acceptance gate этих cases.
-- **PR / CI / deployment:** PR `#299` MERGEABLE/CLEAN, без comments/reviews. Exact implementation-head CI `33908723893` и Studio/browser CI `33908724010` success; initial browser E2E на `60b64bd` корректно выявил устаревшее ожидание `Обработанное аудио.wav`, после замены на source-derived `browser-local.wav` final head прошёл. Production web/API/worker остаются на `main@924c05385522570066325aab0287f0e5ac7b475a`, schema `0037_ux_audit_controls`.
-- **Blockers / unverified assumptions:** implementation blocker не выявлен; production создание нового media output не авторизовано как LIVE fixture и заменяется read-only UI/runtime identity verification плюс exact tests.
+**Полный текущий numerator приёмки не установлен. Нижняя граница полноценно перепроверенных dossiers в этом аудите — 0/687; это не оценка приёмки проекта в 0%.** Ни одному AC автоматически не присвоен полный набор обязательных Evidence: локальные/CI checks не заменяют AC-specific LIVE, а прежние blanket READY/owner-report claims не перенесены автоматически. Это консервативная нижняя граница подтверждений данного аудита, а не утверждение, что работающие функции отсутствуют. Историческую приёмку необходимо дополнить проверкой точных сценариев/records; отсутствие повторного LIVE само по себе её не опровергает. пометки —/◐ не равны доказанному failure.
 
-## Previous Goal closure — `BULK-CLEANUP-VISIBILITY-HOTFIX-01`
-
-- **State:** `DONE` — PR `#298` merged как `main@924c05385522570066325aab0287f0e5ac7b475a`; exact-main repository CI `33896145219`, Studio/browser CI `33896144865` и Platform CD `33896144420` завершились success.
-- **Evidence:** `SPEC N/A | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Web/API deployment подтверждён exact merge identity; worker/migration не затрагивались. Authenticated production preview 2026-09-04 показал «Сейчас в списке файлов: 0» и «Истёкших записей…: 7»; confirmation не нажималась, данные и Google Drive не изменялись.
-- **Result:** cleanup preview больше не выдаёт скрытые retention records за видимые файлы; eligibility, blocked reasons, replay-safe token и destructive confirmation boundary сохранены.
-
-## Previous Goal closure — `UX-AUDIT-CONTROLS-01`
-
-- **ID / title:** `UX-AUDIT-CONTROLS-01` — понятные режимы, destinations, recovery, billing, storage cleanup и diagnostics.
-- **State:** `DONE` — PR `#297` merged; exact-main CI, protected migration/API/web/worker delivery и bounded read-only LIVE выполнены на `main@83d461ee20cdb0b1275213f9b99397b292c9167d`.
-- **Authorization source:** explicit owner instruction 2026-09-04: «сначала обнови документ требований… Затем формируй goal по результатам UX аудита и приступай к правкам».
-- **Scope:** реализовать новый canonical `UXCTL-01..14`: показывать только реально различающиеся STT modes и объяснять отличия; включать fragmentation явным checkbox, наследовать общую Drive folder и разрешать per-fragment override с resolved preflight; дать collapsible и explicit resolution flow для provider-uncertain jobs; отделить base plan от PAYG/prepaid balance; добавить preview/confirmation/report для bulk удаления только Studio-owned files; сделать diagnostic events compact, severity-first и human-readable без потери blocker/source context; покрыть API/PWA/data contracts, tests, reviewable PR, exact CI и applicable delivery/LIVE.
-- **Non-goals:** commercial contour; изменение provider tariffs или billing calculations; автоматический cross-provider fallback; удаление Google Drive sources/documents; destructive cleanup без отдельного owner action; paid STT/provider canary; изменение Colab; новая design system или полный visual redesign.
-- **Goal AC:**
-  1. `UXA-01`: canonical product contract содержит ровно `UXCTL-01..14`; operational status меняется только по фактическому Evidence.
-  2. `UXA-02`: mode selector не создаёт ложных различий — эквивалентные capabilities объединены, реальные различия объяснены до dispatch.
-  3. `UXA-03`: fragmentation имеет explicit off/on state; default output folder наследуется всеми fragments, per-fragment override и resolved destination видимы до подтверждения.
-  4. `UXA-04`: attention-required terminal job можно свернуть; recheck/link/acknowledge resolution fail closed, предупреждает об uncertain spend и только после explicit resolution допускает обычный history lifecycle с audit trail.
-  5. `UXA-05`: ElevenLabs account UI отдельно и понятным русским языком показывает base subscription и PAYG/prepaid balance, не выдавая raw provider tier за пользовательский тариф.
-  6. `UXA-06`: bulk cleanup preview показывает eligible/blocked count и bytes; apply требует явного подтверждения, не затрагивает Google Drive, удаляет только eligible Studio-owned files и возвращает per-reason summary.
-  7. `UXA-07`: diagnostic rows сначала показывают human summary/action, сохраняют blocker/source context, а technical codes/IDs/metadata раскрывают отдельно; весь log можно свернуть, ошибки/предупреждения приоритетны и список bounded.
-  8. `UXA-08`: новые owner-scoped mutation boundaries имеют CSRF/recent-confirmation/audit, fail-closed replay и concurrency-safe behavior; additive migration используется только для durable resolution state.
-  9. `UXA-09`: focused backend/frontend/integration/browser regressions покрывают positive, negative, ownership, concurrency и narrow viewport states.
-  10. `UXA-10`: reviewable PR и exact-head CI success; applicable web/API/worker/migration delivery подтверждает exact identities, а bounded LIVE не выполняет paid STT, Google mutation или destructive bulk cleanup без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Known blockers/dependencies:** production destructive cleanup, provider call и Google mutation остаются action-time gates и не требуются для safe UI/read-only LIVE; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
-- **Stop condition:** все 10 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
-
-## Previous execution checkpoint — `UX-AUDIT-CONTROLS-01`
-
-- **Updated (UTC):** `2026-09-04T10:00:13Z`.
-- **Base branch/SHA:** exact synced `origin/main@b9e83131120ef075ea6bcbf6fd64e3d6e594b966`.
-- **Working branch:** `codex/ux-audit-controls` from exact `origin/main`.
-- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** exact-head implementation revision `c47ce2bf8044744abab37c9c0ee0594346c383d0`.
-- **Completed:** Google Doc `Требования к проекту VoiceOps Studio` revision `ANLCKQlhXCiyRDsxLHF_o-wX4fktyA1eq2i7ZHalVZEdAsqB54Zv2QLevIMKSJb-6sd2T69WzDwMMEfmplaJ7Kc7ZzuijNaU0L1YNZliGBg` получил шесть material requirements в существующих sections без structural change; final readback подтвердил по одному list item. Canonical `UXCTL-01..14`, additive schema `0037`, owner-scoped bulk Studio-file deletion preview/apply, explicit uncertain-job resolution, truthful STT mode grouping, explicit fragmentation/default and per-fragment Drive destinations, readable ElevenLabs plan/PAYG labels and compact actionable diagnostics реализованы вместе с API/PWA/schema regressions и operational docs.
-- **Current step:** Goal закрыта; destructive bulk cleanup, paid STT и Google mutation не выполнялись.
-- **Next exact action:** none; следующий scope требует новой explicit owner authorization.
-- **Validation / Evidence:** Google Docs final connector readback; Python compileall и lightweight CI checks passed; focused schema/source/deletion/DTO/account suite `113 passed`; diagnostics/report suite `22 passed, 1 deselected`; full frontend Vitest `703 passed`; ESLint, TypeScript/Vite/PWA production build, focused `JobCard` `5 passed`, Playwright discovery и `git diff --check` passed. Локальный PostgreSQL отсутствует, поэтому новый PostgreSQL-backed active-job regression подтверждён в exact-head CI. Initial CI последовательно выявил invalid enum только в новой fixture, затем устаревшие E2E assumptions о раскрытой attention-card и реальный product defect: processing job с uncertain attempt ошибочно получал `history_attention_required`; fixes нормализовали fixture/selectors и ограничили attention predicate terminal statuses, после чего все exact-head suites прошли.
-- **PR / CI / deployment:** PR `#297`, exact-head `9a9daa40cdfc00c46992ce89307a8102bd8151d5`, merge `83d461ee20cdb0b1275213f9b99397b292c9167d`; exact-main CI `33862095356` и Studio/browser `33862095375` success. Web CD `33862095305`; protected migration/API `33863624454` применила `0036 -> 0037_ux_audit_controls` со snapshot `52d07afd08e0`; worker deploy/status `33864051036` / `33864415973` success с exact identity и `health=healthy`.
-- **Blockers / unverified assumptions:** none для Goal DoD. Bounded authenticated LIVE подтвердил truthful mode copy, explicit fragmentation checkbox, collapsible old errors, separated subscription/PAYG labels, bulk cleanup boundary и collapsed diagnostics; public `/api/readyz` подтвердил schema `0037`, PostgreSQL и Redis. Provider call, Google mutation и destructive bulk cleanup не выполнялись.
-
-## Previous Goal closure — `JOB-RELIABILITY-NOTIFICATIONS-01`
-
-- **ID / title:** `JOB-RELIABILITY-NOTIFICATIONS-01` — безопасные автоматические retry и гарантированные terminal-уведомления.
-- **State:** `DONE` — PR `#294` merged; exact-main CI, protected migration/API/web/worker delivery и bounded no-send LIVE выполнены на `main@0fb499d9b7b65470292df0c2a7f90d0602417b83`.
-- **Authorization source:** explicit owner instruction 2026-09-03 после non-commercial gap review: «Бери пару эпиков на реализацию без коммерческого контура»; выбрана связанная пара canonical `JOB-RELIABILITY-02` + `JOB-NOTIFICATIONS-01`.
-- **Scope:** закрыть `JOBREL-05`, `JOBREL-09`, `JOBREL-10` и `JOBNOT-01`–`JOBNOT-06`: автоматически повторять только доказуемо safe transient failures с bounded attempts/backoff и без повторного provider/Google/storage side effect; создать owner-scoped durable terminal-notification outbox, атомарно и idempotently связанный с terminal job transition; реализовать opt-in Web Push, email и optional Telegram для success/error; обеспечить claim lease, bounded transport timeout/retry, stale-claim recovery, deduplication, безопасную redaction, понятные настройки/readiness/status в PWA; покрыть additive migration, API/worker/frontend contracts, tests, reviewable PR, exact CI, protected delivery и bounded LIVE без paid STT или несанкционированного внешнего сообщения.
-- **Non-goals:** commercial contour; новый STT provider; повтор provider call при timeout/unknown/partial/returned-result uncertainty; автоматический Google Docs retry/reconciliation; SMS/mobile app; marketing notifications; обязательный Telegram/email/Web Push; хранение SMTP/Telegram/VAPID secrets в PostgreSQL или браузере; чтение transcript/source/document content для notification; destructive data cleanup; отправка реального внешнего уведомления без отдельной action-time owner authorization.
-- **Goal AC:**
-  1. `JRN-01`: canonical `JOBREL-05/09/10` и `JOBNOT-01..06` остаются единственным product denominator; operational status/Evidence меняются только после фактических gates.
-  2. `JRN-02`: automatic retry допускается только для allowlisted transient failure с durable proof отсутствия ambiguous external side effect; attempts и exponential backoff bounded, cancel/limit/non-transient/unknown/provider-result/Google uncertainty fail closed.
-  3. `JRN-03`: terminal job success/failure атомарно материализует owner-scoped notification intents; unique keys и state machine не допускают duplicate Web Push/email/Telegram при retry, recovery, repeated terminal observation или concurrent workers.
-  4. `JRN-04`: Web Push имеет explicit browser opt-in/subscription lifecycle, VAPID-backed server delivery и service-worker handling для success/error без sensitive payload.
-  5. `JRN-05`: email имеет explicit owner opt-in, использует account email и TLS-capable secret-file-backed SMTP configuration; success/error delivery bounded и честно unavailable без configuration.
-  6. `JRN-06`: Telegram является optional opt-in channel с отдельным secret-file-backed bot/destination contract; success/error payload allowlisted и не смешивается с operational alerts.
-  7. `JRN-07`: delivery claim не удерживает DB transaction во время network I/O; stale claims восстанавливаются, retry count/backoff bounded, provider response bodies/URLs/secrets не сохраняются и не логируются.
-  8. `JRN-08`: PWA показывает понятные channel readiness/preferences и последний bounded delivery outcome; unsupported/denied/unconfigured состояния не выдаются за success.
-  9. `JRN-09`: migration, DB grants, retry classifier, transactional outbox, concurrency/dedup, all transports, redaction, API ownership/CSRF и service-worker/frontend flows покрыты focused/integration tests.
-  10. `JRN-10`: reviewable PR и exact-head CI success; protected migration/API/web/worker delivery подтверждает exact identity, а bounded LIVE не делает paid STT и не отправляет внешнее сообщение без отдельного подтверждения владельца.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Known blockers/dependencies:** отсутствуют для Goal DoD. External Web Push/email/Telegram фактически не отправлялись: channels остаются disabled/unconfigured и требуют отдельной action-time authorization. Unrelated files/directories сохранены untouched.
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
-
-## Previous execution checkpoint — `JOB-RELIABILITY-NOTIFICATIONS-01`
-
-- **Updated (UTC):** `2026-09-03T17:40:00Z`.
-- **Base branch/SHA:** merged and deployed `main@0fb499d9b7b65470292df0c2a7f90d0602417b83`.
-- **Working branch:** merged `codex/job-reliability-notifications`.
-- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` and inaccessible temporary pytest directories pre-existed and remain untouched.
-- **Last verified revision:** `b3b77c790212cdc7e5563ef595c133a737629eb8`.
-- **Completed:** additive `0035_job_notifications` schema/models/grants; allowlisted automatic retry with server-enforced schedule; owner-scoped terminal outbox and Web Push/email/Telegram transports; encrypted browser subscription lifecycle; Settings UI/service-worker handler; deployment configuration, architecture/runbook and migration-head contracts implemented in `1fb819fd56f4b65990061679c8004a3db14df81a`. Initial PR CI exposed fresh-database `Base.metadata.create_all` compatibility in migration `0035`; bootstrap-safe full-boundary detection and a regression test were added in `b3b77c790212cdc7e5563ef595c133a737629eb8`. Production transports remain disabled by default.
-- **Current step:** Goal closed; optional notification channels remain owner-controlled and disabled/unconfigured.
-- **Next exact action:** none; next Goal required new authorization and is recorded above.
-- **Validation / Evidence:** Python compile and `git diff --check` pass; lightweight repository CI checks pass; changed backend/schema suite `220 passed`; processing regression suite `140 passed`; final notification/worker/dependency suite `25 passed`; migration notification suite after fix `12 passed`; frontend ESLint passed, full Vitest `687 passed`, production TypeScript/Vite/PWA build passed. Initial PR head `55e9128de835fe0c61fd86cae566deb77da105a2` failed core CI and browser E2E at the same `DuplicateColumn` migration bootstrap defect. Repeat head `ea3dd35328388209428c1cc92f8931990eebee4b` passed browser E2E and Studio image/Compose CI; core CI reached `1678 passed` with one failure in the newly added API test because its safe same-origin GET omitted the required test `Origin`, while production behavior correctly returned `403`. The test request now matches the existing same-origin contract. PostgreSQL/Redis rerun remains required because those local services are unavailable; unrelated Windows Bash path failures are environmental and not counted as product failures.
-- **PR / CI / deployment:** PR `#294` merged; exact-main CI `33761495438` / `33761495442`; web CD `33761495444`; protected migration/API `33781247133` with schema `0035_job_notifications` and backup snapshot `f216e86ca866`; worker deploy/status `33781774924` / `33782320682`.
-- **Blockers / unverified assumptions:** none for closed Goal; external delivery remains intentionally untested and is not inferred from source.
-
-## Previous Goal closure — `PERSONAL-SECURITY-UX-01`
-
-- **ID / title:** `PERSONAL-SECURITY-UX-01` — least-privilege PostgreSQL, полный personal security lifecycle и понятный owner UX.
-- **State:** `DONE` — все 14 Goal AC и required Evidence закрыты на exact functional merge `e5c43feac06e1649f1bd0903953ef5de7f925b87`; protected recovery завершил already-applied schema без второго Alembic run, API/web/worker доставлены, а bounded authenticated LIVE подтверждён без paid STT или destructive actions.
-- **Authorization source:** explicit owner instructions 2026-09-02: «В целом ок, тогда я бы взял эти два эпика как Goal. Плюс UX/UI правки, которые я сейчас дам в аннотациях» и последующие восемь browser comments.
-- **Scope:** отделить PostgreSQL bootstrap/owner, protected migrator, API и worker roles/secrets с fail-closed grant verification и совместимым rollout/rollback; закрыть `PWASEC-06`, `PWASEC-10`, `PWASEC-12`–`PWASEC-18`: configurable total transcription duration policy с обычной обработкой до 4 часов, явным предупреждением до 12 часов и hard stop выше 12 часов, recent re-authentication для critical actions, bounded password-reset/TOTP verification, optional RFC 6238 TOTP enrollment, recovery и disable lifecycle; сделать owner dashboard содержательным; переименовать «Готовые документы» в «Подготовка документов»; дать пользователю свернуть/сбросить завершённый план стандартизации; свернуть подробное system state и diagnostic events; оставить в UI diagnostic bundle JSON для модели и Markdown для человека; заменить неясную case-sensitive operation reference понятным optional case-insensitive выбором/поиском; переписать ElevenLabs account/cost explanation человеческим языком. Изменения проходят tests, reviewable PR, exact CI, applicable protected migration/API/web/worker delivery и bounded authenticated LIVE.
-- **Non-goals:** commercial contour, RLS/multi-tenant model, новый STT provider, mandatory TOTP, привязка к одному authenticator app, автоматический provider spend/retry, DOCX/YAML/TOML как новые рекомендуемые UI formats, удаление production data, реальная password/TOTP recovery без owner-controlled подтверждения, ослабление worker isolation или audit append-only boundary.
-- **Goal AC:**
-  1. `PSUX-01`: canonical personal DB/security/UX AC и readiness denominator синхронизированы только по explicit owner scope; pre-existing Evidence не теряется и новые AC не считаются выполненными раньше required gates.
-  2. `PSUX-02`: running API подключается отдельной non-superuser/non-owner login role без DDL/role/database privileges; worker сохраняет отдельный `studio_worker`, а bootstrap credential не монтируется в ordinary API/worker runtime.
-  3. `PSUX-03`: schema owner остаётся `NOLOGIN`, protected migrator получает только bounded database-local DDL/ownership boundary, reviewed direct grants/default privileges дают API/worker только необходимые table/sequence operations, а новые migrations fail closed до re-apply/verify allowlists.
-  4. `PSUX-04`: clean initialization, upgrade, role rotation/switch, API readiness, backup/rollback и negative privilege matrix покрыты tests/runbook/preflight; production switch выполняется после verified backup и допускает explicit recovery без возврата superuser в runtime.
-  5. `PSUX-05`: server-authoritative media duration определяется до provider spend; до 4 часов обрабатывается обычно, 4–12 часов требует явного cost warning/confirmation, выше configurable 12-hour hard limit блокируется с переходом в подготовку/разделение, а 22-minute provider part splitting не обходит total limit.
-  6. `PSUX-06`: критические account/credential/connection/destructive/security actions требуют bounded recent password re-authentication; proof owner/session scoped, short-lived, one-purpose where required, no-store и audit-safe.
-  7. `PSUX-07`: password-reset и TOTP verification имеют независимые bounded rate limits, uniform safe failures и не раскрывают наличие account, secrets или verification material.
-  8. `PSUX-08`: optional TOTP использует RFC 6238, encrypted secret, QR/manual setup и становится active только после подтверждения первого code; до enrollment обычный personal login не меняется.
-  9. `PSUX-09`: одноразовые recovery codes хранятся только как hashes, показываются один раз, consume/replace audited; TOTP disable требует recent owner verification, а tested operator break-glass не раскрывает secret и не создаёт silent bypass.
-  10. `PSUX-10`: dashboard показывает полезные owner actions/status: незавершённые и последние транскрибации, последние документы, connection/system attention и быстрые действия, с корректными empty/loading/error states и без технического шума.
-  11. `PSUX-11`: transcription maintenance называется «Подготовка документов»; completed scan/apply summary можно свернуть и явно убрать/reset без отмены durable history или running operation.
-  12. `PSUX-12`: diagnostics использует progressive disclosure для system details и event rows, поддерживает bounded pagination; UI рекомендует JSON «для анализа моделью» и Markdown «для человека», а связанная операция выбирается/ищется понятно и case-insensitively без требования угадать точный регистр/ID.
-  13. `PSUX-13`: ElevenLabs subscription/cost panel объясняет plan usage, remaining units, overage, invoice и provenance простым русским языком; technical units/evidence остаются в optional disclosure.
-  14. `PSUX-14`: backend/frontend/security/migration compatibility покрыты focused/full tests; reviewable PR и exact-head CI success; protected delivery подтверждает exact schema/component/role identity, а bounded LIVE не выполняет paid STT, Google mutation, storage deletion или external notification.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Known blockers/dependencies:** отсутствуют для Goal DoD. Optional TOTP не включался в production LIVE, recovery codes не генерировались, paid STT и destructive session/credential/storage actions не выполнялись; эти действия остаются owner-controlled. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
-
-## Previous execution checkpoint — `PERSONAL-SECURITY-UX-01`
-
-- **Updated (UTC):** `2026-09-03T07:05:00Z`.
-- **Base branch/SHA:** verified merged and deployed `origin/main@e5c43feac06e1649f1bd0903953ef5de7f925b87` после recovery PR `#292`.
-- **Working branch:** `codex/personal-security-ux-closure` от exact merged `origin/main` для operational closure metadata only.
-- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories existed before branch and remain untouched.
-- **Last verified revision:** functional PR `#292` merged as `e5c43feac06e1649f1bd0903953ef5de7f925b87`; exact-main repository CI `33718805450` и Studio/browser CI `33718805456` завершились success.
-- **Completed:** canonical `PWA-UX-POLISH-03`, `PWA-DATABASE-LEAST-PRIVILEGE-03` и remaining `PWA-SECURITY-HARDENING-02` AC реализованы и подтверждены. Production runtime defaults `STUDIO_RECENT_AUTH_SECONDS=600`, duration warning `14400` и hard limit `43200` staged без secret changes; bootstrap/API/migrator/worker credentials являются distinct root-owned `0600` files. Recovery wrapper установлен `root:root 0500`. Reviewer-gated release `33720542771` создал verified snapshot `3b8b9639048c`, выбрал `mode=post_migration_recovery`, не повторял Alembic, re-apply/verify обе role boundaries и развернул API. Final preflight `33725555978` подтвердил configuration, protected secrets, roles, internal/public health и exact schema `0034_personal_security`. Worker delivery `33725645527` и status `33725916595` подтвердили healthy exact image, read-only rootfs, dropped capabilities, no-new-privileges и отдельные DB/egress networks. Authenticated browser LIVE подтвердил active session/security controls, dashboard data, renamed maintenance tab, progressive diagnostics, human-readable ElevenLabs accounting, active Google Drive, exactly one active ElevenLabs BYOK credential, available source list and existing output-folder workflow; browser console warnings/errors отсутствовали.
-- **Current step:** Goal закрыта; product code и production state не требуют дополнительных действий.
-- **Next exact action:** остановиться после merge closure metadata; следующая Goal требует новой explicit owner authorization.
-- **Validation / Evidence:** functional branch: focused recovery `42 passed`, expanded migration/database-role/preflight `97 passed`, Bash syntax, lightweight CI checks и `git diff --check`; exact-main CI `33718805450` и `33718805456` success. Web delivery `33719123640` exact; protected recovery `33720542771` success; final host preflight `33725555978`/job `100553623060` emitted `STUDIO_PROCESSING_HOST_PREFLIGHT_OK`; worker status `33725916595`/job `100554727070` emitted `STUDIO_WORKER_STATUS_OK`, `identity_match=yes`, `isolation_match=yes`. Bounded authenticated LIVE выполнял только read-only navigation/inspection и не запускал provider, Google mutation, secret change, session revocation или deletion.
-- **PR / CI / deployment:** implementation PRs `#286`–`#292` merged; final functional merge `e5c43fe`. Exact web `33719123640`/job `100534477741`, recovery `33720542771`/job `100538617088`, worker `33725645527`/job `100553923778` и final worker status `33725916595` success. Production web/API/worker и schema identity соответствуют `e5c43fe` / `0034_personal_security`.
-- **Blockers / unverified assumptions:** отсутствуют для Goal DoD. Provider-defined credits всё ещё не преобразуются в минуты без provider Evidence; optional TOTP enrollment/recovery остаётся неактивированным owner choice, а destructive/security actions требуют recent re-authentication.
-
-## Previous Goal closure — `OBSERVABILITY-ALERTS-AUDIT-01`
-
-- **ID / title:** `OBSERVABILITY-ALERTS-AUDIT-01` — сквозная трассировка, неизменяемый audit и bounded operational alerts.
-- **State:** `DONE` — все Goal AC и required Evidence закрыты; implementation/recovery PR `#280`–`#284`, exact-main CI, protected schema/API/web/worker delivery и suppressed production alert/recovery canary подтверждены.
-- **Authorization source:** explicit owner instruction 2026-09-01 после обсуждения `OBSERVABILITY-ALERTS-AUDIT-01`: «Ставь цель и приступай».
-- **Scope:** закрыть canonical `OBSERV-03`, `OBSERV-10`, `OBSERV-15`–`OBSERV-19`, `OBSERV-32`–`OBSERV-34`: безопасный `trace_id` через browser/API/job/worker и события external boundaries; явный audit outcome; database-enforced append-only audit; durable deduplicated operational incidents с bounded cooldown/recovery; правила для critical errors, stuck queue, provider unavailability, backup/cleanup failures и приближения к storage/API limits; optional Telegram operator transport; понятный owner UI в «Для поддержки»; tests, reviewable PR, exact-head CI, applicable protected delivery и non-destructive LIVE alert/recovery canary.
-- **Non-goals:** пользовательские job completion/failure notifications; automatic remediation, restart, provider retry или destructive cleanup; передача transcript/provider/storage sensitive content; commercial monitoring stack, Prometheus/Grafana/Sentry; новая retention policy; обязательная email infrastructure; paid provider call, Google Docs mutation или production object mutation в LIVE canary.
-- **Goal AC:**
-  1. `OAA-01`: canonical observability AC и readiness denominator синхронизированы без изменения unrelated scope и без преждевременного зачёта Evidence.
-  2. `OAA-02`: один безопасный `trace_id` создаётся/валидируется на browser/API boundary, возвращается клиенту и сохраняется через job, worker и allowlisted diagnostic/audit события внешних вызовов без sensitive payload.
-  3. `OAA-03`: новые audit records имеют явный bounded outcome (`success`, `rejected`, `failed`, `partial`), а legacy records остаются честно различимы без выдуманного результата.
-  4. `OAA-04`: PostgreSQL boundary запрещает ordinary application flows изменять или удалять прошлые audit records; downgrade/maintenance contract остаётся explicit и tested.
-  5. `OAA-05`: durable owner-scoped incident authority реализует bounded deduplication, pending/firing/acknowledged/resolved lifecycle, cooldown и recovery без alert storm.
-  6. `OAA-06`: deterministic rules обнаруживают critical errors, stuck queue, repeated provider unavailability, backup/cleanup failures и приближение к известным storage/API limits, ясно различая configured, unavailable и not-applicable signals.
-  7. `OAA-07`: optional Telegram operator transport fail-closed при отсутствии configuration, читает credentials только из secret files, отправляет только allowlisted incident summary и сохраняет bounded delivery outcome без raw provider response.
-  8. `OAA-08`: «Для поддержки» показывает понятные system incidents, severity/status/source, последнее безопасное изменение, delivery state и честный email/Telegram configuration status; technical detail остаётся progressive disclosure.
-  9. `OAA-09`: evaluation/notification не удерживает DB transaction во время network I/O, конкурентные evaluators не создают duplicate incidents/deliveries, а retry остаётся bounded и idempotent.
-  10. `OAA-10`: additive schema, compatibility, owner isolation, trace validation, append-only enforcement, rule thresholds, dedup/cooldown/recovery, transport failure и redaction покрыты unit/integration/frontend tests.
-  11. `OAA-11`: focused/full local validation, reviewable PR и exact-head required CI завершаются success; migration/API/web/worker delivery следует protected gates.
-  12. `OAA-12`: bounded production LIVE без внешнего spend/mutation подтверждает exact revision, trace continuity, incident create/dedup/resolve и owner UI; реальное Telegram сообщение не отправляется без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact functional merge `cbbc968096d210425df02dc7bd073dbb610fd1e2`, recovery baseline `368983035a7ae87302ad22a3b4b4945668b956f8`, protected schema `0033`, exact component identity, healthy isolated worker и authenticated suppressed canary подтверждены.
-- **Known blockers/dependencies:** отсутствуют для Goal DoD. Telegram остаётся optional и честно `not_configured`; реальное сообщение не отправлялось и по-прежнему требует отдельной action-time authorization и operator-provided secret files. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
-
-## Previous execution checkpoint — `OBSERVABILITY-ALERTS-AUDIT-01`
-
-- **Updated (UTC):** `2026-09-02T10:23:57Z`.
-- **Base branch/SHA:** verified merged `origin/main@368983035a7ae87302ad22a3b4b4945668b956f8` после fetch и exact-main CI.
-- **Working branch:** closure synchronization `codex/observability-goal-closure` от exact merged `origin/main`.
-- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
-- **Last verified revision:** exact merged operational baseline `368983035a7ae87302ad22a3b4b4945668b956f8`; exact functional web/API revision `cbbc968096d210425df02dc7bd073dbb610fd1e2`.
-- **Completed:** реализованы additive schema `0033`, browser/API/job/worker trace continuity, explicit audit outcomes и database-enforced append-only boundary, owner-scoped incident/delivery authority с dedup/cooldown/recovery, deterministic provider/queue/maintenance/backup/storage/account rules, optional secret-file-backed Telegram transport, bounded worker evaluation/delivery, Support UI и safe suppressed-delivery canary. Transport не помещает token в URL, application logs или persisted outcome. Local Evidence: affected portable backend `224 passed`; финальный observability/schema/worker/diagnostics subset `73 passed`; frontend full `674 passed`; ESLint, TypeScript, Vite/PWA production build, Python compileall и `git diff --check` success. PR `#280` и recovery PR `#281`–`#284` merged; все exact-head/exact-main required CI success. Protected migration создала verified snapshot `58d4cf20e77d`, обновила schema `0032 -> 0033` и доставила API; web доставлен обычным CD. Reviewed worker grants восстановлены protected lane, one-file `.git/index` ownership drift исправлен без изменения content/mode, а final worker deployment/status подтвердили healthy exact image и isolation. Authenticated owner LIVE показал `Backend/PostgreSQL/queue/worker/object storage` ready, `0` queued/processing, честные `not_configured` limits/transports и recent canary recovery с тем же safe trace в append-only audit.
-- **Current step:** Goal закрыта; worker работает healthy/idle, active system incidents отсутствуют.
-- **Next exact action:** остановиться и не переходить к следующей Goal без новой owner authorization.
-- **PR / CI / deployment:** PR `#280` merged exact `cbbc968`; recovery PR `#281`–`#284` завершились merge `368983035a7ae87302ad22a3b4b4945668b956f8`. Final exact-main repository CI `33564505271` и Studio/browser CI `33564505316` success. Web CD `33557900132` success. Protected migration/API `33558511585`, deployment `6210226421`, применила `0032 -> 0033_observability_alerts_audit` со snapshot `58d4cf20e77d`. Protected worker-role recovery `33563774170`, deployment `6211132217`, success. Final worker deploy `33610692396` и independent status `33610999099` success: `running`, `healthy`, `identity_match=yes`, `isolation_match=yes`, 2 CPU, 4 GiB RAM/swap, 256 PID, read-only rootfs, `cap_drop=ALL`, `no-new-privileges`. Suppressed LIVE canary завершился `resolved`, generation `1`, occurrences `2`; обе delivery rows остались suppressed, provider/Google/storage mutation и Telegram send не выполнялись.
-- **Blockers / unverified assumptions:** none для Goal DoD. Telegram credential files не настраивались и не читались; UI честно показывает transport `не настроен`. Storage-limit signal остаётся `not_configured`, а API-limit signal использует authoritative account snapshot. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` сохранены untouched.
-
-## Previous Goal closure — `STORAGE-LIFECYCLE-FOLLOWUP-01`
-
-- **ID / title:** `STORAGE-LIFECYCLE-FOLLOWUP-01` — multipart uploads, abandoned-session cleanup и безопасная storage reconciliation.
-- **State:** `DONE` — все Goal AC и required Evidence закрыты; PR `#278` merged, exact-main CI, protected migration/API/web/worker delivery и bounded non-destructive LIVE подтверждены.
-- **Authorization source:** explicit owner instructions 2026-09-01 после обсуждения `STORAGE-LIFECYCLE-FOLLOWUP-01`: «Ставь цель и приступай».
-- **Scope:** закрыть canonical `STORAG-01`, `STORAG-02`, `STORAG-04`, `STORAG-09` и безопасную подтверждаемую часть `STORAG-15`: server-authoritative threshold для multipart; owner/project/source-scoped multipart initiation, part capabilities, completion и abort; durable expiring upload-session authority; bounded idempotent abandoned-session cleanup; owner-scoped orphan inventory/reconciliation с dry-run по умолчанию и отдельным явным подтверждением apply; явная effective retention для transcription-reference; physical delete считается успешным только после подтверждения отсутствия exact object; безопасные audit/diagnostics и пользовательский storage-health UX; tests, reviewable PR, exact-head CI и применимый migration/API/web/worker delivery с bounded non-destructive LIVE verification.
-- **Non-goals:** удаление Google Drive originals или Google Docs; broad retention/delete внутренних transcript, History или Analytics данных; cleanup obsolete versions при неподтверждённом versioning; commercial/Russian S3 contour; автоматический destructive production reconciliation; logging/возврат object keys, bucket names, upload IDs, presigned URLs или raw storage errors; изменение lifecycle сроков уже существующих объектов; ослабление reference-class/bucket/credential isolation.
-- **Goal AC:**
-  1. `SLF-01`: canonical storage AC и readiness denominator синхронизированы без изменения unrelated scope и без преждевременного зачёта Evidence.
-  2. `SLF-02`: все browser-initiated large reference uploads выше server-authoritative threshold используют S3-compatible multipart protocol; small uploads сохраняют безопасный single-PUT path, а server-side managed uploads остаются multipart-capable.
-  3. `SLF-03`: multipart initiation, part issue, completion и abort owner/project/source scoped, fail closed при identity/lifecycle mismatch и возвращают capabilities только в `no-store` responses без browser persistence.
-  4. `SLF-04`: durable multipart session хранит только server-side exact storage identity, expected metadata, expiry и terminal state; complete/abort replay idempotent, а completion подтверждается storage metadata до перевода source в uploaded.
-  5. `SLF-05`: abandoned multipart sessions периодически выбираются bounded lease/fencing cleanup, abort-ятся idempotently и получают terminal/ retryable state без удержания DB transaction во время S3 I/O.
-  6. `SLF-06`: orphan reconciliation строит bounded paginated owner-scoped inventory, сверяет exact reference class/bucket/key с PostgreSQL authority, по умолчанию выполняет dry-run и не удаляет ambiguous, active или too-fresh objects.
-  7. `SLF-07`: destructive orphan apply требует отдельного явного подтверждения, удаляет только exact unchanged plan в bounded batch и подтверждает физическое отсутствие каждого object до terminal cleanup status.
-  8. `SLF-08`: Settings показывает понятную effective policy для transcription/audio references, состояние lifecycle/reconciliation и безопасный dry-run с counts/volume без storage identifiers; destructive action отделено от preview.
-  9. `SLF-09`: source deletion/retention cleanup считается физически завершённым только после verified absence exact object; Google Drive остаётся `not_applicable`, а broader cross-store `STORAG-15` не объявляется выполненным.
-  10. `SLF-10`: additive schema, compatibility, owner isolation, concurrency, replay, pagination, timeout/failure и redaction покрыты unit/integration/frontend tests.
-  11. `SLF-11`: focused/full local validation, reviewable PR и exact-head required CI завершаются success; required migration/API/web/worker delivery следует protected gates.
-  12. `SLF-12`: bounded production LIVE подтверждает safe upload-policy/effective-retention DTO и non-destructive orphan dry-run; никакой production object не удаляется без отдельной action-time authorization.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact merge `ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e`, exact-main CI, protected schema `0032`, API/web/worker identity и authenticated storage-policy/dry-run LIVE подтверждены.
-- **Known blockers/dependencies:** отсутствуют для Goal DoD. Destructive production orphan apply не выполнялся и по-прежнему требует отдельной action-time authorization; provider lifecycle rules остаются defence in depth. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохранены untouched.
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
-
-## Previous execution checkpoint — `STORAGE-LIFECYCLE-FOLLOWUP-01`
-
-- **Updated (UTC):** `2026-09-01T18:16:16Z`.
-- **Base branch/SHA:** verified merged `origin/main@ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e` после fetch.
-- **Working branch:** closure synchronization `codex/storage-lifecycle-closure` от exact merged `origin/main`.
-- **Working tree at Goal start:** tracked files clean; unrelated untracked `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохраняются untouched.
-- **Last verified revision:** `ac632b5bd2c0a258a44ff6e5e3b829d3aa1c524e`.
-- **Completed:** реализованы additive schema `0032`, durable owner-scoped multipart authority и per-part capabilities, server-side completion/status/abort, browser multipart paths для transcription/audio preparation, fenced abandoned-session cleanup с verified absence, bounded owner-scoped reconciliation preview/apply, safe lifecycle DTO/Settings UX, diagnostics/audit redaction, runtime config и operational docs. Local Evidence: backend focused `116 passed`, compatibility regression `78 passed`, frontend full `670 passed`, ESLint, TypeScript/Vite/PWA production build, Python compileall и `git diff --check` success. PR `#278` прошёл review и exact-head required CI; exact-main CI также success.
-- **Current step:** Goal закрыта; destructive production orphan apply не выполнялся.
-- **Next exact action:** остановиться и не переходить к следующей Goal без новой owner authorization.
-- **PR / CI / deployment:** PR `#278`, commits `f00074c`/`aa4a831`, merge `ac632b5`; exact-head CI `33540306329` (`1614 passed`) и Studio/browser `33540306338` success; exact-main CI `33540632446` и Studio/browser `33540632492` success. Web CD `33540632463` success. Protected migration release `33541331595`, job `99968055062`, применила `0031 -> 0032_source_multipart_authority`, сохранила snapshot `93ecba2be2b1` и доставила API. Worker drain `33541234693`, worker deploy `33541844977` / job `99969800397` и status `33542236147` success; exact image/commit identity и `isolation_match=yes` подтверждены.
-- **Blockers / unverified assumptions:** authenticated LIVE подтвердил web/API/worker exact `ac632b5`, schema `0032`, backend/PostgreSQL/queue/worker/object-storage readiness, effective retention `3 дня`, multipart threshold `16 MB` и safe orphan dry-run `0` candidates. Read-only processing preflight `33542235820` корректно fail-closed после worker deploy, потому что этот operator preflight допускает только остановленный worker; runtime health отдельно подтверждён status/LIVE. Storage versioning не предполагается, obsolete-version cleanup не заявлен. Ни один production object не удалён.
-
-## Previous Goal closure — `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`
-
-- **ID / title:** `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01` — непрерывный прогресс транскрибации и безопасная граница долгих worker-операций.
-- **State:** `DONE` — owner 2026-09-01 принял delivered production outcome и явно разрешил закрыть Goal без дополнительного paid LIVE retry; возможная новая regression будет отдельным hotfix.
-- **Authorization source:** explicit owner instructions 2026-09-01: устранить regression, из-за которой длинные записи перестали транскрибироваться; до hotfix улучшить UX единым активным progress bar процесса транскрибации с live-обновлением через подходящий transport; затем explicit «цель поставь еще», «разрешаю» и после повторного сбоя «ну так делай».
-- **Scope:** единый пользовательский progress bar с текущим действием, активным файлом и подтверждённым процентом; owner-scoped polling каждые 3 секунды с bounded backoff; технические checkpoints под progressive disclosure; закрытие read-only DB transaction после immutable authoritative snapshots и до долгих R2/Google Drive/source/FFmpeg операций; fresh fail-closed lifecycle/source/credential/output revalidation до provider spend; безопасное различение ElevenLabs `401` / `402` / `403` с allowlisted machine code, exact HTTP status и actionable retry UX без raw provider message; исправление несовместимости immutable provider-part checkpoint с restricted PostgreSQL worker role; явный cost-confirmed полный restart только для подтверждённого provider result, который не успел получить checkpoint; сохранение recovery-задачи в пользовательском списке после очистки истории, если её provider outcome продолжает блокировать новый batch, и прямая навигация к безопасному действию; regression tests, документация, reviewable PR, exact-head CI и применимый web/API/worker delivery с bounded owner-authorized LIVE verification.
-- **Non-goals:** realtime STT и новая WebSocket infrastructure; выдуманный time-based процент; ослабление `idle_in_transaction_session_timeout=60s`, worker isolation, lifecycle/provider-cost gates или duplicate protection; automatic retry уже упавшей job; новый provider; commercial contour; paid provider call без отдельной bounded owner authorization.
-- **Goal AC:**
-  1. `TPH-01`: canonical product AC и readiness denominator синхронизированы без изменения unrelated scope.
-  2. `TPH-02`: running transcription отображается одним постоянно активным meter с текущим пользовательским действием, активным файлом и точным процентом подтверждённых checkpoints.
-  3. `TPH-03`: owner-scoped automatic polling обновляет прогресс без ручного reload/tab switch, использует bounded backoff и сохраняет последний подтверждённый state при transient failure.
-  4. `TPH-04`: технические stages доступны под disclosure; meter имеет корректные ARIA semantics, а reduced-motion отключает animation.
-  5. `TPH-05`: external source availability/materialization и media preparation выполняются без idle worker DB transaction после immutable snapshot.
-  6. `TPH-06`: после долгого I/O выполняется fresh fail-closed lifecycle/source/credential/output revalidation перед любым provider call; isolation и spend gates не ослаблены.
-  7. `TPH-07`: unit/component и real-PostgreSQL regression tests покрывают transaction boundary, concurrency revalidation и progress behavior.
-  8. `TPH-08`: focused/full local validation, один initial push, reviewable PR и exact-head required CI завершаются success.
-  9. `TPH-09`: exact merge revision доставлена во все применимые web/API/worker components; health и identity gates подтверждены.
-  10. `TPH-10`: planned отдельно owner-authorized bounded достаточно длинный paid LIVE retry снят owner как обязательный closure gate 2026-09-01; отсутствие этого дополнительного spend не отменяет подтверждённые CI/DEPLOY/LIVE Evidence, а возможная новая regression оформляется отдельным hotfix.
-  11. `TPH-11`: provider rejection различает authentication/payment/scope/request/rate failures, сохраняет только allowlisted machine code и bounded HTTP status, не раскрывает provider message/request ID и даёт безопасное пользовательское объяснение перед explicit retry.
-  12. `TPH-12`: immutable provider-part checkpoint сохраняется под exact restricted worker grants без `UPDATE`; verifier и real-PostgreSQL regression закрепляют `SELECT/INSERT/DELETE` и отсутствие `UPDATE/TRUNCATE`.
-  13. `TPH-13`: confirmed-but-uncheckpointed partial result не восстанавливается автоматически, но owner получает явный полный restart только после provider-cost confirmation; uncertain accounting остаётся заблокированным.
-  14. `TPH-14`: очистка истории скрывает обычные terminal jobs, но не скрывает owner-scoped job с unresolved provider attempt, который продолжает блокировать paid-call authority; такая job закреплена в «Текущих», не может быть повторно убрана в историю и доступна из batch blocker без создания дубля или provider call.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Exact merge `30f21a66bcba966134b07407aa7fbad18f6a88e9`, successful exact-main CI/CD, bounded no-spend production inspection и owner acceptance подтверждены; дополнительный paid retry больше не входит в Goal DoD.
-- **Known blockers/dependencies:** последняя production job подтвердила provider usage `801.689 s`, затем завершилась `partial_provider_result` до первого checkpoint. Regression `SELECT ... FOR UPDATE` на immutable checkpoint table исправлена и доставлена без выдачи worker роли `UPDATE`. UX dead-end после `clear history` устранён: unresolved recovery jobs остаются в «Текущих», не могут быть повторно скрыты и показывают безопасное действие. Новый paid provider call не выполняется автоматически. Unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories сохраняются без изменений.
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
-
-## Previous execution checkpoint — `PWA-TRANSCRIPTION-PROGRESS-HOTFIX-01`
-
-- **Updated (UTC):** `2026-09-01T16:12:26Z`.
-- **Base branch/SHA:** verified `origin/main@e73697cc4f0a2d96c0ed420466a65428f5abaf2c`; exact functional production web/API identity `30f21a66`.
-- **Working branch:** Goal closure synchronization `codex/transcription-goal-closure` от exact `origin/main@e73697c`.
-- **Working tree at Goal start:** tracked files clean; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible `pytest-cache-files-*` directories существовали до branch и сохранены untouched.
-- **Last verified revision:** exact merged и delivered functional revision `30f21a66bcba966134b07407aa7fbad18f6a88e9`.
-- **Completed:** PR `#275` merged после exact-head `aa344f471279567651870275bfe381657b8b66c9` CI success. Реализованы provider-attempt-aware history predicate, safe browser flag, pinned recovery card, запрет повторного dismiss, обновлённый clear contract/copy, прямая навигация из preflight и job-scoped browser assertions. Local `227` affected frontend tests, ESLint, TypeScript/Vite/PWA build и Playwright discovery passed; предыдущие backend DTO/SQL-compile/lightweight checks также passed. Exact-main CI `33521901250`, Studio/browser CI `33521901245` и platform CD `33521901302` завершились success; `deploy-web` job `99903047836` и `deploy-api` job `99903514145` доставили exact `30f21a66`, worker корректно skipped. Public API readiness подтвердил PostgreSQL revision `0031_provider_account_snapshots` и Redis; web build metadata вернул exact `30f21a66`. Bounded production browser inspection без mutation/provider call подтвердил `3` attention jobs в «Текущих», `0` кнопок «Убрать в историю» и `Недавние транскрибации · 0`; job от 01.09 снова видна с явным cost-confirmed restart.
-- **Current step:** Goal closure принята owner; дополнительная implementation или provider spend не требуется.
-- **Next exact action:** none; остановиться. Новую проблему при её фактическом появлении оформить отдельным hotfix Goal.
-- **PR / CI / deployment:** PR `#275` merged как `30f21a66`; exact-main CI `33521901250` success, Studio/browser `33521901245` success, CD `33521901302` success.
-- **Blockers / unverified assumptions:** none. Residual risk дополнительного sufficiently-long paid retry явно принят owner и не является blocker закрытой Goal.
-
-## Previous Goal closure — `PWA-WORKER-USAGE-ACCOUNTING-01`
-
-- **ID / title:** `PWA-WORKER-USAGE-ACCOUNTING-01` — worker isolation и reconciled ElevenLabs usage/cost accounting.
-- **State:** `DONE` — reconciled 2026-09-01 по exact main `fe58220da1bad9e25332f62d001bdc37ed769fdb`, successful CI `33479803256`, Studio/browser `33479803115`, platform CD `33479803110`, manual worker deploy `33480733237` и subsequent worker status `33481047378` / `33481700306`. Product readiness остаётся независимо evidence-gated в `docs/project-spec.md`.
-- **Authorization source:** explicit owner instructions 2026-08-30: следующей единой Goal взять `Worker isolation` и `Usage/cost accounting`; затем расширить её server-side синхронизацией всегда актуальных данных ElevenLabs subscription/usage/overage/invoice и всеми расчётами, которые допускает official provider Evidence. Explicit owner «да» 2026-08-31 approved account refresh and exactly one test transcription of a source up to 30 seconds, with possible ElevenLabs quota/cost; no automatic retry or second job. That transcription authorization was consumed once at `2026-08-31T20:02:51Z`. A separate explicit owner «Да» authorized one existing-output reconciliation check, completed by `2026-08-31T20:24:29Z`; it did not authorize new STT, document creation, worker resume or SQL recovery. Explicit owner «приступай» 2026-09-01 resumed implementation of the remaining Goal scope.
-- **Scope:** закрыть canonical `PWAWOR-02..03` и `USAGEC-01..06`: задать и проверить CPU/memory/PID bounds worker; ограничить его writable filesystem, Linux capabilities, privilege escalation и network reachability; отделить worker от API database credential и DDL/superuser capability; сохранять подтверждённую STT duration и immutable nominal tariff snapshot на job; server-side получать official ElevenLabs subscription и workspace product-credit usage, сохранять bounded owner/credential-version-scoped current snapshot с freshness/error provenance; раздельно показывать job nominal estimate и account actual overage/invoices/period units; добавить additive migrations, safe owner API/UI/diagnostics projection, tests/docs, reviewable PR, exact-head CI, applicable protected migration/API/worker delivery и одну bounded owner-authorized LIVE transcription с account refresh.
-- **Non-goals:** commercial contour и пользовательский billing; scraping pricing page или автоматическое изменение public tariff snapshot без verified release input; выдуманное распределение account invoice/overage по отдельным jobs; преобразование ElevenLabs credits/characters в минуты без provider Evidence; новый STT provider или automatic fallback; realtime cost accounting; storage/compute/network cost; изменение `docs/ci-cd-rules.md`, GitHub protections или unrelated refactors.
-- **Goal AC:**
-  1. `WUA-01`: canonical closure предыдущей Goal и baseline readiness reconciled; durable scope/denominator не изменены.
-  2. `WUA-02`: worker Compose имеет explicit CPU, memory/swap и PID bounds, а tests проверяют rendered effective configuration.
-  3. `WUA-03`: worker root filesystem read-only; writable paths bounded; capabilities dropped; privilege escalation disabled; runtime после secret bootstrap остаётся UID/GID `10001`.
-  4. `WUA-04`: Compose networks дают worker только PostgreSQL и отдельный outbound boundary, без API/web/Redis discovery и published ports.
-  5. `WUA-05`: worker использует отдельный non-superuser login без DDL/role capability; read/write grants ограничены documented current worker tables и проверены integration test/runtime preflight.
-  6. `WUA-06`: каждый фактически подтверждённый provider part идемпотентно учитывается ровно один раз; retries/checkpoint resume не дублируют confirmed usage, а uncertain provider outcome не выдаётся за exact billed usage.
-  7. `WUA-07`: job хранит confirmed billed duration, provider cost, currency, rate snapshot/provenance и accounting completeness; unsupported/missing tariff fail closed before spend.
-  8. `WUA-08`: owner API/UI и diagnostics показывают безопасную duration/cost summary без credential, raw provider payload или internal request identifiers.
-  9. `WUA-09`: additive migration и backward-compatible reads корректны для existing jobs; downgrade/rollback boundary documented и tested.
-  10. `WUA-10`: focused/full local validation, один initial push, reviewable PR и exact-head required CI завершаются success; confirmed failure исправляется одним grouped follow-up batch.
-  11. `WUA-11`: protected migration/API и manual worker status→drain→deploy→status соответствуют exact merge SHA; resource/network/DB role runtime evidence подтверждено без secret values.
-  12. `WUA-12`: одна owner-approved bounded transcription подтверждает persisted billed duration/cost/currency и отсутствие regression; до такого call Goal остаётся `PENDING_EXTERNAL_GATE`.
-  13. `WUA-13`: server-side ElevenLabs account transport валидирует bounded official subscription response и workspace product-credit response; API key, raw provider payload и provider user identifiers не попадают в browser/cache/logs.
-  14. `WUA-14`: owner/credential-version-scoped snapshot хранит plan/status, provider period usage/limit/remaining, reset, usage-based billing entitlement/cap, actual current overage, invoice aggregates и product credits с explicit units/window provenance.
-  15. `WUA-15`: automatic refresh при открытом UI использует максимум пятиминутный successful snapshot, visible timestamp и bounded polling; manual refresh доступен, а provider failure возвращает last successful snapshot как stale либо explicit unavailable без fabricated values.
-  16. `WUA-16`: UI и API раздельно обозначают local job nominal estimate, provider account usage units, current overage и invoice; model-specific minutes/remaining или per-job invoice allocation показываются только при direct provider Evidence.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Closure reconciled against exact main/runtime identifiers in the state line above; later transcription regression belongs to the new Goal and does not revoke the completed isolation/accounting Evidence.
-- **Known blockers/dependencies:** none remaining for this closed Goal. Historical blockers and execution sequence are preserved below as previous checkpoint Evidence.
-- **Stop condition:** все Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой authorization не переходить.
-
-## Previous execution checkpoint
-
-- Runtime usage Evidence (owner diagnostic 2026-08-31): guarded checkout/API `cb481be1`, HTTP 200; columns `product_type`, `timestamp`, `total_usage` (`credits`, integer cells), `total_minutes` (`min`), `total_cost` (`usd`), `usage_count`, `total_charge_count`; 31 rows, zero invalid row shapes. Validator stopped at `normalize_workspace_usage:325` because `credits_used` was absent. Only schema/type/count evidence received; no keys, amounts, product values or raw rows. Diagnostic did not mutate DB, restart services or call STT.
-
-- Updated (UTC): 2026-09-01T06:51:44Z.
-- Session mode: authorized full-delivery Goal; все non-goals выше запрещены.
-- Base branch/SHA: verified `origin/main@476c6492b7127d7e06e8d71fb2fca91071275a6a`; local main was safely fast-forwarded to that revision. Open PR check returned none.
-- Working branch: `codex/output-reconciliation-job-cost`.
-- Isolated worktree: not used; tracked main was clean and unrelated inaccessible `.pytest-*` directories are preserved unmodified.
-- Last verified revision: PR head `03addda3aa919107be4f04ea6f492c271ec9c2f0` on base `476c6492`; exact-head required checks are terminal success. Current documentation synchronization is the only tracked change.
-- Working tree at Goal start: tracked files clean; unknown/unrelated `.pytest-*` directories were present and remain untouched.
-- Completed: implementation PR `#261` и sequential-migration hotfix PR `#262` merged; exact-main CI success. Worker configuration/credential staged, old worker gracefully drained. Protected run `33322760011` verified snapshot `ee9c4b84b51c…` и применил `0029 → 0030`. Run `33328210998` после owner approval остановился до backup/migration (`running_api_head_probe_failed`, `migration_applied=no`). Owner VPS Evidence 2026-08-31 подтвердило: running API container существует, но image `sha256:75cda05ecfcbf87a5b7d86bcc17fce0b42a69c00988296f96ba88d333fd86420` отсутствует в local image store. Local correction читает baked head через exact running container под UID/GID `10001`, сохраняя schema-chain и container-identity gates.
-- Current step: PR `#270` was created from initial head `9f3ef7d`. Initial main checks run `33474178200` / job `99749874484` failed exactly one of `1591` tests because the first repair removed the project row lock without transferring the archive race guard. Commit `1c85db7` now locks the project and deterministically locks its job rows in the API archive transaction; worker persistence continues to lock the same mutable job boundary while reading `projects` without UPDATE privilege. Corrected head `03addda` passed main CI `33479042277` / `99764338523` with `1591 passed`, including the new restricted-grant/archive serialization regression. Studio/browser run `33479042292` passed jobs `99764340123` and `99764339404`, including lint, `659` Vitest tests, build, browser E2E and container/runtime probes. Local Evidence after correction: focused output persistence `12 passed`; portable Python `1267 passed, 5 skipped, 15 warnings`; Python compile, lightweight CI and diff checks pass. No upload, STT, reconciliation, worker resume or production mutation occurred.
-- Next exact action: publish this explicitly authorized metadata synchronization, wait for exact metadata-head checks, merge PR `#270` and follow applicable API/web delivery. No second provider call before a separate bounded LIVE authorization.
-- Latest LIVE checkpoint (2026-08-31T20:25:37Z): one synthetic 12.612426-second WAV (556254 bytes), `scribe_v2` / Russian / diarization-off, one whole-file job `ac450793-527f-4cc1-8e37-42913b4be895` created at `2026-08-31T20:02:51Z`. One provider part completed; initial Google Docs confirmation failed with `output_reconciliation_required`. After a separate owner «Да», one existing-output reconciliation completed the same job with one persisted result and 100% progress. The result link opened Google Docs with the expected title; body, external ID and URL were not recorded. No second job, provider retry, new document, output deletion, direct state reset or worker resume occurred.
-- Canary accounting Evidence: authenticated analytics shows one complete-accounting job, zero uncertain-provider outcomes and nine historical unavailable jobs; rounded duration `13 s`, nominal cost `0.00077073 USD`, explicitly not an invoice debit. Persisted job duration/cost and the current account snapshot support `USAGEC-01/02/03/04/06`. The new per-job presentation is local only and is not counted until exact delivery/LIVE.
-- Output failure diagnosis (local 2026-09-01): `job_output_persistence._load_locked_output_authority` locked `Project` with `FOR UPDATE`, which requires `UPDATE` privilege that the intentionally read-only worker role does not have. The local fix removes only the project row lock and preserves locks on mutable job, relation and source rows. Unit SQL-shape tests pass; a real-PostgreSQL SQLSTATE `42501` regression is authored but not claimed locally.
-- Worker stop Evidence: pre-canary status `33433536607` / `99624406068` confirmed healthy/isolation; reviewed drain `33433995948` / `99625914547` succeeded at `2026-08-31T20:04:38Z` with `container_state=exited`, `exit_code=0`, `drain_state=gracefully-drained`, unchanged image and isolation. API/web/database/storage were not restarted. Worker remains stopped during this implementation.
-- Usage compatibility delivery: PR `#269`, head `b8e7549326d3c048e87b70793e60643e0b512f72`, merged as `476c6492b7127d7e06e8d71fb2fca91071275a6a`. PR CI `33429313935` / `99610511502` and Studio/browser `33429314091` succeeded; main CI `33429652748` / `99611618712` and Studio/browser `33429652780` succeeded. API-only CD `33429652762` / `99611664932` emitted `STUDIO_PLATFORM_API_DEPLOY_OK`; schema stayed `0031`. Authenticated LIVE then showed current subscription/period/remaining/reset/overage/invoice and STT product credits with explicit provenance.
-- Invoice fix main CI/DEPLOY: `cb481be1a46a4f1ac091a0de63c518d023f799da`, CI `33425500196` / `99597943848` success (`1561 passed, 2 warnings`), Studio/browser `33425500171` / `99597943747` / `99597943379` success. Standard CD `33425500261` terminal success: web `99597992588` emitted `STUDIO_PLATFORM_WEB_DEPLOY_OK` at `2026-08-31T18:33:24Z`; API `99598504574` emitted `STUDIO_PLATFORM_API_DEPLOY_OK` at `2026-08-31T18:36:59Z`. Exact checkout/image equality and component health gates passed; worker/migration jobs intentionally unselected. Public build metadata at `18:34:45Z` reports exact `cb481be1`; `/api/readyz` at `18:37:43Z` confirms schema `0031` and reachable database/Redis. Local synthetic WAV is 12.612426 seconds / 556254 bytes, not uploaded; no paid provider call made.
-- Invoice fix commit/PR: `5f65955bfacc39c9d8f30a0a8ae9a36e39ca6456`, PR `#268`, branch `codex/elevenlabs-invoice-compat`; one initial push after local validation. Exact-head CI `33425125639` / `99596726066` success (`1561 passed, 2 warnings`, nullable persistence regression passed); Studio/browser `33425125599` / `99596725594` / `99596725442` success. MERGEABLE/CLEAN, no review requests/unresolved threads; squash merged at `2026-08-31T18:31:33Z` as `cb481be1a46a4f1ac091a0de63c518d023f799da`. Main CI and selected API/web delivery completed; no follow-up push, speculative rerun or canary. Post-deploy checkpoint updates are local only; no metadata-only commit/PR loop.
-- Invoice compatibility validation: red regression `6 failed, 45 passed`; corrected account/accounting/analytics focused suite `60 passed`; full portable suite `1237 passed, 5 skipped, 15 warnings`; frontend `654 passed` in 60 files; lint, typecheck/production build, lightweight CI checks, Python syntax and diff checks passed. Local sandbox initially blocked subprocess/temp access; unsandboxed test execution and explicit installed Git Bash in PATH resolved environment failures without changing tests. PostgreSQL/Redis integration and real Docker/browser CI are not claimed locally. API/web changes only; schema remains `0031`, worker unchanged. Independent epic-row recount: `578` unique AC, `266` completed; non-commercial `266/336`, personal `234/304`, worker `3/3` not READY, usage `0/6`. No new product AC or readiness increase.
-- Account recheck Evidence (2026-08-31T18:38:08Z): authenticated Connections panel shows current subscription, a fetched timestamp and provider plan/period/overage/invoice data. Expanded workspace product usage independently reports unsupported format / unavailable breakdown. Subscription success does not establish workspace analytics success or per-job accounting. Switched to Account and handed browser back, stopping account polling. No manual refresh, source upload or transcription submitted. LIVE is partial; no new complete product AC is counted. Temporary operator diagnostic passed Bash/Python syntax checks and mocked valid/invalid-response checks; its output excluded fixture secret and amounts and made exactly one request per invocation. Actual VPS diagnostic remains not-run.
-- Account LIVE prerequisite Evidence (2026-08-31T17:43Z): authenticated Studio overview reports ready/Google connected; Connections shows exactly one active ElevenLabs credential version and subscription `Данные недоступны`, fetched timestamp absent, message `ElevenLabs отклонил ключ. Проверьте или замените его.`. Source mapping identifies the HTTP-401-class reason, but no raw provider response or secret was read; exact expiry/permission/credential cause is not proven. Workspace analytics is not reached when subscription fetch fails. No new product AC is counted.
-- Post-rollout preflight Evidence: run `33421041673`, job `99583213864`, terminal failure at `2026-08-31T17:43:04Z`; repository/branch/exact SHA/clean worktree and all five services running/healthy were observed. The pre-rollout script then blocks because it requires zero running workers; later secret/role/schema/public checks were not run. This invocation was not applicable to the already-running canary worker and is not a new production failure. Do not drain/redeploy or weaken the preflight to make it green. Independent public `/api/readyz` at `2026-08-31T17:45:11Z` confirms schema `0031`, database/Redis reachable; `/build-meta.json` confirms exact web `7629fde8`.
-- Recovery main CI Evidence: `33408271757`, job `99541187721`: `1519 passed, 2 warnings`, `CI_OK`; Studio/browser `33408271682` both success. Actual Docker job `99541187442` emitted `STUDIO_WEB_HOST_PUBLICATION_OK` at `2026-08-31T15:26:09Z`.
-- Web recovery DEPLOY Evidence: run `33408823378`, selected job `99543058818`, SUCCESS; source fast-forward `8957e97..7629fde`, web-only ingress created, built/running image equality and localhost health passed, `STUDIO_PLATFORM_WEB_DEPLOY_OK` at `2026-08-31T15:32:26Z`. Worker/API/migration jobs intentionally skipped. Independent public HTTPS checks at `2026-08-31T15:32:58Z`: `/build-meta.json` reports exact commit `7629fde8926d6af3758e7c1b8183188fa3c5244e`, `/healthz` is `ok`, `/api/readyz` is healthy with database/Redis reachable and schema `0031_provider_account_snapshots`. These are deployment/readiness checks, not end-to-end provider LIVE.
-- Post-recovery worker Evidence: status `33409097724`, job `99543911523`, SUCCESS at `2026-08-31T15:33:30Z`; running/healthy, same immutable image `sha256:19d8c05f9de9777d87e5694673ed4a931591c5bbef7d577c1ee52fe10fcfa972` previously verified for `8957e974`, rollback candidate present. Limits remain 2 CPU / 4 GiB memory including swap total / 256 PID; read-only rootfs, no-new-privileges, exact permitted capability set and two worker networks; corrected classifier returns `isolation_match=yes`. `identity_match=unknown` compares against the new web-only checkout tag `7629fde8`, which was intentionally never built for worker; it is not a worker image change or successful new worker deployment. No retag/restart was performed.
-- Recovery PR Evidence: head `b639ef632df55a45a0075918d4da382fd56779a3`; CI `33407921270`, job `99540011656`: `1519 passed, 2 warnings`. Studio/browser `33407921323` success; real Docker job `99540011635` emitted `STUDIO_WEB_HOST_PUBLICATION_OK` at `2026-08-31T15:22:18Z`. Host publication smoke took about one second and reused the existing CI-built image; no additional monitoring workflow or provider calls.
-- Recovery validation: expected red tests reproduced missing ingress and CAP_ false negatives (`3 failed, 15 passed`); corrected focused suite `24 passed`. Portable suite `1195 passed, 5 skipped, 15 warnings`; lightweight repository checks, Bash/Python syntax, actual Docker Compose JSON rendering and diff checks passed. Local Docker daemon is unavailable; actual host-publication smoke remains mandatory in the existing Studio CI job, not claimed as local runtime Evidence. Product AC recount remains `266/578`, non-commercial `266/336`, personal `234/304`; no new AC or scope added by this hotfix.
-- Worker delivery Evidence: run `33388441193`, job `99476297938`, success marker at `2026-08-31T11:45:55Z`; deployed commit `8957e974abe8c03224a572389c41aac84c99b609`, image `sha256:19d8c05f9de9777d87e5694673ed4a931591c5bbef7d577c1ee52fe10fcfa972`. Web/API/migration jobs intentionally skipped. Separate status `33388535135`, job `99476560035`, at `2026-08-31T11:46:44Z`: running/healthy, identity match yes, rollback candidate present, CPU `2000000000` nano, memory/swap total `4294967296`, PID limit `256`, read-only rootfs, no-new-privileges and exactly the two worker networks. Raw allowed capability set is `CAP_CHOWN/CAP_SETGID/CAP_SETUID`; no additional capability is present. Legacy text comparison expects names without `CAP_`, causing `isolation_match=no`; this classifier defect is not a runtime privilege drift and is not hidden as a passing marker.
-- Historical worker failure Evidence (superseded by successful rollout/status above): `Studio Platform CD` run `33386569656`, job `99470449268`, terminal failure at `2026-08-31T11:24:52Z`: `revision probe failed: Alembic head command exited non-zero`. Build completed; failure precedes database-current probe, commit tag and force-recreate. Selected worker failed; web/API/migration intentionally skipped. Read-only status `33387079622`, job `99472019745`, success at `2026-08-31T11:28:12Z`: old image `sha256:1654e3804607abbba37a83518d10678994010a62f6993b61037884f194dbe681`, exited/zero/gracefully-drained, commit tag absent, rollback candidate present, `isolation_match=no`. Public `/api/readyz` returned HTTP 200, database/Redis reachable, schema `0031` after failure.
-- Historical web failure Evidence (resolved by `33408823378`): selected run `33388699857`, job `99477091937`, failed at `2026-08-31T11:51:00Z` after successful build and container replacement. Built/running image identity check passed, but localhost `8181/healthz` refused connection and public web returned `502`; API readiness stayed healthy. Owner Docker 29.7.2 diagnostic then confirmed internal-only web had no actual host-port binding despite healthy nginx. PR `#267` fixed this regression and preserved the loopback-only endpoint and worker boundary.
-- Current owner/runtime Evidence: owner output confirms clean fast-forward to `807bc4abc8b0b4791f210a23f5fb7faa62dae007`, corrected preflight as `studio-deploy`, and `STUDIO_PROCESSING_HOST_PREFLIGHT_OK`; PostgreSQL/Redis/API/web healthy, schema `0031`, secrets present without changed permissions. Read-only worker status run `33377366826`, job `99441762605`, succeeded at `2026-08-31T09:23:03Z`: one exited worker, `exit_code=0`, `drain_state=gracefully-drained`, old image `sha256:1654e3804607abbba37a83518d10678994010a62f6993b61037884f194dbe681`, no commit tag/rollback candidate, `isolation_match=no`. No worker deployment was dispatched. Authenticated/provider canary rows remain not-run.
-- Schema-readiness validation: focused verifier/worker-health/Compose suite `37 passed`; portable suite `1180 passed, 5 skipped, 15 warnings` under existing service/shell exclusions; lightweight checks, Bash/Python syntax and diff checks passed. PostgreSQL/Docker daemon are unavailable locally. New Linux integration test applies the real manifest in an isolated migrated database, connects as an actual non-superuser login, proves readiness, denies schema-version writes/DDL and prohibited-table reads, revokes SELECT to reproduce the failure, then restores SELECT only. No extra CI infrastructure or workflow reruns are added.
-- Schema-readiness CI/merge Evidence: PR `33378597911`, job `99445576092`: `1504 passed, 2 warnings`; actual restricted-login test PASSED at `2026-08-31T09:38:19Z`. PR Studio/browser `33378597846` success. Exact-head merge gates: MERGEABLE/CLEAN, no pending review requests or unresolved threads. Merge at `2026-08-31T09:41:11Z`. Main CI `33378898835`, job `99446506439`: `1504 passed, 2 warnings`, restricted-login test PASSED at `2026-08-31T09:42:01Z`. Main Studio/browser `33378898642` success. Automatic Platform CD `33378898752` completed with all application/migration jobs intentionally skipped; this is not deployment Evidence. VPS checkout still last verified at `807bc4`; no worker rollout was dispatched.
-- Readiness reconciliation: atomic-row check found five stale `STORAG-17..21` completion markers, despite their previous Goal closure already recorded in the dashboard and verified delivery chain. Align these operational markers with that existing Evidence; no requirements, denominator or new product completion are added by the worker hotfix. Canonical total remains `264/578`, non-commercial `264/336`, worker `1/3`, usage `0/6`.
-- Secret-probe hotfix PR Evidence: PR CI `33376485789`, job `99439016112`: `1499 passed, 2 warnings`, including all Linux SSH/path transport tests. Studio/browser CI `33376485750` passed. Real Docker job `99439016699` emitted `STUDIO_WORKER_SECRET_METADATA_OK` at `2026-08-31T09:14:15Z`; positive root-owned `0700` parent with `0600`/`0400` file and negative wrong permissions/symlink/missing/empty cases passed without reading secret bytes. Exact-head checks all success, mergeable/CLEAN, no pending review requests or unresolved review threads; merge occurred at `2026-08-31T09:15:28Z`. Exact-main CI is confirmed below; runtime files/services were not changed.
-- Secret-probe hotfix main Evidence: merge `807bc4abc8b0b4791f210a23f5fb7faa62dae007`, CI `33376764865` and Studio/browser `33376764864` all success. Real Docker main job `99439897723` emitted `STUDIO_WORKER_SECRET_METADATA_OK` at `2026-08-31T09:17:25Z`. This proves the probe in CI, not production preflight or worker deployment. No speculative reruns or follow-up pushes occurred.
-- Secret-probe hotfix validation: focused metadata/preflight suite `63 passed, 3 deselected`; three existing Linux-oriented SSH/path transport tests are not local Windows Evidence and remain mandatory in full Linux CI. Portable suite `1176 passed, 5 skipped, 15 warnings` under its existing service/shell exclusions; lightweight checks, Python/YAML/production-script/CI-step Bash syntax and `git diff --check` passed. Native Windows fixture path/CRLF handling was repaired without changing production parsing; copied bytecode caches are excluded from synthetic fixtures. Docker daemon remains unavailable locally; the real root-only Docker test is pending CI. Product denominator/numerator remain `264/578`, non-commercial `264/336`; no additional product AC was closed by this preflight-only correction.
-- Validation and Evidence: container-probe local migration/release suite `23 passed`, lightweight CI checks, release/CI shell syntax success. Exact PR CI `33360042003` and Studio/browser CI `33360042022` success; exact merge CI `33360260838` and Studio/browser CI `33360260703` success. Real Docker probe printed `STUDIO_RUNNING_CONTAINER_METADATA_OK` on PR and merge SHA (main job `99390105887`). Regression covers absent old image, container replacement, failed probe and mismatched schema head. Local Docker daemon remains unavailable; runtime-container validation is Linux CI Evidence, not local evidence.
-- Verifier-hotfix validation: expected red regression on old script; corrected focused verifier/worker-health/Compose tests `33 passed`, Bash/Python syntax, lightweight checks and diff checks success. Additional existing preflight suite on Windows: `21 failed, 5 passed` due native/MSYS path assumptions and Windows-invalid fixture names; its test/script files match the verified base and are unchanged. This is not passing local Evidence; full Linux CI (including the added real-PostgreSQL predicate test) is required. Native PostgreSQL and Docker daemon are unavailable locally.
-- Verifier-hotfix CI: exact PR `ca899051` checks run `33369096462`, Studio/browser run `33369096487` success. Exact merge `1e9cebc4` checks run `33369386542` and Studio/browser run `33369386518` success. Main full suite: `1459 passed, 2 warnings`; log confirms the real-PostgreSQL predicate test and executable verifier/preflight tests passed, not skipped. Owner VPS output now confirms the safe fast-forward and `STUDIO_WORKER_DB_ROLE_OK`; subsequent preflight failure is separate from role verification.
-- Pull Request / CI / deployment: PR `#261/#262/#263` MERGED. Owner `Just9120` approval confirmed for run `33360460155`; selected migration job `99390681629` and workflow completed `success`. Safe marker at `2026-08-31T06:37:38Z`: `commit=bd51e7569370 from=0030_provider_usage_accounting to=0031_provider_account_snapshots head=0031_provider_account_snapshots snapshot=332e51d65a9d image=sha256:2067381f6e2a api_deployed=yes`. Reviewed script enforces newly restored/dump-verified backup, exact built/running image equality and local/public readiness before this marker. Independent public check at `2026-08-31T07:22:00Z`: `/api/readyz` HTTP 200, schema `0031`, database/Redis reachable; `/api/livez` HTTP 200. `deploy-web`, `deploy-api`, `deploy-worker` were intentionally skipped; API deployment is evidenced by the protected release, not the skipped standard API job. Release-selection flag remains `false`. Worker has not been deployed or resumed.
-- Blockers: reviewed API/web delivery and authenticated post-deploy verification on the existing canary remain. Proving the repaired output-confirmation path end-to-end would require a new bounded STT call; no such call is authorized. Worker remains gracefully stopped. Residual diagnostic boundaries prohibit raw provider/credential/document content in evidence. Post-deploy metadata writer remains absent; no post-merge metadata-only follow-up PR or direct push is allowed.
-- Unverified assumptions: provider account `character_count/character_limit` остаются provider-defined period units и не равны минутам Scribe; product usage endpoint возвращает credits, которые нельзя безопасно распределить по job или перевести в invoice amount без additional provider Evidence.
-- Preserved pre-existing changes: `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
-
-## Project readiness
-
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; unresolved SPEC gaps/runtime risks не являются AC и исключены. Current denominator: `610` AC = `368` non-commercial + `242` commercial/cross-contour. Подтверждённый hotfix `#299` возвращает `AP-11` в numerator; текущая minor favorites Goal не меняет product denominator или количество выполненных AC.
-
-| Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
+| Эпик | CODE, numerator/denominator | Подтверждённая нижняя граница приёмки | Статус |
 |---|---:|---:|---|
-| **Полный canonical scope** | **58,9% (`359/610`)** | **58,7% (`358/610`)** | `AP-11` закрыт hotfix `#299`; denominator неизменен. |
-| **Non-commercial scope** | **97,6% (`359/368`)** | **97,3% (`358/368`)** | Colab `32/32` + personal PWA `327/336`. |
-| **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
-| **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **97,3% (`327/336`)** | **97,0% (`326/336`)** | `AP-11` closure reconciled; favorites polish не добавляет новых AC. |
-| `PWA-AUDIO-PREPARATION-01` | **100% (`30/30`) READY** | **96,7% (`29/30`)** | Filename fallback/Unicode hotfix `#299` прошёл required Evidence. |
+| `COLAB-BATCH-01` | 24/24 (100.0%) | 0/24 | 🟦 IN PROGRESS |
+| `COLAB-REALTIME-01` | 5/6 (83.3%) | 0/6 | 🟦 IN PROGRESS |
+| `PWA-CORE-01` | 14/14 (100.0%) | 0/14 | 🟦 IN PROGRESS |
+| `PWA-USER-EXPERIENCE-02` | 13/13 (100.0%) | 0/13 | 🟦 IN PROGRESS |
+| `PWA-UX-POLISH-03` | 8/8 (100.0%) | 0/8 | 🟦 IN PROGRESS |
+| `PWA-UX-CONTROLS-04` | 14/14 (100.0%) | 0/14 | 🟦 IN PROGRESS |
+| `PWA-TRANSCRIPTIONS-UX-01` | 4/4 (100.0%) | 0/4 | 🟦 IN PROGRESS |
+| `PWA-INGEST-01` | 11/11 (100.0%) | 0/11 | 🟦 IN PROGRESS |
+| `PWA-GOOGLE-PICKER-UX-01` | 8/8 (100.0%) | 0/8 | 🟦 IN PROGRESS |
+| `PWA-SEGMENTS-01` | 5/5 (100.0%) | 0/5 | 🟦 IN PROGRESS |
+| `PWA-BATCH-01` | 11/11 (100.0%) | 0/11 | 🟦 IN PROGRESS |
+| `PWA-AUDIO-PREPARATION-01` | 30/30 (100.0%) | 0/30 | 🟦 IN PROGRESS |
+| `PWA-SPEAKER-IDENTITY-01` | 5/5 (100.0%) | 0/5 | 🟦 IN PROGRESS |
+| `PWA-MANIFEST-01` | 5/6 (83.3%) | 0/6 | 🟦 IN PROGRESS |
+| `PWA-STANDARDIZATION-01` | 14/14 (100.0%) | 0/14 | 🟦 IN PROGRESS |
+| `PWA-TRANSCRIPT-MAINTENANCE-01` | 8/9 (88.9%) | 0/9 | 🟦 IN PROGRESS |
+| `PWA-REALTIME-01` | 12/13 (92.3%) | 0/13 | 🟦 IN PROGRESS |
+| `PWA-OPERABILITY-01` | 18/18 (100.0%) | 0/18 | 🟦 IN PROGRESS |
+| `COLAB-LIFECYCLE-02` | 2/2 (100.0%) | 0/2 | 🟦 IN PROGRESS |
+| `PWA-SECURITY-HARDENING-02` | 18/18 (100.0%) | 0/18 | 🟦 IN PROGRESS |
+| `GOOGLE-DRIVE-RELIABILITY-02` | 6/6 (100.0%) | 0/6 | 🟦 IN PROGRESS |
+| `STORAGE-LIFECYCLE-02` | 16/21 (76.2%) | 0/21 | 🟦 IN PROGRESS |
+| `STT-PROVIDER-ABSTRACTION-01` | 13/14 (92.9%) | 0/14 | 🟦 IN PROGRESS |
+| `YANDEX-STT-01` | 1/5 (20.0%) | 0/5 | 🟦 IN PROGRESS |
+| `PWA-DICTIONARIES-01` | 1/1 (100.0%) | 0/1 | 🟦 IN PROGRESS |
+| `PWA-WORKER-ISOLATION-02` | 3/3 (100.0%) | 0/3 | 🟦 IN PROGRESS |
+| `PWA-DATABASE-LEAST-PRIVILEGE-03` | 7/8 (87.5%) | 0/8 | 🟦 IN PROGRESS |
+| `JOB-RELIABILITY-02` | 17/17 (100.0%) | 0/17 | 🟦 IN PROGRESS |
+| `JOB-NOTIFICATIONS-01` | 6/6 (100.0%) | 0/6 | 🟦 IN PROGRESS |
+| `REALTIME-CONTINUITY-02` | 5/5 (100.0%) | 0/5 | 🟦 IN PROGRESS |
+| `TRANSCRIPT-EXPORTS-02` | 0/3 (0.0%) | 0/3 | ⬜ BACKLOG |
+| `USAGE-COST-ACCOUNTING-01` | 5/6 (83.3%) | 0/6 | 🟦 IN PROGRESS |
+| `OBSERVABILITY-AUDIT-02` | 35/35 (100.0%) | 0/35 | 🟦 IN PROGRESS |
+| `RELEASE-SAFETY-02` | 4/5 (80.0%) | 0/5 | 🟦 IN PROGRESS |
+| `ENVIRONMENT-CAPABILITIES-01` | 0/50 (0.0%) | 0/50 | ⬜ BACKLOG |
+| `COMMERCIAL-INFRA-DATA-01` | 0/20 (0.0%) | 0/20 | ⬜ BACKLOG |
+| `COMMERCIAL-IDENTITY-01` | 0/18 (0.0%) | 0/18 | ⬜ BACKLOG |
+| `COMMERCIAL-DATA-GOVERNANCE-01` | 0/26 (0.0%) | 0/26 | ⬜ BACKLOG |
+| `COMMERCIAL-CROSS-BORDER-01` | 0/14 (0.0%) | 0/14 | ⬜ BACKLOG |
+| `COMMERCIAL-STT-QUOTA-01` | 0/16 (0.0%) | 0/16 | ⬜ BACKLOG |
+| `COMMERCIAL-SPEAKER-PRIVACY-01` | 0/3 (0.0%) | 0/3 | ⬜ BACKLOG |
+| `COMMERCIAL-QUEUE-FAIRNESS-01` | 0/6 (0.0%) | 0/6 | ⬜ BACKLOG |
+| `COMMERCIAL-BILLING-01` | 0/27 (0.0%) | 0/27 | ⬜ BACKLOG |
+| `COMMERCIAL-ECONOMICS-01` | 0/15 (0.0%) | 0/15 | ⬜ BACKLOG |
+| `COMMERCIAL-SECURITY-01` | 0/21 (0.0%) | 0/21 | ⬜ BACKLOG |
+| `COMMERCIAL-NOTIFICATIONS-01` | 0/8 (0.0%) | 0/8 | ⬜ BACKLOG |
+| `COMMERCIAL-LEGAL-01` | 0/18 (0.0%) | 0/18 | ⬜ BACKLOG |
+| `RESULTS-STUDIO-02` | 0/17 (0.0%) | 0/17 | ⬜ BACKLOG |
+| `YANDEX-DISK-01` | 0/9 (0.0%) | 0/9 | ⬜ BACKLOG |
+| `REALTIME-RECOVERY-03` | 1/8 (12.5%) | 0/8 | 🟦 IN PROGRESS |
+| `PWA-REQUIREMENTS-05` | 0/8 (0.0%) | 0/8 | ⬜ BACKLOG |
+| `MEDIA-CONTRACT-03` | 1/8 (12.5%) | 0/8 | 🟦 IN PROGRESS |
+| `PERSONAL-VOICE-02` | 1/5 (20.0%) | 0/5 | 🟦 IN PROGRESS |
+| `SECURITY-LIFECYCLE-03` | 5/6 (83.3%) | 0/6 | 🟦 IN PROGRESS |
+| `RECOVERY-DATA-03` | 0/7 (0.0%) | 0/7 | ⬜ BACKLOG |
+| `COMMERCIAL-COMPLETENESS-02` | 0/9 (0.0%) | 0/9 | ⬜ BACKLOG |
 
-Изменений более `10` п.п. нет; snapshots пересчитаны по atomic AC без изменения требований.
+## Validation и Evidence index
 
-## Candidate next Goals
+| ID | Проверка | Terminal result / ограничение |
+|---|---|---|
+| V-STATIC | `python scripts/ci_checks.py` | PASS, все 7 lightweight guards |
+| V-WEB | direct Vitest `node node_modules/vitest/vitest.mjs run` | PASS: 68 files, 716 tests; существующий node_modules имеет pnpm layout, npm clean install не выполнялся |
+| V-PY | `python -X utf8 -m pytest -q --portable -p no:cacheprovider --basetemp=...` | 1363 passed, 5 skipped, 9 failed; failures вызваны system WSL bash. Отдельная syntax check с Git Bash PASS; 8 worker fixtures по-прежнему выбирают system bash. Required Linux CI отдельно PASS; full local PostgreSQL/Redis suite не запускалась |
+| V-SANDBOX | Первые Vitest/pytest attempts | FAILED environment: esbuild EPERM / pytest temporary-directory PermissionError; approved диагностические reruns выполнены |
+| V-TYPES | ESLint и `tsc -b` direct node entrypoints | PASS, logs пустые; Vite production build PASS, warning chunk 694.75 kB (194.57 kB gzip) |
+| V-NPM | npm audit committed package-lock, 2026-09-05 | FAIL: 6 unique advisories / 2 leaf packages, 86 affected/metavulnerability entries; fix не применялся |
+| V-PIP | global `pip check` | FAIL из-за несовместимостей unrelated installed projects; не является дефектом requirements этого repo. Exact isolated Python advisory audit не выполнялся |
+| V-YANDEX | synthetic official-shape normalization без сети, SQLite memory | Числа 1000/2000 дают 1.0/2.0 s; строки "1000"/"2000" дают None/None — F04 reproduced |
+| V-CI | main CI [33948143149](https://github.com/Just9120/Elevenlabs-API/actions/runs/33948143149) | checks SUCCESS, exact main dce709d |
+| V-STUDIO-CI | [33948143141](https://github.com/Just9120/Elevenlabs-API/actions/runs/33948143141) | studio SUCCESS; browser-e2e SUCCESS, exact main dce709d |
+| V-CD | [33948143144](https://github.com/Just9120/Elevenlabs-API/actions/runs/33948143144) | deploy-web SUCCESS; API, worker, migration SKIPPED — это не их delivery Evidence |
+| V-PR | [PR #300](https://github.com/Just9120/Elevenlabs-API/pull/300) | MERGED; final head 5c87d96, CI 33947954714 / 33947954700 SUCCESS; previous implementation-head runs cancelled и не считаются success |
+| V-ADVISORY-OLD | Dependency audit [33384307698](https://github.com/Just9120/Elevenlabs-API/actions/runs/33384307698) | SUCCESS на 8957e974, 2026-08-31; не покрывает нынешние advisory/HEAD |
+| V-LIVE | public health/build read | HTTP 200, web identity main dce709d, schema 0037; без authenticated/paid сценариев |
 
-Current Goal `SEGMENT-FOLDER-FAVORITES-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
+Все code references ниже относятся к d629459, backend/Colab/config source совпадает с main dce709d. В references с сокращённым filename directory наследуется от первого соседнего пути того же типа; glob означает просмотренную соответствующую module/test surface. TEST ◐ означает наличие и прогон subsystem checks без утверждения о полной трассировке конкретного AC к assertion. Для новой отсутствующей функции зелёная общая suite не является TEST Evidence.
 
-## Risks и boundaries
+## Реестр findings и backlog
 
-- Разделение buckets/credentials меняет stateful external configuration. Code/config schema можно доставить reviewably, но production switch требует explicit operator setup и fail-closed preflight.
-- Существующие local Sources остаются в legacy/transcription bucket; Goal не перемещает bytes, не меняет owner retention и не выполняет broad cleanup.
-- API и worker deployment/state различаются; migration остаётся protected `MANUAL_GATED`, worker — manual status/drain/deploy/status.
-- UX не должен скрыть recovery/spend/security warnings: они упрощаются, но actionable confirmation и safety detail остаются доступны.
-- Approved post-deploy metadata writer отсутствует; protection rules не обходятся, поэтому terminal closure metadata проходит обычный reviewable PR.
+Приоритет: P1 — существенный product/correctness/security/release gap, P2 — ограниченная функциональность или maintainability/validation gap. Для всех source findings revision `d62945912b3e470b2cb8b20912057a4a57c0f6f1`; backend source совпадает с remote main `dce709d`. Рекомендации не авторизуют исправления.
 
-## Sources of truth
+| ID | Приоритет / AC или область | Проверенное Evidence | Влияние и рекомендуемое действие | Уверенность |
+|---|---|---|---|---|
+| F01 | P1 · RS-01..17, PM-05, TRANSC-01..03, STORAG-10 | `main.py:554–558`: обязательный output_folder_id; `job_output_destination.py:89–110`: обязательный Google grant; `job_output_read.py:7–18`: output DTO содержит ссылку/metadata, без retained transcript; `models.py`: Google output, нет самостоятельной модели сохранённого batch transcript; `JobOutputsSection.tsx` | Без Drive batch не реализует согласованный Studio-only результат. Нет полного retained transcript, DOCX UI и независимого export lifecycle. Сначала спроектировать canonical retained artifact и состояния recognition/export, затем storage/retention, downloads и exports; не маскировать Google failure как завершённый Studio result. | Высокая, source-level; production потеря данных не заявляется |
+| F02 | P1 · YD-01..09, EVC-13, S007/041–044 | `models.py:16`: SourceType только local_upload/google_drive; source/config/routes search не обнаружил Yandex Disk adapter; Yandex modules относятся к SpeechKit | Согласованный Яндекс Диск отсутствует в обоих контурах. Требуются отдельные OAuth/source/destination/export adapters и version-aware retry; зависит от F01. | Высокая |
+| F03 | P1 · RTC-01..07 | `realtimeSession.ts:549–573` закрывает transport и сообщает «Автоподключение отключено»; MediaRecorder/audio replay path не найден; `realtime_drafts.py` хранит encrypted draft, не полное audio | Краткий обрыв не сохраняет непрерывность по новому intent. Нужны новая capability на reconnect, bounded buffer, segment identity/dedup и видимый gap; audio recording — отдельный явный режим со storage/retention. | Высокая |
+| F04 | P1 · YANDEX-01/02/05, MC-08 | `yandex_transcription.py:339–345` обрабатывает времена только int/float; [official REST schema](https://aistudio.yandex.ru/en/docs/speechkit/stt-v3/api-ref/AsyncRecognizer/getRecognition) задаёт строковые startTimeMs/endTimeMs. V-YANDEX воспроизвёл `(1.0,2.0)` для чисел и `(None,None)` для строк; tests используют числа | При реальном JSON теряются word timings, от которых зависят samples/timed exports. Добавить faithful REST fixtures и строгую bounded normalization числовых строк. Текстовое распознавание само по себе может продолжить работать. | Высокая, воспроизведено локально без paid call |
+| F05 | P1 · YANDEX-03, STTPRO-05, MC-09, RTC-06 | `stt_provider.py` объявляет Yandex realtime diarization; `yandex_realtime_relay.py:269–277` всегда посылает REAL_TIME + SPEAKER_LABELING_ENABLED. [Yandex speaker labeling](https://yandex.cloud/ru-kz/docs/speechkit/stt/speaker-labeling) описывает FULL_DATA и до 2 speakers. Relay `:314–361` хранит один pending_final без final_index и отдаёт refinement как новый committed chunk; UI append-ит committed text | Capability promise требует проверки/коррекции. При final → partial → late refinement старый текст уже committed, correction может дублироваться; несколько finals также нуждаются в indexed state. Нужны official-protocol fixtures и opt-in canary. Это source/API compatibility finding, не утверждение о наблюдённом production отказе. | Высокая для конфликта metadata; средняя для фактических provider outcomes |
+| F06 | P2 · MC-01/03/04/06/07/08, UXN-03/05/06/07 | `job_google_docs_output.py:155–162,207–219` не получает фактический provider/model и пишет ElevenLabs/current model; неизвестная дата становится Created at: unknown. `AudioPreparationPage.tsx:554` фиксирует template `{title}`. `media_preparation.py` содержит duration 4h/12h checks, но полная до-запуска проверка/привязка всех новых сценариев не подтверждена | Метаданные Yandex результата неверны; дата нарушает новый S135. Добавить фактический provider/model и provenance; отдельно закрыть preflight/partial timeline сценарии. Сам default 12h уже есть и не считается дефектом; Yandex 4h provider ceiling не объявляется ошибкой общего лимита. | Высокая для metadata; средняя для preflight coverage gaps |
+| F07 | P2 · UXN-01/02/09, PTM-01 | `PlatformSidebar.tsx:4–9` имеет 4 пункта, Projects отсутствует; `platformRouting.ts` alias /projects → transcriptions. Audio UI не предоставляет naming templates; прежний workspace label «Подготовка документов». Diagnostics exact-ID и новое удобство поиска требуют отдельных checks | Есть drift относительно S014/060/143/250. В новой UX Goal определить содержание Projects, добавить заданные controls; внутренний technical Project не делать обязательным шагом новой транскрибации. | Высокая для nav/template/label; средняя для полного search UX |
+| F08 | P2 · VID-01..04 | `speaker_identity.py`, `speaker_assignment.py`, `speaker_sample.py`: ручная база имён/ролей и bounded sample из source; voiceprint/embedding matcher и долговременные voice samples отсутствуют | Ручное назначение не равно согласованной optional automatic voice identification. Нужны отдельный personal feature, модель сохранённых образцов, consent/retention/deletion и выбор алгоритма; ordinary diarization не блокировать. | Высокая |
+| F09 | P1 · EVC, commercial epics, CX | `compose.platform.yml` — один personal stack; `config.py`, `models.py`, routes/UI не имеют complete commercial environment/capability/billing/registration graph | Commercial production и три personal capability-набора не готовы. Заданный scope сохранён, реализации нет; сначала выбрать Goal по контурам/capabilities и зависимостям F01/F02. Правовые решения/тарифы не выдумывать. | Высокая в пределах repo; сторонняя неучтённая инфраструктура не проверялась |
+| F10 | P1 · STORAG-05/10/12/13/15, REC-01..07 | `source_storage.py:390–406` delete/head только текущего объекта, без version enumeration; storage_reconciliation относится к source objects; долговременный full transcript отсутствует. Backup scripts/runbook есть, свежий isolated restore/RPO/RTO measurement не получен | Source expiry не закрывает весь lifecycle. Требуются версии/копии, transcript/history/analytics rules, truthful deletion state и restore, не возвращающий удалённые данные. Production cleanup/restore в AUDIT не выполнялись. | Высокая для version/transcript gap; ограниченная для действующего backup schedule |
+| F11 | P2 · USAGEC-02 | `provider_usage_accounting.py`, `config.py`: immutable tariff/provenance hooks есть, цена конфигурируема и может отсутствовать; прежний AC оставался открытым, актуальный тарифный runtime evidence не получен | Не утверждать точную себестоимость или billed spend там, где источник неизвестен. Закрыть конфигурацию/provenance/rounding и per-provider applicability в отдельной cost Goal; данные аккаунта не распределять произвольно по jobs. | Средняя; отсутствие runtime evidence не равно отсутствию кода |
+| F12 | P1 · зависимости / security validation | V-NPM: locked browserslist 4.28.4 и fast-uri 3.1.5; 2 + 4 high advisories, 86 entries включая dependents. Примеры: [browserslist OOM](https://github.com/advisories/GHSA-c83g-rgw3-j3cx), [fast-uri canonicalization](https://github.com/advisories/GHSA-5jgf-p345-68v8). `package.json` закрепляет fast-uri override 3.1.5 | Новые advisory делают прежний audit 31 августа недостаточным. Нужны triage по реальному использованию, допустимые patched versions, lock regeneration и точный Node/Python audit. Не запускать blind audit fix и не выдавать build-tool advisory за доказанный backend SSRF. | Высокая для audit report/locked versions; exploitability не установлена |
+| F13 | P1 · CI/CD enforcement | GitHub API: main protected=false, rulesets=[], allowed_actions=all, sha_pinning_required=false; обычные component CD jobs без protected Environment; migration Environment main-only + один reviewer | Проверки/review не enforced платформой; owner/admin может случайно обойти delivery discipline. Предложить отдельную explicit settings/CI-policy Goal. Workflows сами pin actions и default token read-only — это действующие compensating controls. | Высокая, текущий settings read |
+| F14 | P2 · воспроизводимость local validation | V-PY: portable исключает 9 modules, но ещё использует shell tests, выбирающие WSL bash; runbook говорит о 6 исключениях. Existing node_modules pnpm-layout, canonical lock npm; global pip содержит unrelated conflicts | Portable Windows baseline не даёт clean green по заявленному пути. Сделать shell discovery/portable profile честными и проверять isolated constrained installs. В AUDIT пакеты/lockfiles/tests не менялись. | Высокая; Linux main CI green |
+| F15 | P2 · coupling / performance | `App.tsx` 10518 строк, `main.py` 4798; Vite main chunk 694.75 kB (194.57 kB gzip). Много domain helpers уже выделено; часть route/auth DTO и frontend orchestration сосредоточена в этих файлах | Новые results/storage/provider changes затронут крупные coupled surfaces. Выделять ownership и route/page boundaries по мере согласованной feature Goal; chunk warning не доказывает медленный runtime или необходимость тотального rewrite. | Высокая для размера; средняя для влияния |
+| F16 | P2 · документация / readiness | Старый spec одновременно называл READY и LIVE ◐, хранил current schema 0033 рядом с новым 0037; plan перечислял закрытые Goals как IN_PROGRESS. Current checkpoint SHA 26bf0e8 не равен HEAD d629459. Старый CI profile claim о lack of expected SHA опровергается bundle transport `:37–51,79–117` | Локально устранены operational дубли в spec/plan и stale profile; useful closed Goal contracts перенесены в archive. Старый historical факт не повышается до current Evidence. AGENTS policy не переписан — override текущей инструкции явно зафиксирован. | Высокая; documentation correction выполнена |
 
-- Repository instructions: `AGENTS.md`.
-- Product scope/AC: `docs/project-spec.md`.
-- Current Goal/checkpoint/readiness: этот документ.
-- CI/CD safety: `docs/ci-cd-rules.md`.
-- Current architecture/runtime boundaries: `docs/architecture.md` и applicable runbooks.
-- Completed delivery history: `docs/delivery-plan-archive.md` (не current source of truth).
+Основная архитектура: PostgreSQL владеет jobs/leases/checkpoints/outbox и безопасными metadata; R2 — source/audio bytes; Google Docs — внешний transcript artifact. Redis — rate limits/readiness, а не durable queue. Worker отделён по ресурсам и DB grants, I/O вынесен из длительных DB transactions; lease generation/revalidation и uncertain-outcome state — важные действующие safety boundaries. Самое значимое изменение для нового scope — перенести владение полной принятой транскрипцией внутрь Studio, сохранив внешний export отдельным side effect.
+
+API/schema: 37 последовательных Alembic revisions, current head 0037; exact-main CI проверил upgrade. Legacy source IDs/output DTO защищены owner checks и CSRF в рассмотренных маршрутах. SourceType/Google-specific output model ограничивают новый Yandex Disk и Studio-only workflow. Race/tenancy formal proof для каждого endpoint не выполнялся; коммерческая изоляция/RLS не выводятся из personal ownership filters. Generated protobuf и dynamically used modules не предлагались к удалению.
+
+## Evidence-поверхности по группам AC
+
+| Префикс | CODE paths | TEST paths |
+|---|---|---|
+| CB | elevenlabs_api.py; notebooks/elevenlabs_api_colab.ipynb | tests/test_text_processing_helpers.py |
+| CR | elevenlabs_realtime.py; notebooks/elevenlabs_realtime_colab.ipynb | tests/test_realtime_static.py |
+| PC | apps/studio/src/App.tsx; apps/studio-api/studio_api/main.py; source_storage.py; auth_retention.py | apps/studio/src/App.test.tsx; tests/test_studio_api_core.py; tests/test_studio_reference_storage.py |
+| PUX | apps/studio/src/App.tsx; JobCard.tsx; JobProgressPipeline.tsx | apps/studio/src/App.test.tsx; JobCard.test.tsx; JobProgressPipeline.test.tsx |
+| UXPOL | apps/studio/src/App.tsx | apps/studio/src/App.test.tsx |
+| UXCTL | apps/studio/src/App.tsx; apps/studio-api/studio_api/main.py; job_output_reconciliation.py; diagnostic_reports.py | apps/studio/src/App.test.tsx; tests/test_studio_ux_audit_controls_schema.py |
+| PT | apps/studio/src/multiTranscriptionModel.ts; App.tsx; platformRouting.ts | apps/studio/src/multiTranscriptionModel.test.ts; platformRouting.test.ts |
+| PI | apps/studio/src/App.tsx; apps/studio-api/studio_api/google_drive_folder_intake.py | apps/studio/src/App.test.tsx; tests/test_studio_google_drive_folder_intake.py |
+| PG | apps/studio/src/GoogleDriveFolderPickerDialog.tsx; googlePicker.ts; documentScrollLock.ts | apps/studio/src/GoogleDriveFolderPickerDialog.test.tsx; documentScrollLock.test.ts |
+| PS | apps/studio/src/batchComposerModel.ts; apps/studio-api/studio_api/media_clip.py | apps/studio/src/batchComposerModel.test.ts; tests/test_studio_media_clip.py |
+| PB | apps/studio-api/studio_api/job_google_docs_output.py; job_progress.py; transcription_options.py; apps/studio/src/App.tsx | tests/test_studio_job_google_docs_output.py; test_studio_job_progress.py; test_studio_transcription_options.py |
+| AP | apps/studio-api/studio_api/audio_preparation*.py; direct_drive_upload.py; apps/studio/src/AudioPreparationPage.tsx; localAudioProcessing.ts; directDriveUpload.ts | tests/test_studio_audio_preparation*.py; test_studio_direct_drive_upload.py; apps/studio/src/AudioPreparation*.test.tsx; localAudioProcessing.test.ts; directDriveUpload.test.ts |
+| SP | apps/studio-api/studio_api/speaker_identity.py; speaker_assignment.py; speaker_sample.py; apps/studio/src/SpeakerIdentityPanel.tsx | tests/test_studio_speaker_identity.py; apps/studio/src/SpeakerIdentityPanel.test.tsx |
+| PM | apps/studio-api/studio_api/transcript_catalog*.py; batch_preflight.py | tests/test_studio_transcript_catalog*.py; test_studio_batch_preflight.py |
+| PD | apps/studio-api/studio_api/transcript_document.py; transcript_catalog_standardize.py; transcript_maintenance*.py | tests/test_studio_transcript_document.py; test_studio_transcript_maintenance*.py |
+| PTM | apps/studio-api/studio_api/transcript_maintenance*.py; apps/studio/src/TranscriptCatalogMigrationPanel.tsx | tests/test_studio_transcript_maintenance*.py; apps/studio/src/TranscriptCatalogMigrationPanel.test.tsx |
+| PR | apps/studio/src/realtimeSession.ts; LiveTranscriptionPanel.tsx; realtimeDrafts.ts; apps/studio-api/studio_api/realtime_drafts.py | apps/studio/src/realtimeSession.test.ts; LiveTranscriptionPanel.test.tsx; realtimeDrafts.test.ts; tests/test_studio_realtime_drafts.py |
+| PO | apps/studio-api/studio_api/diagnostic_reports.py; diagnostic*.py; transcription_analytics.py; apps/studio/src/App.tsx | tests/test_studio_diagnostic_reports.py; test_studio_transcription_analytics.py; apps/studio/src/App.test.tsx |
+| COLABL | notebooks/*.ipynb; elevenlabs_api.py; elevenlabs_realtime.py | scripts/ci_checks.py; tests/test_realtime_static.py |
+| PWASEC | apps/studio-api/studio_api/security.py; deps.py; main.py; account_security.py; session_control.py; auth_retention.py; rate_limit.py | tests/test_studio_account_security.py; test_studio_csrf_contract.py; test_studio_session_control.py; test_studio_rate_limit.py |
+| GOOGLE | apps/studio-api/studio_api/google_connection_access.py; google_drive_upload.py; google_oauth.py; job_output_destination.py | tests/test_studio_google_token_refresh.py; test_studio_google_drive_upload.py; test_studio_job_source_availability.py |
+| STORAG | apps/studio-api/studio_api/source_storage.py; source_deletion.py; storage_reconciliation.py; source_policy.py; deploy/studio/compose.platform.yml | tests/test_studio_storage_reconciliation.py; test_studio_source_deletion.py; test_studio_reference_storage.py |
+| STTPRO | apps/studio-api/studio_api/stt_provider.py; job_stt_transcription.py; stt_provider_health.py | tests/test_studio_stt_provider.py; test_studio_yandex_transcription.py |
+| YANDEX | apps/studio-api/studio_api/yandex_transcription.py; yandex_realtime_relay.py; yandex_realtime.proto | tests/test_studio_yandex_transcription.py; tmp/audit-2026-09-05/yandex_probe.py |
+| PWADIC | apps/studio-api/studio_api/stt_dictionaries.py; apps/studio/src/SttDictionariesPanel.tsx | tests/test_studio_stt_dictionaries.py; apps/studio/src/SttDictionariesPanel.test.tsx |
+| PWAWOR | deploy/studio/compose.platform.yml; apps/studio-api/studio_api/worker.py; scripts/manage_studio_worker.sh | tests/test_studio_worker.py; test_studio_worker_compose.py; test_studio_worker_isolation_report.py |
+| DBLP | deploy/studio/database-roles.sql; worker-db-role.sql; scripts/configure_studio_database_roles.sh | tests/test_studio_database_roles.py; test_studio_worker_db_role_integration.py |
+| JOBREL | apps/studio-api/studio_api/job_processing*.py; job_retry_recovery.py; job_claim_lease.py; provider_part_checkpoints.py; job_notifications.py | tests/test_studio_job_processing*.py; test_studio_job_retry_recovery.py; test_studio_job_notifications.py; test_studio_processing_e2e.py |
+| JOBNOT | apps/studio-api/studio_api/job_notifications.py; apps/studio/src/NotificationsPanel.tsx; apps/studio/public/push-handler.js | tests/test_studio_job_notifications.py; apps/studio/src/NotificationsPanel.test.tsx |
+| REALTI | apps/studio/src/realtimeConsumers.ts; RealtimeOverlay.tsx; apps/studio-api/studio_api/realtime_consumers.py | apps/studio/src/realtimeConsumers.test.ts; tests/test_studio_realtime_consumers.py |
+| TRANSC | apps/studio/src/JobOutputsSection.tsx; apps/studio-api/studio_api/job_output_read.py | tests/test_studio_job_output_read.py; apps/studio/src/JobOutputsSection.test.tsx |
+| USAGEC | apps/studio-api/studio_api/provider_usage_accounting.py; elevenlabs_account.py; provider_account_sync.py; apps/studio/src/ElevenLabsAccountPanel.tsx | tests/test_studio_provider_usage_accounting.py; test_studio_elevenlabs_account.py; apps/studio/src/ElevenLabsAccountPanel.test.tsx |
+| OBSERV | apps/studio-api/studio_api/runtime_observability.py; operational_alerts.py; audit.py; trace_context.py; diagnostics.py | tests/test_studio_runtime_observability.py; test_studio_operational_alerts.py; test_studio_diagnostics.py |
+| RELEAS | .github/workflows/*.yml; scripts/deploy_studio_platform_component_bundle_transport.sh; deploy/studio/* | tests/test_studio_platform_component_deploy.py; test_studio_edge_release.py; test_studio_migration_release.py |
+
+Новые RS/TRANSC проверяются через output DTO, модели, маршруты и JobOutputsSection; YD — SourceType/GoogleConnection/models и отсутствие Yandex Disk adapter; RTC — realtimeSession/relay/drafts; UXN — App/PlatformSidebar/AudioPreparationPage/job_google_docs_output; MC — media_preparation/stt_provider/yandex_transcription; VID — speaker_identity/sample; SECX — account_security/main/security; REC — backup scripts/runbooks; CX и остальные commercial prefixes — EVC/config/models/compose и отсутствие отдельного contour. Это negative/partial evidence, не утверждение о полном dead-code анализе.
+
+## Полный проверенный реестр AC
+
+Каждый canonical ID присутствует один раз. SPEC ✅ для всех строк. CODE ✅ — подтверждённая реализация указанной source surface, ◐ — частичная/недоказанная полнота, — — отсутствует. TEST ◐ — subsystem coverage; CI ✅ означает применимый main source check, CI ◐ для frontend означает отсутствие CI именно неопубликованного hotfix. DEPLOY ◐ — только исторический component record/health, LIVE ◐ — лишь общий health; у конкретных product сценариев LIVE —. Полная приёмка каждой строки пока —. Реализация с gap, даже при green tests, не засчитывается.
+
+### `COLAB-BATCH-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CB-01` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-02` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-03` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-04` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-05` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-06` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-07` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-08` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-09` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-10` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-11` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-12` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-13` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-14` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-15` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-16` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-17` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-18` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-19` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-20` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-21` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-22` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-23` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CB-24` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+
+### `COLAB-REALTIME-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CR-01` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CR-02` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CR-03` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CR-04` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CR-05` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `CR-06` | ◐ | ◐ | ✅ | N/A | — | V-LIVE |
+
+### `PWA-CORE-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PC-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-09` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-10` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-11` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-12` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-13` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PC-14` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-USER-EXPERIENCE-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PUX-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-09` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-10` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-11` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-12` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PUX-13` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-UX-POLISH-03`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `UXPOL-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXPOL-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-UX-CONTROLS-04`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `UXCTL-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-09` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-10` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-11` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-12` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-13` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `UXCTL-14` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-TRANSCRIPTIONS-UX-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PT-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PT-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PT-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PT-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-INGEST-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PI-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-09` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-10` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PI-11` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-GOOGLE-PICKER-UX-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PG-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PG-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-SEGMENTS-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PS-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PS-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PS-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PS-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PS-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-BATCH-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PB-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PB-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-AUDIO-PREPARATION-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `AP-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-06` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-09` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-10` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-11` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-12` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-13` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-14` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-15` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-16` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-17` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-18` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-19` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-20` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-21` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-22` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-23` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-24` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-25` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-26` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-27` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-28` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-29` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `AP-30` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-SPEAKER-IDENTITY-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `SP-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SP-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SP-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SP-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SP-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-MANIFEST-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PM-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PM-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PM-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PM-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PM-05` | ◐ | ◐ | ✅ | ◐ | — | F01 |
+| `PM-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-STANDARDIZATION-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PD-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-12` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-13` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PD-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-TRANSCRIPT-MAINTENANCE-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PTM-01` | ◐ | ◐ | ✅ | ◐ | — | F07 |
+| `PTM-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PTM-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-REALTIME-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PR-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-06` | ◐ | ◐ | ◐ | ◐ | — | V-LIVE |
+| `PR-07` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-08` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-09` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-10` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-11` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-12` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `PR-13` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-OPERABILITY-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PO-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-12` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-13` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-15` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-16` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-17` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PO-18` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `COLAB-LIFECYCLE-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `COLABL-01` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+| `COLABL-02` | ✅ | ◐ | ✅ | N/A | — | AC-specific acceptance / LIVE |
+
+### `PWA-SECURITY-HARDENING-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PWASEC-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-12` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-13` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-15` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-16` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-17` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWASEC-18` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `GOOGLE-DRIVE-RELIABILITY-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `GOOGLE-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `GOOGLE-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `GOOGLE-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `GOOGLE-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `GOOGLE-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `GOOGLE-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `STORAGE-LIFECYCLE-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `STORAG-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-05` | — | — | — | — | — | F10 |
+| `STORAG-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-10` | — | — | — | — | — | F10 |
+| `STORAG-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-12` | — | — | — | — | — | F10 |
+| `STORAG-13` | — | — | — | — | — | F10 |
+| `STORAG-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-15` | — | — | — | — | — | F10 |
+| `STORAG-16` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-17` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-18` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-19` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-20` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STORAG-21` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `STT-PROVIDER-ABSTRACTION-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `STTPRO-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-05` | ◐ | ◐ | ✅ | ◐ | — | F05 |
+| `STTPRO-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-12` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-13` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `STTPRO-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `YANDEX-STT-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `YANDEX-01` | ◐ | ◐ | ✅ | ◐ | — | F04 |
+| `YANDEX-02` | ◐ | ◐ | ✅ | ◐ | — | F04 |
+| `YANDEX-03` | ◐ | ◐ | ✅ | ◐ | — | F05 |
+| `YANDEX-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `YANDEX-05` | ◐ | ◐ | ✅ | ◐ | — | F04 |
+
+### `PWA-DICTIONARIES-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PWADIC-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-WORKER-ISOLATION-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `PWAWOR-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWAWOR-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `PWAWOR-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-DATABASE-LEAST-PRIVILEGE-03`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `DBLP-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `DBLP-08` | ◐ | ◐ | ✅ | ◐ | — | V-RESTORE |
+
+### `JOB-RELIABILITY-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `JOBREL-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-12` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-13` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-15` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-16` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBREL-17` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `JOB-NOTIFICATIONS-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `JOBNOT-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBNOT-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBNOT-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBNOT-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBNOT-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `JOBNOT-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `REALTIME-CONTINUITY-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `REALTI-01` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `REALTI-02` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `REALTI-03` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `REALTI-04` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+| `REALTI-05` | ✅ | ◐ | ◐ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `TRANSCRIPT-EXPORTS-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `TRANSC-01` | — | — | — | — | — | F01 |
+| `TRANSC-02` | — | — | — | — | — | F01 |
+| `TRANSC-03` | — | — | — | — | — | F01 |
+
+### `USAGE-COST-ACCOUNTING-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `USAGEC-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `USAGEC-02` | ◐ | ◐ | ✅ | ◐ | — | F11 |
+| `USAGEC-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `USAGEC-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `USAGEC-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `USAGEC-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `OBSERVABILITY-AUDIT-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `OBSERV-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-06` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-07` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-09` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-10` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-11` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-12` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-13` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-14` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-15` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-16` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-17` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-18` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-19` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-20` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-21` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-22` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-23` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-24` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-25` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-26` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-27` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-28` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-29` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-30` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-31` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-32` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-33` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-34` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `OBSERV-35` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `RELEASE-SAFETY-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `RELEAS-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `RELEAS-02` | ◐ | ◐ | ✅ | ◐ | — | V-RESTORE |
+| `RELEAS-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `RELEAS-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `RELEAS-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `ENVIRONMENT-CAPABILITIES-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `EVC-01` | — | — | — | — | — | BACKLOG |
+| `EVC-02` | — | — | — | — | — | BACKLOG |
+| `EVC-03` | — | — | — | — | — | BACKLOG |
+| `EVC-04` | — | — | — | — | — | BACKLOG |
+| `EVC-05` | — | — | — | — | — | BACKLOG |
+| `EVC-06` | — | — | — | — | — | BACKLOG |
+| `EVC-07` | — | — | — | — | — | BACKLOG |
+| `EVC-08` | — | — | — | — | — | BACKLOG |
+| `EVC-09` | — | — | — | — | — | BACKLOG |
+| `EVC-10` | — | — | — | — | — | BACKLOG |
+| `EVC-11` | — | — | — | — | — | BACKLOG |
+| `EVC-12` | — | — | — | — | — | BACKLOG |
+| `EVC-13` | — | — | — | — | — | BACKLOG |
+| `EVC-14` | — | — | — | — | — | BACKLOG |
+| `EVC-15` | — | — | — | — | — | BACKLOG |
+| `EVC-16` | — | — | — | — | — | BACKLOG |
+| `EVC-17` | — | — | — | — | — | BACKLOG |
+| `EVC-18` | — | — | — | — | — | BACKLOG |
+| `EVC-19` | — | — | — | — | — | BACKLOG |
+| `EVC-20` | — | — | — | — | — | BACKLOG |
+| `EVC-21` | — | — | — | — | — | BACKLOG |
+| `EVC-22` | — | — | — | — | — | BACKLOG |
+| `EVC-23` | — | — | — | — | — | BACKLOG |
+| `EVC-24` | — | — | — | — | — | BACKLOG |
+| `EVC-25` | — | — | — | — | — | BACKLOG |
+| `EVC-26` | — | — | — | — | — | BACKLOG |
+| `EVC-27` | — | — | — | — | — | BACKLOG |
+| `EVC-28` | — | — | — | — | — | BACKLOG |
+| `EVC-29` | — | — | — | — | — | BACKLOG |
+| `EVC-30` | — | — | — | — | — | BACKLOG |
+| `EVC-31` | — | — | — | — | — | BACKLOG |
+| `EVC-32` | — | — | — | — | — | BACKLOG |
+| `EVC-33` | — | — | — | — | — | BACKLOG |
+| `EVC-34` | — | — | — | — | — | BACKLOG |
+| `EVC-35` | — | — | — | — | — | BACKLOG |
+| `EVC-36` | — | — | — | — | — | BACKLOG |
+| `EVC-37` | — | — | — | — | — | BACKLOG |
+| `EVC-38` | — | — | — | — | — | BACKLOG |
+| `EVC-39` | — | — | — | — | — | BACKLOG |
+| `EVC-40` | — | — | — | — | — | BACKLOG |
+| `EVC-41` | — | — | — | — | — | BACKLOG |
+| `EVC-42` | — | — | — | — | — | BACKLOG |
+| `EVC-43` | — | — | — | — | — | BACKLOG |
+| `EVC-44` | — | — | — | — | — | BACKLOG |
+| `EVC-45` | — | — | — | — | — | BACKLOG |
+| `EVC-46` | — | — | — | — | — | BACKLOG |
+| `EVC-47` | — | — | — | — | — | BACKLOG |
+| `EVC-48` | — | — | — | — | — | BACKLOG |
+| `EVC-49` | — | — | — | — | — | BACKLOG |
+| `EVC-50` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-INFRA-DATA-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CINF-01` | — | — | — | — | — | BACKLOG |
+| `CINF-02` | — | — | — | — | — | BACKLOG |
+| `CINF-03` | — | — | — | — | — | BACKLOG |
+| `CINF-04` | — | — | — | — | — | BACKLOG |
+| `CINF-05` | — | — | — | — | — | BACKLOG |
+| `CINF-06` | — | — | — | — | — | BACKLOG |
+| `CINF-07` | — | — | — | — | — | BACKLOG |
+| `CINF-08` | — | — | — | — | — | BACKLOG |
+| `CINF-09` | — | — | — | — | — | BACKLOG |
+| `CINF-10` | — | — | — | — | — | BACKLOG |
+| `CINF-11` | — | — | — | — | — | BACKLOG |
+| `CINF-12` | — | — | — | — | — | BACKLOG |
+| `CINF-13` | — | — | — | — | — | BACKLOG |
+| `CINF-14` | — | — | — | — | — | BACKLOG |
+| `CINF-15` | — | — | — | — | — | BACKLOG |
+| `CINF-16` | — | — | — | — | — | BACKLOG |
+| `CINF-17` | — | — | — | — | — | BACKLOG |
+| `CINF-18` | — | — | — | — | — | BACKLOG |
+| `CINF-19` | — | — | — | — | — | BACKLOG |
+| `CINF-20` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-IDENTITY-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CID-01` | — | — | — | — | — | BACKLOG |
+| `CID-02` | — | — | — | — | — | BACKLOG |
+| `CID-03` | — | — | — | — | — | BACKLOG |
+| `CID-04` | — | — | — | — | — | BACKLOG |
+| `CID-05` | — | — | — | — | — | BACKLOG |
+| `CID-06` | — | — | — | — | — | BACKLOG |
+| `CID-07` | — | — | — | — | — | BACKLOG |
+| `CID-08` | — | — | — | — | — | BACKLOG |
+| `CID-09` | — | — | — | — | — | BACKLOG |
+| `CID-10` | — | — | — | — | — | BACKLOG |
+| `CID-11` | — | — | — | — | — | BACKLOG |
+| `CID-12` | — | — | — | — | — | BACKLOG |
+| `CID-13` | — | — | — | — | — | BACKLOG |
+| `CID-14` | — | — | — | — | — | BACKLOG |
+| `CID-15` | — | — | — | — | — | BACKLOG |
+| `CID-16` | — | — | — | — | — | BACKLOG |
+| `CID-17` | — | — | — | — | — | BACKLOG |
+| `CID-18` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-DATA-GOVERNANCE-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CDG-01` | — | — | — | — | — | BACKLOG |
+| `CDG-02` | — | — | — | — | — | BACKLOG |
+| `CDG-03` | — | — | — | — | — | BACKLOG |
+| `CDG-04` | — | — | — | — | — | BACKLOG |
+| `CDG-05` | — | — | — | — | — | BACKLOG |
+| `CDG-06` | — | — | — | — | — | BACKLOG |
+| `CDG-07` | — | — | — | — | — | BACKLOG |
+| `CDG-08` | — | — | — | — | — | BACKLOG |
+| `CDG-09` | — | — | — | — | — | BACKLOG |
+| `CDG-10` | — | — | — | — | — | BACKLOG |
+| `CDG-11` | — | — | — | — | — | BACKLOG |
+| `CDG-12` | — | — | — | — | — | BACKLOG |
+| `CDG-13` | — | — | — | — | — | BACKLOG |
+| `CDG-14` | — | — | — | — | — | BACKLOG |
+| `CDG-15` | — | — | — | — | — | BACKLOG |
+| `CDG-16` | — | — | — | — | — | BACKLOG |
+| `CDG-17` | — | — | — | — | — | BACKLOG |
+| `CDG-18` | — | — | — | — | — | BACKLOG |
+| `CDG-19` | — | — | — | — | — | BACKLOG |
+| `CDG-20` | — | — | — | — | — | BACKLOG |
+| `CDG-21` | — | — | — | — | — | BACKLOG |
+| `CDG-22` | — | — | — | — | — | BACKLOG |
+| `CDG-23` | — | — | — | — | — | BACKLOG |
+| `CDG-24` | — | — | — | — | — | BACKLOG |
+| `CDG-25` | — | — | — | — | — | BACKLOG |
+| `CDG-26` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-CROSS-BORDER-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CXB-01` | — | — | — | — | — | BACKLOG |
+| `CXB-02` | — | — | — | — | — | BACKLOG |
+| `CXB-03` | — | — | — | — | — | BACKLOG |
+| `CXB-04` | — | — | — | — | — | BACKLOG |
+| `CXB-05` | — | — | — | — | — | BACKLOG |
+| `CXB-06` | — | — | — | — | — | BACKLOG |
+| `CXB-07` | — | — | — | — | — | BACKLOG |
+| `CXB-08` | — | — | — | — | — | BACKLOG |
+| `CXB-09` | — | — | — | — | — | BACKLOG |
+| `CXB-10` | — | — | — | — | — | BACKLOG |
+| `CXB-11` | — | — | — | — | — | BACKLOG |
+| `CXB-12` | — | — | — | — | — | BACKLOG |
+| `CXB-13` | — | — | — | — | — | BACKLOG |
+| `CXB-14` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-STT-QUOTA-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CSQ-01` | — | — | — | — | — | BACKLOG |
+| `CSQ-02` | — | — | — | — | — | BACKLOG |
+| `CSQ-03` | — | — | — | — | — | BACKLOG |
+| `CSQ-04` | — | — | — | — | — | BACKLOG |
+| `CSQ-05` | — | — | — | — | — | BACKLOG |
+| `CSQ-06` | — | — | — | — | — | BACKLOG |
+| `CSQ-07` | — | — | — | — | — | BACKLOG |
+| `CSQ-08` | — | — | — | — | — | BACKLOG |
+| `CSQ-09` | — | — | — | — | — | BACKLOG |
+| `CSQ-10` | — | — | — | — | — | BACKLOG |
+| `CSQ-11` | — | — | — | — | — | BACKLOG |
+| `CSQ-12` | — | — | — | — | — | BACKLOG |
+| `CSQ-13` | — | — | — | — | — | BACKLOG |
+| `CSQ-14` | — | — | — | — | — | BACKLOG |
+| `CSQ-15` | — | — | — | — | — | BACKLOG |
+| `CSQ-16` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-SPEAKER-PRIVACY-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CSP-01` | — | — | — | — | — | BACKLOG |
+| `CSP-02` | — | — | — | — | — | BACKLOG |
+| `CSP-03` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-QUEUE-FAIRNESS-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CQF-01` | — | — | — | — | — | BACKLOG |
+| `CQF-02` | — | — | — | — | — | BACKLOG |
+| `CQF-03` | — | — | — | — | — | BACKLOG |
+| `CQF-04` | — | — | — | — | — | BACKLOG |
+| `CQF-05` | — | — | — | — | — | BACKLOG |
+| `CQF-06` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-BILLING-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CBI-01` | — | — | — | — | — | BACKLOG |
+| `CBI-02` | — | — | — | — | — | BACKLOG |
+| `CBI-03` | — | — | — | — | — | BACKLOG |
+| `CBI-04` | — | — | — | — | — | BACKLOG |
+| `CBI-05` | — | — | — | — | — | BACKLOG |
+| `CBI-06` | — | — | — | — | — | BACKLOG |
+| `CBI-07` | — | — | — | — | — | BACKLOG |
+| `CBI-08` | — | — | — | — | — | BACKLOG |
+| `CBI-09` | — | — | — | — | — | BACKLOG |
+| `CBI-10` | — | — | — | — | — | BACKLOG |
+| `CBI-11` | — | — | — | — | — | BACKLOG |
+| `CBI-12` | — | — | — | — | — | BACKLOG |
+| `CBI-13` | — | — | — | — | — | BACKLOG |
+| `CBI-14` | — | — | — | — | — | BACKLOG |
+| `CBI-15` | — | — | — | — | — | BACKLOG |
+| `CBI-16` | — | — | — | — | — | BACKLOG |
+| `CBI-17` | — | — | — | — | — | BACKLOG |
+| `CBI-18` | — | — | — | — | — | BACKLOG |
+| `CBI-19` | — | — | — | — | — | BACKLOG |
+| `CBI-20` | — | — | — | — | — | BACKLOG |
+| `CBI-21` | — | — | — | — | — | BACKLOG |
+| `CBI-22` | — | — | — | — | — | BACKLOG |
+| `CBI-23` | — | — | — | — | — | BACKLOG |
+| `CBI-24` | — | — | — | — | — | BACKLOG |
+| `CBI-25` | — | — | — | — | — | BACKLOG |
+| `CBI-26` | — | — | — | — | — | BACKLOG |
+| `CBI-27` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-ECONOMICS-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CEC-01` | — | — | — | — | — | BACKLOG |
+| `CEC-02` | — | — | — | — | — | BACKLOG |
+| `CEC-03` | — | — | — | — | — | BACKLOG |
+| `CEC-04` | — | — | — | — | — | BACKLOG |
+| `CEC-05` | — | — | — | — | — | BACKLOG |
+| `CEC-06` | — | — | — | — | — | BACKLOG |
+| `CEC-07` | — | — | — | — | — | BACKLOG |
+| `CEC-08` | — | — | — | — | — | BACKLOG |
+| `CEC-09` | — | — | — | — | — | BACKLOG |
+| `CEC-10` | — | — | — | — | — | BACKLOG |
+| `CEC-11` | — | — | — | — | — | BACKLOG |
+| `CEC-12` | — | — | — | — | — | BACKLOG |
+| `CEC-13` | — | — | — | — | — | BACKLOG |
+| `CEC-14` | — | — | — | — | — | BACKLOG |
+| `CEC-15` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-SECURITY-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CSEC-01` | — | — | — | — | — | BACKLOG |
+| `CSEC-02` | — | — | — | — | — | BACKLOG |
+| `CSEC-03` | — | — | — | — | — | BACKLOG |
+| `CSEC-04` | — | — | — | — | — | BACKLOG |
+| `CSEC-05` | — | — | — | — | — | BACKLOG |
+| `CSEC-06` | — | — | — | — | — | BACKLOG |
+| `CSEC-07` | — | — | — | — | — | BACKLOG |
+| `CSEC-08` | — | — | — | — | — | BACKLOG |
+| `CSEC-09` | — | — | — | — | — | BACKLOG |
+| `CSEC-10` | — | — | — | — | — | BACKLOG |
+| `CSEC-11` | — | — | — | — | — | BACKLOG |
+| `CSEC-12` | — | — | — | — | — | BACKLOG |
+| `CSEC-13` | — | — | — | — | — | BACKLOG |
+| `CSEC-14` | — | — | — | — | — | BACKLOG |
+| `CSEC-15` | — | — | — | — | — | BACKLOG |
+| `CSEC-16` | — | — | — | — | — | BACKLOG |
+| `CSEC-17` | — | — | — | — | — | BACKLOG |
+| `CSEC-18` | — | — | — | — | — | BACKLOG |
+| `CSEC-19` | — | — | — | — | — | BACKLOG |
+| `CSEC-20` | — | — | — | — | — | BACKLOG |
+| `CSEC-21` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-NOTIFICATIONS-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CNOT-01` | — | — | — | — | — | BACKLOG |
+| `CNOT-02` | — | — | — | — | — | BACKLOG |
+| `CNOT-03` | — | — | — | — | — | BACKLOG |
+| `CNOT-04` | — | — | — | — | — | BACKLOG |
+| `CNOT-05` | — | — | — | — | — | BACKLOG |
+| `CNOT-06` | — | — | — | — | — | BACKLOG |
+| `CNOT-07` | — | — | — | — | — | BACKLOG |
+| `CNOT-08` | — | — | — | — | — | BACKLOG |
+
+### `COMMERCIAL-LEGAL-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CLEG-01` | — | — | — | — | — | BACKLOG |
+| `CLEG-02` | — | — | — | — | — | BACKLOG |
+| `CLEG-03` | — | — | — | — | — | BACKLOG |
+| `CLEG-04` | — | — | — | — | — | BACKLOG |
+| `CLEG-05` | — | — | — | — | — | BACKLOG |
+| `CLEG-06` | — | — | — | — | — | BACKLOG |
+| `CLEG-07` | — | — | — | — | — | BACKLOG |
+| `CLEG-08` | — | — | — | — | — | BACKLOG |
+| `CLEG-09` | — | — | — | — | — | BACKLOG |
+| `CLEG-10` | — | — | — | — | — | BACKLOG |
+| `CLEG-11` | — | — | — | — | — | BACKLOG |
+| `CLEG-12` | — | — | — | — | — | BACKLOG |
+| `CLEG-13` | — | — | — | — | — | BACKLOG |
+| `CLEG-14` | — | — | — | — | — | BACKLOG |
+| `CLEG-15` | — | — | — | — | — | BACKLOG |
+| `CLEG-16` | — | — | — | — | — | BACKLOG |
+| `CLEG-17` | — | — | — | — | — | BACKLOG |
+| `CLEG-18` | — | — | — | — | — | BACKLOG |
+
+### `RESULTS-STUDIO-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `RS-01` | — | — | — | — | — | F01 |
+| `RS-02` | — | — | — | — | — | F01 |
+| `RS-03` | — | — | — | — | — | F01 |
+| `RS-04` | — | — | — | — | — | F01 |
+| `RS-05` | — | — | — | — | — | F01 |
+| `RS-06` | — | — | — | — | — | F01 |
+| `RS-07` | — | — | — | — | — | F01 |
+| `RS-08` | — | — | — | — | — | F01 |
+| `RS-09` | — | — | — | — | — | F01 |
+| `RS-10` | — | — | — | — | — | F01 |
+| `RS-11` | — | — | — | — | — | F01 |
+| `RS-12` | — | — | — | — | — | F01 |
+| `RS-13` | — | — | — | — | — | F01 |
+| `RS-14` | — | — | — | — | — | F01 |
+| `RS-15` | — | — | — | — | — | F01 |
+| `RS-16` | — | — | — | — | — | F01 |
+| `RS-17` | — | — | — | — | — | F01 |
+
+### `YANDEX-DISK-01`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `YD-01` | — | — | — | — | — | F02 |
+| `YD-02` | — | — | — | — | — | F02 |
+| `YD-03` | — | — | — | — | — | F02 |
+| `YD-04` | — | — | — | — | — | F02 |
+| `YD-05` | — | — | — | — | — | F02 |
+| `YD-06` | — | — | — | — | — | F02 |
+| `YD-07` | — | — | — | — | — | F02 |
+| `YD-08` | — | — | — | — | — | F02 |
+| `YD-09` | — | — | — | — | — | F02 |
+
+### `REALTIME-RECOVERY-03`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `RTC-01` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-02` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-03` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-04` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-05` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-06` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-07` | ◐ | ◐ | ✅ | ◐ | — | F03 |
+| `RTC-08` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `PWA-REQUIREMENTS-05`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `UXN-01` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-02` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-03` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-04` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-05` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-06` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-07` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+| `UXN-09` | ◐ | ◐ | ◐ | ◐ | — | F07 |
+
+### `MEDIA-CONTRACT-03`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `MC-01` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+| `MC-03` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+| `MC-04` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+| `MC-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `MC-06` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+| `MC-07` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+| `MC-08` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+| `MC-09` | ◐ | ◐ | ✅ | ◐ | — | F06 |
+
+### `PERSONAL-VOICE-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `VID-01` | ◐ | ◐ | ✅ | ◐ | — | F08 |
+| `VID-02` | ◐ | ◐ | ✅ | ◐ | — | F08 |
+| `VID-03` | ◐ | ◐ | ✅ | ◐ | — | F08 |
+| `VID-04` | ◐ | ◐ | ✅ | ◐ | — | F08 |
+| `VID-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+
+### `SECURITY-LIFECYCLE-03`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `SECX-01` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SECX-02` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SECX-03` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SECX-04` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SECX-05` | ✅ | ◐ | ✅ | ◐ | — | AC-specific acceptance / LIVE |
+| `SECX-06` | ◐ | ◐ | ✅ | ◐ | — | V-LIVE |
+
+### `RECOVERY-DATA-03`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `REC-01` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+| `REC-02` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+| `REC-03` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+| `REC-04` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+| `REC-05` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+| `REC-06` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+| `REC-07` | ◐ | ◐ | ✅ | ◐ | — | F10 |
+
+### `COMMERCIAL-COMPLETENESS-02`
+
+| AC | CODE | TEST | CI | DEPLOY | LIVE | Остаток / gap |
+|---|---|---|---|---|---|---|
+| `CX-01` | — | — | — | — | — | F09 |
+| `CX-02` | — | — | — | — | — | F09 |
+| `CX-03` | — | — | — | — | — | F09 |
+| `CX-04` | — | — | — | — | — | F09 |
+| `CX-05` | — | — | — | — | — | F09 |
+| `CX-06` | — | — | — | — | — | F09 |
+| `CX-07` | — | — | — | — | — | F09 |
+| `CX-08` | — | — | — | — | — | F09 |
+| `CX-09` | — | — | — | — | — | F09 |
+
+## Candidate next Goals — proposals без authorization
+
+1. **AUDIO-REFERENCE-UPLOAD-HOTFIX-01 — текущая поставка, не новая candidate Goal.** Merge документов и готового hotfix явно поручен владельцем; результат и gates находятся в Current Goal выше. CORS и synthetic upload не повторять без новой необходимости.
+2. **Yandex correctness.** F04/F05/F06: official-wire fixtures, сохранение string timestamps, корректные provider metadata, documented realtime capabilities и indexed final refinements. После безопасных checks — отдельные разрешённые provider canaries. До них не объявлять Yandex READY.
+3. **Результат в Studio — 25 незавершённых AC.** RS-01..17 (17), STORAG-05/10/12/13/15 (5), TRANSC-01..03 (3). Сначала спроектировать retained transcript + export state/ownership, затем S3 retention/deletion, UI/downloads и повторный export. Возможна поставка несколькими reviewable batches в одной согласованной Goal; schema change требует approved migration lane.
+4. **Yandex Disk + контуры.** YD-01..09, EVC/CX: зависит от независимого результата Studio и явного выбора конкретной contour Goal. Common personal код не закрывает commercial tenant/billing/legal readiness.
+5. **Realtime continuity.** RTC-01..08: bounded replay/dedup и отдельное consented audio retention; не ограничиваться UI reconnect toggle.
+6. **Dependency/config hardening.** F12/F13/F14: advisory triage и portable shell/clean dependency reproducibility; изменение защиты main/environments — отдельная explicit settings/CI policy Goal.
+
+## Отложенные проверки и решения владельца
+
+Manual/credentialed validation backlog: paid ElevenLabs/Yandex batch/deferred/realtime; реальные Google Docs standardization и Drive/Yandex Disk export; microphone/display/mixed matrix в Windows с drop/reconnect; доставка email/Web Push/Telegram и external captions; versioned object deletion, retention expiry и isolated restore относительно RPO/RTO; opt-in TOTP recovery; commercial payments/fiscalization/legal review. Browser checks без paid/mutating эффекта могут выполняться агентом в соответствующей Goal; пользовательская приёмка не должна подменять известные defects или блокировать независимую реализацию.
+
+Нужны продуктовые значения для Projects UX, RPO/RTO, realtime buffer bounds, voice retention/algorithm и коммерческих тарифов/quota outcome rules. Их отсутствие не отменяет сам scope и не требует подтверждать каждый сформированный AC.
+
+## Самопроверка выводов и границы аудита
+
+- Просмотрены все canonical AC и актуальные source units; технический просмотр риск-ориентированный, не исчерпывающий formal proof каждой строки кода/ветки. Полный per-AC runtime dossier отсутствует и явно показан.
+- Неподтверждённые security exploits, утечки secrets, corruption или потеря production transcripts не заявляются. Yandex timestamp defect подтверждён synthetic probe, а не paid runtime.
+- Шесть npm advisories не называются 86 независимыми уязвимостями. Build-time reachability не равна API SSRF. Local global pip conflicts не приписаны репозиторию.
+- Старый claim об отсутствии exact commit в CD опровергнут bundle transport. SKIPPED jobs и health не подменяют deployment/приёмку функции.
+- Generated protobuf modules не dead code: их использует relay. Colab formatter и Studio formatter принадлежат разным исполняемым контурам; схожесть сама по себе не основание для удаления. Подтверждённого безопасного списка code deletion нет.
+- Во время исходного AUDIT AGENTS и universal CI/CD policy не изменялись; затем отдельным поручением владельца заменены новыми референсами, как зафиксировано в checkpoint выше. Аудит разрешал upstream reconciliation/status relocation и не возобновлял implementation.

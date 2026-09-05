@@ -1,13 +1,13 @@
 # ElevenLabs API / VoiceOps Studio
 
-VoiceOps — система транскрибации с двумя production-продуктами:
+VoiceOps Studio — PWA для подготовки аудио, транскрибации и работы с результатами. Product scope включает изолированные personal и commercial контуры; отдельный Colab поддерживается в пределах существующих возможностей. Фактические исполняемые поверхности:
 
 1. **Google Colab** — batch-транскрибации в Google Docs и realtime-транскрибация в окне браузера.
 2. **VoiceOps Studio PWA** — web-приложение с отдельной подготовкой WAV/FLAC до транскрибации, batch и realtime, авторизацией, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
 
-Colab batch используется около четырёх месяцев и в целом стабилен. VoiceOps Studio PWA активно развивается; выполненный source-level scope не считается production READY до exact-revision CI, deployment и bounded LIVE validation.
+Personal Studio PWA работает и развивается. Яндекс Диск, самостоятельное хранение полных транскрипций в Studio и расширенная realtime continuity входят в согласованные требования; их текущие gaps зафиксированы в delivery-plan. Colab не получает новые PWA/commercial возможности автоматически.
 
-README не дублирует быстро устаревающие проценты и revision IDs. Актуальные numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md), а текущая и предыдущая независимые оценки, active Goal, blockers и checkpoint — в [docs/delivery-plan.md](docs/delivery-plan.md).
+README не дублирует быстро устаревающие проценты и revision IDs. Полный scope, atomic AC, источники и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Все текущие статусы AC, Evidence, numerator/denominator, текущая и предыдущая оценки, findings, варианты Goal и checkpoint находятся только в [docs/delivery-plan.md](docs/delivery-plan.md).
 
 Commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. Существующий personal code не считается commercial Evidence.
 
@@ -17,8 +17,11 @@ Commercial production включён в durable product scope как `BACKLOG`, 
 # Lightweight repository checks
 python scripts/ci_checks.py
 
-# Python tests
+# Python tests (PostgreSQL/Redis + bash нужны для полного CI-профиля)
 pytest -q
+
+# Ограниченный локальный профиль
+pytest -q --portable
 
 # VoiceOps Studio PWA
 cd apps/studio
@@ -30,6 +33,8 @@ npm run build
 # Проверка whitespace/diff
 git diff --check
 ```
+
+На Windows portable suite всё ещё включает shell-dependent проверки; ограничения и фактические результаты последнего аудита указаны в delivery-plan и Project CI/CD profile.
 
 Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Studio production operations выполняются только по project CI/CD contract и operational runbook.
 
