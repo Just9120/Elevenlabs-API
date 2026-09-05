@@ -30,19 +30,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified repository/runtime baseline: production web/API используют functional merge `main@924c05385522570066325aab0287f0e5ac7b475a`, worker остаётся на совместимой последней worker-affecting revision, schema `0037_ux_audit_controls`. Exact-main repository/Studio CI, applicable web/API delivery и bounded authenticated preview-only LIVE подтверждены. Yandex credential/provider calls, destructive bulk cleanup и external caption sends не выполнялись и остаются explicit opt-in boundaries.
+Verified repository/runtime baseline: `main@e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7` из PR `#299`; CI, applicable delivery и bounded non-mutating LIVE подтверждены в итоговом owner-facing отчёте предыдущей Goal. Yandex credential/provider calls, destructive bulk cleanup и external caption sends не выполнялись и остаются explicit opt-in boundaries.
 
-Current operational Goal: `AUDIO-OUTPUT-FILENAME-HOTFIX-01`, state `IN_PROGRESS` по explicit owner instruction 2026-09-04. Scope исправляет reopened `AP-11`: пользователь задаёт optional output name, а пустое поле наследует имя исходного файла; user-visible Unicode filename не подменяется ASCII-only internal storage name.
+Current operational Goal: `SEGMENT-FOLDER-FAVORITES-HOTFIX-01`, state `IN_PROGRESS` по explicit owner annotation 2026-09-05. Scope добавляет existing favorites selection к fragment destinations в рамках `PI-02`, `UXCTL-04/05`; новые atomic product AC не добавляются. Предыдущий `AP-11` hotfix закрыт.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **100% (`32/32`)** | completed exact-main CODE/TEST/CI и applicable LIVE; Colab deployment unit N/A |
-| Personal Studio PWA | **97,0% (`326/336`)** | `AP-11` reopened по production defect `source.flac`; hotfix CODE/TEST готовы, CI/DEPLOY/LIVE pending |
-| Non-commercial scope | **97,3% (`358/368`)** | Colab `32/32` + personal PWA `326/336`; denominator не изменён |
+| Personal Studio PWA | **97,3% (`327/336`)** | `AP-11` закрыт hotfix `#299`; current favorites polish не меняет denominator |
+| Non-commercial scope | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `327/336`; denominator не изменён |
 | Commercial/cross-contour BACKLOG | **0% (`0/242`)** | `ENVIRONMENT-CAPABILITIES-01 0/50` + commercial epics `0/192`; personal reuse не является commercial Evidence |
-| Полный canonical scope | **58,7% (`358/610`)** | `358 / (368 non-commercial + 242 commercial/cross-contour)` |
+| Полный canonical scope | **58,9% (`359/610`)** | `359 / (368 non-commercial + 242 commercial/cross-contour)` |
 
-Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед UX Goal дал `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; все 14 AC подтверждены CODE/TEST/CI/DEPLOY/LIVE. Последующая production evidence reopened существующий `AP-11`, поэтому current numerator временно равен `358/610` без изменения denominator. Проценты не означают READY для всего продукта; unresolved `SPEC gaps` не входят в denominator.
+Denominator исходного reconciliation был пересчитан из exact upstream revision: `283` raw source units (`275` list items + `8` narrative paragraphs) дали `384` новых уникальных atomic AC после удаления duplicates и исключения неатомизируемых conflicts/ambiguities. Последующие explicit owner decisions добавили Picker/diarization/versionless transcript, direct Drive upload, maintenance, account reconciliation, `PUX-01..13`, `JOBREL-17`, `UXPOL-01..08` и `DBLP-01..08`; factual table reconciliation перед UX Goal дал `596` AC и `312` completed. Закрытые delivery Goals `JOB-RELIABILITY-NOTIFICATIONS-01` и `STT-MULTIPROVIDER-CONTINUITY-01` добавили `33` подтверждённых AC и подняли numerator до `345/596`. Explicit owner Goal 2026-09-04 добавила `UXCTL-01..14`, поэтому current denominator равен `610`, non-commercial `368`, personal PWA `336`; все 14 AC подтверждены CODE/TEST/CI/DEPLOY/LIVE. Production defect временно reopened существующий `AP-11` (`358/610`); verified hotfix `#299` восстановил current numerator `359/610` без изменения denominator. Проценты не означают READY для всего продукта; unresolved `SPEC gaps` не входят в denominator.
 
 ### Commercial scope decision
 
@@ -312,7 +312,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-AUDIO-PREPARATION-01` — самостоятельная обработка аудио
 
-Status: **🟦 IN PROGRESS — 96,7% (`29/30`)**. `AP-11` reopened после production evidence: server output с кириллическим default title получил имя `source.flac`; hotfix ожидает exact CI, delivery и bounded LIVE.
+Status: **🟩 READY — 100% (`30/30`)**. `AP-11` закрыт hotfix `#299`: optional source-name fallback и Unicode filename preservation подтверждены required CI, delivery и bounded LIVE.
 
 Audio preparation — отдельный пользовательский workspace до транскрибации. Он может завершиться самостоятельным processed-media output без provider call; результат скачивается на устройство либо загружается в явно выбранную Google Drive folder. Отдельный direct-upload mode переносит исходные audio/video с устройства непосредственно в Google Drive без обработки и без промежуточного хранения в Studio.
 
@@ -328,7 +328,7 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-08` | Silence processing позволяет задать threshold, минимальную длительность тишины и сколько тишины оставить; значения имеют bounded safe limits. | ✅ |
 | `AP-09` | До mutation пользователь получает preview общей исходной длительности и оценочной длительности после silence processing. | ✅ |
 | `AP-10` | Склейка, silence processing, conversion и переименование могут выполняться отдельно или в комбинации без обязательной последующей транскрибации. | ✅ |
-| `AP-11` | Пользователь может задать optional output name; если поле пусто, output наследует stem соответствующего исходного filename (для concat — первого source в подтверждённом порядке). User-visible Unicode/кириллическое имя сохраняется в Studio Source, Google Drive и download, а internal storage key формируется отдельно и не подменяет видимое имя. | — |
+| `AP-11` | Пользователь может задать optional output name; если поле пусто, output наследует stem соответствующего исходного filename (для concat — первого source в подтверждённом порядке). User-visible Unicode/кириллическое имя сохраняется в Studio Source, Google Drive и download, а internal storage key формируется отдельно и не подменяет видимое имя. | ✅ |
 | `AP-12` | Доступны bounded presets для типовых сценариев `Лекция`, `Созвон` и `Только обработать аудио`, причём пользователь видит и может изменить итоговые параметры до запуска. | ✅ |
 | `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. | ✅ |
 | `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. | ✅ |
@@ -349,9 +349,9 @@ Audio preparation — отдельный пользовательский worksp
 | `AP-29` | File count, per-file/aggregate size и MIME имеют явные bounds; partial failures изолированы, а manual retry использует устойчивый idempotency marker и не дублирует уже подтверждённые uploads. | ✅ |
 | `AP-30` | API server-side проверяет owner destination и result metadata: file ID, parent, name, MIME, size и idempotency marker; UI показывает только safe Drive links, а token/resumable upload URL/private diagnostics не логируются и не сохраняются. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
-Current Goal Evidence: full Studio Vitest `705 passed`; full ESLint и TypeScript/Vite/PWA production build passed; focused Python filename/processor/download regressions `32 passed`; portable Python `1363 passed, 5 skipped, 9 unchanged Windows/WSL shell cases deselected`; lightweight checks, Python compileall и diff check passed. Exact implementation-head repository CI `33908723893`, Studio и browser E2E `33908724010` success. Tests подтверждают пустое поле, per-source separate fallback, deterministic concat fallback, local WAV inheritance, Unicode server output и RFC 5987 download metadata; deployment/LIVE pending.
+Filename hotfix Evidence: full Studio Vitest `705 passed`; full ESLint и TypeScript/Vite/PWA production build passed; focused Python filename/processor/download regressions `32 passed`; portable Python `1363 passed, 5 skipped, 9 unchanged Windows/WSL shell cases deselected`; lightweight checks, Python compileall и diff check passed. PR `#299` merged; required CI, applicable delivery и bounded LIVE подтверждены итоговым owner-facing отчётом. Tests покрывают пустое поле, per-source separate fallback, deterministic concat fallback, local WAV inheritance, Unicode server output и RFC 5987 download metadata. LIVE не создавал новый media output.
 
 Verified base delivery: PRs `#234–#235`, final merge `16badb0aa4404ae2616a3d46070925b54b043963`; exact-main repository/Studio CI, protected migration `0025_audio_preparation`, API/worker/web rollout и bounded operation `2ad99ead-1c45-4439-8e8a-d64c2bcc3037` подтвердили preview `0:04 → 0:02`, terminal `completed`, download/Drive/reuse и ephemeral cleanup. PR `#237`, exact-main CI/CD и browser-local production WAV подтвердили новый UX, локальную обработку и независимые actions. Последующий exact worker retest на двух сохранённых OBS/MKV sources дал два независимых `invalid_input` на 5%; initial stream/container numeric-duration fallback оказался недостаточным, поэтому `AP-10` остаётся reopened до hotfix CI/deploy и успешного server concat LIVE.
 
