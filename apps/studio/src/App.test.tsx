@@ -8460,6 +8460,98 @@ describe("Studio PWA", () => {
     ).toHaveLength(1);
   });
 
+  it("revalidates a favorite for only the selected fragment and preserves default inheritance", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const previousFetch = fetchMock.getMockImplementation();
+    let favoriteWritable = true;
+    const favorite = {
+      id: "favorite-1",
+      drive_folder_id: "favorite-folder",
+      name: "Избранная папка",
+      web_view_url: "https://drive.google.com/drive/folders/favorite-folder",
+      created_at: "2026-08-20T10:00:00Z",
+      updated_at: "2026-08-20T10:00:00Z",
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/output-folder-favorites") {
+        return json({ favorites: [favorite] });
+      }
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST" &&
+        JSON.parse(String(init.body)).folder_id === favorite.drive_folder_id
+      ) {
+        return favoriteWritable
+          ? json({ name: "Проверенная папка", web_view_url: favorite.web_view_url })
+          : json({ detail: "folder_not_writable" }, false, 403);
+      }
+      return previousFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    const favoritesFetch = fetchMock.getMockImplementation();
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await userEvent.click(screen.getByRole("checkbox", {
+      name: /Разделить файл на фрагменты/,
+    }));
+    fireEvent.change(screen.getByLabelText("Количество фрагментов задачи 1"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("Конец фрагмента 1 задачи 1"), {
+      target: { value: "10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Начало фрагмента 2 задачи 1"), {
+      target: { value: "10:00" },
+    });
+    const firstFragment = screen.getByText("Фрагмент 1").closest("li")!;
+    const secondFragment = screen.getByText("Фрагмент 2").closest("li")!;
+    const favorites = screen.getByLabelText("Избранные папки фрагмента 1 задачи 1");
+    await userEvent.click(within(favorites).getByText("Избранные папки"));
+    await userEvent.click(await within(favorites).findByRole("button", {
+      name: "Выбрать: Избранная папка",
+    }));
+    expect(await within(firstFragment).findByText("Проверенная папка")).toBeInTheDocument();
+    expect(within(secondFragment).getByText("Папка не выбрана")).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Выбрать папку результата для задачи 1",
+    })).toHaveTextContent("Выбрать");
+
+    await chooseResultFolder(1, "default-folder", "Общая папка");
+    fetchMock.mockImplementation(favoritesFetch!);
+    expect(within(firstFragment).getByText("Проверенная папка")).toBeInTheDocument();
+    expect(within(secondFragment).getByText("Общая папка")).toBeInTheDocument();
+    await userEvent.click(within(firstFragment).getByRole("button", {
+      name: "Наследовать общую папку для фрагмента 1 задачи 1",
+    }));
+    expect(within(firstFragment).getByText("Общая папка")).toBeInTheDocument();
+
+    favoriteWritable = false;
+    await userEvent.click(within(favorites).getByRole("button", {
+      name: "Выбрать: Избранная папка",
+    }));
+    expect(await within(favorites).findByText(
+      "Избранная папка больше не подтверждена для записи. Выберите другую или удалите её из списка.",
+    )).toBeInTheDocument();
+    expect(within(firstFragment).getByText("Общая папка")).toBeInTheDocument();
+    expect(within(firstFragment).queryByText("Собственная папка этого фрагмента.")).not.toBeInTheDocument();
+
+    favoriteWritable = true;
+    await userEvent.click(within(favorites).getByRole("button", {
+      name: "Выбрать: Избранная папка",
+    }));
+    expect(await within(firstFragment).findByText("Проверенная папка")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Проверить задачи (2)" }));
+    await screen.findByLabelText("Проверка перед созданием задач");
+    const preflightCall = fetchMock.mock.calls.find(
+      ([url, init]) => isBatchPreflightRequest(url, init),
+    );
+    expect(JSON.parse(String(preflightCall?.[1]?.body)).items).toEqual([
+      expect.objectContaining({ output_folder_id: "favorite-folder" }),
+      expect.objectContaining({ output_folder_id: "default-folder" }),
+    ]);
+  });
+
   it("row output-folder Picker cancel/error does not mutate project folder and source/folder cannot open simultaneously", async () => {
     let picker = installFakeGooglePicker();
     renderApp();

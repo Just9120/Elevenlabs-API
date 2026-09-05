@@ -2,6 +2,41 @@
 
 ## Current Goal
 
+- **ID / title:** `SEGMENT-FOLDER-FAVORITES-HOTFIX-01` — избранные папки в destination controls каждого фрагмента.
+- **State:** `IN_PROGRESS` — shared favorites UI и segment-scoped selection реализованы; frontend validation passed; PR/CI и web delivery pending.
+- **Authorization source:** explicit owner browser annotation 2026-09-05: «нет выбора избранных папок как вначале при выборе папки фрагмента»; narrow implementation продолжает существующие `PI-02` и `UXCTL-04/05` без нового product AC.
+- **Scope:** переиспользовать основной collapsible favorites list у каждого фрагмента; revalidate selected folder на existing API; применять override только к выбранному segment; сохранять default-folder inheritance, empty/loading/error states и текущие favorites actions; выполнить frontend checks, PR/CI, web delivery и bounded non-mutating LIVE.
+- **Non-goals:** backend/schema/worker changes; новые permissions или OAuth scopes; изменение списка избранного/Google Drive в production; запуск транскрибации; commercial contour; расширение product denominator.
+- **Goal AC:**
+  1. `SFF-01`: каждый включённый fragment имеет «Избранные папки» из того же owner-scoped списка, что и основная папка.
+  2. `SFF-02`: выбор требует successful server verification, меняет только нужный fragment, корректно попадает в preflight и допускает возврат к общей папке; failed verification сохраняет прежний destination.
+  3. `SFF-03`: shared UI сохраняет loading/empty/error/retry behavior; focused regression, frontend checks, exact CI, web delivery и read-only LIVE подтверждены.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** none; previous pnpm files были удалены по explicit owner instruction, inaccessible pre-existing pytest directories не затрагиваются.
+- **Stop condition:** все 3 Goal AC и required Evidence выполнены либо возник external gate; следующий scope не выбирается автоматически.
+
+## Active execution checkpoint
+
+- **Updated (UTC):** `2026-09-05T05:36:54Z`.
+- **Base branch/SHA:** synced `origin/main@e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`.
+- **Working branch:** `codex/segment-folder-favorites`.
+- **Working tree at Goal start:** tracked and visible untracked state clean; pre-existing inaccessible pytest directories preserved.
+- **Last verified revision:** `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`; current changes are uncommitted.
+- **Completed:** shared favorites renderer подключён к row и segment folder controls; optional segment identity направляет verified result только в соответствующий segment; regression проверяет empty default, sibling isolation, inheritance reset, rejected verification и preflight destinations.
+- **Current step:** reviewable commit and PR.
+- **Next exact action:** создать focused commit и PR, дождаться required CI.
+- **Validation / Evidence:** focused App suite `3 passed, 225 intentionally filtered`; full frontend `706 passed`; ESLint, TypeScript, Vite/PWA build и diff check passed. Initial sandbox denied esbuild spawn, approved rerun passed. No provider/Google production mutation.
+- **PR / CI / deployment:** none for current Goal; previous `#299` merged and delivered as recorded below.
+- **Blockers / unverified assumptions:** none for implementation; LIVE verification ограничивается UI/build identity без folder selection или provider dispatch.
+
+## Previous Goal closure — `AUDIO-OUTPUT-FILENAME-HOTFIX-01`
+
+- **State:** `DONE` — PR `#299` merged as `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`; CI, applicable delivery and bounded LIVE verified in the owner-facing final report of the previous Goal.
+- **Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`. Optional result name/source-name fallback confirmed; no new media/provider/Drive action was used for LIVE verification.
+- **Metadata reconciliation:** post-deploy facts recorded in the final report are incorporated in this next code-bearing scope; no metadata-only follow-up PR or direct push was used.
+
+## Previous Goal contract — `AUDIO-OUTPUT-FILENAME-HOTFIX-01` (pre-merge snapshot)
+
 - **ID / title:** `AUDIO-OUTPUT-FILENAME-HOTFIX-01` — пользовательское имя результата с fallback на имя исходного файла.
 - **State:** `IN_PROGRESS` — production defect `source.flac` локализован; implementation, local validation, reviewable PR и exact implementation-head CI завершены; merge/delivery/LIVE ещё не выполнены.
 - **Authorization source:** explicit owner instruction 2026-09-04: «нужно поле для задания имени. Если имя не задано, то переносится имя исходного файла»; owner отдельно подтвердил, что `source.flac` был фактическим именем output до ручного переименования.
@@ -16,7 +51,7 @@
 - **Known blockers/dependencies:** production end-to-end creation нового файла намеренно не входит в bounded LIVE без отдельного action-time решения; unrelated `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` и inaccessible temporary pytest directories сохраняются untouched.
 - **Stop condition:** все 4 Goal AC и required Evidence выполнены либо Goal достигает `BLOCKED` / `PENDING_EXTERNAL_GATE`; к следующей Goal без новой explicit owner authorization не переходить.
 
-## Active execution checkpoint
+## Previous execution checkpoint — audio filename hotfix (pre-merge snapshot)
 
 - **Updated (UTC):** `2026-09-04T19:02:10Z`.
 - **Base branch/SHA:** exact synced `origin/main@924c05385522570066325aab0287f0e5ac7b475a`.
@@ -339,22 +374,22 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; unresolved SPEC gaps/runtime risks не являются AC и исключены. Current denominator: `610` AC = `368` non-commercial + `242` commercial/cross-contour. Production defect reopened существующий `AP-11`, поэтому numerator временно уменьшен на один без изменения scope/denominator; Evidence gate-ит READY.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`; unresolved SPEC gaps/runtime risks не являются AC и исключены. Current denominator: `610` AC = `368` non-commercial + `242` commercial/cross-contour. Подтверждённый hotfix `#299` возвращает `AP-11` в numerator; текущая minor favorites Goal не меняет product denominator или количество выполненных AC.
 
 | Product/epic | Current independent snapshot | Previous independent snapshot | Основание |
 |---|---:|---:|---|
-| **Полный canonical scope** | **58,7% (`358/610`)** | **58,9% (`359/610`)** | `AP-11` reopened по фактическому `source.flac`; denominator неизменен. |
-| **Non-commercial scope** | **97,3% (`358/368`)** | **97,6% (`359/368`)** | Colab `32/32` + personal PWA `326/336`. |
+| **Полный canonical scope** | **58,9% (`359/610`)** | **58,7% (`358/610`)** | `AP-11` закрыт hotfix `#299`; denominator неизменен. |
+| **Non-commercial scope** | **97,6% (`359/368`)** | **97,3% (`358/368`)** | Colab `32/32` + personal PWA `327/336`. |
 | **Commercial/cross-contour** | **0% (`0/242`)** | **0% (`0/242`)** | Durable BACKLOG, implementation не авторизована. |
 | **Google Colab canonical** | **100% (`32/32`)** | **100% (`32/32`)** | Current Goal Colab не затрагивает; applicable delivery Evidence closed. |
-| **Personal Studio PWA canonical** | **97,0% (`326/336`)** | **97,3% (`327/336`)** | Current Goal затрагивает только reopened `AP-11`. |
-| `PWA-AUDIO-PREPARATION-01` | **96,7% (`29/30`)** | **100% (`30/30`) READY** | Filename fallback/Unicode defect подтверждён production evidence; CODE/TEST ready, CI/DEPLOY/LIVE pending. |
+| **Personal Studio PWA canonical** | **97,3% (`327/336`)** | **97,0% (`326/336`)** | `AP-11` closure reconciled; favorites polish не добавляет новых AC. |
+| `PWA-AUDIO-PREPARATION-01` | **100% (`30/30`) READY** | **96,7% (`29/30`)** | Filename fallback/Unicode hotfix `#299` прошёл required Evidence. |
 
-Изменений более `10` п.п. нет. После полного delivery/LIVE hotfix `AP-11` может вернуться в numerator только по фактическому Evidence.
+Изменений более `10` п.п. нет; snapshots пересчитаны по atomic AC без изменения требований.
 
 ## Candidate next Goals
 
-Current Goal `AUDIO-OUTPUT-FILENAME-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
+Current Goal `SEGMENT-FOLDER-FAVORITES-HOTFIX-01` выполняется; Candidate next Goal не выбирается до её terminal state.
 
 ## Risks и boundaries
 

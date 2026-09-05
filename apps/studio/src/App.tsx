@@ -3377,7 +3377,11 @@ function PreparationPanel({
       setFolderFavoriteMutation(null);
     }
   }
-  async function chooseFavoriteFolder(rowId: string, favorite: OutputFolderFavorite) {
+  async function chooseFavoriteFolder(
+    rowId: string,
+    favorite: OutputFolderFavorite,
+    segmentId?: string,
+  ) {
     if (folderFavoriteMutation) return;
     setFolderFavoriteMutation(`choose:${favorite.id}`);
     setFolderFavoritesError("");
@@ -3398,13 +3402,19 @@ function PreparationPanel({
       if (!isExpectedVerifiedGooglePickerFolder(bounded.value)) {
         throw new Error("invalid_response");
       }
-      updateRow(rowId, {
-        output_folder: {
-          folder_id: favorite.drive_folder_id,
-          name: bounded.value.name,
-          web_view_url: bounded.value.web_view_url,
-        },
-      });
+      const outputFolder = {
+        folder_id: favorite.drive_folder_id,
+        name: bounded.value.name,
+        web_view_url: bounded.value.web_view_url,
+      };
+      if (segmentId) {
+        updateSegment(rowId, segmentId, {
+          output_folder: outputFolder,
+          reprocess_existing: false,
+        });
+      } else {
+        updateRow(rowId, { output_folder: outputFolder });
+      }
     } catch {
       setFolderFavoritesError(
         "Избранная папка больше не подтверждена для записи. Выберите другую или удалите её из списка.",
@@ -3437,6 +3447,71 @@ function PreparationPanel({
     } finally {
       setFolderFavoriteMutation(null);
     }
+  }
+  function renderFolderFavorites(rowId: string, label: string, segmentId?: string) {
+    return (
+      <details
+        aria-label={label}
+        onToggle={(event) => {
+          if (
+            event.currentTarget.open &&
+            !folderFavoritesLoaded &&
+            !folderFavoritesLoading
+          ) {
+            void loadFolderFavorites();
+          }
+        }}
+      >
+        <summary>Избранные папки</summary>
+        {folderFavoritesLoading && (
+          <p role="status">Загрузка избранных папок…</p>
+        )}
+        {folderFavoritesError && (
+          <p className="error">{folderFavoritesError}</p>
+        )}
+        {folderFavoritesLoaded && folderFavorites.length === 0 && (
+          <p className="muted">Избранных папок пока нет.</p>
+        )}
+        {folderFavorites.map((favorite) => (
+          <div className="resource-actions" key={favorite.id}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={folderFavoriteMutation !== null}
+              aria-busy={folderFavoriteMutation === `choose:${favorite.id}`}
+              onClick={() =>
+                void chooseFavoriteFolder(rowId, favorite, segmentId)
+              }
+            >
+              Выбрать: {favorite.name}
+            </button>
+            <ResourceExternalLink
+              href={favorite.web_view_url}
+              label="Открыть"
+              ariaLabel={`Открыть избранную папку ${favorite.name} в Google Drive`}
+            />
+            <button
+              type="button"
+              className="secondary danger"
+              disabled={folderFavoriteMutation !== null}
+              aria-busy={folderFavoriteMutation === `delete:${favorite.id}`}
+              onClick={() => void deleteFolderFavorite(favorite)}
+            >
+              Удалить
+            </button>
+          </div>
+        ))}
+        {folderFavoritesError && !folderFavoritesLoading && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void loadFolderFavorites()}
+          >
+            Повторить
+          </button>
+        )}
+      </details>
+    );
   }
   async function performBatchCreation(
     requestBody: BatchCreateRequest,
@@ -5141,66 +5216,10 @@ function PreparationPanel({
                             : "Добавить в избранное"}
                         </button>
                       )}
-                      <details
-                        onToggle={(event) => {
-                          if (
-                            event.currentTarget.open &&
-                            !folderFavoritesLoaded &&
-                            !folderFavoritesLoading
-                          ) {
-                            void loadFolderFavorites();
-                          }
-                        }}
-                      >
-                        <summary>Избранные папки</summary>
-                        {folderFavoritesLoading && (
-                          <p role="status">Загрузка избранных папок…</p>
-                        )}
-                        {folderFavoritesError && (
-                          <p className="error">{folderFavoritesError}</p>
-                        )}
-                        {folderFavoritesLoaded && folderFavorites.length === 0 && (
-                          <p className="muted">Избранных папок пока нет.</p>
-                        )}
-                        {folderFavorites.map((favorite) => (
-                          <div className="resource-actions" key={favorite.id}>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={folderFavoriteMutation !== null}
-                              aria-busy={folderFavoriteMutation === `choose:${favorite.id}`}
-                              onClick={() =>
-                                void chooseFavoriteFolder(row.id, favorite)
-                              }
-                            >
-                              Выбрать: {favorite.name}
-                            </button>
-                            <ResourceExternalLink
-                              href={favorite.web_view_url}
-                              label="Открыть"
-                              ariaLabel={`Открыть избранную папку ${favorite.name} в Google Drive`}
-                            />
-                            <button
-                              type="button"
-                              className="secondary danger"
-                              disabled={folderFavoriteMutation !== null}
-                              aria-busy={folderFavoriteMutation === `delete:${favorite.id}`}
-                              onClick={() => void deleteFolderFavorite(favorite)}
-                            >
-                              Удалить
-                            </button>
-                          </div>
-                        ))}
-                        {folderFavoritesError && !folderFavoritesLoading && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void loadFolderFavorites()}
-                          >
-                            Повторить
-                          </button>
-                        )}
-                      </details>
+                      {renderFolderFavorites(
+                        row.id,
+                        `Избранные папки задачи ${index + 1}`,
+                      )}
                     </div>
                   </div>
                   {!row.segmentation_enabled && (
@@ -5398,6 +5417,11 @@ function PreparationPanel({
                                   </button>
                                 )}
                               </div>
+                              {renderFolderFavorites(
+                                row.id,
+                                `Избранные папки фрагмента ${segmentIndex + 1} задачи ${index + 1}`,
+                                segment.id,
+                              )}
                             </div>
                           </li>
                         );
