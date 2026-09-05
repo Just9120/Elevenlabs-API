@@ -17,16 +17,16 @@
 
 ## Active execution checkpoint
 
-- **Updated (UTC):** `2026-09-05T05:36:54Z`.
+- **Updated (UTC):** `2026-09-05T05:42:59Z`.
 - **Base branch/SHA:** synced `origin/main@e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`.
 - **Working branch:** `codex/segment-folder-favorites`.
 - **Working tree at Goal start:** tracked and visible untracked state clean; pre-existing inaccessible pytest directories preserved.
-- **Last verified revision:** `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`; current changes are uncommitted.
+- **Last verified revision:** implementation commit `921deece027cad2b608667bf2fbd798a9c7c9fa4`, covered by local frontend validation; final checkpoint-only commit не меняет runtime source.
 - **Completed:** shared favorites renderer подключён к row и segment folder controls; optional segment identity направляет verified result только в соответствующий segment; regression проверяет empty default, sibling isolation, inheritance reset, rejected verification и preflight destinations.
-- **Current step:** reviewable commit and PR.
-- **Next exact action:** создать focused commit и PR, дождаться required CI.
+- **Current step:** PR `#300`, required CI in progress; no review findings as of this checkpoint.
+- **Next exact action:** после required checks final PR head выполнить merge и проверить web delivery/LIVE.
 - **Validation / Evidence:** focused App suite `3 passed, 225 intentionally filtered`; full frontend `706 passed`; ESLint, TypeScript, Vite/PWA build и diff check passed. Initial sandbox denied esbuild spawn, approved rerun passed. No provider/Google production mutation.
-- **PR / CI / deployment:** none for current Goal; previous `#299` merged and delivered as recorded below.
+- **PR / CI / deployment:** PR `#300` targets `main`; initial checks `33947907470`, Studio/browser `33947907445` in progress on implementation head. Current Goal delivery/LIVE pending; API/worker/migration N/A.
 - **Blockers / unverified assumptions:** none for implementation; LIVE verification ограничивается UI/build identity без folder selection или provider dispatch.
 
 ## Previous Goal closure — `AUDIO-OUTPUT-FILENAME-HOTFIX-01`
