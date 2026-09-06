@@ -1,6 +1,6 @@
 # Реестр AC: Studio: существующие personal-подсистемы
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-06T14:10Z (AP-11/UXCTL-07: implementation working tree codex/audio-name-error-ux, V27; прочие строки — аудит 2026-09-06 MSK), source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/studio.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. `IMPLEMENTED` не означает приёмку. `ALIAS`/`SUPERSEDED` не входят в счётчик. У READY строк закрыт узкий наблюдаемый AC; остальная историческая приёмка требует проверки records.
+Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-06T14:36Z (AP-11/UXCTL-07: deployed 84ae25f, V27; прочие строки — аудит 2026-09-06 MSK), source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/studio.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. `IMPLEMENTED` не означает приёмку. `ALIAS`/`SUPERSEDED` не входят в счётчик. У READY строк закрыт узкий наблюдаемый AC; остальная историческая приёмка требует проверки records.
 
 ### `PWA-CORE-01`
 
@@ -62,7 +62,7 @@
 | `UXCTL-04` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `UXCTL-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `UXCTL-06` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `UXCTL-07` | IMPLEMENTED | ✅ | ✅ | — | — | — | V27: явное закрытие, authoritative matching, no-case/no-false-not-found, timeout readback; Linux API/E2E и runtime PENDING |
+| `UXCTL-07` | IMPLEMENTED | ✅ | ✅ | ✅ | ✅ | ◐ | V27 / PR #302: explicit closure, owner/source/clip matching, no-case, timeout/reauth; real API E2E и production read-only UI PASS. Решение по старому результату за владельцем |
 | `UXCTL-08` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `UXCTL-09` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `UXCTL-10` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
@@ -149,7 +149,7 @@
 | `AP-08` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `AP-09` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `AP-10` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `AP-11` | IMPLEMENTED | ✅ | ✅ | — | — | — | V27: полный dotted Unicode title сохраняется API/formatter/processor и local download; CI/CD и реальное новое Drive-сохранение PENDING |
+| `AP-11` | IMPLEMENTED | ✅ | ✅ | ✅ | ✅ | ◐ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новое реальное Drive сохранение владельцем PENDING |
 | `AP-12` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `AP-13` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
 | `AP-14` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
