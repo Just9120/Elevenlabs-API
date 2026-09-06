@@ -195,6 +195,30 @@ describe("JobCard", () => {
     expect(onDismissTerminal).not.toHaveBeenCalled();
   });
 
+  it("keeps closure available without a reconciliation case and respects declined confirmation", async () => {
+    const onResolveAttention = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderCard({
+      pinnedTerminal: true,
+      attentionRequired: true,
+      onResolveAttention,
+      reconciliation: { ...reconciliation, data: { ...reconciliation.data!, available: false } },
+    });
+    expect(screen.queryByRole("button", { name: "Проверить результат ещё раз" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Отсутствие документа не подтверждено/)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть ошибку и убрать в историю" }));
+    expect(onResolveAttention).not.toHaveBeenCalled();
+  });
+
+  it("exposes loading failures and refresh outside collapsed error details", async () => {
+    const onOpen = vi.fn();
+    renderCard({ pinnedTerminal: true, attentionRequired: true, onOpen, reconciliation: { ...reconciliation, data: null, error: "Не удалось загрузить действия." } });
+    expect(screen.getByText("Не удалось загрузить действия.")).toBeVisible();
+    expect(screen.getByText("Доступность автоматической проверки ещё не подтверждена.")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Обновить доступные действия" }));
+    expect(onOpen).toHaveBeenCalledWith("job-1");
+  });
+
   it("keeps an uncertain provider outcome compact until the user resolves it", async () => {
     const onCheckReconciliation = vi.fn();
     const onResolveAttention = vi.fn();
@@ -245,7 +269,7 @@ describe("JobCard", () => {
     );
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Подтвердить: результата нет" }),
+      screen.getByRole("button", { name: "Закрыть ошибку и убрать в историю" }),
     );
     expect(confirm).toHaveBeenCalledWith(
       expect.stringContaining("мог уже списать средства"),

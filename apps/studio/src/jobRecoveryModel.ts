@@ -1,10 +1,13 @@
 import type { JobСтатус } from "./jobModel";
 
+export type JobAttentionCandidate = { id: string; title: string | null; created_at: string };
+
 export type OutputReconciliationResponse = {
   job_id: string;
   job_status: JobСтатус;
   available: boolean;
   counts: Record<string, number>;
+  attention_candidates?: JobAttentionCandidate[];
   cases: {
     job_source_id: string;
     status: string;
@@ -242,6 +245,19 @@ export function parseOutputReconciliationResponse(
   ) {
     return null;
   }
+  const attentionCandidates: JobAttentionCandidate[] = [];
+  if (candidate.attention_candidates !== undefined) {
+    if (!Array.isArray(candidate.attention_candidates) || candidate.attention_candidates.length > 50) return null;
+    for (const item of candidate.attention_candidates) {
+      if (!isRecord(item)) return null;
+      const id = boundedString(item.id, 36);
+      const title = optionalNullableBoundedString(item.title, 300);
+      const createdAt = optionalNullableIsoDate(item.created_at);
+      if (!id || id === jobId || title === false || title === undefined || typeof createdAt !== "string") return null;
+      attentionCandidates.push({ id, title, created_at: createdAt });
+    }
+    if (new Set(attentionCandidates.map((item) => item.id)).size !== attentionCandidates.length) return null;
+  }
   return {
     job_id: jobId,
     job_status:
@@ -249,6 +265,7 @@ export function parseOutputReconciliationResponse(
     available: candidate.available,
     counts,
     cases,
+    ...(candidate.attention_candidates !== undefined ? { attention_candidates: attentionCandidates } : {}),
   };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, mutateWithCsrfRetry } from "./apiClient";
+import { audioSourceTitle } from "./audioOutputNaming";
 import {
   DirectUploadAmbiguousError,
   directUploadTimeoutMs,
@@ -94,7 +95,7 @@ function sourceCreatedLabel(source: Source | undefined) {
 
 function sourceStem(source: Source | undefined) {
   const name = source?.original_filename?.trim() || "Файл";
-  return name.replace(/\.[^.]+$/, "") || "Файл";
+  return audioSourceTitle(name) || "Файл";
 }
 
 function stageLabel(stage: string) {

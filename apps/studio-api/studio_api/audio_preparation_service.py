@@ -69,7 +69,8 @@ def create_audio_preparation_job(
     trace_id: str | None = None,
 ) -> AudioPreparationJob:
     project = _owned_project(db, owner_user_id, project_id)
-    clean_title = normalize_source_display_filename(title, max_length=160).rsplit(".", 1)[0].strip()
+    # The client supplies a title, not a filename. Its dots are meaningful.
+    clean_title = normalize_source_display_filename(title, max_length=160).strip()
     if not clean_title:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_sources)
     if not source_ids or len(source_ids) > MAX_AUDIO_INPUTS or len(source_ids) != len(set(source_ids)):

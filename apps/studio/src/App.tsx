@@ -3889,7 +3889,9 @@ function PreparationPanel({
       }
       const result = request.value;
       const message =
-        result.resolved > 0
+        result.checked === 0
+          ? "Автоматическая проверка не выполнена: нет данных для поиска документа. Проверьте папку результата вручную; отсутствие документа не подтверждено."
+          : result.resolved > 0
           ? "Документ найден и восстановлен."
           : result.conflicts > 0
             ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано."
@@ -4332,25 +4334,40 @@ function PreparationPanel({
     if (!beginJobMutation("attention", jobId)) return;
     let notice: JobMutationNotice | undefined;
     try {
-      const candidate = await csrfMutate<unknown>(
+      const request = await runBoundedRequest((signal) => csrfMutate<unknown>(
         `/jobs/${jobId}/attention-resolution`,
         csrf,
         onCsrf,
         {
           method: "POST",
+          signal,
           body: JSON.stringify({
             resolution,
             linked_job_id: linkedJobId ?? null,
             confirm_possible_spend: true,
           }),
         },
-      );
-      const parsed = parseJobSummaryResponse(candidate, project.id, jobId);
+      ));
+      const parsed = request.status === "timed_out"
+        ? await readAfterJobMutationTimeout<TranscriptionJob>(
+            (signal) => requestJobDetail(jobId, project.id, signal),
+          )
+        : parseJobSummaryResponse(request.value, project.id, jobId);
       if (
         !parsed ||
-        parsed.history_attention_required !== false ||
-        !parsed.history_attention_resolved_at
+        !parsed.history_attention_resolved_at ||
+        !parsed.terminal_dismissed_at ||
+        parsed.history_attention_resolution !== resolution ||
+        (parsed.history_attention_linked_job_id ?? null) !== (linkedJobId ?? null)
       ) {
+        if (request.status === "timed_out") {
+          notice = {
+            projectId: project.id, kind: "attention", jobId, tone: "error",
+            message: "Studio не ответила вовремя. Закрытие ошибки не подтверждено; обновите состояние перед повтором.",
+          };
+          await onReloadJobs(project.id);
+          return;
+        }
         throw new Error("invalid_attention_resolution_response");
       }
       setDetail((current) => ({
@@ -4449,12 +4466,7 @@ function PreparationPanel({
         attentionResolutionPending={pendingJobMutations.has(
           jobMutationKey("attention", job.id),
         )}
-        attentionCandidates={displayJobs.filter(
-          (candidate) =>
-            candidate.id !== job.id &&
-            candidate.status === "completed" &&
-            candidate.created_at > job.created_at,
-        )}
+        attentionCandidates={reconciliation?.data?.attention_candidates ?? []}
         onResolveAttention={resolveJobAttention}
         csrf={csrf}
         onCsrf={onCsrf}

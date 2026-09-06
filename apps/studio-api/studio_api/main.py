@@ -29,6 +29,7 @@ from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectM
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
+from .job_attention import confirmed_later_results_query, recent_attention_candidates
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .trace_context import reset_current_trace_id, sanitize_inbound_trace, set_current_trace_id, valid_trace_id
@@ -3434,21 +3435,9 @@ def resolve_job_history_attention(
     linked_job = None
     if data.resolution == "linked_later_result":
         linked_job = owned_job_or_404(db, user, data.linked_job_id or "")
-        source_ids = [row.source_id for row in job.sources]
-        linked_source_ids = [row.source_id for row in linked_job.sources]
-        valid_link = (
-            linked_job.project_id == job.project_id
-            and linked_job.created_at > job.created_at
-            and linked_job.status == JobStatus.completed
-            and source_ids == linked_source_ids
-            and linked_job.media_clip_start_seconds == job.media_clip_start_seconds
-            and linked_job.media_clip_end_seconds == job.media_clip_end_seconds
-            and db.query(TranscriptionJobOutput.id).filter(
-                TranscriptionJobOutput.job_id == linked_job.id,
-                TranscriptionJobOutput.output_kind == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
-            ).first()
-            is not None
-        )
+        valid_link = confirmed_later_results_query(db, job).filter(
+            TranscriptionJob.id == linked_job.id,
+        ).first() is not None
         if not valid_link:
             raise HTTPException(409, detail={"reason": "linked_job_not_confirmed"})
     now = utcnow()
@@ -3602,7 +3591,13 @@ def put_job_speaker_assignment(job_id: str, speaker_id: str, data: SpeakerAssign
 def get_output_reconciliation(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:output-reconciliation:get:"+user.id, 120, 3600)
     try:
-        return reconciliation_status_payload(db, owner_user_id=user.id, job_id=job_id)
+        payload = reconciliation_status_payload(db, owner_user_id=user.id, job_id=job_id)
+        job = owned_job_or_404(db, user, job_id)
+        attention_required = db.query(TranscriptionJob.id).filter(
+            TranscriptionJob.id == job.id, history_attention_required_expression(),
+        ).first() is not None
+        payload["attention_candidates"] = recent_attention_candidates(db, job) if attention_required else []
+        return payload
     except OutputReconciliationError:
         raise HTTPException(404, "Не найдено")
 
@@ -3610,6 +3605,11 @@ def get_output_reconciliation(job_id: str, pair=Depends(current_session), db: Se
 def check_output_reconciliation(job_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
     _,user=pair; limiter.check("job:output-reconciliation:check:"+user.id, 10, 3600)
     job=owned_job_or_404(db,user,job_id)
+    if job.status in {JobStatus.queued, JobStatus.processing}:
+        raise HTTPException(409, "Output reconciliation unavailable")
+    if not reconciliation_status_payload(db, owner_user_id=user.id, job_id=job.id)["available"]:
+        # No lookup was possible: do not refresh Google credentials or claim not-found.
+        return {"job_id": job.id, "checked": 0, "resolved": 0, "unresolved": 0, "conflicts": 0}
     try:
         conn=active_google_connection_for_user(db, user_id=user.id); require_drive_file_scope(conn)
         access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)

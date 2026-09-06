@@ -1,5 +1,10 @@
 # Architecture
 
+## Уточнение scope по аудиту 2026-09-06
+
+Описанные ниже Google-only output и transient transcript boundaries отражают текущую реализацию b8babc2. Новый согласованный intent требует самостоятельного принятого transcript artifact внутри Studio и независимого export lifecycle; F01/RS/PB-06/PM-05 отслеживаются в [delivery dashboard](delivery-plan.md), формулировки — в [project spec](project-spec.md). Старые implementation ограничения не отменяют новые требования и не разрешают их исполнение. PostgreSQL остаётся владельцем workflow metadata, S3 — назначенным владельцем retained bytes; Google/Яндекс Диск — внешние пользовательские exports.
+
+
 This document is an architecture map, not a delivery plan, runbook, or production-readiness claim. It distinguishes source-level architecture from production deployment status.
 
 ## Contours

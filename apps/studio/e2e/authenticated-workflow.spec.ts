@@ -408,7 +408,7 @@ test('Audio workspace processes a device WAV in-browser without uploading source
   await page
     .getByLabel('Выбрать файлы для обработки на устройстве')
     .setInputFiles({
-      name: 'browser-local.wav',
+      name: 'Лекция 1. Предмет, задачи и методы социальной психологии.wav',
       mimeType: 'audio/wav',
       buffer: browserLocalWavFixture(),
     });
@@ -431,7 +431,7 @@ test('Audio workspace processes a device WAV in-browser without uploading source
   await expect(localResults).toBeVisible();
   const download = localResults.getByRole('link', { name: 'Скачать файл' });
   await expect(download).toHaveAttribute('href', /^blob:/);
-  await expect(download).toHaveAttribute('download', 'browser-local.wav');
+  await expect(download).toHaveAttribute('download', 'Лекция 1. Предмет, задачи и методы социальной психологии.wav');
   expect(uploadMutations).toEqual([]);
 });
 
@@ -787,7 +787,7 @@ test('transcript maintenance stays fail-closed without Google authority', async 
   expect(maintenanceMutations).toEqual([]);
 });
 
-test('uncertain provider result exposes no unsafe recovery action', async ({
+test('uncertain provider result can be explicitly closed without another provider call', async ({
   page,
 }) => {
   const navigation = await login(page);
@@ -877,6 +877,34 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
     }),
   ).toHaveCount(0);
   expect(integrationRequests).toEqual([]);
+  await uncertainDetails.locator(':scope > summary').click();
+  await expect(uncertainDetails).not.toHaveAttribute('open', '');
+  const closeError = jobCard.getByRole('button', { name: 'Закрыть ошибку и убрать в историю' });
+  await expect(closeError).toBeVisible();
+  await expect(jobCard.getByRole('button', { name: 'Проверить результат ещё раз' })).toHaveCount(0);
+  await expect(jobCard.getByText(/Отсутствие документа не подтверждено/)).toBeVisible();
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('мог уже списать средства');
+    await dialog.dismiss();
+  });
+  await closeError.click();
+  expect(integrationRequests).toEqual([]);
+  page.once('dialog', (dialog) => dialog.accept());
+  const resolutionResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith(`/api/jobs/${uncertainJobId}/attention-resolution`));
+  await closeError.click();
+  expect((await resolutionResponse).status()).toBe(200);
+  await expect(jobCard).toHaveCount(0);
+  const readback = await page.request.get(`/api/jobs/${uncertainJobId}`);
+  expect(readback.status()).toBe(200);
+  expect(await readback.json()).toMatchObject({
+    status: 'failed',
+    history_attention_resolution: 'acknowledged_no_result',
+    history_attention_resolved_at: expect.any(String),
+    terminal_dismissed_at: expect.any(String),
+  });
+  expect(integrationRequests.filter((request) => request.startsWith('POST'))).toEqual([
+    `POST http://127.0.0.1:4173/api/jobs/${uncertainJobId}/attention-resolution`,
+  ]);
 });
 
 test('unresolved output reconciliation waits for an explicit safe action', async ({
@@ -957,15 +985,10 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   expect(reconciliationJson).not.toContain('browser-e2e-folder');
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
-  const reconciliationNotice = jobCard.locator(
-    'section[aria-label="Проверка результата в Google Drive"]',
-  );
-  await expect(reconciliationNotice).toContainText(
-    'Требуется проверка результата Google Docs',
-  );
+  const reconciliationNotice = jobCard.locator('.attention-resolution-controls');
   await expect(
     reconciliationNotice.getByRole('button', {
-      name: 'Проверить созданный документ в Google Drive',
+      name: 'Проверить результат ещё раз',
     }),
   ).toBeVisible();
 

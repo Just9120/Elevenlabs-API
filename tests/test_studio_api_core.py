@@ -5528,7 +5528,7 @@ def test_active_provider_attempt_never_requires_history_resolution():
     assert active_job["history_attention_required"] is False
 
 
-def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_safe():
+def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_safe(monkeypatch):
     client, headers, project_id = create_logged_in_project(
         "attention-resolution@example.com"
     )
@@ -5583,6 +5583,18 @@ def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_
         )
         db.commit()
         later_job_id = later_job.id
+
+    reconciliation_endpoint = f"/api/jobs/{uncertain_job_id}/output-reconciliation"
+    candidates = client.get(reconciliation_endpoint)
+    assert candidates.status_code == 200
+    assert [row["id"] for row in candidates.json()["attention_candidates"]] == [later_job_id]
+    assert other.get(reconciliation_endpoint).status_code == 404
+    def unexpected_google_refresh(*args, **kwargs):
+        raise AssertionError("No Google request is allowed without reconciliation cases")
+    monkeypatch.setattr("studio_api.main.refresh_user_google_drive_access_token", unexpected_google_refresh)
+    check = client.post(reconciliation_endpoint + "/check", headers=headers)
+    assert check.status_code == 200
+    assert check.json() == {"job_id": uncertain_job_id, "checked": 0, "resolved": 0, "unresolved": 0, "conflicts": 0}
 
     endpoint = f"/api/jobs/{uncertain_job_id}/attention-resolution"
     linked_payload = {
