@@ -1,3 +1,5 @@
+import { audioSourceTitle } from "./audioOutputNaming";
+
 export const LOCAL_AUDIO_MAX_FILES = 20;
 export const LOCAL_AUDIO_MAX_INPUT_BYTES = 256 * 1024 * 1024;
 export const LOCAL_AUDIO_MAX_DECODED_SAMPLES = 50_000_000;
@@ -47,7 +49,7 @@ function safeTitle(value: string) {
 }
 
 function stem(name: string) {
-  return safeTitle(name.replace(/\.[^.]+$/, "")) || "Обработанное аудио";
+  return safeTitle(audioSourceTitle(name)) || "Обработанное аудио";
 }
 
 function copyChannels(audio: PcmAudio, mode: LocalAudioChannelMode): Float32Array[] {

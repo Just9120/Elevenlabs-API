@@ -1,0 +1,56 @@
+# AC: Colab
+
+Часть [canonical spec](../project-spec.md). Единственный владелец формулировок AC этой подсистемы. Статусы/Evidence находятся в [реестре](../delivery/colab.md).
+
+### Эпик `COLAB-BATCH-01` — batch-транскрибация
+
+| AC | Проверяемое требование |
+|---|---|
+| `CB-01` | Provider API keys читаются из Colab Secrets. |
+| `CB-02` | Пользователь выбирает target folder на Google Drive. |
+| `CB-03` | С компьютера выбирается один файл. |
+| `CB-04` | С компьютера выбираются несколько файлов. |
+| `CB-05` | С компьютера выбирается целая папка с файлами. |
+| `CB-06` | На Google Drive выбирается один source file. |
+| `CB-07` | На Google Drive выбираются несколько source files. |
+| `CB-08` | На Google Drive выбирается source folder. |
+| `CB-09` | Доступно разделение на спикеров. |
+| `CB-10` | Доступен явный русский язык. |
+| `CB-11` | Доступен явный английский язык. |
+| `CB-12` | Доступно auto-detection языка и оно выбрано по умолчанию; русский и английский остаются optional overrides. |
+| `CB-13` | Manifest защищает от повторной платной транскрибации. |
+| `CB-14` | Пользователь может явно пропустить manifest check. |
+| `CB-15` | Пользователь может безопасно очистить manifest. |
+| `CB-16` | Пользователь может зарегистрировать выбранную папку в manifest. |
+| `CB-17` | Manifest не записывает source до подтверждённого Google Docs результата. |
+| `CB-18` | Source identity основана на Drive metadata/content fingerprint, а не только на имени. |
+| `CB-19` | Новый transcript document разбит на читабельные абзацы. |
+| `CB-20` | В начало документа добавлен metadata header. |
+| `CB-21` | Видимое время документа записано в ISO 8601. |
+| `CB-22` | Время получено из фактического creation time исходного media file. |
+| `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. |
+| `CB-24` | Каждый новый Colab transcript создаётся в canonical versionless формате `transcript_doc`: название документа — Google Docs `Heading 2`, метка `Спикер N:` — русская, bold и `14 pt`, обычный текст — `11 pt`; устойчивые technical terms и metadata keys остаются на английском. |
+
+Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests, затем отдельная Windows capture/Google/STT приёмка. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
+
+### Эпик `COLAB-REALTIME-01` — realtime-транскрибация
+
+| AC | Проверяемое требование |
+|---|---|
+| `CR-01` | В Windows/Chrome выбирается вкладка, окно или экран через display capture. |
+| `CR-02` | Захватывается передаваемый browser/system audio track. |
+| `CR-03` | Микрофон включается опционально и может смешиваться с display audio. |
+| `CR-04` | Partial и committed transcript отображаются live в окне. |
+| `CR-05` | Подтверждённый transcript скачивается как `.txt`. |
+| `CR-06` | Захват не рвётся в согласованной серии representative Windows/Chrome sessions. |
+
+Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests, затем отдельная Windows capture/Google/STT приёмка. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
+
+### Эпик `COLAB-LIFECYCLE-02` — замороженный lifecycle Colab
+
+| AC | Проверяемое требование |
+|---|---|
+| `COLABL-01` | Новые PWA/commercial features не переносятся в Colab. |
+| `COLABL-02` | После feature freeze Colab изменяется только через явно авторизованные bugfixes. |
+
+Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests, затем отдельная Windows capture/Google/STT приёмка. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.

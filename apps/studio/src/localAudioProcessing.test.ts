@@ -99,7 +99,7 @@ describe("browser-local audio processing", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("uses the source filename when the optional result name is empty", async () => {
+  it.each(["Исходная запись.webm", "Лекция 1. Тема.webm", "Лекция 1. Тема"])("uses the full source title for %s when the result name is empty", async (filename) => {
     class FakeAudioContext {
       async close() { return undefined; }
       async decodeAudioData() {
@@ -113,7 +113,7 @@ describe("browser-local audio processing", () => {
       }
     }
     vi.stubGlobal("AudioContext", FakeAudioContext);
-    const file = new File(["encoded"], "Исходная запись.webm", { type: "audio/webm" });
+    const file = new File(["encoded"], filename, { type: "audio/webm" });
     Object.defineProperty(file, "arrayBuffer", {
       value: async () => new TextEncoder().encode("encoded").buffer,
     });
@@ -123,6 +123,6 @@ describe("browser-local audio processing", () => {
       options({ operationMode: "separate", title: "" }),
     );
 
-    expect(result.filename).toBe("Исходная запись.wav");
+    expect(result.filename).toBe(`${filename.endsWith(".webm") ? filename.slice(0, -5) : filename}.wav`);
   });
 });

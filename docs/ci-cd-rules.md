@@ -1,6 +1,6 @@
 # Правила validation и CI/CD
 
-Документ определяет выбор проверок, CI, build/artifact, CD и связанные операции с окружениями. Scope и полномочия задаёт пользователь; Goal и состояние исполнения ведутся по корневому `AGENTS.md`. Правила применяются к фактическому стеку проекта, а не требуют внедрить все перечисленные инструменты.
+Документ определяет выбор проверок, CI, build/artifact, CD и связанные операции с окружениями. Scope и полномочия задаёт пользователь; workflow агента, Goal и состояние исполнения определены в корневом `AGENTS.md`. Правила применяются к фактическому стеку проекта, а не требуют внедрить все перечисленные инструменты.
 
 Разделы 1–9 — общая политика и Safety contract: не изменяй их без явного запроса пользователя. Обнаруженное препятствие сначала исследуй и зафиксируй; если решение требует изменения политики, эскалируй его. Не переписывай правила для обхода blocker. Раздел 10 — изменяемый Project profile: агент заполняет и актуализирует факты и команды в разрешённой задаче, не ослабляя общую политику и required gates. Конкретные workflows, scripts и runbooks могут изменяться внутри Goal, если это необходимо для её выполнения и не меняет согласованные границы.
 
@@ -17,7 +17,7 @@
 
 При подготовке проекта установи stack/runtime, package manager, tests, API/DB/integrations, environments и критичные сценарии; сохрани факты и команды в разделе 10. Используй подходящий существующий стек проверок; при отсутствии выбери минимальный набор, обнаруживающий существенные ошибки.
 
-До реализации составь Validation Plan внутри Goal в `docs/delivery-plan.md`: AC/риск, check/сценарий, команда/tool, environment, `REQUIRED` / `RECOMMENDED` / `N/A`, этап и основание. Недостающие AC сформируй по `AGENTS.md`.
+Validation Plan и работа с AC определены в `AGENTS.md`. Проверки должны быть сопоставлены с AC/рисками, окружением и этапом; их применимость имеет основание.
 
 `REQUIRED` — условие соответствующей Goal/stage; `RECOMMENDED` — отсутствие допустимо с описанным остаточным риском; `N/A` — неприменимость к стеку/scope. Недоступность инструмента или окружения не означает N/A.
 
@@ -52,39 +52,19 @@ Human-only очередь и её влияние на Goal определены 
 
 ## 3. Локальные проверки и CI
 
-### Delivery cycle для каждого batch
-
-Перед изменениями проверь worktree, base branch и SHA; зафиксируй их в checkpoint. Получи актуальное состояние remote, если доступно; clean local base обнови безопасным fast-forward. Работай в отдельной feature/fix-ветке от проверенной base либо подходящей ветке текущего batch. При unknown user changes используй изолированную ветку/worktree, сохраняя исходное состояние; не включай чужие изменения в PR и не переписывай опубликованную историю без authorization.
-
-Для нового Git repository нужен разрешённый bootstrap: минимальный initial commit, затем рабочая ветка с base SHA. Отсутствие remote не запрещает разрешённую локальную работу; создание remote и публикация требуют соответствующего scope.
-
-Делай commits после связных проверенных шагов; показатели готовности показывай по `AGENTS.md`. Группируй commits в pushes. Обычно отправляй подготовленный batch после доступной local validation; ранний push/draft PR допустим для remote-only validation, необходимого review или сохранения работы.
-
-Перед PR проверь совокупный diff, проведи self-review, доступные local checks и обнови relevant docs/plan в той же ветке. Укажи результат, AC, проверки, ограничения и rollout. При CI/review failure сначала разбери причину, затем собери исправления с local checks в следующий push; повторяй по фактической необходимости, не отправляя каждую мелкую правку отдельно.
-
-Дождись terminal results required checks и обязательного review. Self-review не заменяет required approval другого лица. Перед merge проверь актуальные head/base, protections и AC batch в части, проверяемой до merge. Новая revision требует применимой validation; прежний CI не доказывает её проверку. Human-only приёмка отделена по `AGENTS.md`; DEPLOY/LIVE подтверждаются на своём этапе. Незавершённые AC других batches не блокируют merge независимого готового batch.
-
-Выполни разрешённый merge установленным способом, применимый CD и post-checks. Для последовательного batch используй актуальную base. По завершении applicable delivery безопасно синхронизируй local base с remote. Удаляй только созданные этой работой merged branches/worktrees после проверки отсутствия уникальных изменений; сохраняй незавершённую работу.
-
-Для hotfix допустимо сокращать необязательные шаги; required safety/CI/deployment gates сохраняются.
-
 ### Выполнение проверок
 
-Перед push выполняй доступные relevant local checks. Требуемые только в CI проверки выполняй в CI; их недоступность локально не запрещает отправить подготовленную ветку. Фиксируй проверенную revision и отличия local environment от CI.
+Local и CI-only checks разделены в Validation Plan. Для результата сохраняются проверенная revision и отличия local environment от CI; локальная проверка не заменяет обязательный platform gate.
 
 CI должен использовать intended revision, изолированный workspace, воспроизводимую установку dependencies и lockfiles, если применимы. Обязательная команда при failure возвращает non-zero; silent fallback, безусловный success и `continue-on-error` не должны скрывать required failure. Проверяй, что test discovery действительно нашёл ожидаемые tests.
 
 Определи обязательные проверки до merge и проверки других этапов: например, расширенная regression перед release или по расписанию. Сценарий, существенный для безопасности текущего merge, нельзя вынести только в nightly ради скорости. Учитывай зависимости между модулями при выборе affected tests; при неопределённом impact запускай более широкий подходящий набор.
 
-Избегай дублирующих `push` + `pull_request` запусков одной suite без отдельной цели. CI не нужен на каждый локальный commit. Используй группировку изменений, безопасный cache и параллельность по возможностям проекта. Число PR определяется batches по `AGENTS.md`, без фиксированной квоты; экономия запусков не разрешает объединять несвязанные изменения в непроверяемый diff. Speculative reruns без анализа причины не выполняй; transient failure можно повторить обоснованно, deterministic failure нужно исправить.
+Избегай дублирующих `push` + `pull_request` запусков одной suite без отдельной цели. Используй безопасный cache и параллельность по возможностям проекта. Экономия запусков не разрешает снимать required validation.
 
-Не используй GitHub-hosted Actions для длительного мониторинга или наблюдения за окружением без отдельного согласования. Ограниченные health/readiness и post-deploy checks внутри поставки допустимы; ожидание агентом завершения CI вне runner под этот запрет не подпадает.
-
-Обычный CI выполняет checks, а не изменяет repository: self-modifying workflows и auto-fix commits/push по умолчанию запрещены. Исключение — отдельно согласованная узкая automation с доверенным trigger, минимальными permissions, allowlist изменений и защитой от циклических запусков. Это не запрещает агенту исправлять code/workflows обычными commits в рабочей ветке разрешённой Goal.
+Обычный CI выполняет checks, а не изменяет repository: self-modifying workflows и auto-fix commits/push по умолчанию запрещены. Исключение — отдельно согласованная узкая automation с доверенным trigger, минимальными permissions, allowlist изменений и защитой от циклических запусков.
 
 Универсального лимита длительности pipeline нет. Подбирай job timeouts по реальным операциям и поведению зависаний. Длительность или экономия Actions minutes сами по себе не разрешают снимать required validation. Целевые длительности и бюджет фиксируй в профиле только если они действительно заданы проектом.
-
-Агент самостоятельно дожидается terminal status required checks, разбирает результат и продолжает delivery. Обычное ожидание CI не переводит Goal в `BLOCKED`. Если ожидание требует продолжения вне текущего запуска, используй доступный механизм ожидания/продолжения приложения и checkpoint; не считай работу завершённой.
 
 ### Required checks в GitHub
 
@@ -132,7 +112,7 @@ Artifacts не должны содержать credentials, runtime state и л�
 
 `DEPLOY PASS` требует подтверждения поставленной версии; `LIVE PASS` — успешного соответствующего post-check с указанием окружения и времени. Если нельзя доказать deployed revision, сохрани ограничение; ответ endpoint не устраняет неизвестную identity. Не выполняй искусственный production deploy только ради Evidence для изменения, которому он не нужен.
 
-При failed post-check останови дальнейшее продвижение этой поставки, сохрани Evidence и примени согласованную recovery strategy. Другую независимую работу в Goal можно продолжать, если это безопасно.
+При failed post-check останови дальнейшее продвижение этой поставки, сохрани Evidence и примени согласованную recovery strategy.
 
 ### VPS и Docker Compose при наличии
 
@@ -158,7 +138,7 @@ Bootstrap host, users/SSH/firewall, массовые permission changes и пе�
 - `BACKWARD_COMPATIBLE_AUTOMATED` — versioned migration совместима в rollout window; известны retry, locking, duration/failure behavior, выполнены необходимые backup/recovery preconditions и предусмотрен post-check.
 - `EXPLICITLY_GATED` — destructive, несовместимое, необратимое или привилегированное изменение; нужны явный scope, authorization, target, preconditions, recovery/forward-fix и критерии остановки.
 
-Gated infrastructure/data operation отличается от Manual Validation Goal. Пока обязательная операция не выполнена, соответствующий delivery stage остаётся незавершённым. Подготовку и независимую реализацию можно продолжать.
+Gated infrastructure/data operation отличается от Manual Validation Goal. Пока обязательная операция не выполнена, соответствующий delivery stage остаётся незавершённым.
 
 Если backup требуется для безопасной migration, проверь пригодность recovery по принятой процедуре. Не объявляй backup достаточным только по наличию файла. Routine backup в заранее согласованной процедуре разрешён; restore, broad cleanup, удаление volumes и перенос данных не становятся разрешёнными автоматически.
 
@@ -177,39 +157,23 @@ Checkpoint и словарь Evidence определены в `AGENTS.md`. Deliv
 
 Raw log без target/revision не заменяет Evidence. Отчёт не должен превышать охват проверки. Отсутствие deploy даёт `DEPLOY/LIVE N/A` только при неприменимости к scope.
 
-### Фиксация без отдельного служебного PR
+## 9. Исключения из Safety contract
 
-До финального push обнови фактическое состояние batch в delivery-plan в той же ветке/PR: AC/baseline, результаты, оставшиеся gates и источники их проверки. Будущие условия merge/deploy перечисли отдельно; не записывай прогнозные PASS/READY и второй набор «будущих» процентов.
-
-Свяжи batch с branch/PR и установленными источниками CI/deployment records. Не выдумывай будущие run IDs или SHA содержащего запись commit. Локальную проверенную revision/worktree связывай с финальным PR/merge через первичные records; при изменении кода/AC перепроверь Evidence. Human-only AC остаются IMPLEMENTED/PENDING, operational/live AC требуют фактических DEPLOY/LIVE.
-
-После merge и применимой поставки проверь gates по фактическим records. Сохрани точные результаты и ссылки в durable handoff, доступном следующему чату по routing проекта. Результаты, которых нет в первичных records (например, ручной LIVE check), сохраняй в указанном в Project profile месте с revision/target/временем; одного итогового сообщения чата недостаточно. Используй разрешённый существующий механизм, не создавай молча новую внешнюю запись/automation. Если места или доступа нет — зафиксируй конкретный metadata gap и сохрани доступный локальный checkpoint.
-
-При AUDIT/RESUME и расчёте readiness читай план вместе с этими records; применяй только проверенные факты. Недоступное подтверждение — ограничение, известный failure отменяет прежний PASS соответствующей гарантии. При следующем содержательном изменении синхронизируй реестр с результатами; отдельный metadata commit/PR только для отметки merge или переноса доступных records не требуется.
-
-До merge исправляй failure в текущем batch; после merge — согласованный recovery/forward-fix с незавершённым delivery stage. Необходимый PR с содержательным исправлением включает актуальный план. Не обходи protections ради metadata. Post-deploy metadata automation не обязательна; если согласована, соблюдай раздел 3 и не меняй product requirements.
-
-## 9. Завершение и исключения
-
-Для применимого delivery stage требуются фактические successful результаты validation/review, правильная revision/artifact, соблюдённые protections, безопасная работа с config/state и выполненный post-check. Пока required этап не завершён, не объявляй соответствующую Goal `DONE`; отложенная human-only приёмка учитывается отдельно по `AGENTS.md`.
-
-Operational/live эпик не получает `READY` без подтверждённых `DEPLOY` и `LIVE` для требуемой версии и окружения. Локальная или PR-only Goal может завершиться в своих явно заданных границах, не делая весь такой эпик `READY`. Недоступность инфраструктуры не превращает необходимые подтверждения в `N/A`.
-
-Не снимай gate из-за Actions cost, длительного ожидания, отсутствия доступа или flaky test. Разберись в причине, исправь в разрешённом scope либо укажи конкретное внешнее действие. Продолжай независимую работу внутри Goal.
+Required gate сохраняется при Actions cost, длительном ожидании, недоступности окружения или flaky test. Эквивалентная проверка должна сохранять гарантии и не обходить protections. Применимость технических этапов определяется scope, а завершение Goal — по `AGENTS.md`.
 
 Исключение из политики требует решения пользователя/уполномоченного владельца: правило, причина, scope и срок, риск, compensating checks, источник authorization и критерии остановки/recovery. Уже согласованное исключение применяй только в его пределах. Оно не меняет универсальный шаблон для других проектов.
 
 ## 10. Project profile
 
-Профиль адаптирован к Elevenlabs-API из референса владельца от 2026-09-05. Разделы 1–9 сохранены из нового референса; старый `goal-driven-v1` ими заменён. Общие правила не разрешают расширять текущую задачу. Фактические пробелы не являются safety exceptions и не разрешают менять settings/workflows без соответствующего scope.
+Профиль сверён 2026-09-06 MSK. По явному ответу владельца в текущем AUDIT обе новые версии правил применены; разделы 1–9 CI/CD сохранены из приложения. Проектные deployment lanes сохранены; общие правила workflow теперь находятся в AGENTS. Новая политика не возобновляет закрытую Goal и не разрешает исполнение proposal. Общие правила не разрешают расширять текущую задачу. Фактические пробелы не являются safety exceptions и не разрешают менять settings/workflows без соответствующего scope.
 
 ### 10.1. Проект и проверенные источники
 
-- Repository: `Just9120/Elevenlabs-API`, public; default и release branch — `main`. Source snapshot 2026-09-05: local `d62945912b3e470b2cb8b20912057a4a57c0f6f1`, remote main `dce709df90d4495f7775be93d631ee9a0d3e6f6d`. Branch текущей задачи и Current Goal хранятся в [delivery-plan](delivery-plan.md).
+- Repository: `Just9120/Elevenlabs-API`, public; default и release branch — `main`. Source snapshot 2026-09-06 MSK: local HEAD/main и GitHub main `b8babc257abf7a33cda2df3c36c33570ee043108`. Branch текущей задачи и Current Goal хранятся в [delivery-plan](delivery-plan.md).
 - Продукты: Python/Google Colab entrypoints и VoiceOps Studio PWA. Studio: React 18, TypeScript 5.6, Vite 6; Python/FastAPI, SQLAlchemy/Alembic, PostgreSQL, Redis, FFmpeg; batch worker и realtime/provider adapters. Product scope — [project-spec](project-spec.md), boundaries — [architecture](architecture.md) и [processing contract](studio-processing-contract.md).
 - Node: npm и `apps/studio/package-lock.json`; engines `^20.19.0 || ^22.13.0 || >=24`, CI Node 22. Python CI 3.11; `requirements-dev.txt` + `constraints-dev.txt`, API requirements + `apps/studio-api/constraints.txt`. Constraints являются version pins, не универсальным lock с hash integrity. Не заменяй package manager по существующему local node_modules.
-- Sources: девять `.github/workflows/*.yml`, package/constraints files, `deploy/studio/compose.platform.yml`, безопасный `.env.example`, deploy/operations scripts и [Studio operations](runbooks/studio-platform-ops.md). GitHub settings API проверены в аудите 2026-09-05: branch/rulesets, Actions permissions, Environment, variable/secret names. Это snapshots, перед consequential operation перечитай внешние settings.
-- Runtime secret values, private keys и host `.env` не читались. Local Windows/Python 3.12/Node 22 не равны Linux CI; Docker локально недоступен. Public read-only health/build identity не подтверждают private product scenarios или worker identity. Точные результаты и ограничения — в delivery-plan, здесь только профиль проверок.
+- Sources: девять `.github/workflows/*.yml`, package/constraints files, `deploy/studio/compose.platform.yml`, безопасный `.env.example`, deploy/operations scripts и [Studio operations](runbooks/studio-platform-ops.md). GitHub settings API повторно проверены в аудите 2026-09-06 MSK: branch/rulesets, Actions permissions и Environment. Variable/secret names ниже сохранены из прежнего profile и сверены с workflow inputs; remote наличие всех secret names заново не проверено. Это snapshots, перед consequential operation перечитай внешние settings.
+- Runtime secret values, private keys и host `.env` не читались. Local Windows/Python 3.12/Node 22 не равны Linux CI; Local Docker/DB environment в этом аудите не запускался. Public health/build identity и read-only authenticated dashboard/audio navigation не подтверждают provider/Google scenarios или worker identity. Точные результаты и ограничения — в delivery-plan, здесь только профиль проверок.
 
 ### 10.2. Команды и validation
 
@@ -239,7 +203,7 @@ Operational/live эпик не получает `READY` без подтверж�
 
 Critical scenarios: owner/CSRF/session/TOTP isolation; source multipart reconciliation и storage classes; batch queue/retry/idempotency; Yandex REST timestamp types и realtime final ordering; Google output metadata; retained transcript/re-export; cleanup/backup/recovery; schema compatibility; PWA capture/permissions, 390px viewport и accessibility. AC/риски и нужные проверки выбирай в Validation Plan конкретной Goal. Реальные STT, Google mutation, Telegram notifications и destructive cleanup/restore не входят в обычную suite; live canary требует согласованного scope, тестовых данных и ограниченного побочного эффекта.
 
-Известные gaps: Windows `--portable` всё ещё зависит от bash для части tests; текущий validation runbook описывал меньше исключений, чем `conftest.py`. Existing local dependencies не являются clean-install Evidence. Fresh Python advisory audit и полноценная local Docker/DB/browser suite в последнем аудите не выполнены. Npm advisory findings и результаты отдельных checks — в delivery-plan; профиль не превращает их в PASS. Универсальный duration/coverage/budget target владельцем не задан; действуют timeout guards конкретных jobs. Human-only очередь и её gates — по AGENTS.md/плану.
+Известные gaps: Windows `--portable` всё ещё зависит от bash для части tests; validation runbook исправлен: 9 excluded modules; оставшиеся worker isolation fixtures на Windows всё ещё требуют исправления shell discovery. Existing local dependencies не являются clean-install Evidence. Windows Python graph можно проверить изолированным pinned pip-audit; этот результат не покрывает Linux-specific dependencies. Полноценная local Docker/DB/browser suite в последнем аудите не запускалась. Npm advisory findings и результаты отдельных checks — в delivery-plan; профиль не превращает их в PASS. Универсальный duration/coverage/budget target владельцем не задан; действуют timeout guards конкретных jobs. Human-only очередь и её gates — по AGENTS.md/плану.
 
 ### 10.3. CI, build и credentials
 
@@ -358,9 +322,15 @@ Processing preflight/status не авторизуют provider call или canar
 
 ### 10.9. Первичные records и durable handoff
 
-- Git/PR/review: [repository Pull Requests](https://github.com/Just9120/Elevenlabs-API/pulls); CI/CD: [GitHub Actions](https://github.com/Just9120/Elevenlabs-API/actions) с exact run/job/revision. Environment review history доказывает approval, но не выполнение selected deployment job.
-- Разрешённое локальное durable место для фактов вне этих records — `docs/delivery-plan.md`: scenario/command, exact revision/image, target, UTC, результат и ограничения без secrets/raw logs. Это существующий tracked dashboard; после merge локальный checkpoint может оставаться uncommitted до следующего содержательного изменения, его наличие нужно явно сообщить в handoff.
-- Чат на другом устройстве не гарантированно видит local worktree. Если локальная запись недоступна следующему исполнителю, зафиксируй metadata gap и нужную передачу checkpoint; не выдавай итоговое сообщение за единственное durable Evidence и не создавай новую внешнюю запись без scope.
-- Post-deploy metadata automation не настроена и не обязательна сама по себе. До merge записывай фактические результаты и оставшиеся условия; после merge сверяй первичные records, сохраняй доступный checkpoint и синхронизируй план в следующем содержательном изменении. Отдельный metadata-only commit/PR, direct push в обход protections или прогнозный PASS не нужны.
+- Git/PR/review: [repository Pull Requests](https://github.com/Just9120/Elevenlabs-API/pulls); CI/CD: [GitHub Actions](https://github.com/Just9120/Elevenlabs-API/actions) с exact run/job/revision. Environment reviewer history доказывает approval, не выполнение selected deployment job.
+- Локальное durable место для фактов вне primary records — `docs/delivery-plan.md` и canonical `docs/delivery/*.md`: scenario, revision/target/UTC, результат и ограничения. Чат на другом устройстве не гарантированно видит uncommitted local state. Local handoff сохраняется, но по новой политике не заменяет обязательную remote metadata synchronization в Implementation Goal DoD.
+- **Remote metadata mechanism: UNSET / metadata blocker для будущей полной поставки по новым правилам.** В проверенных repository workflows такой automation нет; иной установленный механизм записи post-deploy состояния в remote main без metadata-only follow-up PR не подтверждён. Его target, permissions и safety guarantees требуется определить при подготовке implementation Goal. Не придумывать direct push, новую automation или обход protections. Независимая разрешённая подготовка возможна; DoD remote synchronization нельзя заранее отметить PASS.
+- Новые общие правила явно утверждены владельцем 2026-09-06 в ответе «Да, применить обе новые версии». Закрытая поставка #301 описана по действовавшему тогда DoD; ретроактивное возобновление или новый deploy этим не авторизованы. Текущий AUDIT завершается локальными документами без commit/push.
 
-Профиль не доказывает выполнение проверки/deployment. Текущие результаты, findings и выбранная Goal — только в delivery-plan. Обновляй факты профиля при изменении commands/settings/процесса в разрешённом scope; required gates и границы lane не ослабляй под видом фактической актуализации.
+### 10.10. Configuration и audit validation
+
+`Settings` использует `STUDIO_` prefix и `.env` относительно process cwd. Приоритет: constructor values → environment → dotenv → secret source/defaults; прикладные secret-file methods читают только выбранный файл. `database_url` имеет приоритет перед составным DB URL. Cached settings требуют restart/explicit cache invalidation после изменения config. Synthetic проверки задают `_env_file=None` и SQLite/изолированные PostgreSQL credentials, не используют host production `.env`.
+
+Представительный local audit: `python scripts/ci_checks.py`; frontend `node node_modules/vitest/vitest.mjs run`; portable Python с уникальным basetemp; `npm.cmd audit --package-lock-only --json`. Наличие lock проверяет выбор versions, не фактическое соответствие существующего node_modules. Fresh Python advisory audit требует установленного pinned `pip-audit` и isolated constrained graph из workflow; global pip check unrelated environment его не заменяет. CI job-level records проверяются на exact revision; внешние side effects не запускаются для обычной диагностики.
+
+Профиль не доказывает выполнение проверки/deployment. Текущие результаты, findings и выбранная Goal — только в delivery-plan и его canonical подсистемах. Required gates и границы lane не ослабляются под видом актуализации фактов.

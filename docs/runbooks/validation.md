@@ -25,13 +25,13 @@ Use the smallest relevant checks for the task.
 
 ### Portable local Python profile
 
-On a workstation without the repository's PostgreSQL/Redis services or a bash runtime, run:
+Для ограниченной локальной диагностики без PostgreSQL/Redis используйте:
 
 ```bash
 pytest -q --portable
 ```
 
-The repository pytest configuration limits discovery to the owned `tests/` tree so installed dependency suites inside a local virtual environment are never collected. The portable option additionally prevents collection—and therefore import-time setup—of the two PostgreSQL/Redis suites and the four bash integration suites. It still runs the remaining Python tests and is intended as a fast cross-platform baseline. It is not a replacement for plain `pytest`, which remains the required CI/service-backed suite and is unchanged when `--portable` is absent.
+Discovery ограничен `tests/`. `--portable` исключает 9 service/shell modules, перечисленных в `conftest.py`, до их импорта. Часть shell fixtures остаётся: на Windows system bash/WSL может выбираться даже при наличии Git Bash в PATH. Поэтому это ограниченный диагностический профиль, а не обещание green cross-platform suite. Plain `pytest` с PostgreSQL/Redis/bash остаётся полным CI-профилем. Точные команды, environment и применимость — в [Project profile](../ci-cd-rules.md); результаты — в [delivery dashboard](../delivery-plan.md).
 
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
 

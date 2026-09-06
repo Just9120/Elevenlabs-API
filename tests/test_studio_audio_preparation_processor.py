@@ -69,7 +69,8 @@ def runner(command, **_kwargs):
     return SimpleNamespace(stdout="", stderr="")
 
 
-def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch):
+@pytest.mark.parametrize("result_title", ["Готовая запись", "Лекция 1. Предмет, задачи и методы социальной психологии", "Версия 2.1. Обсуждение"])
+def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch, result_title):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -90,7 +91,7 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
         project = Project(id="project", owner_user_id=user.id, title="Материалы")
         source = Source(id="source", project_id=project.id, source_type=SourceType.local_upload, original_filename="input.flac", mime_type="audio/flac", size_bytes=len(payload), s3_bucket="private", s3_object_key="input", upload_status=SourceUploadStatus.uploaded, source_created_at=datetime(2026, 8, 20, 10, 0), source_created_at_provenance="embedded_media_metadata", expires_at=datetime(2026, 8, 30))
         db.add_all([user, project, source]); db.commit()
-        job = create_audio_preparation_job(db, owner_user_id=user.id, project_id=project.id, title="Готовая запись", source_ids=[source.id], ephemeral_source_ids={source.id}, manual_order=True, options_payload={"preset": "processing_only", "output_format": "flac"}, output_destination="download", output_folder=None, now=now)
+        job = create_audio_preparation_job(db, owner_user_id=user.id, project_id=project.id, title=result_title, source_ids=[source.id], ephemeral_source_ids={source.id}, manual_order=True, options_payload={"preset": "processing_only", "output_format": "flac"}, output_destination="download", output_folder=None, now=now)
         db.commit()
 
         preview_claim = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=now, lease_ttl=timedelta(minutes=10)); db.commit()
@@ -110,7 +111,8 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
         output_source = db.get(Source, persisted.output_source_id)
         assert output_source.reference_class == "audio_processing"
         assert output_source.s3_bucket == "audio-private"
-        assert output_source.original_filename == "Готовая запись.flac"
+        assert persisted.title == result_title
+        assert output_source.original_filename == f"{result_title}.flac"
         db.refresh(source)
         assert source.upload_status is SourceUploadStatus.deleted
         assert source.storage_cleanup_status.value == "pending"

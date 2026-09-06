@@ -20,7 +20,7 @@ The archive preserves traceability from documents consolidated during `DOCS-AUTH
 - Final exact-main CI: repository run `32706218832` ✅; Studio PWA run `32706218892`, jobs `studio` and `browser-e2e` ✅.
 - Deployment: Studio Platform CD run `32706218830` ✅ deployed `studio-web`; API, worker and migration correctly skipped as unaffected.
 - LIVE: owner-controlled ordinary Chrome canary on laptop speakers confirmed both source signals during mixed capture and microphone speech reaching transcription while display playback continued. Partial acoustic/provider masking of simultaneous speech was explicitly accepted as non-critical; no new capture reset was reported.
-- Readiness at closure: `PWA-REALTIME-01 13/13 = 100%`, Studio PWA `86/91 = 94,5%`, project `108/120 = 90,0%`; denominator remained `120`.
+- Readiness at closure: `PWA-REALTIME-01 [историческая оценка удалена], Studio PWA [историческая оценка удалена], project [историческая оценка удалена]; denominator remained `120`.
 - Cleanup: all three merged Goal branches were ancestor-verified and removed locally/remotely; local `main` fast-forwarded to exact `origin/main`.
 - Metadata limitation: approved post-deploy writer remains absent, so final Evidence was recorded in PR #230 and reconciled by the next authorized Goal instead of a docs-only follow-up PR.
 
@@ -56,7 +56,7 @@ The archive preserves traceability from documents consolidated during `DOCS-AUTH
 - Metadata sync: автоматический post-deploy writer отсутствует (`metadata_sync.enabled=false`); прямой push для отдельного status commit не выполнялся.
 - Branch cleanup: merged working branch удалена локально и в origin после fast-forward local main.
 
-Предыдущий active dashboard с project readiness `N/A`, Colab `100% (2/2)` и отдельным Studio Live denominator был superseded новой explicit owner baseline от 2026-08-14. Эти проценты не сопоставимы с новым полным product denominator и не являются текущей readiness.
+Предыдущий active dashboard с project readiness `N/A`, Colab `[историческая оценка удалена]` и отдельным Studio Live denominator был superseded новой explicit owner baseline от 2026-08-14. Эти проценты не сопоставимы с новым полным product denominator и не являются текущей readiness.
 
 ## Archived checkpoint summary
 
@@ -232,9 +232,9 @@ Standard component CD does not create GitHub Deployment records or bind web/API 
 2. Timeout, transport failure, malformed/duplicate credential data, and malformed policy data fail closed with predefined Russian UI and separate explicit retry controls. Job submission and local device upload remain disabled without valid authority; A → B → A aborts old reads and late settlement cannot alter the active composer or render raw fields.
 3. Focused prerequisite regressions `3/3`, complete App suite `187/187`, full Studio Vitest `450/450`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
 
-Functional completion is **100% (`3/3`)** on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`.
+Functional completion is **[историческая оценка удалена]** on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`.
 
-Readiness gate: branch publication, required PR-head/exact-main CI, and merge remain separately required before READY. They are intentionally open under the current local-only instruction, so lifecycle status remains IN PROGRESS despite 100% functional completion.
+Readiness gate: branch publication, required PR-head/exact-main CI, and merge remain separately required before READY. They are intentionally open under the current local-only instruction, so lifecycle status remains IN PROGRESS despite [историческая оценка удалена] functional completion.
 
 Non-goals: no credential mutation, local-upload mutation/recovery semantics, Google/Picker behavior, API/schema/migration, deploy, or production mutation.
 
@@ -248,7 +248,7 @@ Non-goals: no credential mutation, local-upload mutation/recovery semantics, Goo
 2. Both Overview reads are independently latest-request-wins, bounded to 15 seconds, and cancelled on teardown. Each summary exposes its own safe retry; a failed refresh preserves last-known valid data and cannot erase an independently successful summary.
 3. Focused Overview boundary regressions `3/3`, complete App suite `184/184`, full Studio Vitest `447/447`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
 
-Functional completion is **100% (`3/3`)** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
 
 Non-goals: no Projects mutations, Settings credential mutations, Google/OAuth behavior, API/schema/migration, deploy, or production mutation.
 #### Google connection consumers
@@ -259,7 +259,7 @@ Non-goals: no Projects mutations, Settings credential mutations, Google/OAuth be
 2. Overview and Projects reads are latest-request-wins, bounded to 15 seconds, and cancelled on component teardown. Both expose an explicit safe retry; Projects performs a new authoritative read whenever its persistently mounted page is reactivated after Settings or another route, and a late response from the prior activation cannot replace the newer state.
 3. Projects distinguishes loading/unavailable authority from a confirmed disconnected account. While loading or unavailable, source and folder Picker entrypoints are disabled and programmatic folder entry fails closed; raw response fields are not rendered. Focused consumer regressions `3/3`, complete App suite `181/181`, full Studio Vitest `444/444`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
 
-Functional completion is **100% (`3/3`)** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
 
 Non-goals: no Overview project/credential read change, OAuth mutation, maintenance OAuth, Picker session/selection change, backend/API/schema/migration, deploy, or production mutation.
 
@@ -272,7 +272,7 @@ Non-goals: no Overview project/credential read change, OAuth mutation, maintenan
 3. Timeout, transport loss, HTTP 408/5xx, or malformed mutation success triggers one bounded authoritative connection GET and never automatically repeats POST or DELETE. Disconnect is confirmed only by authoritative revoked/null state; active state is preserved as connected, while OAuth start remains safely unconfirmed because connection state cannot prove capability creation. Sequential backend disconnect replay returns the original terminal metadata without changing the timestamp or duplicating the audit event. Focused Google regressions `11/11`, complete App suite `178/178`, full Studio Vitest `441/441`, TypeScript, full ESLint, production build, Python syntax checks, lightweight checks, and `git diff --check` pass; the authored service-backed regression is not locally executable because bundled Python lacks `pytest`.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no maintenance OAuth, Google Picker composer flow, OAuth callback/start-server business-rule, token format/encryption, API shape, schema/migration, concurrent database-lock redesign, browser persistence, automatic mutation replay, deploy, or production mutation.
 
@@ -285,7 +285,7 @@ Non-goals: no maintenance OAuth, Google Picker composer flow, OAuth callback/sta
 3. Timeout, transport loss, HTTP 408/5xx, or malformed success triggers one bounded authoritative GET and never automatically repeats PATCH. Exact selected TTL confirms success; a different authoritative TTL restores that value; failed reconciliation restores the last confirmed value. Safe outcomes survive remount, detached settlement gets one post-remount refresh, raw backend detail is never rendered, and logout/login invalidates stale ownership. Focused retention regressions `7/7`, complete App suite `171/171`, full Studio Vitest `434/434`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no retention option/default/business-rule change, backend/API/schema/migration/audit change, storage cleanup execution, browser persistence, automatic PATCH replay, Google OAuth/connection change, deploy, or production mutation.
 
@@ -298,7 +298,7 @@ Non-goals: no retention option/default/business-rule change, backend/API/schema/
 3. Timeout, transport loss, HTTP 408/5xx, or malformed success triggers at most one bounded authoritative list reconciliation and never automatically repeats a mutation. Replace is confirmed only by a newer active version; revoke only by exact revoked state; delete only by exact ID absence; create remains explicitly ambiguous without correlation. Raw key input is cleared immediately after capture, never enters parent/browser state, and raw backend detail is never rendered. Focused credential regressions `11/11`, complete App suite `165/165`, full Studio Vitest `428/428`, TypeScript, full ESLint, production build, Python syntax, lightweight checks, and `git diff --check` pass.
 Readiness gate: The new service-backed PostgreSQL/Redis credential regression, branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is open: the bundled local Python runtime has no `pytest`, and the current instruction remains local-only without push or PR.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is open: the bundled local Python runtime has no `pytest`, and the current instruction remains local-only without push or PR.
 
 Non-goals: no automatic create/replace/revoke/delete replay, idempotency-key/API-shape/schema/migration change, browser persistence of secrets or mutation bodies, Google OAuth/connection or retention-preference change, deploy, or production mutation. The existing unique `(user_id, provider, label)` constraint still reserves a deleted label; changing that requires a separate product/schema decision.
 
@@ -312,7 +312,7 @@ Non-goals: no automatic create/replace/revoke/delete replay, idempotency-key/API
 3. Timeout, transport loss, HTTP 408/5xx, or malformed success never triggers automatic mutation replay. One authoritative collection read leaves create explicitly ambiguous because no exact correlation exists, confirms update only from exact requested fields plus evidence of change, and confirms archive only from project absence. Outcomes remain project-scoped, raw backend detail is not rendered, a failed create preserves its form, and same-project metadata refresh preserves unrelated composer state. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend idempotency/API/schema/business-rule change, no automatic create/update/archive replay, no durable/browser-storage mutation state, no global API timeout, deploy, or production mutation.
 
@@ -325,7 +325,7 @@ Non-goals: no backend idempotency/API/schema/business-rule change, no automatic 
 3. Source success explains that authoritative project sources were refreshed and rows must be selected again after remount; folder success explains that the non-persisted row selection must be repeated. No token, Google Drive file/folder ID, selected document, API payload, or raw error enters parent state or browser storage. The focused source/folder remount regression, related Google Picker cluster, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no Picker token or Drive identity persistence, no automatic source/folder replay, no composer draft persistence redesign, no backend/API/schema/OAuth change, deploy, or production mutation.
 
@@ -338,7 +338,7 @@ Non-goals: no Picker token or Drive identity persistence, no automatic source/fo
 3. Output-folder verification, including any CSRF refresh, stops waiting after 20 seconds, validates a non-empty name plus nullable/string `web_view_url`, never mutates a row on timeout/failure/malformed data, and always releases source and folder Picker controls. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend/API/schema/idempotency change, no exact automatic recovery where the API exposes no correlation identity, no automatic source-creation replay, no Google Picker remount-ownership redesign, deploy, or production mutation.
 
@@ -351,7 +351,7 @@ Non-goals: no backend/API/schema/idempotency change, no exact automatic recovery
 3. Regressions prove one aborted session POST per explicit attempt, no automatic replay, malformed-session rejection without token exposure, callback-timeout close/unlock, ignored late selection, and no source mutation. Existing cancel/error/duplicate/folder tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend/API/OAuth/schema change, no automatic source/folder mutation replay, no timeout yet for post-selection source creation or folder verification, no maintenance-panel session refactor, deploy, or production mutation.
 
@@ -364,7 +364,7 @@ Non-goals: no backend/API/OAuth/schema change, no automatic source/folder mutati
 3. One A → B → A regression proves pending restoration, duplicate rejection, project isolation, off-panel safe failure, explicit-retry clearing, later success persistence, authoritative source-list refresh, and exact initiation/PUT/completion counts. Existing same-row dedup/multi-file tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no `File`/capability persistence, no automatic initiation or PUT replay, no composer-draft persistence redesign, backend/API/schema/storage change, deploy, or production mutation.
 
@@ -376,7 +376,7 @@ Non-goals: no `File`/capability persistence, no automatic initiation or PUT repl
 3. Regressions cover stalled initiation abort, ambiguous 5xx initiation, stalled PUT abort, exact request counts, source reload, safe unlock/recovery, and absence of raw response/private upload identity. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no initiation idempotency/API/schema change, no automatic initiation or object PUT replay, no browser persistence of files/capabilities, backend/storage mutation, deploy, or production mutation.
 
@@ -389,7 +389,7 @@ Non-goals: no initiation idempotency/API/schema change, no automatic initiation 
 3. A project-switch regression proves one DELETE while pending, a fail-closed 5xx/reconciliation outcome after settlement on another project, retry unlock and outcome clearing, a second confirmed deletion, project isolation, authoritative source disappearance, and no raw failure text. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, deploy, or production mutation.
 
@@ -402,7 +402,7 @@ Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, 
 3. Regressions cover ambiguous PUT recovery, authoritative uploaded suppression, pending-state replay, stalled completion abort/replay, single initiation/PUT counts, safe failure text, and no raw upload identity. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no initiation/PUT retry, backend/API/schema/storage change, browser persistence of upload capability/source body, source-deletion change, deploy, or production mutation.
 
@@ -415,7 +415,7 @@ Non-goals: no initiation/PUT retry, backend/API/schema/storage change, browser p
 3. Regressions cover one DELETE under duplicate clicks, deadline abort plus confirmed absence, fail-closed source presence after transport/5xx ambiguity, safe text, and explicit-retry unlock. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, local-upload completion change, deploy, or production mutation.
 
@@ -429,7 +429,7 @@ Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, 
 3. Regression tests prove one POST before timeout, abort at the deadline, no hidden second POST, project isolation, and byte-identical body/key on explicit replay. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/business-rule change, browser persistence of request bodies, provider or Google Drive call, deploy, or production mutation.
 
@@ -444,7 +444,7 @@ Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/bus
 3. Confirmed and still-ambiguous outcomes use predefined safe owner-scoped notices. Integration tests prove exactly one POST for each action, the matching GET reconciliation, and no raw backend/provider/Google response in UI or storage; helper/API tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic POST retry, backend idempotency/business-rule change, API/schema change, provider or Google Drive call in local tests, deploy, or production mutation.
 
@@ -458,7 +458,7 @@ Non-goals: no automatic POST retry, backend idempotency/business-rule change, AP
 3. Existing four-kind dedup regressions, A → B → A failure/success/clearing/isolation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals for this completed item: no mutation timeout, automatic retry, durable/browser-storage notice persistence, backend idempotency/business-rule change, API/schema change, deploy, or production mutation.
 
@@ -472,7 +472,7 @@ Non-goals for this completed item: no mutation timeout, automatic retry, durable
 3. Existing four-kind dedup regressions, a real A → B → A pending-cancellation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no mutation timeout, automatic retry, backend idempotency/business-rule change, cross-project success/failure message persistence, API/schema change, deploy, or production mutation.
 
@@ -486,7 +486,7 @@ Non-goals: no mutation timeout, automatic retry, backend idempotency/business-ru
 3. Focused collection-timeout and failed-refresh preservation regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no project-list or Google-connection behavior change, deploy, or production mutation.
 
@@ -500,7 +500,7 @@ Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/s
 3. Focused ordering/timeout tests, complete App and latestRequest suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no progress-polling behavior change, deploy, or production mutation.
 
@@ -514,7 +514,7 @@ Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/s
 3. Focused App and JobCard regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no terminal-visibility/business-rule change, backend idempotency or audit change, API/schema changes, deploy, or production mutation.
 
@@ -527,7 +527,7 @@ Non-goals: no terminal-visibility/business-rule change, backend idempotency or a
 3. Focused App and OutputReconciliationNotice regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no reconciliation eligibility/business-rule change, backend idempotency change, automatic Google Drive check, API/schema changes, deploy, or production mutation.
 
@@ -540,7 +540,7 @@ Non-goals: no reconciliation eligibility/business-rule change, backend idempoten
 3. Focused App and JobDetailSection regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no retry eligibility/business-rule change, backend idempotency change, automatic provider retry, API/schema changes, deploy, or production mutation.
 
@@ -553,7 +553,7 @@ Non-goals: no retry eligibility/business-rule change, backend idempotency change
 3. Focused action/component regressions, complete App and JobCard suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend idempotency contract, API/schema changes, automatic mutation retry, cancellation semantics change, deploy, or production mutation.
 
@@ -566,7 +566,7 @@ Non-goals: no backend idempotency contract, API/schema changes, automatic mutati
 3. Shared ordering tests, a component-level repeated-open regression, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no API/backend/schema changes, no global request cache, no mutation retry, no deploy, and no production mutation.
 
@@ -579,7 +579,7 @@ Non-goals: no API/backend/schema changes, no global request cache, no mutation r
 3. Request epochs are isolated by resource and project key. Focused ordering tests, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no request cancellation, API/backend/schema changes, cache persistence, cross-owner state, deploy, or production mutation.
 
@@ -593,7 +593,7 @@ Non-goals: no request cancellation, API/backend/schema changes, cache persistenc
 4. Missing requested jobs trigger authoritative jobs reconciliation without terminating polling; cleanup prevents stale scheduling. Focused tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
 Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Functional completion is **100% (`4/4`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open: the current instruction is local implementation without push or PR.
+Functional completion is **[историческая оценка удалена]** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open: the current instruction is local implementation without push or PR.
 
 Non-goals: no API/worker/schema/provider changes, no changed progress semantics, no fabricated within-request percentage, no deploy, and no production mutation.
 
@@ -635,7 +635,7 @@ PR #208 (`codex/pwa-session-bootstrap-hardening`) closed the focused PWA hardeni
 - Base: `main@26ecae6e6cd0ec0c8a3fd2307b7434970c11edf4`.
 - Final PR head: `62f2ea844e71071c151066c2538f6ef9e340c0bd`.
 - Merge commit: `830bd00754567dfa6809e1e36bb7fcbaa145b824`.
-- Functional denominator for tasks 31–47: `51/51 = 100%` (17 items × 3 equal-weight criteria).
+- Functional denominator for tasks 31–47: [историческая оценка удалена; см. Git history] (17 items × 3 equal-weight criteria).
 - Exact-main repository CI run `31818095906`: `checks` success.
 - Exact-main Studio run `31818095864`: `studio` and `browser-e2e` success.
 - Component CD run `31818095877`: `studio-web` selected and successful; worker/API/migration jobs correctly skipped.
@@ -647,9 +647,9 @@ The completed sequence covered bounded/latest-wins auth and collection reads, cr
 Readiness at closure:
 
 - project-wide percentage remained `N/A` because `docs/project-spec.md` had no single closed non-overlapping project denominator;
-- Colab batch + Realtime remained `2/2 = 100%` under owner-accepted scope;
-- Studio PWA Live functional contract remained `7/7 = 100%`;
-- Studio PWA Live delivery Evidence remained `5/6 = 83%` because microphone-only, mixed and negative lifecycle canaries were still absent.
+- Colab batch + Realtime remained [историческая оценка удалена; см. Git history] under owner-accepted scope;
+- Studio PWA Live functional contract remained [историческая оценка удалена; см. Git history];
+- Studio PWA Live delivery Evidence remained [историческая оценка удалена; см. Git history] because microphone-only, mixed and negative lifecycle canaries were still absent.
 
 ## Archived PR #210 product requirements baseline closure
 
@@ -661,7 +661,7 @@ PR #210 (`feature/product-requirements-v2`) зафиксировал owner requi
 - Exact PR-head CI run `31842755434`: success.
 - Exact-main CI run `31842984066`: success.
 - Scope был docs-only; Studio path detection не запускал component CD, GitHub Deployments для revision отсутствовали, поэтому `DEPLOY` и `LIVE` были N/A.
-- Baseline readiness: Colab `22/29 = 75,9%`, Studio PWA `51/80 = 63,8%`, project `73/109 = 67,0%`.
+- Baseline readiness: Colab [историческая оценка удалена], Studio PWA [историческая оценка удалена], project [историческая оценка удалена].
 - Локальный `main` синхронизирован с exact merge commit; merged local/remote branch удалена после ancestry/clean-state проверки.
 - Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому отдельный follow-up docs-only PR не создавался; closure переносится в archive при начале следующего авторизованного scope.
 
@@ -672,7 +672,7 @@ PR #211 (`feature/pwa-language-diagnostics`) закрыл scoped explicit-Englis
 - Base: `main@8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`.
 - Final PR head: `f689ab09675ac7d899c040e05c3ed097632a74da`.
 - Merge commit: `f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`.
-- Scoped completion: `5/5 = 100%`; readiness после merge: Studio PWA `56/80 = 70,0%`, project `78/109 = 71,6%`.
+- Scoped completion: [историческая оценка удалена]; readiness после merge: Studio PWA [историческая оценка удалена], project [историческая оценка удалена].
 - Exact PR-head checks: CI run `31848205846`, Studio/browser run `31848205831` — success.
 - Exact-main checks: CI run `31848408225`, Studio/browser run `31848408202` — success.
 - Component CD run `31848408276`: `deploy-web` и `deploy-api` success; worker и migration jobs корректно skipped для scope.
@@ -687,7 +687,7 @@ Goal `DOCS-GOAL-DRIVEN-01` migrated the repository policy to `goal-driven-v1` an
 - Merge commit: `3ef4a45e9e17be7ae78bd574f5e0de6f101a4b55`.
 - Exact PR-head CI run `32344744575`: `checks` success.
 - Exact-main CI run `32345079183`: `checks` success.
-- Scope был docs-only: `DEPLOY` и `LIVE` — `N/A`; product readiness не изменилась и осталась `78/109 = 71,6%`.
+- Scope был docs-only: `DEPLOY` и `LIVE` — `N/A`; product readiness не изменилась и осталась [историческая оценка удалена].
 - Standalone `docs/agent-delivery-workflow.md` удалён намеренно; session orchestration и Goal lifecycle теперь определяются root `AGENTS.md` и current user instruction.
 - Stale active checkpoint обнаружен при начале следующей авторизованной Goal и перенесён в archive без отдельного follow-up PR.
 
@@ -702,7 +702,7 @@ Goal `SECURITY-DEPENDENCY-REMEDIATION-01` removed the current High findings from
 - Exact-main repository CI run `32351540609` and Studio/browser CI run `32351540560` completed successfully.
 - Component CD run `32351540606` deployed web and API. Worker lifecycle used status `32351708257`, graceful drain `32351908990`, manual deploy `32352024954`, and final status `32352126674`; the final running image matched the merge-SHA tag and was healthy.
 - Public web/API health returned `200`; API reported reachable database and current migrations. No provider/Google transcription canary was run, so this LIVE evidence is bounded to dependency-bearing runtime health.
-- Product readiness remained `78/109 = 71,6%`: the Goal changed no product AC or denominator.
+- Product readiness remained [историческая оценка удалена]: the Goal changed no product AC or denominator.
 - Approved post-deploy metadata writer remained absent; actual closure was reconciled at the start of the next authorized Goal without a follow-up docs-only PR. Local `main` was synchronized and the merged local/remote Goal branch was safely removed.
 
 ## Archived PR #215 arbitrary segments closure
@@ -716,8 +716,8 @@ Goal `PWA-ARBITRARY-SEGMENTS-01` generalized the segment composer from a narrow 
 - Component CD run `32376152217`: `studio-web` and `studio-api` success; worker rollout correctly `N/A` for unchanged worker runtime.
 - Production API/web exact revision and health were confirmed.
 - Bounded LIVE canary job `69fe73ed-8769-4806-ae35-7616594cbf13` used one reviewed short synthetic source and clip `00:01–00:05`; it completed with one `transcript_doc_v1.2` Google Docs output. Private URLs, document IDs, source metadata and transcript body are intentionally omitted.
-- `PWA-SEGMENTS-01` reached `5/5 = 100%`, status `READY`, Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
-- The same canary exposed a separate browser-contract regression: canonical English `language_mode=en` was rejected by list/detail parsing, producing false collection/detail errors and stale `40%` while outputs already reported completion. `PB-05` was therefore corrected from ✅ to ❌ at the start of Goal `PWA-JOB-STATE-CONSISTENCY-01`; project readiness changed from `83/109` to `82/109` without denominator change.
+- `PWA-SEGMENTS-01` reached [историческая оценка удалена; см. Git history], status `READY`, Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- The same canary exposed a separate browser-contract regression: canonical English `language_mode=en` was rejected by list/detail parsing, producing false collection/detail errors and stale `[историческая оценка удалена]` while outputs already reported completion. `PB-05` was therefore corrected from ✅ to ❌ at the start of Goal `PWA-JOB-STATE-CONSISTENCY-01`; project readiness changed from `83/109` to `82/109` without denominator change.
 - Approved post-deploy metadata writer remained absent (`metadata_sync.enabled=false`); closure was reconciled in the next authorized Goal rather than a follow-up docs-only PR. Local and remote merged branches were safely removed after clean synchronized `main` verification.
 
 ## Archived PR #216 job state consistency closure
@@ -732,7 +732,7 @@ Goal `PWA-JOB-STATE-CONSISTENCY-01` устранила рассинхрониз�
 - Component CD run `32400141509`: `deploy-web` и deployment summary success; API, worker и migration корректно skipped для frontend-only diff. VPS fast-forward, running image identity и localhost `/healthz` подтвердили exact merge revision; marker `STUDIO_PLATFORM_WEB_DEPLOY_OK` получен.
 - Public API health подтвердил reachable database и current migrations. GitHub Deployment record для merge SHA отсутствовал.
 - Fresh authorized production session повторно открыла исходную bounded canary job `69fe73ed-8769-4806-ae35-7616594cbf13`: list/card/detail одновременно показали terminal completed/`100%`, один safe Google Docs output и canonical English без ложных collection/detail errors. Второй provider job не создавался.
-- `PB-05` подтверждён; readiness на closure: `PWA-BATCH-01 9/10 = 90,0%`, Studio PWA `61/80 = 76,3%`, project `83/109 = 76,1%`.
+- `PB-05` подтверждён; readiness на closure: `PWA-BATCH-01 [историческая оценка удалена], Studio PWA [историческая оценка удалена], project [историческая оценка удалена].
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer отсутствовал; closure reconciled в начале следующей authorized Goal. Local и remote merged branches удалены после проверки ancestry и clean synchronized `main`.
 
 ## Archived PR #217 ingest metadata polish closure
@@ -747,7 +747,7 @@ Goal `PWA-INGEST-METADATA-POLISH-01` была merged через PR #217 и за�
 - Worker rollout: deploy run `32419939486` success; terminal status run `32420035216` success. API/web applicable deployment gates also completed successfully; migration gate returned to closed state.
 - Bounded LIVE canary persisted one favorite and created one accepted Google Docs output. Source creation metadata correctly failed closed as `Created at: unknown`, rather than substituting modified/upload/job/output time.
 - PR evidence record: https://github.com/Just9120/Elevenlabs-API/pull/217#issuecomment-5362405098.
-- Product readiness at closure: Studio PWA `63/80 = 78,8%`, project `85/109 = 78,0%`; `PC-11` and `PI-02` closed, while `PB-10`/`PD-06` remained open because unknown source creation time is honest but does not satisfy their full-scope requirement.
+- Product readiness at closure: Studio PWA [историческая оценка удалена], project [историческая оценка удалена]; `PC-11` and `PI-02` closed, while `PB-10`/`PD-06` remained open because unknown source creation time is honest but does not satisfy their full-scope requirement.
 - The same LIVE session exposed a separate duplicate-state inconsistency: an accepted completed output was visible while provider authority was reported unresolved. This was not counted as a new denominator item and is addressed in the next authorized Goal.
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer remained absent; closure was reconciled at the start of the next authorized Goal without a follow-up docs-only PR.
 
@@ -773,7 +773,7 @@ Goal `PWA-INGEST-FOLDERS-01` завершила bounded local/Google Drive folde
 - PR-head repository CI `32656908141`/job `97236994175` и Studio CI `32656908153`/jobs `97236993792`, `97236993909` — success. Exact-main repository CI `32657081954` и Studio CI `32657081982` — success.
 - Web deployment run `32657081893`, job `97237430813`, достиг `STUDIO_PLATFORM_WEB_DEPLOY_OK`; target revision и running image identity соответствовали merge SHA, localhost health прошёл. API, migration и worker были корректно skipped для frontend-only diff.
 - Bounded LIVE после deployment импортировал девять supported Drive files в девять composer rows. Первая verified target folder заполнила все девять ранее unassigned rows, все флаги `До конца файла` остались включены, status показал `Готово: 9 из 9`, review control был доступен. Provider job не создавался.
-- Closure readiness: `PWA-INGEST-01 11/11 = 100%`, Studio PWA `83/91 = 91,2%`, project `105/120 = 87,5%`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Closure readiness: `PWA-INGEST-01 [историческая оценка удалена], Studio PWA [историческая оценка удалена], project [историческая оценка удалена]; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому фактический closure reconciled в начале следующей authorized Goal. После проверки ancestry и clean state локальная/remote branch была удалена, `main` синхронизирован.
 
 ## Archived PR #227 timestamp authority closure
@@ -788,7 +788,7 @@ Goal `PWA-TIMESTAMP-AUTHORITY-01` закрыла canonical `PB-10` и `PD-06` и
 - Component CD run `32660176008`: `deploy-web`, `deploy-api` и deployment summary success; migration и worker корректно skipped, потому что schema/worker не менялись.
 - После explicit owner action-time approval ровно один bounded production canary `00:01–00:05` завершился `100%`, создал один persisted `transcript_doc_v1.2` Google Docs output и не запускался повторно.
 - Два последовательных single-document standardization dry-run классифицировали новый документ как current standard с authoritative source creation date: `0` изменений, `1` без изменений, `0` blocked, `0` unreadable. Отдельный recursive dry-run подтвердил fail-closed blocked outcome для двух legacy документов без source authority и не выполнил mutation.
-- `PWA-BATCH-01` достиг `10/10 = 100%`, `PWA-STANDARDIZATION-01` — `6/6 = 100%`; Studio PWA `85/91 = 93,4%`, project `107/120 = 89,2%`.
+- `PWA-BATCH-01` достиг [историческая оценка удалена; см. Git history], `PWA-STANDARDIZATION-01` — [историческая оценка удалена; см. Git history]; Studio PWA [историческая оценка удалена; см. Git history], project [историческая оценка удалена; см. Git history].
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Safe delivery record: https://github.com/Just9120/Elevenlabs-API/pull/227#issuecomment-5388439165.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`); closure reconciled в начале следующей authorized Goal без docs-only follow-up PR. Local `main` был clean и синхронизирован с merge SHA; merged branch удалена local/remote.
 
@@ -801,7 +801,7 @@ Goal `COLAB-PRODUCTION-COMPLETION-01` завершила canonical Colab batch/r
 - Exact PR-head CI `32738379146` и exact-main CI `32738787968` завершились success; Studio workflows корректно не запускались из-за Colab-only path filter.
 - Bounded batch LIVE обработал nested local-folder fixture, создал один native Google Doc с authoritative `2026-08-01T09:10:11Z` source creation time и подтвердил document-before-manifest ordering. Повторный provider charge не выполнялся.
 - Owner-controlled ordinary-Chrome realtime matrix подтвердила microphone/display/mixed, repeated start/stop, permission cancel и resource release; шесть bounded provider sessions не выявили воспроизводимого capture break.
-- `COLAB-BATCH-01` достиг `23/23`, `COLAB-REALTIME-01` — `6/6`, Google Colab — `29/29`; project readiness стала `115/120 = 95,8%`.
+- `COLAB-BATCH-01` достиг `23/23`, `COLAB-REALTIME-01` — `6/6`, Google Colab — `29/29`; project readiness стала [историческая оценка удалена].
 - Colab не имеет VPS deployment unit, поэтому `DEPLOY N/A`; reviewed repository revision/launcher и manual runtime составили applicable delivery Evidence.
 - Approved post-deploy metadata writer отсутствовал; closure reconciled при старте следующей authorized code-bearing Goal без отдельного docs-only PR.
 
@@ -908,7 +908,7 @@ Goal `SPEC-CANONICALIZATION-02` завершена 2026-08-28 без публи�
 
 - PR `#248` head `6a817f403ece8b33d6c2a55fa6e164fbfe6099e8` merged как `baa55d695c015385ba992b87c505d1a1fc116df3`.
 - Exact-head repository CI `33147462748` и exact-main CI `33147622878` завершились success, включая Alembic validation, lightweight checks и полный pytest.
-- Canonical denominator стал `532`: `203/290` non-commercial и `0/242` commercial/cross-contour; full readiness `203/532 = 38,2%`.
+- Canonical denominator стал `532`: `203/290` non-commercial и `0/242` commercial/cross-contour; full readiness [историческая оценка удалена].
 - Separate non-canonical reconciliation report отсутствует в main и PR history. Studio CI/CD корректно не запускались по docs-only path; `DEPLOY/LIVE N/A`.
 - Remote/local feature branches удалены; `main` синхронизирован с `origin/main@baa55d6`. Approved metadata writer отсутствовал, поэтому closure reconciled в начале `PWA-SESSION-CONTROL-01`.
 
@@ -955,7 +955,7 @@ Goal `PWA-TRANSCRIPTION-UX-POLISH-01` завершена 2026-08-28 полным
 - Final repository/web revision: `main@535a015dcef211a930faefe443245ee85ace38b8`; production API/worker остались на совместимом `cc4347758ebae849c963cbf11be253862c6a1402`, schema — `0027_query_bounds`.
 - Exact-main runs: repository CI `33194034264`, Studio PWA CI `33194034189`, Studio Platform CD `33194034216`; required checks и web deployment завершились success.
 - Authenticated LIVE подтвердил три picker modes, folder/file search, current empty folder, shared folders/drives, modal scroll lock/release, source multi-selection `2 → 1 → 2` и обе diarization states. Transcription job/provider call не запускались.
-- Canonical closure: `PG 8/8`, `PB 11/11`; readiness `222/546 = 40,7%`, personal PWA `191/272 = 70,2%`, non-commercial `222/304 = 73,0%`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Canonical closure: `PG 8/8`, `PB 11/11`; readiness [историческая оценка удалена], personal PWA [историческая оценка удалена], non-commercial [историческая оценка удалена]; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - После safe ancestry/status checks созданные ветки удалены local/remote, local `main` синхронизирован с exact merge SHA. Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому closure reconciled в начале следующей authorized code-bearing Goal.
 
 ## Archived PR #255 direct Drive upload closure
@@ -1394,3 +1394,70 @@ If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, 
 - Blockers: reviewed API/web delivery and authenticated post-deploy verification on the existing canary remain. Proving the repaired output-confirmation path end-to-end would require a new bounded STT call; no such call is authorized. Worker remains gracefully stopped. Residual diagnostic boundaries prohibit raw provider/credential/document content in evidence. Post-deploy metadata writer remains absent; no post-merge metadata-only follow-up PR or direct push is allowed.
 - Unverified assumptions: provider account `character_count/character_limit` остаются provider-defined period units и не равны минутам Scribe; product usage endpoint возвращает credits, которые нельзя безопасно распределить по job или перевести в invoice amount без additional provider Evidence.
 - Preserved pre-existing changes: `.pytest-tmp-*` directories в основном checkout; текущая Goal их не читает, не изменяет и не удаляет.
+
+
+## Перенос 2026-09-06: закрытая поставка #301
+
+Исторический текст локального checkpoint сохранён; он не разрешает новую реализацию и не определяет current readiness.
+
+
+## Current Goal и граница исполнения
+
+Режим: **DELIVERY завершена; ожидание выбора следующей Goal**. Пользователь 2026-09-05 поручил merge и подтвердил включение audio-upload hotfix вместе с документами: «Да делай мердж». Это снимает прежнюю неопределённость publication scope. Следующая продуктовая Goal пока не выбрана.
+
+- **ID / title:** `AUDIO-REFERENCE-UPLOAD-HOTFIX-01` — поставка готового исправления подтверждения audio-reference upload.
+- **State:** `DONE` для явно порученного delivery scope: PR #301 merged, post-merge CI/Studio CI/web CD successful, точный deployed web SHA и read-only API health подтверждены, local main синхронизирован. Готовый code commit `d62945912b3e470b2cb8b20912057a4a57c0f6f1` сохранён в истории. Это не присваивает READY всем product AC и не заменяет прежнюю очередь приёмки.
+- **Authorization:** исходное поручение исправить audio upload от 2026-09-05; затем отдельные поручения AUDIT/обновить документы и правила; явное подтверждение merge **документов и hotfix** в текущем чате. Ранее разрешённый synthetic silence WAV около 17 МБ уже подтверждал storage/CORS recovery; повторный upload, processing/STT/Google mutation не входят в текущий delivery scope.
+- **Встроенная Goal:** активирована и проверена инструментами приложения 2026-09-05; objective — проверка и merge этого batch, стандартная web-поставка/read-only post-checks, sync local main и подготовка вариантов следующей Goal. Активной Goal до этого не было; дубликат не создавался.
+- **Scope:** готовый audio multipart hotfix и regression tests; шесть подготовленных документов (AGENTS, README, spec, plan, archive, CI/CD rules); PR в `Just9120/Elevenlabs-API`, applicable CI, merge в main, web CD и public read-only identity/health. Сам текст референса AGENTS сохраняется полностью, проектные пункты только добавляются.
+- **Non-goals:** новая продуктовая реализация по findings; изменение workflows/settings/credentials/CORS, backend/worker/migrations/edge; provider/Google/Telegram side effects; удаление пользовательских sources; следующая Goal.
+- **Связь с прежними Goal AC:** `ARU-01` — исторически подтверждённая CORS/storage причина; `ARU-02` — bounded same-part reconciliation, остановка при invalid/unavailable status, безопасные сообщения и completed-session handling; `ARU-03` — tests/CI и поставка исправления. Прежний successful synthetic upload остаётся historical Evidence, не выдаётся за повторный LIVE на новой версии.
+- **DoD текущего поручения:** согласованный diff проверен; существенные review findings закрыты; required PR CI successful на final revision; PR merged; стандартный web job successful, deployed web SHA совпадает с merge SHA и read-only health/build checks пройдены; local main синхронизирован; факты сохранены в первичных records и локальном durable checkpoint. Приёмка остальных 687 product AC не входит в этот DoD.
+- **Required Evidence:** CODE/TEST/FORMAT/LINT/TYPECHECK/BUILD PASS локально; REVIEW self-review PASS; final PR CI и post-merge CI PASS; MERGE confirmed; DEPLOY PASS для web; LIVE PASS в ограниченном scope public web build identity + API health на 2026-09-05 18:00:27 UTC. Исторический real upload покрывает только прежний scenario/revision, не повторялся.
+- **Blockers:** перед публикацией актуальных blockers не выявлено. Ранее auto-review отказал в publication из-за scope; новая явная authorization записана выше. Любой новый отказ рассматривается по фактическому результату, без обхода защиты.
+- **Stop condition:** после DoD этого delivery поручения остановиться; предложить варианты следующей Goal без её запуска.
+
+### Batch и Validation Plan
+
+Один PR объединяет уже готовый hotfix commit и согласованные документы по явному выбору владельца. Это завершает подготовленное состояние перед новой Goal; новых code fixes в batch нет. Документация описывает весь проект и аудированный backlog, не расширяя hotfix behavior.
+
+| Проверка / риск | Команда / primary record | Среда / этап | Обязательность и текущее состояние |
+| --- | --- | --- | --- |
+| Reference/routing и AC consistency | Сравнение полного AGENTS prefix и CI/CD §§1–9 с референсами; 687 уникальных AC в spec/plan, 289 source rows, 40 local links | Local worktree перед commit | REQUIRED; PASS |
+| Whitespace / patch | `git diff --check`, совокупный diff относительно origin/main | Local pre-commit | REQUIRED; PASS |
+| Audio multipart regression | `node node_modules/vitest/vitest.mjs run src/AudioPreparationUpload.test.tsx` из apps/studio | Windows/Node 22, 2026-09-05 | REQUIRED; PASS, 10 tests, без real storage calls |
+| Frontend static/build | `node node_modules/eslint/bin/eslint.js .`, `node node_modules/typescript/bin/tsc -b`, `npm run build` | apps/studio, local перед commit | REQUIRED; PASS. Существующий chunk-size warning остаётся F15 |
+| Repository / Studio suites | `CI / checks`, `Studio PWA CI / studio`, `Studio PWA CI / browser-e2e` | GitHub Linux, final PR head/test-merge revision | REQUIRED перед merge; PASS на final PR head, точные runs ниже |
+| Review | Self-review diff, GitHub comments/conversations/mergeability и фактические protections | Final PR revision | REQUIRED; PASS, final head/base/mergeability и отсутствие review blockers проверены до merge |
+| Release | Studio Platform CD selected `deploy-web`, image/commit identity, `/build-meta.json`, `/api/healthz` | production web после merge | REQUIRED; PASS для web, exact deployed merge SHA и public API health. API/worker/migration SKIPPED по scope |
+| Human/product scenarios | Новый real upload/capture/provider/export end-to-end и весь audit backlog | По отдельной Manual Validation/продуктовой Goal | Вне текущего merge DoD; прежние ограничения приёмки сохранены |
+
+Будущие условия: CI success → merge → selected web CD success → exact web SHA/read-only health → sync main. Это условия, не прогнозные PASS/READY; второй набор будущих процентов не создаётся. PR/CI/CD records принадлежат ветке `codex/audio-upload-confirmation`; точные IDs записываются после получения и сверяются при AUDIT/RESUME. Post-deploy facts вне records сохраняются в этом локальном tracked файле до следующего содержательного commit, без отдельного служебного PR.
+
+## Active execution checkpoint
+
+- Updated UTC: `2026-09-05T18:01:47Z`.
+- Root: `C:/Users/wait9/OneDrive/Документы/GitHub/Elevenlabs-API`; origin: `https://github.com/Just9120/Elevenlabs-API.git`.
+- Verified pre-merge base/default: `main@dce709df90d4495f7775be93d631ee9a0d3e6f6d` по GitHub API и успешному `git -c http.sslBackend=openssl fetch origin main`. Разовая настройка TLS backend сохранила certificate verification; repo/global Git config не менялась.
+- Working branch: `main`; last verified revision `b8babc257abf7a33cda2df3c36c33570ee043108`. Ветка `codex/audio-upload-confirmation` полностью входит в main; она существовала до этого delivery поручения и сохранена. Все шесть исходных документов и готовый hotfix включены в merged PR. Локальные записи post-deploy/proposed Goal хранятся только в plan.
+- Preserved state: existing ignored/inaccessible pytest directories и остальные unknown files не трогались; source/workflows вне готового hotfix не менялись. Tmp diagnostics в ignored `tmp/audit-2026-09-05/` не публикуются.
+- Current step: [PR #301](https://github.com/Just9120/Elevenlabs-API/pull/301) MERGED 2026-09-05 17:56:26 UTC; merge SHA `b8babc257abf7a33cda2df3c36c33570ee043108`, final PR head `1c9cab33e6540ef8acf9b7822de07fbad8bb5c69`. Merge выполнен после exact checks SUCCESS и повторной проверки head/base, CLEAN/MERGEABLE, отсутствия review blockers; admin bypass не использовался.
+- PR CI на `45801805c8aeb6bdc7baae67af68d9b2e9d2bd73`: [CI 33981927044](https://github.com/Just9120/Elevenlabs-API/actions/runs/33981927044) FAIL в `tests/test_security_policy.py::test_project_spec_owns_durable_colab_security_constraints`: тест ожидает буквальный marker `Baseline repository and Studio CI must remain secretless`. В новой формулировке профиля смысл был сохранён, literal marker — нет. Исходная фраза восстановлена в Project profile; tests и универсальные §§1–9 не ослаблены. [Studio PWA CI 33981927029](https://github.com/Just9120/Elevenlabs-API/actions/runs/33981927029): studio и browser-e2e SUCCESS. После doc correction требуется CI новой revision; прежний FAIL не считается success.
+- Local doc-correction validation: `python -m pytest -q --portable -p no:cacheprovider tests/test_security_policy.py` — 3 passed; reference/687 AC/289 sources/40 links consistency и `git diff --check` — PASS. Историческая оценка readiness доступна через Git history; full acceptance numerator тогда не был установлен.
+- Final PR validation: `1c9cab33e6540ef8acf9b7822de07fbad8bb5c69`; [CI 33982256655](https://github.com/Just9120/Elevenlabs-API/actions/runs/33982256655) SUCCESS, [Studio PWA CI 33982256604](https://github.com/Just9120/Elevenlabs-API/actions/runs/33982256604) SUCCESS; все три required jobs фактически выполнены, включая browser-e2e. Это исправленная revision; первый failed run сохранён выше как история диагностики.
+- Local sync: текущая ветка `main`; HEAD = local main = origin/main = `b8babc257abf7a33cda2df3c36c33570ee043108`. Fast-forward fetch и switch сохранили SHA-256 локального plan. Единственное tracked local изменение — этот durable checkpoint/подготовленный proposal следующей Goal; служебный commit/PR не создаётся.
+- Post-merge records для `b8babc257abf7a33cda2df3c36c33570ee043108`: [CI 33982502558](https://github.com/Just9120/Elevenlabs-API/actions/runs/33982502558) SUCCESS; [Studio PWA CI 33982502612](https://github.com/Just9120/Elevenlabs-API/actions/runs/33982502612) SUCCESS; [Studio Platform CD 33982502551](https://github.com/Just9120/Elevenlabs-API/actions/runs/33982502551) SUCCESS, selected deploy-web SUCCESS. API/worker/release-api-migration SKIPPED, это не их deployment Evidence.
+- LIVE post-check: Python urllib HTTPS GET с default certificate verification, 2026-09-05 18:00:27 UTC; `/build-meta.json` возвращает `commit_sha=b8babc257abf7a33cda2df3c36c33570ee043108`, `build_id=web-b8babc257abf7a33cda2df3c36c33570ee043108`; `/api/healthz`: `ok=true`, database/Redis reachable, migrations current, schema `0037_ux_audit_controls`. PowerShell TLS client сначала не смог установить HTTPS; это локальное transport limitation, не failure приложения; certificate checks не отключались. Реальный private upload, paid STT, Google mutations и runtime worker identity не проверялись.
+- **Next exact action:** владелец выбирает следующую Goal из подготовленных вариантов или задаёт свой результат. До такого выбора новую implementation и provider canaries не начинать. Текущий delivery DoD выполнен; встроенная Goal закрыта через `update_goal(status=complete)`, последующий `get_goal` подтвердил `complete` в текущем чате.
+- Primary records до этого batch: PR #300 merged в `dce709df90d4495f7775be93d631ee9a0d3e6f6d`; прошлый main CI/Studio CI successful. Эти runs не заменяют validation новой revision.
+- Historical runtime: 2026-09-05 11:03 UTC owner CORS recovery и successful synthetic multipart audio upload на web `dce709df90d4495f7775be93d631ee9a0d3e6f6d`, API/worker `e00febc5f77ebb9bcc8cd797a09ee7c1a94354b7`. Audit public GET позже подтвердили web identity и API health/schema `0037_ux_audit_controls`; private scenarios и worker identity не перепроверялись.
+
+### Локальное обновление repository rules — 2026-09-05
+
+- Основание: пользователь предоставил новые `repository/AGENTS.md` и `repository/ci-cd-rules.md`, поручил заменить старые правила и адаптировать их к проекту. Это отдельная локальная documentation task; предыдущая product Goal не возобновлена, code/workflows/settings и публикация не разрешены этим поручением.
+- Результат: после уточнения пользователя root AGENTS содержит полный неизменённый текст нового референса и отдельный §9 с проектными дополнениями; CI/CD §§1–9 заменены новым Safety contract, §10 содержит фактические команды, CI/CD profile, защищённые lanes и durable handoff. Старое имя migration class MANUAL_GATED сопоставлено EXPLICITLY_GATED с сохранением gates. Universal safety policy изменена по этому явному поручению, а не для снятия blocker.
+- Сохранены прежние локальные результаты AUDIT в README/spec/plan/archive. В отличие от предыдущего checkpoint, теперь изменены AGENTS и весь CI/CD document. Branch/HEAD не менялись; commit/push/PR/merge/deploy не выполнялись. Built-in product Goal не активировалась: поручена замена документов.
+- Validation документации на worktree поверх `d62945912b3e470b2cb8b20912057a4a57c0f6f1`, 2026-09-05: readback и self-review PASS; §§1–9 CI/CD совпадают с новым референсом; четыре проектные lane-секции сохранены с перенумерацией и явным соответствием migration class. Проверены 16 локальных links, 16 profile paths, сохранность README/spec/archive по SHA-256 и отсутствие code/workflow diff. `git diff --check` PASS; `python scripts/ci_checks.py` PASS. Full product suites не повторялись для изменения правил. При source review исключено неподтверждённое утверждение об общем remote deployment lock: найденный flock относится только к backup.
+- Размер AGENTS после восстановления полного референса: 127 строк, 24,896 bytes (24.3 KiB); вместе с существующим глобальным AGENTS — 29,298 bytes. Полный исходный файл сохранён byte-for-byte как префикс: удалений и замен в нём нет, добавлен только §9. [OpenAI рекомендует краткие практичные инструкции со ссылками](https://learn.chatgpt.com/guides/best-practices); [32 KiB — default лимит загрузки, а не рекомендуемый целевой размер](https://learn.chatgpt.com/docs/agent-configuration/agents-md). Точного лимита строк эти страницы не задают; global settings не менялись.
+- Уточнение пользователя: адаптация AGENTS должна только добавлять проектные строки. Предыдущая версия сокращала формулировки и объединяла разделы; это исправлено восстановлением всего референса без редактирования его текста. Validation: byte-for-byte prefix comparison PASS, ссылки проектного дополнения PASS, общий размер с глобальным AGENTS ниже 32 KiB, `git diff --check` PASS. CI/CD и результаты продуктового аудита этой коррекцией не изменены.
+- Documentation task завершена локально. **Next exact action для продукта:** дождаться выбранной владельцем Goal или явного продолжения hotfix.

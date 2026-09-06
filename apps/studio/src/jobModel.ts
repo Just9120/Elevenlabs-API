@@ -133,7 +133,7 @@ export type JobState = {
   nextCursor: string | null;
 };
 
-export function jobTitle(job: TranscriptionJob) {
+export function jobTitle(job: Pick<TranscriptionJob, "title" | "created_at">) {
   return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
 }
 

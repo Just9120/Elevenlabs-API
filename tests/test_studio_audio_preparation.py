@@ -350,6 +350,14 @@ def test_processing_reports_bounded_ffmpeg_progress(monkeypatch):
     assert captured["kwargs"]["stderr"] == -3
 
 
+@pytest.mark.parametrize("output_format", ["wav", "flac", "copy"])
+def test_render_filename_preserves_dots_in_title_project_and_template(output_format):
+    configured = options(output_format=output_format, output_name_template="{project}.{title}.v2")
+    filename = render_output_filename(configured, created_at=datetime(2026,9,6,tzinfo=timezone.utc), project_title="Семестр 1. Психология", title="Лекция 1. Предмет, задачи и методы социальной психологии")
+    suffix = "audio" if output_format == "copy" else output_format
+    assert filename == f"Семестр 1. Психология.Лекция 1. Предмет, задачи и методы социальной психологии.v2.{suffix}"
+
+
 def test_render_filename_uses_only_allowlisted_metadata_and_extension():
     configured = options(output_format="wav", output_name_template="{date}_{time}_{project}_{title}")
     filename = render_output_filename(

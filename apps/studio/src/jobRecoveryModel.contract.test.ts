@@ -153,6 +153,20 @@ describe("job recovery DTO contracts", () => {
     expect(parsed?.cases[0]).not.toHaveProperty("resolved_at");
   });
 
+  it("accepts only bounded, unique attention candidates for another job", () => {
+    const candidate = { id: "later-job", title: "Лекция 1. Полное название", created_at: "2026-09-06T10:00:00Z" };
+    expect(parseOutputReconciliationResponse({ ...reconciliation, attention_candidates: [candidate] }, "job-safe")?.attention_candidates).toEqual([candidate]);
+    for (const candidates of [
+      [candidate, candidate],
+      [{ ...candidate, id: "job-safe" }],
+      [{ ...candidate, created_at: "invalid" }],
+      [{ ...candidate, title: "x".repeat(301) }],
+      "invalid",
+    ]) {
+      expect(parseOutputReconciliationResponse({ ...reconciliation, attention_candidates: candidates }, "job-safe")).toBeNull();
+    }
+  });
+
   it("rejects inconsistent reconciliation counts and availability", () => {
     expect(
       parseOutputReconciliationResponse(

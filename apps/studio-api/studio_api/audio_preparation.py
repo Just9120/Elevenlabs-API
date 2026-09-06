@@ -519,7 +519,8 @@ def render_output_filename(
         moment = moment.replace(tzinfo=timezone.utc)
     def safe_output_stem(value: str) -> str:
         normalized = normalize_source_display_filename(value, max_length=220)
-        stem = normalized.rsplit(".", 1)[0].strip(" ._")
+        # Metadata and the rendered template are already extension-free titles.
+        stem = normalized.strip(" ._")
         stem = UNSAFE_OUTPUT_FILENAME_PATTERN.sub("_", stem).strip(" ._")
         return stem or "processed-audio"
 

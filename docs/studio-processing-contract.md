@@ -1,5 +1,10 @@
 # Studio processing contract
 
+## Уточнение scope по аудиту 2026-09-06
+
+Описанные ниже Google-only output и transient transcript boundaries отражают текущую реализацию b8babc2. Новый согласованный intent требует самостоятельного принятого transcript artifact внутри Studio и независимого export lifecycle; F01/RS/PB-06/PM-05 отслеживаются в [delivery dashboard](delivery-plan.md), формулировки — в [project spec](project-spec.md). Старые implementation ограничения не отменяют новые требования и не разрешают их исполнение. PostgreSQL остаётся владельцем workflow metadata, S3 — назначенным владельцем retained bytes; Google/Яндекс Диск — внешние пользовательские exports.
+
+
 This is the current Studio processing contract. It is not a delivery plan, PR history, deployment runbook, or proof of production-live processing. Product scope lives in `docs/project-spec.md`; architecture lives in `docs/architecture.md`; rollout procedure lives in `docs/runbooks/studio-platform-ops.md`.
 
 ## Authority

@@ -11,6 +11,7 @@ import type {
 } from "./jobModel";
 import { jobTitle } from "./jobModel";
 import type {
+  JobAttentionCandidate,
   JobRetryState,
   OutputReconciliationState,
 } from "./jobRecoveryModel";
@@ -58,7 +59,7 @@ export function JobCard({
   dismissPending?: boolean;
   onDismissTerminal?: (jobId: string) => void | Promise<void>;
   attentionResolutionPending?: boolean;
-  attentionCandidates?: TranscriptionJob[];
+  attentionCandidates?: JobAttentionCandidate[];
   onResolveAttention?: (
     jobId: string,
     resolution: "acknowledged_no_result" | "linked_later_result",
@@ -71,6 +72,14 @@ export function JobCard({
   const detailedJob = detail?.job;
   const terminal = ["completed", "failed", "cancelled"].includes(job.status);
   const [linkedJobId, setLinkedJobId] = useState("");
+  const selectedCandidate = attentionCandidates.some((candidate) => candidate.id === linkedJobId);
+  const confirmNoResult = () => {
+    if (window.confirm(
+      "Закрыть ошибку и убрать задачу в историю? Вы подтверждаете, что готового результата нет. Провайдер мог уже списать средства. Повторная транскрибация не запустится; решение сохранится в журнале.",
+    )) {
+      void onResolveAttention?.(job.id, "acknowledged_no_result");
+    }
+  };
   const body = (
     <>
       <JobProgressPipeline jobId={job.id} state={progress} />
@@ -84,7 +93,7 @@ export function JobCard({
       {detail?.error && <p className="error">{detail.error}</p>}
       {outputs?.loading && <p role="status">Загрузка результатов…</p>}
       {outputs?.error && <p className="error">{outputs.error}</p>}
-      {reconciliation?.data?.available && (
+      {!attentionRequired && reconciliation?.data?.available && (
         <OutputReconciliationNotice
           jobId={job.id}
           state={reconciliation}
@@ -138,23 +147,47 @@ export function JobCard({
           </strong>
           {attentionRequired && (
             <div className="attention-resolution-controls">
-              <p>
-                Сначала проверьте Google Drive ещё раз. Если результата нет,
-                подтвердите это явно: провайдер мог уже списать средства.
-              </p>
               <button
                 type="button"
-                className="secondary"
-                disabled={attentionResolutionPending || reconciliation?.checking}
-                onClick={() => onCheckReconciliation(job.id)}
+                className="danger"
+                disabled={attentionResolutionPending || !onResolveAttention}
+                aria-busy={attentionResolutionPending}
+                onClick={confirmNoResult}
               >
-                Проверить результат ещё раз
+                Закрыть ошибку и убрать в историю
               </button>
+              <p>
+                Закрывайте ошибку, если готового результата нет. Возможный расход
+                провайдера и история операции сохранятся; новая транскрибация не запустится.
+              </p>
+              {reconciliation?.data?.available ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={attentionResolutionPending || reconciliation.checking}
+                  onClick={() => onCheckReconciliation(job.id)}
+                >
+                  Проверить результат ещё раз
+                </button>
+              ) : (
+                <p className="muted">
+                  {reconciliation?.data
+                    ? "Автоматическая проверка результата сейчас недоступна. Отсутствие документа не подтверждено; при необходимости проверьте папку результата вручную."
+                    : "Доступность автоматической проверки ещё не подтверждена."}
+                </p>
+              )}
+              {reconciliation?.message && <p role="status">{reconciliation.message}</p>}
+              {reconciliation?.error && <p className="error">{reconciliation.error}</p>}
+              {!reconciliation?.data && (
+                <button type="button" disabled={reconciliation?.loading} onClick={() => void onOpen(job.id)}>
+                  Обновить доступные действия
+                </button>
+              )}
               {attentionCandidates.length > 0 && (
                 <label>
                   Более поздний подтверждённый результат
                   <select
-                    value={linkedJobId}
+                    value={selectedCandidate ? linkedJobId : ""}
                     disabled={attentionResolutionPending}
                     onChange={(event) => setLinkedJobId(event.target.value)}
                   >
@@ -172,7 +205,7 @@ export function JobCard({
                   <button
                     type="button"
                     className="secondary"
-                    disabled={!linkedJobId || attentionResolutionPending}
+                    disabled={!selectedCandidate || attentionResolutionPending}
                     onClick={() =>
                       onResolveAttention?.(
                         job.id,
@@ -184,22 +217,6 @@ export function JobCard({
                     Связать и убрать в историю
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={attentionResolutionPending}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Подтвердить, что результата нет? ElevenLabs мог уже списать средства за этот запрос. Решение сохранится в журнале.",
-                      )
-                    ) {
-                      void onResolveAttention?.(job.id, "acknowledged_no_result");
-                    }
-                  }}
-                >
-                  Подтвердить: результата нет
-                </button>
               </div>
             </div>
           )}

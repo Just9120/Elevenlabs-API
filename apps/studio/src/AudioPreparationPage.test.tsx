@@ -142,7 +142,7 @@ describe("AudioPreparationPage", () => {
     const created: Record<string, unknown>[] = [];
     const rows = [
       source("source-a", "anything-a.wav", "2026-08-24T20:00:00Z"),
-      source("source-b", "anything-b.wav", "2026-08-24T18:00:00Z"),
+      source("source-b", "Лекция 1. Предмет, задачи и методы социальной психологии.mp4", "2026-08-24T18:00:00Z"),
       source("source-c", "anything-c.wav", "2026-08-24T19:00:00Z"),
     ];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -167,7 +167,7 @@ describe("AudioPreparationPage", () => {
 
     await waitFor(() => expect(created).toHaveLength(3));
     expect(created.map((body) => body.source_ids)).toEqual([["source-b"], ["source-c"], ["source-a"]]);
-    expect(created.map((body) => body.title)).toEqual(["anything-b", "anything-c", "anything-a"]);
+    expect(created.map((body) => body.title)).toEqual(["Лекция 1. Предмет, задачи и методы социальной психологии", "anything-c", "anything-a"]);
   });
 
   it("shows and submits an explicit metadata-ordered concatenation plan", async () => {

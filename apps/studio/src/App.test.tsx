@@ -10584,6 +10584,57 @@ describe("Studio PWA", () => {
       timeoutSpy.mockRestore();
     }
   });
+  it.each(["success", "timeout-confirmed", "timeout-unknown", "reauth"] as const)(
+    "resolves an uncertain error with bounded readback: %s",
+    async (mode) => {
+      installFocusedOutputFixture({ jobStatus: "failed", historyAttentionRequired: true });
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+      const defaultFetch = baseFetch.getMockImplementation()!;
+      let posts = 0;
+      let readbacks = 0;
+      const resolvedFields = {
+        history_attention_required: false,
+        history_attention_resolved_at: "2026-09-06T10:00:00Z",
+        history_attention_resolution: "acknowledged_no_result",
+        history_attention_linked_job_id: null,
+        terminal_dismissed_at: "2026-09-06T10:00:00Z",
+      };
+      baseFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url).endsWith("/api/jobs/job-focused/attention-resolution") && init?.method === "POST") {
+          posts += 1;
+          expect(JSON.parse(String(init.body))).toEqual({ resolution: "acknowledged_no_result", linked_job_id: null, confirm_possible_spend: true });
+          if (mode === "reauth") return json({ detail: "recent_auth_required" }, false, 401);
+          if (mode.startsWith("timeout")) return new Promise<Response>((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+          const response = await defaultFetch("/api/jobs/job-focused");
+          return json({ ...await response.json(), ...resolvedFields });
+        }
+        const response = await defaultFetch(url, init);
+        if (posts && String(url).endsWith("/api/jobs/job-focused") && !init?.method) {
+          readbacks += 1;
+          if (mode === "timeout-confirmed") return json({ ...await response.json(), ...resolvedFields });
+        }
+        return response;
+      });
+      const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+      const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback, delay, ...args) => nativeSetTimeout(callback, delay === 20_000 ? 0 : delay, ...args)) as typeof setTimeout);
+      try {
+        await openFocusedJobsList();
+        await userEvent.click(await screen.findByRole("button", { name: "Закрыть ошибку и убрать в историю" }));
+        const message = mode === "reauth"
+          ? "Для решения войдите в аккаунт заново."
+          : mode === "timeout-unknown"
+            ? "Studio не ответила вовремя. Закрытие ошибки не подтверждено; обновите состояние перед повтором."
+            : "Отмечено, что подтверждённого результата нет. Задача убрана в историю, решение сохранено в журнале.";
+        expect(await screen.findByText(message)).toBeVisible();
+        expect(posts).toBe(1);
+        if (mode.startsWith("timeout")) expect(readbacks).toBeGreaterThan(0);
+      } finally {
+        timeoutSpy.mockRestore();
+      }
+    },
+  );
+
   it("renders the explicit empty job outputs state without output links", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",

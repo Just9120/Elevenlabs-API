@@ -9,7 +9,7 @@ Personal Studio PWA работает и развивается. Яндекс Д�
 
 README не дублирует быстро устаревающие проценты и revision IDs. Полный scope, atomic AC, источники и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Все текущие статусы AC, Evidence, numerator/denominator, текущая и предыдущая оценки, findings, варианты Goal и checkpoint находятся только в [docs/delivery-plan.md](docs/delivery-plan.md).
 
-Commercial production включён в durable product scope как `BACKLOG`, но его implementation пока не авторизована. Существующий personal code не считается commercial Evidence.
+Commercial production включён в durable product scope; его фактическое состояние и приоритеты отражены в delivery dashboard. Существующий personal code не считается commercial Evidence.
 
 ## Быстрый старт и validation
 
@@ -30,11 +30,16 @@ npm run lint
 npm run test -- --run
 npm run build
 
+# Локальный интерфейс Studio
+npm run dev
+
 # Проверка whitespace/diff
 git diff --check
 ```
 
 На Windows portable suite всё ещё включает shell-dependent проверки; ограничения и фактические результаты последнего аудита указаны в delivery-plan и Project CI/CD profile.
+
+Для локального API нужны отдельные тестовые PostgreSQL/Redis, migrations и synthetic configuration. Подготовка окружения и запуск `uvicorn studio_api.main:app` описаны в [validation runbook](docs/runbooks/validation.md) и [Project profile](docs/ci-cd-rules.md#102-команды-и-validation).
 
 Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Studio production operations выполняются только по project CI/CD contract и operational runbook.
 
@@ -42,10 +47,10 @@ Colab batch запускается вручную через `notebooks/elevenla
 
 | Документ | Назначение |
 |---|---|
-| [Upstream requirements](https://docs.google.com/document/d/1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI/edit?tab=t.0) | Сырые/несогласованные требования и идеи для reconciliation; не canonical contract и не implementation authorization. |
+| [Upstream requirements](https://docs.google.com/document/d/1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI/edit?tab=t.0) | Обязательные согласованные требования владельца; декомпозиция находится в canonical spec. Требования сами по себе не разрешают implementation. |
 | [AGENTS.md](AGENTS.md) | Goal-driven repository router, execution kernel, authority и scope. |
-| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract, эпики и atomic AC. |
-| [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и active checkpoint. |
+| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract и индекс 56 эпиков; формулировки AC — в docs/spec/*.md. |
+| [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и checkpoint; полные реестры AC — в docs/delivery/*.md. |
 | [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Архив завершённой delivery history. |
 | [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | CI/CD, deployment, migration и runtime safety contract. |
 | [docs/architecture.md](docs/architecture.md) | Logical/runtime architecture, data flow и state ownership. |
