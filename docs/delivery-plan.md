@@ -94,6 +94,8 @@ DoD и non-goals — в разделе Goal ниже. DOC-GATE-01 остаётс
 
 ## V27 — текущая реализация AUDIO-NAME-ERROR-UX-01
 
+PR [#302](https://github.com/Just9120/Elevenlabs-API/pull/302), первый head `3162b95810869f8fed80afbfb7b0b91aee48c2b9`. На 2026-09-06T14:18Z [CI 34038563238](https://github.com/Just9120/Elevenlabs-API/actions/runs/34038563238) PASS; [Studio CI 34038563246](https://github.com/Just9120/Elevenlabs-API/actions/runs/34038563246) frontend job PASS, browser-e2e FAIL: старый substring locator «Убрать в историю» совпал с новой кнопкой. Два соответствующих Playwright assertions уточнены `exact: true`; local lint и E2E collection 13/13 PASS. Полный повтор CI на следующем head PENDING. Product code не менялся после local validation; merge/deploy ещё не выполнялись.
+
 Источник: рабочая ветка `codex/audio-name-error-ux` поверх `b8babc2`, Windows/Python 3.12/Node 22; 2026-09-06T14:10Z. Первичная фиксация ниже относится к проверенному working tree; commit/CI/deploy SHA появятся после фактических операций.
 
 **DOC REVIEW 2026-09-06T14:13Z:** 687 уникальных ID / 675 актуальных AC, 289 исходных bullet paragraphs и 136 local links проверены; project section и deployment lanes сохранены. Внешние файлы в Downloads к повторной проверке уже отличаются от версии, применённой в AUDIT и переданной владельцем в инструкциях этого чата. Они не применяются повторно автоматически; текущая поставка сохраняет явно утверждённый baseline. Результат прежнего exact-template comparison относится к прежнему snapshot, не к изменившимся файлам Downloads.

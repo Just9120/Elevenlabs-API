@@ -803,7 +803,7 @@ test('uncertain provider result can be explicitly closed without another provide
     'Эта задача требует решения и сохранена после очистки истории.',
   );
   await expect(
-    jobCard.getByRole('button', { name: 'Убрать в историю' }),
+    jobCard.getByRole('button', { name: 'Убрать в историю', exact: true }),
   ).toHaveCount(0);
   const uncertainJobId = await jobCard.getAttribute('data-job-id');
   expect(uncertainJobId).toMatch(/^[0-9a-f-]{36}$/);
@@ -923,7 +923,7 @@ test('unresolved output reconciliation waits for an explicit safe action', async
     'Эта задача требует решения и сохранена после очистки истории.',
   );
   await expect(
-    jobCard.getByRole('button', { name: 'Убрать в историю' }),
+    jobCard.getByRole('button', { name: 'Убрать в историю', exact: true }),
   ).toHaveCount(0);
   const reconciliationJobId = await jobCard.getAttribute('data-job-id');
   expect(reconciliationJobId).toMatch(/^[0-9a-f-]{36}$/);
