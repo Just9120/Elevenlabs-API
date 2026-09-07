@@ -4386,14 +4386,7 @@ function PreparationPanel({
       };
       await onReloadJobs(project.id);
     } catch (error) {
-      const reason =
-        error instanceof ApiError &&
-        error.data &&
-        typeof error.data === "object" &&
-        "detail" in error.data &&
-        typeof (error.data as { detail?: unknown }).detail === "object"
-          ? ((error.data as { detail: { reason?: string } }).detail.reason ?? "")
-          : "";
+      const reason = apiErrorDetailReason(error) ?? "";
       notice = {
         projectId: project.id,
         kind: "attention",
@@ -4401,6 +4394,8 @@ function PreparationPanel({
         message:
           reason === "linked_job_not_confirmed"
             ? "Выбранная задача не подтверждает результат для того же файла и диапазона."
+            : reason === "recent_reauthentication_required"
+              ? "Сначала подтвердите личность в разделе «Аккаунт», затем повторите закрытие ошибки."
             : error instanceof ApiError && error.status === 401
               ? "Для решения войдите в аккаунт заново."
               : "Не удалось сохранить решение. Обновите задачу и повторите.",
@@ -7318,6 +7313,7 @@ function SourceStorageSettings({
     cursor: string | null = null,
   ) => {
     const append = cursor !== null;
+    if (!append) setDeletionNotices({});
     setSources((current) => ({
       ...current,
       loading: !append,
@@ -7372,12 +7368,7 @@ function SourceStorageSettings({
     if (pendingDeletionIdsRef.current.has(sourceId)) return false;
     pendingDeletionIdsRef.current.add(sourceId);
     setPendingDeletionIds(new Set(pendingDeletionIdsRef.current));
-    setDeletionNotices((current) => {
-      if (!current[sourceId]) return current;
-      const next = { ...current };
-      delete next[sourceId];
-      return next;
-    });
+    setDeletionNotices({});
     return true;
   };
 
@@ -7387,7 +7378,7 @@ function SourceStorageSettings({
   ) => {
     pendingDeletionIdsRef.current.delete(sourceId);
     setPendingDeletionIds(new Set(pendingDeletionIdsRef.current));
-    setDeletionNotices((current) => ({ ...current, [sourceId]: notice }));
+    setDeletionNotices({ [sourceId]: notice });
   };
 
   return (

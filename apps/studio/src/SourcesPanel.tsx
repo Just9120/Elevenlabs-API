@@ -85,6 +85,16 @@ function isAmbiguousDeletionFailure(error: unknown) {
   );
 }
 
+function apiErrorDetailReason(error: unknown) {
+  if (!(error instanceof ApiError) || !error.data || typeof error.data !== "object") {
+    return null;
+  }
+  const detail = (error.data as { detail?: unknown }).detail;
+  if (!detail || typeof detail !== "object") return null;
+  const reason = (detail as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : null;
+}
+
 function sourceReadConfirmsDeletion(value: unknown, sourceId: string) {
   return (
     Boolean(value) &&
@@ -195,7 +205,11 @@ export function SourcesPanel({
       );
       onReload(project.id);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      if (apiErrorDetailReason(error) === "recent_reauthentication_required") {
+        setBulkMessage(
+          "Сначала подтвердите личность в разделе «Аккаунт», затем повторите очистку.",
+        );
+      } else if (error instanceof ApiError && error.status === 401) {
         setBulkMessage("Для очистки войдите в аккаунт заново и повторите проверку.");
       } else if (error instanceof ApiError && error.status === 409) {
         setBulkPreview(null);
@@ -335,6 +349,8 @@ export function SourcesPanel({
           "Дождитесь завершения или отмены текущей обработки.",
         retryable_failed_job_uses_source:
           "Источник нужен для доступного безопасного повтора задачи.",
+        audio_preparation_uses_source:
+          "Сначала завершите или отмените подготовку аудио, использующую этот файл.",
       };
       notice = {
         projectId: project.id,

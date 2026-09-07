@@ -40,7 +40,8 @@ type AudioJob = {
 
 type Props = { csrf: string; onCsrf: (value: string) => void };
 
-const terminal = new Set(["preview_ready", "cancelled", "failed", "completed"]);
+const terminal = new Set(["cancelled", "failed", "completed"]);
+const pollingStopped = new Set([...terminal, "preview_ready"]);
 const presetDefaults = {
   processing_only: { format: "copy", mono: "preserve", silence: false, threshold: -45, minimum: 1, keep: 0.3 },
   lecture: { format: "flac", mono: "mixdown", silence: true, threshold: -45, minimum: 1.2, keep: 0.35 },
@@ -216,7 +217,10 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         const jobs = collection && typeof collection === "object" && Array.isArray((collection as { jobs?: unknown }).jobs)
           ? (collection as { jobs: unknown[] }).jobs
           : [];
-        if (active && jobs.length > 0) setJobs([parseJob(jobs[0])]);
+        if (active && jobs.length > 0) {
+          const restored = jobs.map(parseJob);
+          setJobs(restored.filter((job, index) => index === 0 || !terminal.has(job.status)));
+        }
       })
       .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Не удалось открыть обработку аудио."))
       .finally(() => active && setBusy(false));
@@ -224,9 +228,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   }, []);
 
   useEffect(() => {
-    if (jobs.length === 0 || jobs.every((job) => terminal.has(job.status))) return;
+    if (jobs.length === 0 || jobs.every((job) => pollingStopped.has(job.status))) return;
     const timer = window.setInterval(() => {
-      void Promise.all(jobs.map((job) => terminal.has(job.status)
+      void Promise.all(jobs.map((job) => pollingStopped.has(job.status)
         ? Promise.resolve(job)
         : api<unknown>(`/audio-preparations/${job.id}`, { cache: "no-store" }).then(parseJob)))
         .then(setJobs)

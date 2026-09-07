@@ -1840,6 +1840,82 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("explains when bulk cleanup needs recent reauthentication", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let reauthenticated = false;
+    let cleanupPosts = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/auth/reauth" && init?.method === "POST") {
+        reauthenticated = true;
+        return json({ ok: true });
+      }
+      if (
+        url === "/api/projects/p1/sources/bulk-deletion/preview" &&
+        !init?.method
+      ) {
+        return json({
+          preview_token: "c".repeat(64),
+          eligible_count: 1,
+          listed_count: 1,
+          hidden_expired_count: 0,
+          eligible_bytes: 1024,
+          eligible_unknown_size_count: 0,
+          blocked_count: 0,
+          blocked_bytes: 0,
+          blocked_unknown_size_count: 0,
+          blocked_reasons: {},
+          google_drive_files_deleted: 0,
+        });
+      }
+      if (
+        url === "/api/projects/p1/sources/bulk-deletion" &&
+        init?.method === "POST"
+      ) {
+        cleanupPosts += 1;
+        if (reauthenticated) return json({ ok: true, deleted_count: 1, blocked_count: 0, blocked_reasons: {}, cleanup_counts: { pending: 1 }, google_drive_files_deleted: 0 });
+        return json(
+          { detail: { reason: "recent_reauthentication_required" } },
+          false,
+          409,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить все файлы" }),
+    );
+    const plan = await screen.findByRole("region", {
+      name: "План очистки файлов Studio",
+    });
+    await userEvent.click(
+      within(plan).getByRole("button", { name: "Подтвердить очистку (1)" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Сначала подтвердите личность в разделе «Аккаунт», затем повторите очистку.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Подтвердить очистку (1)" }),
+    ).toBeInTheDocument();
+    expect(cleanupPosts).toBe(1);
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+    const security = screen.getByRole("region", { name: "Защита аккаунта" });
+    await userEvent.type(within(security).getByLabelText("Пароль"), "synthetic-test-password");
+    await userEvent.click(within(security).getByRole("button", { name: "Подтвердить личность" }));
+    await waitFor(() => expect(reauthenticated).toBe(true));
+    await userEvent.click(screen.getByRole("tab", { name: "Файлы и хранилище" }));
+    await userEvent.click(screen.getByRole("button", { name: "Подтвердить очистку (1)" }));
+    expect(await screen.findByText("Из Studio убрано файлов: 1. Пропущено: 0. Файлы Google Drive не удалялись.")).toBeVisible();
+    expect(cleanupPosts).toBe(2);
+    expect(screen.queryByRole("region", { name: "План очистки файлов Studio" })).not.toBeInTheDocument();
+  });
+
   it("removes a Drive source only from the active project list", async () => {
     let sourceLoads = 0;
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
@@ -2276,6 +2352,7 @@ describe("Studio PWA", () => {
     ["queued_job_uses_source", "Сначала отмените ожидающие задачи, использующие этот файл."],
     ["processing_job_uses_source", "Дождитесь завершения или отмены текущей обработки."],
     ["retryable_failed_job_uses_source", "Источник нужен для доступного безопасного повтора задачи."],
+    ["audio_preparation_uses_source", "Сначала завершите или отмените подготовку аудио, использующую этот файл."],
   ])("shows safe blocked-removal message for %s", async (reason, message) => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -2293,6 +2370,40 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("job_");
     expect(document.body.textContent).not.toContain("cleanup_owner");
     expect(document.body.textContent).not.toContain("retry_stage");
+  });
+
+  it("shows only the latest source deletion notice", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/sources/s-local") && init?.method === "DELETE") {
+        return json(
+          { detail: { reason: "audio_preparation_uses_source" } },
+          false,
+          409,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Убрать из Studio: Лекция 1. Личность как психологическое явление.flac",
+      }),
+    );
+    expect(await screen.findByText("Файл убран из Studio.")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
+    );
+    expect(
+      await screen.findByText(
+        "Сначала завершите или отмените подготовку аудио, использующую этот файл.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Файл убран из Studio.")).not.toBeInTheDocument();
   });
 
   it("keeps the source card and shows a safe ambiguous outcome after a 5xx removal", async () => {
@@ -10584,7 +10695,7 @@ describe("Studio PWA", () => {
       timeoutSpy.mockRestore();
     }
   });
-  it.each(["success", "timeout-confirmed", "timeout-unknown", "reauth"] as const)(
+  it.each(["success", "timeout-confirmed", "timeout-unknown", "reauth", "reauth-401"] as const)(
     "resolves an uncertain error with bounded readback: %s",
     async (mode) => {
       installFocusedOutputFixture({ jobStatus: "failed", historyAttentionRequired: true });
@@ -10604,7 +10715,8 @@ describe("Studio PWA", () => {
         if (String(url).endsWith("/api/jobs/job-focused/attention-resolution") && init?.method === "POST") {
           posts += 1;
           expect(JSON.parse(String(init.body))).toEqual({ resolution: "acknowledged_no_result", linked_job_id: null, confirm_possible_spend: true });
-          if (mode === "reauth") return json({ detail: "recent_auth_required" }, false, 401);
+          if (mode === "reauth-401") return json({ detail: "session_expired" }, false, 401);
+          if (mode === "reauth" && posts === 1) return json({ detail: { reason: "recent_reauthentication_required" } }, false, 409);
           if (mode.startsWith("timeout")) return new Promise<Response>((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
           const response = await defaultFetch("/api/jobs/job-focused");
           return json({ ...await response.json(), ...resolvedFields });
@@ -10621,14 +10733,21 @@ describe("Studio PWA", () => {
       try {
         await openFocusedJobsList();
         await userEvent.click(await screen.findByRole("button", { name: "Закрыть ошибку и убрать в историю" }));
-        const message = mode === "reauth"
+        const message = mode === "reauth-401"
           ? "Для решения войдите в аккаунт заново."
+          : mode === "reauth"
+          ? "Сначала подтвердите личность в разделе «Аккаунт», затем повторите закрытие ошибки."
           : mode === "timeout-unknown"
             ? "Studio не ответила вовремя. Закрытие ошибки не подтверждено; обновите состояние перед повтором."
             : "Отмечено, что подтверждённого результата нет. Задача убрана в историю, решение сохранено в журнале.";
         expect(await screen.findByText(message)).toBeVisible();
         expect(posts).toBe(1);
         if (mode.startsWith("timeout")) expect(readbacks).toBeGreaterThan(0);
+        if (mode === "reauth") {
+          await userEvent.click(screen.getByRole("button", { name: "Закрыть ошибку и убрать в историю" }));
+          expect(await screen.findByText("Отмечено, что подтверждённого результата нет. Задача убрана в историю, решение сохранено в журнале.")).toBeVisible();
+          expect(posts).toBe(2);
+        }
       } finally {
         timeoutSpy.mockRestore();
       }
