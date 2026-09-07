@@ -8683,7 +8683,7 @@ def test_pwa_debug_ingestion_requires_active_session_and_does_not_extend_expiry(
 def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
     from types import SimpleNamespace
     from studio_api.models import AudioPreparationJob, AudioPreparationStatus
-    email = "audio-export-owner@example.test"
+    email = "audio-export-owner@example.com"
     client = TestClient(app)
     csrf = login(client, admin(email), email)
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
@@ -8712,7 +8712,7 @@ def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
     assert client.post(route, headers={"origin": "https://studio.test"}, json={"folder_id": "folder"}).status_code == 403
     assert client.post(route, headers={**headers, "origin": "https://foreign.test"}, json={"folder_id": "folder"}).status_code == 403
     other = TestClient(app)
-    other_email = "audio-export-other@example.test"
+    other_email = "audio-export-other@example.com"
     other_csrf = login(other, admin(other_email), other_email)
     assert other.post(route, headers={**headers, "x-csrf-token": other_csrf}, json={"folder_id": "folder"}).status_code == 404
     assert external == []

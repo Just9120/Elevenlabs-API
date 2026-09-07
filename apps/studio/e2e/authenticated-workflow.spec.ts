@@ -431,7 +431,9 @@ test('Audio workspace processes a device WAV in-browser without uploading source
   await parameters.getByRole('button', { name: 'Обработать на устройстве', exact: true }).click();
   await expect(page.getByText(/введите число от −60 до −10/)).toBeVisible();
   await expect(page.getByRole('heading', { name: '3. Локальные результаты' })).toHaveCount(0);
-  await threshold.pressSequentially('45');
+  await threshold.fill('');
+  await threshold.pressSequentially('-45');
+  await expect(threshold).toHaveValue('-45');
   const keep = parameters.getByLabel('Сколько паузы оставить, сек');
   await keep.fill('');
   await keep.pressSequentially('0.3');
