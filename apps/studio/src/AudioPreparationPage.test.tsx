@@ -45,6 +45,29 @@ function previewJob(id: string, title: string, sourceIds: string[]) {
 describe("AudioPreparationPage", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("restores older pending previews and allows cancelling them to release their sources", async () => {
+    const pending = { ...previewJob("older-preview", "Подготовка исходного файла", ["source-id"]), status: "preview_ready", progress: { percent: 100, stage: "preview_ready" } };
+    const latest = { ...previewJob("latest-result", "Последний результат", []), status: "completed", progress: { percent: 100, stage: "completed" } };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [latest, pending] });
+      if (url.endsWith("/older-preview/cancel") && init?.method === "POST") return json({ ...pending, status: "cancelled", progress: { percent: 100, stage: "cancelled" } });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+
+    const heading = await screen.findByRole("heading", { name: /Подготовка исходного файла/ });
+    const card = heading.closest("article")!;
+    await userEvent.click(within(card).getByRole("button", { name: "Отменить" }));
+    expect(await within(card).findByText("Отменено")).toBeVisible();
+    expect(within(card).queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/older-preview/cancel") && init?.method === "POST")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
+  });
+
   it("loads the owner workspace, explains ephemeral retention and enables preview after selection", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

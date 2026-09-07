@@ -34,7 +34,6 @@ Validation Plan и работа с AC определены в `AGENTS.md`. Пр�
 | Security и supply chain | Auth, доступ, данные, dependencies, CI trust |
 | Performance и load | Заданные SLO/нагрузочные AC, concurrency, рост данных, признаки регрессии |
 | Recovery и resilience | Retry/idempotency, восстановление, rollout, backup/restore, stateful changes |
-| Human validation | Субъективная оценка, физическое устройство, недоступное агенту действие |
 
 Уровень и охват определяются проверяемым поведением, не названием framework. Подбирай инструменты под платформу; не внедряй все виды tests автоматически. FORMAT/LINT/TYPECHECK/BUILD — самостоятельные проверки, они не заменяют tests поведения.
 
@@ -48,7 +47,7 @@ Validation Plan и работа с AC определены в `AGENTS.md`. Пр�
 
 Для web-проекта сам выполняй доступные browser checks в local/staging/подходящем deployed environment с указанием сценария и версии; они не заменяют обязательную воспроизводимую E2E suite. Используй тестовые аккаунты/данные и изоляцию. На production по умолчанию — безопасные read-only smoke checks. Реальные платежи, рассылки, удаление/изменение пользовательских данных требуют явной authorization. Browser artifacts не должны раскрывать чувствительные данные.
 
-Human-only очередь и её влияние на Goal определены в `AGENTS.md`. Известный дефект и обязательный внешний gate нельзя отложить под видом ручной приёмки.
+По решению владельца 2026-09-06 агент выполняет доступные проверки; обязательной очереди ручного тестирования функций пользователем нет. Ограничения устройства/аккаунта/окружения и technical validation gaps фиксируются отдельно по `AGENTS.md`. Обратная связь поступает из обычной эксплуатации; известный дефект и обязательный внешний gate остаются конкретными задачами.
 
 ## 3. Локальные проверки и CI
 
@@ -138,7 +137,7 @@ Bootstrap host, users/SSH/firewall, массовые permission changes и пе�
 - `BACKWARD_COMPATIBLE_AUTOMATED` — versioned migration совместима в rollout window; известны retry, locking, duration/failure behavior, выполнены необходимые backup/recovery preconditions и предусмотрен post-check.
 - `EXPLICITLY_GATED` — destructive, несовместимое, необратимое или привилегированное изменение; нужны явный scope, authorization, target, preconditions, recovery/forward-fix и критерии остановки.
 
-Gated infrastructure/data operation отличается от Manual Validation Goal. Пока обязательная операция не выполнена, соответствующий delivery stage остаётся незавершённым.
+Разрешение на gated infrastructure/data operation требуется для конкретного изменения окружения или данных. Пока обязательная операция не выполнена, соответствующий delivery stage остаётся незавершённым; это не очередь пользовательских тестов.
 
 Если backup требуется для безопасной migration, проверь пригодность recovery по принятой процедуре. Не объявляй backup достаточным только по наличию файла. Routine backup в заранее согласованной процедуре разрешён; restore, broad cleanup, удаление volumes и перенос данных не становятся разрешёнными автоматически.
 
@@ -165,7 +164,7 @@ Required gate сохраняется при Actions cost, длительном �
 
 ## 10. Project profile
 
-Профиль сверён 2026-09-06 MSK. По явному ответу владельца в текущем AUDIT обе новые версии правил применены; разделы 1–9 CI/CD сохранены из приложения. Проектные deployment lanes сохранены; общие правила workflow теперь находятся в AGENTS. Новая политика не возобновляет закрытую Goal и не разрешает исполнение proposal. Общие правила не разрешают расширять текущую задачу. Фактические пробелы не являются safety exceptions и не разрешают менять settings/workflows без соответствующего scope.
+Профиль сверён 2026-09-06 MSK. По явному ответу владельца в текущем AUDIT обе новые версии правил применены; разделы 1–9 CI/CD приняты из приложения; связанные с пользовательским тестированием положения обновлены по отдельному решению владельца 2026-09-06. Остальные технические и safety gates сохранены. Проектные deployment lanes сохранены; общие правила workflow теперь находятся в AGENTS. Новая политика не возобновляет закрытую Goal и не разрешает исполнение proposal. Общие правила не разрешают расширять текущую задачу. Фактические пробелы не являются safety exceptions и не разрешают менять settings/workflows без соответствующего scope.
 
 ### 10.1. Проект и проверенные источники
 
@@ -203,7 +202,7 @@ Required gate сохраняется при Actions cost, длительном �
 
 Critical scenarios: owner/CSRF/session/TOTP isolation; source multipart reconciliation и storage classes; batch queue/retry/idempotency; Yandex REST timestamp types и realtime final ordering; Google output metadata; retained transcript/re-export; cleanup/backup/recovery; schema compatibility; PWA capture/permissions, 390px viewport и accessibility. AC/риски и нужные проверки выбирай в Validation Plan конкретной Goal. Реальные STT, Google mutation, Telegram notifications и destructive cleanup/restore не входят в обычную suite; live canary требует согласованного scope, тестовых данных и ограниченного побочного эффекта.
 
-Известные gaps: Windows `--portable` всё ещё зависит от bash для части tests; validation runbook исправлен: 9 excluded modules; оставшиеся worker isolation fixtures на Windows всё ещё требуют исправления shell discovery. Existing local dependencies не являются clean-install Evidence. Windows Python graph можно проверить изолированным pinned pip-audit; этот результат не покрывает Linux-specific dependencies. Полноценная local Docker/DB/browser suite в последнем аудите не запускалась. Npm advisory findings и результаты отдельных checks — в delivery-plan; профиль не превращает их в PASS. Универсальный duration/coverage/budget target владельцем не задан; действуют timeout guards конкретных jobs. Human-only очередь и её gates — по AGENTS.md/плану.
+Известные gaps: Windows `--portable` всё ещё зависит от bash для части tests; validation runbook исправлен: 9 excluded modules; оставшиеся worker isolation fixtures на Windows всё ещё требуют исправления shell discovery. Existing local dependencies не являются clean-install Evidence. Windows Python graph можно проверить изолированным pinned pip-audit; этот результат не покрывает Linux-specific dependencies. Полноценная local Docker/DB/browser suite в последнем аудите не запускалась. Npm advisory findings и результаты отдельных checks — в delivery-plan; профиль не превращает их в PASS. Универсальный duration/coverage/budget target владельцем не задан; действуют timeout guards конкретных jobs. Ответственность агента за проверки, их ограничения и обратная связь из эксплуатации — по AGENTS.md/плану.
 
 ### 10.3. CI, build и credentials
 

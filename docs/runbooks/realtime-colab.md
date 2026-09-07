@@ -4,7 +4,7 @@
 
 Realtime Colab/proxy contour — experimental validation path for live browser audio capture + ElevenLabs realtime STT. Он отдельный от stable batch Colab workflow and does not replace `elevenlabs_api.py` or `notebooks/elevenlabs_api_colab.ipynb`.
 
-Realtime Colab prototype status is experimental. It has no Google Docs output, no manifest mutation, uses a single-use realtime token boundary, and requires manual Colab runtime validation before any broader claim.
+Realtime Colab prototype status is experimental. It has no Google Docs output, no manifest mutation, uses a single-use realtime token boundary, and has limited Colab runtime evidence. The agent performs available checks; unavailable scenarios are recorded as validation limitations. The owner uses the product and reports encountered bugs, without a per-feature manual testing obligation.
 
 Output-cell UI path is blocked in the tested Colab runtime: active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or sandboxed `iframe srcdoc`. Active validation path is the standalone page through Colab proxy/new tab.
 
@@ -26,14 +26,14 @@ Current confirmed manual evidence is limited to partial standalone-page paths:
 
 This is partial runtime evidence only. Do not claim full realtime E2E success.
 
-## 3. Remaining manual validation gaps
+## 3. Runtime validation limitations
 
-Still pending:
+Scenarios with incomplete runtime evidence (agent validation backlog, not assignments to the owner):
 
 - microphone-only capture;
 - display-only capture and no-audio-track behavior;
 - loopback/virtual input route;
-- explicit Stop while a browser permission prompt remains open (implemented/static-tested, pending manual runtime validation unless separately proven);
+- explicit Stop while a browser permission prompt remains open (implemented/static-tested, runtime behavior not separately observed);
 - refreshed-device UX;
 - structured live presentation verification for `realtime_live_transcript_v1` copy/download/clear behavior;
 - cross-browser validation;
@@ -83,9 +83,9 @@ If the user presses `Остановить` while display, microphone or mixed-so
 
 If the browser prompt itself is cancelled or denied before WebSocket creation, the UI should return to a safe retry state, temporary preliminary text should clear, diagnostics should explain in Russian that capture permission was cancelled or denied, and the page should not show `Статус: Соединение закрыто` for a WebSocket that never existed. This ordinary browser deny/cancel path now has limited manual evidence for safe retry without WebSocket creation; explicit Stop while a prompt remains open is still pending.
 
-## 8. Manual runtime checklist
+## 8. Runtime scenarios for available agent checks
 
-Copy this checklist into a runtime report and mark pass/fail/not tested:
+Use the available environment to check these scenarios and record results or limitations. This is an agent validation reference; the owner is not required to execute the checklist or submit a report.
 
 - [ ] Open `notebooks/elevenlabs_realtime_colab.ipynb` from `main` or selected commit SHA.
 - [ ] Confirm notebook fetches `elevenlabs_realtime.py` from the selected `GITHUB_REF`.

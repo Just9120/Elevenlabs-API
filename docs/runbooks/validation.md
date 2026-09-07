@@ -104,7 +104,7 @@ python -m pip install --target "$audit_graph" -r requirements-dev.txt -c constra
 python -m pip_audit --strict --path "$audit_graph"
 ```
 
-Local success is preparation evidence, not the remote acceptance gate. After the intended branch is clean and published, dispatch the unchanged workflow against that branch and record the expected revision before selecting the run:
+Local success is preparation evidence; the required remote CI check is recorded separately. After the intended branch is clean and published, dispatch the unchanged workflow against that branch and record the expected revision before selecting the run:
 
 ```bash
 branch="$(git branch --show-current)"

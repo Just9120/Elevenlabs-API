@@ -58,7 +58,7 @@ Colab batch запускается вручную через `notebooks/elevenla
 | [SECURITY.md](SECURITY.md) | Security reporting, safe research boundaries и authority routing. |
 | [docs/runbooks/validation.md](docs/runbooks/validation.md) | Repository и component validation commands. |
 | [docs/runbooks/studio-platform-ops.md](docs/runbooks/studio-platform-ops.md) | Studio rollout и production operations. |
-| [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype и manual runtime validation. |
+| [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype, диагностика и ограничения runtime-проверок. |
 
 ## Historical и supporting evidence
 
@@ -76,5 +76,6 @@ Dated audits фиксируют состояние на указанный revis
 
 - Source presence не равна production LIVE.
 - CI success не равен deployment success.
-- `READY` требует `100%` AC и все обязательные `SPEC | CODE | TEST | CI | DEPLOY | LIVE` Evidence.
-- Exact current percentages и Evidence не копируются из archive — они пересчитываются по коду, тестам, CI/CD и доступному runtime evidence.
+- Готовность проекта — доля согласованных требований (AC), реализованных в коде; tests, CI/CD и runtime Evidence отражаются отдельно.
+- Постоянный режим — Ad-hoc: пользователь использует проект и сообщает о багах, агент выполняет доступные проверки и исправления в разрешённой задаче. Плановой программы ручных тестов и отчётов пользователя по функциям нет.
+- Текущая готовность не копируется из archive — она пересчитывается по соответствию кода актуальным требованиям. Известный дефект возвращает затронутый AC в работу.

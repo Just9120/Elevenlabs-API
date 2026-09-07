@@ -934,6 +934,6 @@ def test_docs_mention_realtime_experimental_caveats() -> None:
         "no Google Docs",
         "no manifest",
         "single-use",
-        "manual Colab runtime validation",
+        "limited Colab runtime evidence",
     ]:
         assert phrase in docs

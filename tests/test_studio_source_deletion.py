@@ -246,6 +246,58 @@ def test_deletion_blockers_and_terminal_history(sqlite_db, job_status, allowed):
         assert src.deleted_at is None
 
 
+def test_active_audio_preparation_blocks_source_deletion(sqlite_db):
+    from studio_api.source_deletion import SourceDeletionReason, request_source_deletion
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    src = _local_source(sqlite_db, m, project, now)
+    preparation = m.AudioPreparationJob(
+        project_id=project.id,
+        owner_user_id=user.id,
+        status=m.AudioPreparationStatus.preview_ready,
+        title="Подготовка",
+        options_json="{}",
+        output_destination="download",
+    )
+    sqlite_db.add(preparation)
+    sqlite_db.flush()
+    sqlite_db.add(
+        m.AudioPreparationJobInput(
+            job_id=preparation.id,
+            source_id=src.id,
+            position=0,
+            ephemeral_reference=False,
+        )
+    )
+    sqlite_db.commit()
+
+    result = request_source_deletion(
+        sqlite_db,
+        owner_user_id=user.id,
+        source_id=src.id,
+        now=now,
+    )
+
+    assert result and not result.ok
+    assert result.reason == SourceDeletionReason.audio_preparation_uses_source
+    assert src.deleted_at is None
+    assert src.upload_status == m.SourceUploadStatus.uploaded
+
+    from studio_api.audio_preparation_service import cancel_audio_preparation_job
+
+    cancel_audio_preparation_job(
+        sqlite_db, owner_user_id=user.id, job_id=preparation.id, now=now
+    )
+    sqlite_db.commit()
+    after_cancel = request_source_deletion(
+        sqlite_db, owner_user_id=user.id, source_id=src.id, now=now
+    )
+    assert after_cancel and after_cancel.ok
+    assert src.deleted_at is not None
+    assert src.upload_status == m.SourceUploadStatus.deleted
+
+
 def test_retryable_failed_job_blocks_but_skipped_relation_is_ignored(sqlite_db):
     from studio_api.source_deletion import SourceDeletionReason, request_source_deletion
 

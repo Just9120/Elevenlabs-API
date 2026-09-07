@@ -261,7 +261,7 @@
 | `PR-03` | Микрофон включается опционально и смешивается с display audio. |
 | `PR-04` | Partial и committed transcript отображаются live. |
 | `PR-05` | Подтверждённый transcript скачивается как `.txt`. |
-| `PR-06` | Representative microphone/display/mixed sessions стабильно проходят production LIVE canaries. |
+| `PR-06` | Realtime microphone/display/mixed sessions работают стабильно в поддерживаемых браузерных сценариях. |
 | `PR-07` | Каждый committed fragment немедленно сохраняется в owner/browser-scoped local draft. |
 | `PR-08` | Последний partial fragment сохраняется с bounded debounce и явно остаётся неподтверждённым. |
 | `PR-09` | Live draft синхронизируется в owner-scoped server storage с encryption at rest, bounded size и idempotent monotonic revision. |
