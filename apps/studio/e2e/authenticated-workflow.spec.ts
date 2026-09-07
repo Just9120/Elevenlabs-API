@@ -421,6 +421,23 @@ test('Audio workspace processes a device WAV in-browser without uploading source
   const parameters = page
     .getByRole('heading', { name: '2. Параметры' })
     .locator('..');
+  await parameters.getByRole('checkbox', { name: 'Уменьшить длинные паузы в аудио или видео' }).check();
+  await parameters.getByText('Дополнительные настройки пауз').click();
+  const threshold = parameters.getByLabel('Что считать тишиной, dB');
+  await threshold.fill('');
+  await expect(threshold).toHaveValue('');
+  await threshold.pressSequentially('-');
+  await expect(threshold).toHaveValue('-');
+  await parameters.getByRole('button', { name: 'Обработать на устройстве', exact: true }).click();
+  await expect(page.getByText(/введите число от −60 до −10/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: '3. Локальные результаты' })).toHaveCount(0);
+  await threshold.fill('');
+  await threshold.pressSequentially('-45');
+  await expect(threshold).toHaveValue('-45');
+  const keep = parameters.getByLabel('Сколько паузы оставить, сек');
+  await keep.fill('');
+  await keep.pressSequentially('0.3');
+  await expect(keep).toHaveValue('0,3');
   await parameters
     .getByRole('button', { name: 'Обработать на устройстве', exact: true })
     .click();

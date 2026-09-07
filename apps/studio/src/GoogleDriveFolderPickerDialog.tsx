@@ -55,6 +55,8 @@ type SharedDrivePayload = {
   nextPageToken?: unknown;
 };
 
+type DriveSort = "name_natural" | "name_natural desc" | "modifiedTime desc,name_natural" | "modifiedTime,name_natural";
+
 const EMPTY_PAGE: DrivePage = {
   items: [],
   pagesLoaded: 0,
@@ -226,6 +228,7 @@ async function loadItemPage({
   accessToken,
   signal,
   pageToken,
+  orderBy = "name_natural",
 }: {
   parent?: DriveItem;
   searchTerm?: string;
@@ -234,6 +237,7 @@ async function loadItemPage({
   accessToken: string;
   signal: AbortSignal;
   pageToken?: string;
+  orderBy?: DriveSort;
 }): Promise<{ items: DriveItem[]; nextPageToken?: string }> {
   const clauses = ["trashed = false", itemMimeQuery(mode, policy)];
   if (parent) {
@@ -246,7 +250,7 @@ async function loadItemPage({
     q: clauses.join(" and "),
     fields: "nextPageToken,files(id,name,mimeType,driveId)",
     pageSize: String(PAGE_SIZE),
-    orderBy: "name_natural",
+    orderBy,
     spaces: "drive",
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
@@ -283,16 +287,18 @@ async function loadSharedFolderPage({
   accessToken,
   signal,
   pageToken,
+  orderBy = "name_natural",
 }: {
   accessToken: string;
   signal: AbortSignal;
   pageToken?: string;
+  orderBy?: DriveSort;
 }): Promise<{ items: DriveItem[]; nextPageToken?: string }> {
   const params: Record<string, string> = {
     q: `sharedWithMe and trashed = false and mimeType = '${FOLDER_MIME_TYPE}'`,
     fields: "nextPageToken,files(id,name,mimeType,driveId)",
     pageSize: String(PAGE_SIZE),
-    orderBy: "name_natural",
+    orderBy,
     spaces: "drive",
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
@@ -474,6 +480,7 @@ function GoogleDrivePickerDialog({
     [sourceMimePolicy],
   );
   const copy = pickerCopy(mode);
+  const [sort, setSort] = useState<DriveSort>("name_natural");
   const [current, setCurrent] = useState<DriveItem | null>(null);
   const [path, setPath] = useState<DriveItem[]>([]);
   const [browsePage, setBrowsePage] = useState<DrivePage>(EMPTY_PAGE);
@@ -486,6 +493,7 @@ function GoogleDrivePickerDialog({
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState<
     "browse" | "search" | "shared-folders" | "shared-drives" | null
@@ -548,6 +556,7 @@ function GoogleDrivePickerDialog({
             : "",
         );
         setLoading(false);
+        setInitialized(true);
       } catch (reason) {
         if (
           controller.signal.aborted ||
@@ -584,6 +593,7 @@ function GoogleDrivePickerDialog({
       parent: folder,
       mode,
       policy,
+      orderBy: sort,
       accessToken,
       signal: controller.signal,
     }).then(
@@ -639,6 +649,7 @@ function GoogleDrivePickerDialog({
       searchTerm: term,
       mode,
       policy,
+      orderBy: sort,
       accessToken,
       signal: controller.signal,
     }).then(
@@ -661,6 +672,37 @@ function GoogleDrivePickerDialog({
         setSearchLoading(false);
       },
     );
+  };
+
+  const changeSort = async (orderBy: DriveSort) => {
+    if (!current) return;
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const epoch = ++requestEpochRef.current;
+    setSort(orderBy);
+    setLoading(true);
+    setSearchLoading(Boolean(searchTerm));
+    setLoadingMore(null);
+    setBrowsePage(EMPTY_PAGE);
+    setSearchPage(EMPTY_PAGE);
+    setSharedFolderPage(EMPTY_PAGE);
+    setError("");
+    setSearchError("");
+    const results = await Promise.allSettled([
+      loadItemPage({ parent: current, mode, policy, accessToken, orderBy, signal: controller.signal }),
+      loadSharedFolderPage({ accessToken, orderBy, signal: controller.signal }),
+      searchTerm ? loadItemPage({ searchTerm, mode, policy, accessToken, orderBy, signal: controller.signal }) : Promise.resolve(null),
+    ]);
+    if (controller.signal.aborted || epoch !== requestEpochRef.current) return;
+    const [children, shared, search] = results;
+    if (children.status === "fulfilled") setBrowsePage(pageFromResult(children.value));
+    if (shared.status === "fulfilled") setSharedFolderPage(pageFromResult(shared.value));
+    if (children.status === "rejected" || shared.status === "rejected") setError("Не удалось обновить порядок папок. Повторите выбор сортировки.");
+    if (search.status === "fulfilled" && search.value) setSearchPage(pageFromResult(search.value));
+    if (search.status === "rejected") setSearchError("Не удалось обновить результаты поиска. Повторите поиск.");
+    setLoading(false);
+    setSearchLoading(false);
   };
 
   const loadMore = async (
@@ -699,6 +741,7 @@ function GoogleDrivePickerDialog({
       const result =
         kind === "shared-folders"
           ? await loadSharedFolderPage({
+              orderBy: sort,
               accessToken,
               signal: controller.signal,
               pageToken: token,
@@ -714,6 +757,7 @@ function GoogleDrivePickerDialog({
                 searchTerm: kind === "search" ? searchTerm : undefined,
                 mode,
                 policy,
+                orderBy: sort,
                 accessToken,
                 signal: controller.signal,
                 pageToken: token,
@@ -769,7 +813,7 @@ function GoogleDrivePickerDialog({
     if (event.key !== "Tab") return;
     const controls = Array.from(
       dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
       ) ?? [],
     );
     if (controls.length === 0) {
@@ -900,7 +944,7 @@ function GoogleDrivePickerDialog({
               Найти
             </button>
             {searchTerm && (
-              <button type="button" className="secondary" onClick={clearSearch}>
+              <button type="button" className="secondary" onClick={clearSearch} disabled={loading || searchLoading}>
                 Сбросить
               </button>
             )}
@@ -909,6 +953,15 @@ function GoogleDrivePickerDialog({
             Google Drive ищет по началу имени среди доступных объектов.
           </small>
         </form>
+
+        <label className="google-drive-picker-sort">Сортировка папок и файлов
+          <select value={sort} disabled={!current || !initialized} onChange={(event) => void changeSort(event.target.value as DriveSort)}>
+            <option value="name_natural">По имени: А → Я</option>
+            <option value="name_natural desc">По имени: Я → А</option>
+            <option value="modifiedTime desc,name_natural">По обновлению: сначала новые</option>
+            <option value="modifiedTime,name_natural">По обновлению: сначала старые</option>
+          </select>
+        </label>
 
         <nav className="google-drive-folder-breadcrumbs" aria-label="Путь">
           {path.map((folder, index) => (

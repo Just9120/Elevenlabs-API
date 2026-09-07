@@ -2,17 +2,26 @@
 
 ## Current Goal и checkpoint
 
-**REPOSITORY-RULES-03 / IN_PROGRESS.** Authorization: явное поручение владельца «новые документы ... нужно ... внедрить», «Режим Goal», текущий чат 2026-09-07. Встроенная Goal активирована и проверена. Base origin/main `3e65322e12ba3d1ac2bc9f3ec7ecc412a6e3090b`; ветка `codex/repository-rules-update`, один docs PR. Открытых PR на старте нет; main без protection, rulesets пусты, обязательные проверки по проектной процедуре сохраняются.
+**AUDIO-UX-DRIVE-01 / IN_PROGRESS.** Authorization: четыре UX-аннотации владельца 2026-09-07: сохранить готовое аудио в Drive, сортировка папок, ввод минуса и десятичного разделителя. Встроенная Goal активирована. Base `8923ba4028506a68bd2d69114339a23c54b47442`; ветка `codex/audio-drive-numeric-ux`; main clean, open PR отсутствуют, protection=false/rulesets пусты; required checks сохраняются.
 
-- Результат/критерии: DOC-01 — обе версии внедрены с provenance и проектной адаптацией; DOC-02 — canonical routing и operational сведения доступны в README/runbooks без второго Project profile; DOC-03 — AC/readiness/checkpoint согласованы с READY, Ad-hoc и отменой metadata gate, первичные records сохранены. Это критерии документационной Goal, а не новые AC согласованных требований.
-- Non-goals: полный аудит, новый product scope, product code/tests, workflows/settings, global AGENTS, credentials и production operations. External входной промт в repository не копируется. Два прежних документа заменяются осмысленно; существующий `docs/ci-cd-rules.md` остаётся canonical.
-- План: адаптация/routing → local documentation checks/self-review → один initial push/PR → required CI/review → merge → main sync и cleanup. CD N/A: runtime/config/workflows не изменяются. Последующая metadata запись в main не требуется.
-- Validation Plan: REQUIRED local — template/provenance и сохранность project constraints, local links/anchors, отсутствие добавленных внешних ссылок, отсутствие code/workflow diff, уникальные AC/denominator, применимые security/realtime documentation guards, `python scripts/ci_checks.py`, `git diff --check` (root, Windows isolated Python). REQUIRED remote-only — CI / checks, Studio PWA CI / studio и browser-e2e на актуальной PR/test-merge revision: изменённый operations runbook входит в существующие Studio path filters. Неприменимые frontend/build/DB/browser операции локально не запускаются ради текста.
-- DoD: DOC-01..03 выполнены, required checks/review PASS, docs PR merged, local main синхронизирована и своя merged ветка удалена; состояние merge/CI восстанавливается по primary records. Blockers: не обнаружены; остаток — PR/CI/review, merge и cleanup. Успех этих этапов заранее не объявляется.
-- Сохранённое исходное состояние: три локальных документа с фактическим итогом hotfix #303 включаются в этот содержательный docs PR. Чужая старая ветка и ignored/unknown files не изменяются.
+- Scope: AP-15/23 — отдельное сохранение готового output с folder picker, durable export и безопасным повтором без FFmpeg; AP-22 — свободное редактирование чисел и понятная validation; PG-09 — сортировка папок по имени/дате обновления с корректной pagination.
+- DoD: все четыре сценария реализованы, содержательные regression checks PASS, self-review и required CI на текущей revision, PR merged, standard web/API/worker delivery и version/health smoke, safe branch cleanup.
+- Non-goals: коммерческий контур, прочий backlog, pipeline/settings, OAuth scope expansion, schema migration, реальная отправка пользовательских файлов в Drive и платные provider calls как тесты. Ad-hoc/dogfooding не является gate.
+- Последовательность: spec/plan → numeric/picker UI + tests → API/worker export + tests → local validation/self-review → один PR → CI/merge → applicable CD/worker routine procedure → smoke/cleanup. Queued export должен игнорироваться старым worker до его обновления, не попадать в повторную обработку исходников.
+- Зависимости: существующие owner/CSRF/Google folder verification, audio storage isolation/retention, durable lease и Drive idempotency marker. Export errors/cancel сохраняют готовый файл; pending export не разрешает удалять используемый output. Переключение сортировки сбрасывает page tokens и отбрасывает поздние ответы.
+- Baseline на main: 355/675 READY, AP 30/30, PG 8/8. AP-22/23 пересматриваются по найденным дефектам; PG-09 добавляется по новому запросу, denominator +1, finding сам AC не создаёт. Unmerged выполнение отдельно от main.
 
+| AC/риск | Проверка и ожидаемый результат | Команда / каталог / environment | Этап |
+|---|---|---|---|
+| AP-22, PG-09 | Минус/пустое/точка/запятая, bounds, sorting/navigation/search/pagination/stale responses | existing Vitest tests; `apps/studio`, Windows synthetic fetch | REQUIRED local |
+| AP-15/23, auth/data integrity | Owner/CSRF/folder, ready/expired source, export-only, retries/cancel/restart, no duplicate conversion, storage isolation | affected pytest; root, isolated Python + synthetic DB/storage/Google | REQUIRED local |
+| UI integration | Full Vitest, lint, TypeScript/build | canonical commands [validation](runbooks/validation.md); `apps/studio` | REQUIRED local |
+| Repository/DB/E2E | `python scripts/ci_checks.py`, `git diff --check`; full Linux Python/PostgreSQL/Redis and authenticated Playwright | root/local guards; existing CI / checks and Studio PWA CI / studio + browser-e2e | REQUIRED local / remote-only integration |
+| Delivery | Expected image/revision, current schema, health/readiness; safe browser numeric/folder UI smoke | [Studio operations](runbooks/studio-platform-ops.md), production; external mutations N/A as test | REQUIRED after merge |
 
-V29-LOCAL / 2026-09-07 / Windows / dirty diff `codex/repository-rules-update` от 3e65322: DOC-01..03 выполнены локально; self-review PASS. Приложенные templates сохранены с объявленной адаптацией; 95 local links/anchors разрешаются; полный набор прежних finding IDs и 675 AC сохранён; 355 READY, без нового numerator/denominator или test coverage. Runtime/code/workflow diff отсутствует; новых внешних Markdown-ссылок нет. Существующие security/realtime/documentation guards **66 PASS**; `python scripts/ci_checks.py` и `git diff --check` PASS. Local Python 3.11 из изолированного venv, уникальный temporary directory внутри `.tmp`; sandbox Windows не использован для pytest из-за ранее установленного WinError 5. Required CI/merge PENDING, CD N/A. Окончательный результат восстанавливается по PR ветки и первичным checks; post-merge metadata commit не требуется.
+Checkpoint: implementation и применимая local validation/self-review завершены (V30-LOCAL); initial push/PR, required CI/review, merge, CD и cleanup PENDING. Blockers не обнаружены.
+
+Предыдущая **REPOSITORY-RULES-03 / DONE**: PR #304, merge 8923ba4; PR CI 34137248500 и Studio 34137248580 PASS, main CI 34137716826 и Studio 34137716793 PASS; CD N/A (docs-only). Локальная ветка удалена, main синхронизирована, built-in Goal завершена. F26 CLOSED по этим records; post-merge metadata PR не требуется.
 
 ## Завершённая Goal STUDIO-CLEANUP-HOTFIX-01
 
@@ -368,6 +377,24 @@ API/schema: 37 последовательных Alembic revisions, current head 
 
 Владелец явно внедрил правила 2026-09-07, отменяющие обязательную post-merge запись metadata. Поставка STUDIO-CLEANUP-HOTFIX-01 восстановлена по PR #303, merge 3e65322, успешным CI/CD и scoped runtime Evidence V28; встроенная Goal закрыта. Direct-main metadata commit не выполнялся и больше не требуется. Подготовленные факты сохранены в текущем содержательном docs PR.
 
-## F26 — консолидация repository workflow / IN_PROGRESS
+## F26 — консолидация repository workflow / CLOSED
 
 Область: AGENTS, CI/CD rules, README, spec/plan, validation и operations. Evidence: старые инструкции на origin/main 3e65322 и явно принятый комплект 2026-09-07; шаблоны/проектные отличия доступны в AGENTS. P1: прежнее требование metadata commit блокировало уже выполненную поставку, operational routing зависел от универсального CI/CD документа. Действие CONSOLIDATE/DOCUMENT: критерии DOC-01..03 текущей Goal; зависимости — docs checks и merge. Confidence HIGH: прямой конфликт правил и первичные delivery records. Это process finding, не новый AC требований.
+
+## F27–F29 — AUDIO-UX-DRIVE-01 / IN_PROGRESS
+
+| ID / приоритет | Область / Evidence на 8923ba4 | Влияние / действие / зависимости / confidence |
+|---|---|---|
+| F27 / P1 | AP-15/23; `apps/studio/src/AudioPreparationPage.tsx`, audio API/service/processor; annotation 1 | Нет post-completion save action, забытый auto-save требует нового обходного действия. FIX: отдельный durable export готовых bytes с existing picker/owner/storage/lease/idempotency. HIGH: UI и API не предоставляют действие. |
+| F28 / P2 | PG-09; `apps/studio/src/GoogleDriveFolderPickerDialog.tsx`, annotation 2 | Только name_natural, нет выбора даты. IMPLEMENT по явному запросу: Drive orderBy, reset pagination/stale requests; shared-drive containers не имеют modification time. HIGH: request/UI inspected. |
+| F29 / P1 | AP-22; `apps/studio/src/AudioPreparationPage.tsx`, annotations 3/4 | Number(value) уничтожает пустой/промежуточный ввод. FIX: string drafts, normalize decimal point to comma, finite bounds before both processing paths; regression UI tests. HIGH: причина установлена в handler. |
+
+## V30-LOCAL — AUDIO-UX-DRIVE-01
+
+2026-09-07, Windows, dirty branch `codex/audio-drive-numeric-ux` от 8923ba4: numeric draft/validation, Drive sorting/pagination и post-completion export реализованы. **91 focused Python tests PASS**, включая 14 новых export tests; **741 Vitest / 69 files PASS**, после уточнений — **24 affected UI tests PASS**; lint/TypeScript/build, Python compile и lightweight repository checks PASS. В существующий authenticated Playwright scenario добавлены настоящий ввод минуса/точки, блокировка неполного ввода и локальная обработка WAV; Linux API/PostgreSQL/Redis + этот browser scenario REQUIRED remote-only, пока PENDING. API regression проверяет owner, session/CSRF/origin, server folder verification и idempotent queue. Новых jobs/workflows, зависимостей, lockfile или schema changes нет. Сохраняется прежний advisory chunk >500 kB.
+
+Self-review: source/owner boundaries, expired/deleted output, temporary streaming file, lease fencing/restart, idempotent existing Drive lookup, поздняя отмена после подтверждения и cached ORM state проверены. Очередь completed-stage совместима со старым worker; новый export не читает исходные inputs и не запускает FFmpeg. Полный Google transfer, cancellation и mutations на production не выполнялись; fake integrations ограничивают вывод о реальном Google runtime. Required gates не объявлены PASS заранее.
+
+Registry этой ветки: **356/676 READY**, включая новый PG-09; AP-22/23 восстановлены после исправления. Это unmerged code progress, не готовность main до merge. Baseline main 8923ba4 содержал 355/675 READY по прежнему snapshot; обнаруженные F27/F29 нарушают два действующих AC, поэтому проверенная base до исправления — **353/675**, AP **28/30**, PG **8/8**. Новый denominator +1 обусловлен отдельным запросом сортировки; после merge пересчитать по actual origin/main. Delivery: один code PR, стандартный web/API CD → worker status/drain (graceful exit 0) → manual worker component CD по существующей процедуре → identity/schema/health и bounded browser smoke. Metadata-only follow-up PR не нужен.
+
+V30-CI-CYCLE-1: PR #305, head 3f7ba76; Studio 34150377232/studio PASS (741 Vitest), browser-e2e FAIL: после blur Playwright ввёл цифры перед сохранённым минусом (`45-`), что корректно отвергла validation. Сценарий исправлен на clear → непрерывный ввод `-45` с отдельным assertion. CI 34150377016: 1759 PASS, один новый API test FAIL на login fixture с зарезервированным `.test`, отвергнутым EmailStr; fixture приведён к существующему synthetic example.com. Product assertions/gates не ослаблены; оба подтверждённых исправления объединены в один push. Полный API/browser outcome на новой revision PENDING.

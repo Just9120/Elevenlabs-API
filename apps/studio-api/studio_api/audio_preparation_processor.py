@@ -26,6 +26,7 @@ from .audio_preparation_service import (
     AudioPreparationServiceError,
     AudioPreparationServiceReason,
     complete_audio_preview,
+    complete_audio_drive_export,
     deserialize_options,
     fail_audio_preparation_job,
     finalize_cancelled_audio_preparation_job,
@@ -91,6 +92,8 @@ def process_claimed_audio_preparation_job(
     try:
         with temp_directory_factory(prefix="studio-audio-preparation-") as temp_dir:
             root = Path(temp_dir)
+            if job.status is AudioPreparationStatus.completed:
+                return _export_existing_output(db, job=job, root=root, settings=settings, storage_factory=storage_factory, drive_token_resolver=drive_token_resolver, drive_uploader=drive_uploader, lease_owner_id=lease_owner_id, lease_generation=lease_generation)
             paths = _materialize_inputs(
                 db,
                 job=job,
@@ -304,9 +307,57 @@ def _load_claimed_job(db, job_id, owner, generation) -> AudioPreparationJob:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.not_found)
     if job.lease_owner_id != owner or job.lease_generation != generation:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
-    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing}:
+    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not (job.status is AudioPreparationStatus.completed and job.current_stage == "google_drive_upload"):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
     return job
+
+
+def _export_existing_output(db, *, job, root, settings, storage_factory, drive_token_resolver, drive_uploader, lease_owner_id, lease_generation):
+    def check_export_lease():
+        db.refresh(job)
+        if (job.lease_owner_id != lease_owner_id or job.lease_generation != lease_generation
+            or job.current_stage != "google_drive_upload" or job.lease_expires_at is None
+            or _naive_utc(job.lease_expires_at) <= _naive_utc(utcnow())):
+            raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
+        _require_not_cancelled(db, job)
+
+    check_export_lease()
+    # Do not access original inputs: ephemeral originals may already be deleted.
+    project = db.get(Project, job.project_id)
+    source = db.get(Source, job.output_source_id)
+    if (project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None
+        or source is None or source.project_id != job.project_id or source.deleted_at is not None
+        or source.upload_status is not SourceUploadStatus.uploaded or is_source_expired(source.expires_at, utcnow())
+        or source.source_type is not SourceType.local_upload or not source.s3_object_key):
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
+    reference_class = source_reference_class(source)
+    if not reference_storage_isolation_configured(settings) or source.s3_bucket != reference_storage_bucket(settings, reference_class):
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
+    _checkpoint(db, job, "google_drive_upload", 10)
+    path = root / "ready-output"
+    stream = storage_factory(reference_storage_settings(settings, reference_class)).open_read(source.s3_object_key)
+    size = 0
+    try:
+        with path.open("wb") as target:
+            for chunk in stream.iter_chunks(_COPY_CHUNK_SIZE):
+                check_export_lease()
+                size += len(chunk)
+                if size > getattr(settings, "audio_preparation_max_output_bytes", settings.source_max_upload_bytes):
+                    raise AudioPreparationError(AudioPreparationReason.output_too_large)
+                target.write(chunk)
+    finally:
+        stream.close()
+    if size <= 0 or (source.size_bytes is not None and size != source.size_bytes):
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
+    _checkpoint(db, job, "google_drive_upload", 40)
+    token = drive_token_resolver(db, user_id=job.owner_user_id, settings=settings)
+    check_export_lease()
+    uploaded = drive_uploader(token, folder_id=job.output_drive_folder_id, path=path,
+        filename=source.original_filename, mime_type=source.mime_type, idempotency_key=job.id)
+    complete_audio_drive_export(db, job_id=job.id, lease_owner_id=lease_owner_id,
+        lease_generation=lease_generation, file_id=uploaded.file_id, web_view_url=uploaded.web_view_url)
+    db.commit()
+    return AudioProcessingResult(job.id, "completed", "completed", False)
 
 
 def _materialize_inputs(
