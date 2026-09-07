@@ -4,15 +4,15 @@
 
 Canonical продуктовый контракт на русском языке. AC и правила находятся здесь; текущие статусы, Evidence, readiness, findings и checkpoint — только в [delivery-plan.md](delivery-plan.md). История исполнения — в [delivery-plan-archive.md](delivery-plan-archive.md).
 
-Основание актуализации: explicit AUDIT instruction владельца 2026-09-06 разрешает локальную сверку и актуализацию документации, включая декомпозицию согласованного результата. Реализация, commit, push, PR, merge и deploy до нового поручения запрещены. Согласованный upstream задаёт intent; текущая Goal его не сокращает.
+Исходная декомпозиция выполнена в разрешённом AUDIT 2026-09-06. Правила workflow и оценки актуализированы по отдельному поручению владельца 2026-09-07. Product intent и стабильные AC сохранены; текущие полномочия и границы исполнения определяет [AGENTS](../AGENTS.md), а не исторический checkpoint.
 
-[Исходные требования](https://docs.google.com/document/d/1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI/edit) прочитаны через Google Drive; modifiedTime `2026-09-05T09:31:26.419Z`, Google revision `ANLCKQnVfm_EtgFLB0o55UiZZ4i8uq16A700xp0wG1GHyC3kk_gZAVlMlxSeBvaDLUdisiOWP9U8M987txWQoLV7tDmnJxNJh2ElGGTMG74`, один tab `t.0`. Повторное чтение текста/modifiedTime 2026-09-06 совпало с этим snapshot; revision ID/tab сохранены из прежней проверки. Нумерация `S001–S289` в source trace относится к 289 bullet paragraphs этой revision. Старые `R001–R275/N001–N008` относились к revision от 2026-08-27 и не применяются к новому порядку пунктов.
+Исходные требования (`Google Doc ID 1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI`) прочитаны через Google Drive; modifiedTime `2026-09-05T09:31:26.419Z`, Google revision `ANLCKQnVfm_EtgFLB0o55UiZZ4i8uq16A700xp0wG1GHyC3kk_gZAVlMlxSeBvaDLUdisiOWP9U8M987txWQoLV7tDmnJxNJh2ElGGTMG74`, один tab `t.0`. Повторное чтение текста/modifiedTime 2026-09-06 совпало с этим snapshot; revision ID/tab сохранены из прежней проверки. Нумерация `S001–S289` в source trace относится к 289 bullet paragraphs этой revision. Старые `R001–R275/N001–N008` относились к revision от 2026-08-27 и не применяются к новому порядку пунктов.
 
 При предыдущей декомпозиции 2026-09-05 стабильные 610 прежних AC сохранены; 77 недостающих проверяемых AC добавлены в пределах текущего intent. Изменены формулировки PB-06/PM-05 (независимый результат), PTM-01 (название workspace), CID-13/14 (облака по контурам); основание — S007/031/122/123/138/143/176. Это не реализация и не расширение прежней Goal. Детализация, явно не отменённая последующим решением, сохранена; отсутствие повтора старого AC в новом документе само по себе его не удаляет.
 
 ## 2. Статусы и расчёт
 
-Готовность = число реализованных в коде актуальных AC / все актуальные AC. AC — проверяемые критерии реализации требований со стабильными ID. По решению владельца 2026-09-06 отдельная приёмка и обязательное ручное тестирование функций пользователем отменены: владелец использует проект, обнаруженные баги фиксируются и исправляются. Определения статусов и Evidence — [AGENTS.md §5](../AGENTS.md). Текущие числители, denominator и результаты находятся только в [delivery-plan](delivery-plan.md). Частичный AC не даёт доли. ALIAS и заменённый родитель не учитываются повторно; requirement при этом сохраняется у canonical AC. Shared personal implementation не доказывает commercial integration/runtime. Продуктовое поведение сохраняется; обязательные tests/CI и safety gates действуют отдельно. CR-06 и PR-06 уточнены (revision 2, 2026-09-06): требование стабильного захвата сохранено, упоминание серии пользовательских sessions / production canaries как критерия статуса убрано по этому решению. Доступные проверки стабильности выполняет агент; ограничения runtime Evidence остаются в плане.
+Готовность = READY / все актуальные продуктовые и технические AC проверенного origin/main. READY подтверждают исполняемый код и подходящие автоматические проверки; известный дефект возвращает AC в работу. Статусы/Evidence — [AGENTS](../AGENTS.md#требования-findings-и-готовность); текущие числа — [delivery-plan](delivery-plan.md). Частичный AC не даёт доли, ALIAS/SUPERSEDED исключаются без потери трассировки. Ad-hoc/dogfooding сохраняется: плановая программа ручных тестов пользователя не требуется и не является gate. Незамерженные изменения показываются отдельно; продуктовые и технические критерии равноправны, finding сам по себе не создаёт AC. CR-06/PR-06 сохраняют согласованную revision 2 от 2026-09-06: требование стабильности остаётся, обязательной серии пользовательских sessions нет.
 
 ## 3. Общие продуктовые правила
 
@@ -31,7 +31,7 @@ Canonical продуктовый контракт на русском языке
 13. Single-use token нельзя переиспользовать; требуемый reconnect получает новый capability, сохраняет session identity и явно обрабатывает replay/dedup. Это новый product scope, не разрешение исполнить его в AUDIT.
 14. Новые документы пропускают неизвестную дату записи (S135); это заменяет прежний placeholder `Created at: unknown`.
 15. Существующий скрытый технический Project не требует ручного создания для транскрибации. Новый отдельный раздел «Проекты» обязателен по S014; дополнительные правила его пользовательского lifecycle определяются перед соответствующей Goal.
-16. Заданные технологии S264–S281 являются durable constraints. Конкретные версии и команды принадлежат code/config и Project CI/CD profile. Cloudflare Zero Trust остаётся опциональным, не обязательным deliverable.
+16. Заданные технологии S264–S281 являются durable constraints. Конкретные версии и команды принадлежат code/config и действующим [процедурам](runbooks/validation.md). Cloudflare Zero Trust остаётся опциональным, не обязательным deliverable.
 
 ## 4. Индекс эпиков и AC
 
@@ -103,4 +103,4 @@ Revision 2026-09-06: PT-03 использует согласованное на�
 
 - [Исходные требования и трассировка](spec/source-trace.md).
 - [Dashboard и bounded Goal proposal](delivery-plan.md).
-- [Архитектура](architecture.md), [processing contract](studio-processing-contract.md), [Project profile](ci-cd-rules.md).
+- [Архитектура](architecture.md), [processing contract](studio-processing-contract.md), [validation](runbooks/validation.md), [Studio operations](runbooks/studio-platform-ops.md).

@@ -219,7 +219,7 @@ Lease loss, cancellation uncertainty, provider/Google errors, output-side-effect
 
 ## Deployment shape
 
-The repository contains Studio deployment and workflow files, but architecture does not authorize deployment behavior. CI/CD and runtime safety rules are in `docs/ci-cd-rules.md`; operator procedures are in `docs/runbooks/studio-platform-ops.md`.
+The repository contains Studio deployment and workflow files, but architecture does not authorize deployment behavior. Routine delivery/recovery follows [AGENTS](../AGENTS.md) and [Studio operations](runbooks/studio-platform-ops.md); [CI/CD rules](ci-cd-rules.md) apply when configuring or repairing the pipeline.
 
 Current important distinction: web/API deployment, migration application,
 maintenance OAuth runtime configuration, worker-running, bounded core processing
