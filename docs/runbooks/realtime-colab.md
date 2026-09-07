@@ -83,9 +83,9 @@ If the user presses `Остановить` while display, microphone or mixed-so
 
 If the browser prompt itself is cancelled or denied before WebSocket creation, the UI should return to a safe retry state, temporary preliminary text should clear, diagnostics should explain in Russian that capture permission was cancelled or denied, and the page should not show `Статус: Соединение закрыто` for a WebSocket that never existed. This ordinary browser deny/cancel path now has limited manual evidence for safe retry without WebSocket creation; explicit Stop while a prompt remains open is still pending.
 
-## 8. Manual runtime checklist
+## 8. Runtime scenarios for available agent checks
 
-Copy this checklist into a runtime report and mark pass/fail/not tested:
+Use the available environment to check these scenarios and record results or limitations. This is an agent validation reference; the owner is not required to execute the checklist or submit a report.
 
 - [ ] Open `notebooks/elevenlabs_realtime_colab.ipynb` from `main` or selected commit SHA.
 - [ ] Confirm notebook fetches `elevenlabs_realtime.py` from the selected `GITHUB_REF`.
