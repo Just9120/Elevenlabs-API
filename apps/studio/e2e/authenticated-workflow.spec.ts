@@ -286,6 +286,7 @@ test('mobile Drive dialog stays inside the viewport and locks page scrolling', a
     name: 'Выберите папку для результатов',
   });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Сортировка папок и файлов')).toBeEnabled();
   const geometry = await dialog.evaluate((element) => {
     const box = element.getBoundingClientRect();
     return {
@@ -304,6 +305,22 @@ test('mobile Drive dialog stays inside the viewport and locks page scrolling', a
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
   expect(geometry.bodyOverflow).toBe('hidden');
   expect(geometry.rootOverflow).toBe('hidden');
+
+  // Check the visible controls, not only the outer clipped container.
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const controls = await dialog.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const footer = element.querySelector('.google-drive-folder-picker-actions')!.getBoundingClientRect();
+      const breadcrumb = element.querySelector('.google-drive-folder-breadcrumbs')!.getBoundingClientRect();
+      const content = element.querySelector('.google-drive-folder-picker-content')!.getBoundingClientRect();
+      return { bottom: box.bottom, footerBottom: footer.bottom, breadcrumbHeight: breadcrumb.height, contentHeight: content.height };
+    });
+    expect(controls.bottom).toBeLessThanOrEqual(viewport.height);
+    expect(controls.footerBottom).toBeLessThanOrEqual(controls.bottom);
+    expect(controls.breadcrumbHeight).toBeLessThan(80);
+    expect(controls.contentHeight).toBeGreaterThan(0);
+  }
 
   const pageScrollBefore = await page.evaluate(() => window.scrollY);
   await page.mouse.move(380, 820);
