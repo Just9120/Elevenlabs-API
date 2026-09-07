@@ -62,6 +62,67 @@ describe("app-owned Google Drive picker", () => {
     vi.restoreAllMocks();
   });
 
+  it("sorts all pages through Drive and preserves folder/search context while discarding old tokens", async () => {
+    const requests: URL[] = [];
+    const folder = (id: string, name: string) => ({ id, name, mimeType: FOLDER_MIME_TYPE });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith("/files/root")) return json(rootPayload());
+      if (url.pathname.endsWith("/drives")) return json({ drives: [] });
+      requests.push(url);
+      const q = url.searchParams.get("q") || "";
+      if (q.includes("sharedWithMe")) return json({ files: [] });
+      if (q.includes("'nested' in parents")) return json({ files: [] });
+      const sort = url.searchParams.get("orderBy");
+      if (sort === "name_natural") return json({ files: [folder("old", "Старый порядок")], nextPageToken: "old-token" });
+      if (url.searchParams.get("pageToken")) return json({ files: [folder("nested", "Новая папка")] });
+      return json({ files: [folder("fresh", "Обновлённая папка")], nextPageToken: "sorted-token" });
+    }));
+    const { resultPromise } = await startPicker("output-folder", pickerSession());
+    await screen.findByText("Старый порядок");
+    await userEvent.selectOptions(screen.getByLabelText("Сортировка папок и файлов"), "modifiedTime desc,name_natural");
+    await screen.findByText("Обновлённая папка");
+    expect(screen.queryByText("Старый порядок")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Загрузить ещё" }));
+    await screen.findByText("Новая папка");
+    const paged = requests.find((url) => url.searchParams.has("pageToken"));
+    expect(paged?.searchParams.get("pageToken")).toBe("sorted-token");
+    expect(paged?.searchParams.get("orderBy")).toBe("modifiedTime desc,name_natural");
+    await userEvent.click(screen.getByRole("button", { name: /Новая папка/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Выбрать эту папку" })).toBeEnabled());
+    await userEvent.type(screen.getByLabelText("Поиск папок по началу названия"), "Архив");
+    await userEvent.click(screen.getByRole("button", { name: "Найти" }));
+    await screen.findByText("Обновлённая папка");
+    await userEvent.selectOptions(screen.getByLabelText("Сортировка папок и файлов"), "name_natural desc");
+    await waitFor(() => expect(requests.some((url) => url.searchParams.get("orderBy") === "name_natural desc" && url.searchParams.get("q")?.includes("name contains 'Архив'"))).toBe(true));
+    expect(requests.some((url) => url.searchParams.get("orderBy") === "name_natural desc" && url.searchParams.get("q")?.includes("'nested' in parents"))).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Сбросить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Выбрать эту папку" }));
+    expect(await resultPromise).toEqual({ action: "picked", docs: [{ id: "nested", name: "Новая папка", mimeType: FOLDER_MIME_TYPE }] });
+  });
+
+  it("ignores a late sort response after another order is chosen", async () => {
+    let resolveOld!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith("/files/root")) return json(rootPayload());
+      if (url.pathname.endsWith("/drives")) return json({ drives: [] });
+      if (url.searchParams.get("q")?.includes("sharedWithMe")) return json({ files: [] });
+      if (url.searchParams.get("orderBy") === "modifiedTime,name_natural") return new Promise<Response>((resolve) => { resolveOld = resolve; });
+      return json({ files: [{ id: "valid", name: "Актуальная папка", mimeType: FOLDER_MIME_TYPE }] });
+    }));
+    const { resultPromise } = await startPicker("output-folder", pickerSession());
+    await screen.findByText("Актуальная папка");
+    const sort = screen.getByLabelText("Сортировка папок и файлов");
+    await userEvent.selectOptions(sort, "modifiedTime,name_natural");
+    await userEvent.selectOptions(sort, "name_natural desc");
+    await screen.findByText("Актуальная папка");
+    await act(async () => resolveOld(json({ files: [{ id: "stale", name: "Устаревший ответ", mimeType: FOLDER_MIME_TYPE }] })));
+    expect(screen.queryByText("Устаревший ответ")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть выбор папки" }));
+    expect(await resultPromise).toEqual({ action: "cancel" });
+  });
+
   it("keeps the current empty output folder selectable and restores scroll", async () => {
     let sharedFolderQuery = "";
     vi.stubGlobal(

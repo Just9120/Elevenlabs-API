@@ -8678,3 +8678,51 @@ def test_pwa_debug_ingestion_requires_active_session_and_does_not_extend_expiry(
     assert c.get("/api/diagnostics/debug-session").json()["expires_at"] == expiry
     db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); past_start=utcnow() - timedelta(minutes=2); row.started_at=past_start; row.expires_at=past_start + timedelta(minutes=1); db.commit(); db.close()
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 403
+
+
+def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
+    from types import SimpleNamespace
+    from studio_api.models import AudioPreparationJob, AudioPreparationStatus
+    email = "audio-export-owner@example.test"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]["id"]
+    with SessionLocal() as db:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        source = Source(project_id=project_id, source_type=SourceType.local_upload, original_filename="Готовый.flac",
+            mime_type="audio/flac", size_bytes=5, s3_bucket="private", s3_object_key="ready",
+            upload_status=SourceUploadStatus.uploaded, expires_at=utcnow() + timedelta(days=1))
+        db.add(source); db.flush()
+        job = AudioPreparationJob(project_id=project_id, owner_user_id=owner.id, title="Готовый",
+            options_json="{}", status=AudioPreparationStatus.completed, current_stage="completed", output_source_id=source.id)
+        db.add(job); db.commit()
+        job_id = job.id
+    external = []
+    monkeypatch.setattr("studio_api.main.refresh_user_google_drive_access_token", lambda *args, **kwargs: external.append("token") or "synthetic")
+    def verify(token, folder_id):
+        external.append(folder_id)
+        if folder_id == "denied":
+            from fastapi import HTTPException
+            raise HTTPException(403, "Folder unavailable")
+        return SimpleNamespace(id=folder_id, name="Результаты", web_view_url="https://drive.google.com/drive/folders/" + folder_id)
+    monkeypatch.setattr("studio_api.main.verify_output_folder_selection", verify)
+    route = f"/api/audio-preparations/{job_id}/save-to-drive"
+    assert TestClient(app).post(route, headers=headers, json={"folder_id": "folder"}).status_code == 401
+    assert client.post(route, headers={"origin": "https://studio.test"}, json={"folder_id": "folder"}).status_code == 403
+    assert client.post(route, headers={**headers, "origin": "https://foreign.test"}, json={"folder_id": "folder"}).status_code == 403
+    other = TestClient(app)
+    other_email = "audio-export-other@example.test"
+    other_csrf = login(other, admin(other_email), other_email)
+    assert other.post(route, headers={**headers, "x-csrf-token": other_csrf}, json={"folder_id": "folder"}).status_code == 404
+    assert external == []
+    assert client.post(route, headers=headers, json={"folder_id": "denied"}).status_code == 403
+    with SessionLocal() as db:
+        assert db.get(AudioPreparationJob, job_id).current_stage == "completed"
+    first = client.post(route, headers=headers, json={"folder_id": "folder"})
+    assert first.status_code == 200
+    assert first.json()["status"] == "completed"
+    assert first.json()["progress"]["stage"] == "google_drive_export_queued"
+    assert first.json()["output"]["download_ready"] is True
+    assert "s3_object_key" not in first.text and "synthetic" not in first.text
+    assert client.post(route, headers=headers, json={"folder_id": "folder"}).json()["id"] == job_id

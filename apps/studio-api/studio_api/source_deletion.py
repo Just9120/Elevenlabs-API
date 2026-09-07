@@ -7,7 +7,7 @@ import hashlib
 import json
 from uuid import uuid4
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from .audit import audit
@@ -146,23 +146,19 @@ def _referencing_jobs(db: Session, source_id: str, *, lock: bool) -> list[Transc
 
 
 def _active_audio_preparation_references(db: Session, source_id: str, *, lock: bool) -> list[AudioPreparationJob]:
-    stmt = (
-        select(AudioPreparationJob)
-        .join(AudioPreparationJobInput, AudioPreparationJobInput.job_id == AudioPreparationJob.id)
-        .where(
-            AudioPreparationJobInput.source_id == source_id,
-            AudioPreparationJob.status.in_(
-                (
-                    AudioPreparationStatus.preview_queued,
-                    AudioPreparationStatus.analyzing,
-                    AudioPreparationStatus.preview_ready,
-                    AudioPreparationStatus.queued,
-                    AudioPreparationStatus.processing,
-                )
-            ),
-        )
-        .order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
-    )
+    input_reference = exists(select(AudioPreparationJobInput.job_id).where(
+        AudioPreparationJobInput.job_id == AudioPreparationJob.id,
+        AudioPreparationJobInput.source_id == source_id,
+    ))
+    stmt = select(AudioPreparationJob).where(or_(
+        and_(input_reference, AudioPreparationJob.status.in_((
+            AudioPreparationStatus.preview_queued, AudioPreparationStatus.analyzing,
+            AudioPreparationStatus.preview_ready, AudioPreparationStatus.queued, AudioPreparationStatus.processing,
+        ))),
+        and_(AudioPreparationJob.output_source_id == source_id,
+            AudioPreparationJob.status == AudioPreparationStatus.completed,
+            AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload"))),
+    )).order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
     if lock:
         stmt = stmt.with_for_update()
     return list(db.execute(stmt).scalars().all())

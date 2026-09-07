@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import * as googlePicker from "./googlePicker";
 import { AudioPreparationPage } from "./AudioPreparationPage";
 
 function json(value: unknown) {
@@ -117,7 +118,7 @@ describe("AudioPreparationPage", () => {
     expect(screen.getByLabelText("Звуковые каналы")).toHaveValue("mixdown");
     expect(screen.getByRole("checkbox", { name: "Уменьшить длинные паузы в аудио или видео" })).toBeChecked();
     await user.click(screen.getByText("Дополнительные настройки пауз"));
-    expect(screen.getByLabelText(/Что считать тишиной/)).toHaveValue(-45);
+    expect(screen.getByLabelText(/Что считать тишиной/)).toHaveValue("-45");
     await user.selectOptions(screen.getByLabelText("Формат результата"), "copy");
     expect(screen.getByLabelText("Звуковые каналы")).toHaveValue("preserve");
     expect(screen.getByRole("checkbox", { name: "Уменьшить длинные паузы в аудио или видео" })).not.toBeChecked();
@@ -297,5 +298,100 @@ describe("AudioPreparationPage", () => {
     expect(within(tablist).getByRole("tab", { name: "Загрузить в Studio" }))
       .toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "2. Параметры" })).toBeInTheDocument();
+  });
+});
+
+
+describe("audio UX regression", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("keeps empty/minus drafts and sends comma/point decimals as numbers only after validation", async () => {
+    const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [source("s", "Лекция.wav", null)] });
+      if (url.endsWith("/audio-preparations") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)); requests.push(body);
+        return json(previewJob("job", "Лекция", ["s"]));
+      }
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      throw new Error(url);
+    }));
+    const user = userEvent.setup();
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await user.click(screen.getByText("Выбрать из сохранённых файлов Studio"));
+    await user.click(await screen.findByRole("checkbox", { name: /Лекция.wav/ }));
+    await user.click(screen.getByRole("checkbox", { name: "Уменьшить длинные паузы в аудио или видео" }));
+    await user.click(screen.getByText("Дополнительные настройки пауз"));
+    const threshold = screen.getByLabelText(/Что считать тишиной/);
+    const minimum = screen.getByLabelText("Минимальная пауза, сек");
+    const keep = screen.getByLabelText("Сколько паузы оставить, сек");
+    const submit = screen.getByRole("button", { name: "Проверить файлы и рассчитать" });
+    await user.clear(threshold);
+    expect(threshold).toHaveValue("");
+    await user.type(threshold, "-");
+    expect(threshold).toHaveValue("-");
+    await user.click(submit);
+    expect(requests).toHaveLength(0);
+    expect(screen.getByText(/введите число от −60 до −10/)).toBeVisible();
+    await user.type(threshold, "40.5");
+    expect(threshold).toHaveValue("-40,5");
+    await user.clear(minimum); await user.type(minimum, "1,2");
+    await user.clear(keep); await user.type(keep, "0.35");
+    expect(keep).toHaveValue("0,35");
+    await user.click(submit);
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0].options).toMatchObject({ silence_threshold_db: -40.5, silence_min_duration_seconds: 1.2, silence_keep_duration_seconds: 0.35 });
+  });
+
+  it("saves a completed download through the same folder picker, keeps download and polls the durable export", async () => {
+    const picker = vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({ action: "picked", docs: [{ id: "chosen-folder", name: "Результаты" }] });
+    const saved = { ...previewJob("ready", "Готовое аудио", []), status: "completed", progress: { percent: 100, stage: "completed" }, output: { download_ready: true, source_id: "ready-source", google_drive_url: null } };
+    const posts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [saved] });
+      if (url.endsWith("/picker/session")) return json({ access_token: "synthetic", scope_ready: true });
+      if (url.endsWith("/ready/save-to-drive")) {
+        posts.push(JSON.parse(String(init?.body)));
+        return json({ ...saved, progress: { percent: 0, stage: "google_drive_export_queued" } });
+      }
+      if (url.endsWith("/ready")) return json({ ...saved, output: { ...saved.output, google_drive_url: "https://drive.google.com/file/d/result/view" } });
+      throw new Error(url);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Сохранить в Google Drive" }));
+    expect(picker.mock.calls[0][0]).toBe("output-folder");
+    expect(posts).toEqual([{ folder_id: "chosen-folder" }]);
+    expect(screen.getByRole("link", { name: "Скачать файл" })).toHaveAttribute("href", "/api/audio-preparations/ready/download");
+    expect(screen.getByRole("button", { name: "Сохраняем в Google Drive…" })).toBeDisabled();
+    expect(await screen.findByRole("link", { name: "Открыть в Google Drive" }, { timeout: 3000 })).toHaveAttribute("href", "https://drive.google.com/file/d/result/view");
+  });
+
+  it("picker cancellation makes no export and an unconfirmed export retries its original destination", async () => {
+    const picker = vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({ action: "cancel" });
+    const ready = { ...previewJob("ready", "Аудио", []), status: "completed", progress: { percent: 100, stage: "completed" }, output: { download_ready: true, source_id: "out", google_drive_url: null } };
+    const posts: unknown[] = [];
+    let failed = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [{ ...ready, ...(failed ? { progress: { percent: 100, stage: "google_drive_export_failed" }, output_folder: { id: "original", name: "Папка" } } : {}) }] });
+      if (url.endsWith("/picker/session")) return json({ access_token: "synthetic", scope_ready: true });
+      if (url.endsWith("/save-to-drive")) { posts.push(JSON.parse(String(init?.body))); return json(ready); }
+      throw new Error(url);
+    }));
+    const view = render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Сохранить в Google Drive" }));
+    expect(posts).toHaveLength(0);
+    view.unmount(); failed = true;
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Повторить сохранение в Google Drive" }));
+    expect(posts).toEqual([{ folder_id: "original" }]);
+    expect(picker).toHaveBeenCalledTimes(1);
   });
 });

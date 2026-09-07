@@ -147,6 +147,7 @@ from .audio_preparation_service import (
     list_owned_audio_preparation_jobs,
     load_owned_audio_preparation_job,
     start_audio_preparation_job,
+    queue_audio_drive_export,
 )
 from .runtime_observability import (
     check_database_readiness,
@@ -3178,6 +3179,28 @@ def cancel_audio_preparation(job_id: str, pair=Depends(require_csrf), db: Sessio
         audit(db, "audio_preparation.cancelled", actor_user_id=user.id, subject_user_id=user.id, project_id=job.project_id, job_id=job.id)
         db.commit()
         job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    return audio_preparation_payload(job)
+
+
+@app.post("/api/audio-preparations/{job_id}/save-to-drive")
+def save_audio_preparation_to_drive(job_id: str, data: GooglePickerOutputFolderIn, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:export:" + user.id, 30, 3600)
+    try:
+        # Check ownership before any external request.
+        load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
+        access_token = refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+        folder = verify_output_folder_selection(access_token, data.folder_id)
+        job = queue_audio_drive_export(db, owner_user_id=user.id, job_id=job_id, folder=folder, now=utcnow())
+        audit(db, "audio_preparation.export_requested", actor_user_id=user.id, subject_user_id=user.id, project_id=job.project_id, job_id=job.id)
+        db.commit()
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id)
+    except GoogleConnectionAccessError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"reason": exc.reason.value}) from None
     except AudioPreparationServiceError as exc:
         db.rollback()
         _raise_audio_preparation_error(exc)

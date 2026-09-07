@@ -35,6 +35,7 @@ type AudioJob = {
   preview: { input_duration_seconds: number; estimated_output_duration_seconds: number; copy_compatible: boolean } | null;
   progress: { percent: number; stage: string };
   output: { download_ready: boolean; source_id: string; google_drive_url: string | null; duration_seconds: number | null } | null;
+  output_folder?: { id: string; name: string } | null;
   error_code: string | null;
 };
 
@@ -42,6 +43,8 @@ type Props = { csrf: string; onCsrf: (value: string) => void };
 
 const terminal = new Set(["cancelled", "failed", "completed"]);
 const pollingStopped = new Set([...terminal, "preview_ready"]);
+const driveExportActive = (job: AudioJob) => job.status === "completed" && ["google_drive_export_queued", "google_drive_upload"].includes(job.progress.stage);
+const needsPolling = (job: AudioJob) => !pollingStopped.has(job.status) || driveExportActive(job);
 const presetDefaults = {
   processing_only: { format: "copy", mono: "preserve", silence: false, threshold: -45, minimum: 1, keep: 0.3 },
   lecture: { format: "flac", mono: "mixdown", silence: true, threshold: -45, minimum: 1.2, keep: 0.35 },
@@ -110,6 +113,9 @@ function stageLabel(stage: string) {
     storing: "Сохраняем результат",
     google_drive_upload: "Сохраняем копию в Google Drive",
     completed: "Готово",
+    google_drive_export_queued: "Готово · ожидает сохранения в Google Drive",
+    google_drive_export_failed: "Готово · копия в Google Drive не подтверждена",
+    google_drive_export_cancelled: "Готово · сохранение в Google Drive отменено",
     cancelled: "Отменено",
     failed: "Не завершено",
   } as Record<string, string>)[stage] ?? "Выполняется";
@@ -158,9 +164,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [format, setFormat] = useState("copy");
   const [mono, setMono] = useState("preserve");
   const [silenceEnabled, setSilenceEnabled] = useState(false);
-  const [threshold, setThreshold] = useState(-45);
-  const [minimum, setMinimum] = useState(1);
-  const [keep, setKeep] = useState(0.3);
+  const [threshold, setThreshold] = useState("-45");
+  const [minimum, setMinimum] = useState("1");
+  const [keep, setKeep] = useState("0,3");
   const [saveToDrive, setSaveToDrive] = useState(false);
   const [driveFolder, setDriveFolder] = useState<{ id: string; name: string } | null>(null);
   const [jobs, setJobs] = useState<AudioJob[]>([]);
@@ -219,7 +225,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           : [];
         if (active && jobs.length > 0) {
           const restored = jobs.map(parseJob);
-          setJobs(restored.filter((job, index) => index === 0 || !terminal.has(job.status)));
+          setJobs(restored.filter((job, index) => index === 0 || !terminal.has(job.status) || driveExportActive(job)));
         }
       })
       .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Не удалось открыть обработку аудио."))
@@ -228,15 +234,20 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   }, []);
 
   useEffect(() => {
-    if (jobs.length === 0 || jobs.every((job) => pollingStopped.has(job.status))) return;
+    if (jobs.length === 0 || !jobs.some(needsPolling)) return;
+    let active = true;
+    let polling = false;
     const timer = window.setInterval(() => {
-      void Promise.all(jobs.map((job) => pollingStopped.has(job.status)
+      if (polling) return;
+      polling = true;
+      void Promise.all(jobs.map((job) => !needsPolling(job)
         ? Promise.resolve(job)
         : api<unknown>(`/audio-preparations/${job.id}`, { cache: "no-store" }).then(parseJob)))
-        .then(setJobs)
-        .catch(() => setError("Не удалось обновить прогресс. Повторите позже."));
+        .then((updated) => { if (active) setJobs(updated); })
+        .catch(() => { if (active) setError("Не удалось обновить прогресс. Повторите позже."); })
+        .finally(() => { polling = false; });
     }, 1500);
-    return () => window.clearInterval(timer);
+    return () => { active = false; window.clearInterval(timer); };
   }, [jobs]);
 
   function toggleSource(id: string) {
@@ -293,7 +304,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   function applyPreset(value: keyof typeof presetDefaults) {
     const next = presetDefaults[value];
     setPreset(value); setFormat(processingPath === "local" ? "wav" : next.format); setMono(next.mono); setSilenceEnabled(next.silence);
-    setThreshold(next.threshold); setMinimum(next.minimum); setKeep(next.keep);
+    setThreshold(String(next.threshold)); setMinimum(String(next.minimum).replace(".", ",")); setKeep(String(next.keep).replace(".", ","));
   }
 
   function applyFormat(value: string) {
@@ -534,8 +545,52 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     finally { setBusy(false); setUploadProgress(null); if (fileInput.current) fileInput.current.value = ""; }
   }
 
+  function silenceValues() {
+    if (!silenceEnabled) return { threshold: -45, minimum: 1, keep: 0.3 };
+    const read = (text: string) => /^-?\d+(?:[,.]\d+)?$/.test(text.trim())
+      ? Number(text.trim().replace(",", ".")) : NaN;
+    const values = { threshold: read(threshold), minimum: read(minimum), keep: read(keep) };
+    if (!Number.isFinite(values.threshold) || values.threshold < -60 || values.threshold > -10) {
+      setError("Что считать тишиной: введите число от −60 до −10 dB.");
+      return null;
+    }
+    if (!Number.isFinite(values.minimum) || values.minimum < 0.2 || values.minimum > 10) {
+      setError("Минимальная пауза: введите число от 0,2 до 10 секунд.");
+      return null;
+    }
+    if (!Number.isFinite(values.keep) || values.keep < 0 || values.keep > 5 || values.keep > values.minimum) {
+      setError("Оставляемая пауза: введите число от 0 до 5 секунд, не больше минимальной паузы.");
+      return null;
+    }
+    return values;
+  }
+
+  async function saveResultToDrive(job: AudioJob) {
+    if (busy || driveExportActive(job)) return;
+    setBusy(true);
+    setError("");
+    try {
+      let folderId = job.output_folder?.id;
+      if (!folderId) {
+        const selected = await googlePicker.openGooglePicker("output-folder", await pickerSession());
+        if (selected.action !== "picked" || selected.docs.length !== 1) return;
+        folderId = selected.docs[0].id;
+      }
+      const updated = parseJob(await mutate(`/audio-preparations/${job.id}/save-to-drive`, {
+        method: "POST", body: JSON.stringify({ folder_id: folderId }),
+      }));
+      setJobs((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch {
+      setError("Не удалось начать сохранение в Google Drive. Проверьте подключение, доступ к папке и срок хранения файла, затем повторите.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createPreview() {
     if (!project || selected.length === 0) return;
+    const values = silenceValues();
+    if (!values) return;
     setBusy(true); setError(""); setJobs([]);
     try {
       const groups = operationMode === "concat"
@@ -556,7 +611,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
             source_ids: group,
             ephemeral_source_ids: group.filter((id) => ephemeral.has(id)),
             manual_order: operationMode === "concat" ? manualOrder : true,
-            options: { preset, output_format: format, mono_mode: mono, silence_enabled: silenceEnabled, silence_threshold_db: threshold, silence_min_duration_seconds: minimum, silence_keep_duration_seconds: keep, output_name_template: "{title}" },
+            options: { preset, output_format: format, mono_mode: mono, silence_enabled: silenceEnabled, silence_threshold_db: values.threshold, silence_min_duration_seconds: values.minimum, silence_keep_duration_seconds: values.keep, output_name_template: "{title}" },
             output_destination: saveToDrive ? "google_drive" : "download",
             output_drive_folder_id: saveToDrive ? driveFolder?.id : null,
           }),
@@ -599,6 +654,8 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
 
   async function processLocally() {
     if (localFiles.length === 0 || busy) return;
+    const values = silenceValues();
+    if (!values) return;
     setBusy(true);
     setError("");
     setJobs([]);
@@ -612,9 +669,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           operationMode,
           channelMode: mono as "preserve" | "mixdown" | "left" | "right",
           silenceEnabled,
-          silenceThresholdDb: threshold,
-          silenceMinimumSeconds: minimum,
-          silenceKeepSeconds: keep,
+          silenceThresholdDb: values.threshold,
+          silenceMinimumSeconds: values.minimum,
+          silenceKeepSeconds: values.keep,
           title,
         },
         setLocalProgress,
@@ -732,13 +789,13 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         </div>
         {format !== "copy" && <p className="muted">Для изменения каналов или пауз файл будет перекодирован в выбранный формат.</p>}
         <label className="audio-source-choice"><input type="checkbox" checked={silenceEnabled} onChange={(e) => applySilence(e.target.checked)} /><span>Уменьшить длинные паузы в аудио или видео</span></label>
-        {silenceEnabled && <details className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input type="number" min="-60" max="-10" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /><small>Звук тише {threshold} dB считается паузой.</small></label><label>Минимальная пауза, сек<input type="number" min="0.2" max="10" step="0.1" value={minimum} onChange={(e) => setMinimum(Number(e.target.value))} /></label><label>Сколько паузы оставить, сек<input type="number" min="0" max="5" step="0.1" value={keep} onChange={(e) => setKeep(Number(e.target.value))} /></label></div></details>}
+        {silenceEnabled && <details className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input type="text" inputMode="text" value={threshold} onChange={(e) => setThreshold(e.target.value.replaceAll(".", ","))} /><small>Порог от −60 до −10 dB.</small></label><label>Минимальная пауза, сек<input type="text" inputMode="decimal" value={minimum} onChange={(e) => setMinimum(e.target.value.replaceAll(".", ","))} /></label><label>Сколько паузы оставить, сек<input type="text" inputMode="decimal" value={keep} onChange={(e) => setKeep(e.target.value.replaceAll(".", ","))} /></label></div></details>}
         {processingPath === "studio" ? <fieldset className="audio-drive-save"><legend>Сохранение</legend><label><input type="checkbox" checked={saveToDrive} onChange={(e) => setSaveToDrive(e.target.checked)} /> Автоматически сохранить копию в Google Drive</label>{saveToDrive && <div className="actions"><button type="button" onClick={chooseOutputFolder} disabled={busy}>Выбрать папку</button>{driveFolder && <span>{driveFolder.name}</span>}</div>}<small>Скачать результат и передать его в транскрибацию можно будет после обработки независимо от этой настройки.</small></fieldset> : <p className="notice">Локальный результат останется в браузере до закрытия или перезагрузки вкладки. После обработки его можно скачать либо явно загрузить в Studio для Google Drive или транскрибации.</p>}
         {localProgress && <div className="upload-progress" aria-live="polite"><p><strong>{localProgress.stage === "decoding" ? "Декодируем" : localProgress.stage === "processing" ? "Обрабатываем" : localProgress.stage === "encoding" ? "Создаём WAV" : "Читаем файл"}</strong>{localProgress.filename ? `: ${localProgress.filename}` : ""}</p><progress aria-label="Прогресс локальной обработки" max="100" value={localProgress.percent}>{localProgress.percent}%</progress><small>{localProgress.percent}% · исходные файлы не отправляются в сеть</small><button type="button" onClick={() => localAbort.current?.abort()}>Отменить локальную обработку</button></div>}
         <button className="primary" type="button" disabled={busy || planCount === 0 || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
       </section>}
       {sourceMode !== "direct-drive" && localResults.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Локальные результаты</h2>{localResults.map((result, index) => <article className="audio-job-result" key={result.url}><h3>{localResults.length > 1 ? `Результат ${index + 1}: ${result.filename}` : result.filename}</h3><p>Исходно: {duration(result.inputDurationSeconds)} · результат: {duration(result.outputDurationSeconds)}</p><div className="actions"><a className="button-like primary" href={result.url} download={result.filename}>Скачать файл</a><button type="button" onClick={() => void uploadLocalResult(result)} disabled={busy}>Загрузить в Studio для Drive или транскрибации</button></div></article>)}</section>}
-      {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{!terminal.has(job.status) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>}{job.output?.source_id && <button className="primary" type="button" onClick={() => transcribeOutput(job)}>Использовать для транскрибации</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput(job)}>Использовать в новой обработке</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
+      {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{(!terminal.has(job.status) || driveExportActive(job)) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>}{job.output?.source_id && <button className="primary" type="button" onClick={() => transcribeOutput(job)}>Использовать для транскрибации</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput(job)}>Использовать в новой обработке</button>}{job.output?.download_ready && !job.output.google_drive_url && <button type="button" onClick={() => void saveResultToDrive(job)} disabled={busy || driveExportActive(job)}>{driveExportActive(job) ? "Сохраняем в Google Drive…" : job.output_folder ? "Повторить сохранение в Google Drive" : "Сохранить в Google Drive"}</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.progress.stage === "google_drive_export_failed" && <p className="error">{job.error_code === "source_unavailable" ? "Готовый файл недоступен для сохранения. Проверьте срок хранения файла или повторите позже." : "Сохранение не подтверждено. Проверьте подключение Google Drive и повторите: Studio проверит существующую копию перед загрузкой. Готовый файл можно скачать."}</p>}{job.output_folder && job.output && <p className="muted">Папка копии: {job.output_folder.name}</p>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
     </div>
   );
 }
