@@ -2,82 +2,109 @@
 
 ## Current Goal и checkpoint
 
-Режим IMPLEMENT. Current Goal — **AUDIO-NAME-ERROR-UX-01 / IN_PROGRESS: финальная публикация metadata**. F20/F21 исправлены и поставлены. Authorization: «Запускай», 2026-09-06, текущий чат; scope AP-11/UXCTL-07. Ответом «ну делай» 2026-09-06 владелец разрешил предложенный один metadata commit/push напрямую в main; approval blocker снят. Используется прежняя встроенная Goal без дублирования: get_goal 16:26Z ещё вернул blocked после прежнего ожидания. Tool lifecycle завершается после фактической публикации, readback и применимого CI. Следующая Goal не выбиралась.
+**Current Goal — STUDIO-CLEANUP-HOTFIX-01 / IN_PROGRESS.** Authorization: сообщения владельца «код ты можешь поправить?», требование выполнить ветку/commits/push/PR/merge и «теперь делай», текущий чат 2026-09-07. Встроенная Goal активирована и проверена инструментом. Прежнее объявление локальной правки завершённой не означало завершённую поставку.
 
-Checkpoint **2026-09-06T16:29Z, перед финальным metadata push**: [PR #302](https://github.com/Just9120/Elevenlabs-API/pull/302) merged 14:23:10Z; product/deployed revision **84ae25f3c53e5152466b0e1e7fa59936d08a24c7**, исходный base b8babc257abf7a33cda2df3c36c33570ee043108, PR head dce041950773f6790b3cc8d422dfa0843b0fa0cd. Fresh fetch/API: local main = origin/main = GitHub main на product revision, protected=false, rulesets пусты. Ветка codex/audio-name-error-ux удалена локально и remote после проверки совпадения дерева squash result. Worktree один; прежняя чужая ветка, unknown/ignored/inaccessible directories сохранены. Локальный diff — только три metadata/profile документа.
+- Результат: понятный и работоспособный повтор bulk cleanup/attention resolution после recent-auth; доступная отмена удерживающего файл audio preview; отсутствие старых противоречивых deletion notices.
+- Baseline: PUX-06, UXCTL-07/11, AP-13; технические критерии F22–F24 ниже, без новых product AC. Сохранить owner/CSRF/recent-auth, audit, явное подтверждение отсутствия результата и защиту используемых sources.
+- Base: `27644aa734b1fea6880a0833c947cadb7eb9c642`, fresh origin/main; ветка `codex/studio-source-cleanup-hotfix`. GitHub default main, protected=false, rulesets пусты; это не отменяет required CI. Предыдущие локальные правки Ad-hoc/readiness разрешены владельцем и сохраняются для публикации вместе с содержательным хотфиксом.
+- Один batch/PR: review и необходимые исправления → локальные regression/lint/typecheck/build → grouped commits и initial push → PR/checks/review → merge → standard web CD, read-only identity/health → metadata synchronization и local main/branch cleanup.
+- Non-goals: изменение product scope, recent-auth policy, workflow/security settings, backend storage semantics/миграции, provider/Google calls и удаление реальных пользовательских данных агентом.
+- Validation REQUIRED local: App/AudioPreparation components (reauth/retry, blocker/notice, preview cancellation), SQLite source deletion + audio service, ESLint, TypeScript/build, ci_checks и diff review. REQUIRED remote-only: CI / checks (Linux PostgreSQL/Redis), Studio PWA CI / studio и browser-e2e. Deployment: только web по фактическому router diff; API/worker/migration N/A при отсутствии runtime изменений. Browser LIVE только read-only; реальные действия владельца тестами на production не подменяются.
+- DoD: исправления, regression tests и применимые gates PASS; reviewed PR merged; web revision/health подтверждены; фактический dashboard опубликован разрешённым механизмом; local main синхронизирована, созданная merged ветка очищена.
+- Checkpoint 2026-09-07: код из предыдущего шага локален; branch создана; прежняя sandbox/auto-review блокировка снята. Полная frontend validation завершена (V28-LOCAL). Product commit 9ab6926 локален. PR/CI/CD ещё PENDING. Project profile §10.9 не задаёт постоянный post-delivery metadata mechanism: final snapshot будет подготовлен после поставки, отдельный metadata-only PR запрещён; отсутствие разрешённого механизма не объявлять DONE.
+
+| Finding | Область / Evidence на base 27644aa | Влияние и критерий закрытия | Confidence |
+| --- | --- | --- | --- |
+| F22 · P1 | PUX-06, UXCTL-07/11; `main.py` require_recent_auth, `SourcesPanel.tsx` applyBulkDeletion, `App.tsx` attention catch | API возвращает 409/recent_reauthentication_required, UI ожидает 401 и теряет правильное действие. Различать причину, сохранять возможность явного повтора после подтверждения личности; проверить success/409/401/preview_changed. | HIGH: backend/frontend contract; конкретный production response не перехвачен |
+| F23 · P1 | PUX-06, AP-13; source_deletion.py active audio references, AudioPreparationPage.tsx terminal/restore | preview_ready удерживает source, но кнопка отмены скрыта; после reload видна только последняя операция. Показывать причину и доступную отмену возвращённых API активных previews; backend должен разрешать удаление после отмены. | HIGH: исполняемые ветви кода; старые операции за границей bounded API list требуют отдельного исследования |
+| F24 · P2 | PUX-06; App.tsx SourceStorageSettings deletionNotices | Уведомления разных удалений остаются вместе и создают ложное впечатление успешного удаления текущего файла. Очищать старое сообщение при новом действии/reload, показывать только последний исход; regression success→blocker. | HIGH: state lifecycle и пользовательский screenshot |
+
+V28-LOCAL / 2026-09-07 / Windows / code revision `9ab692608d991ce5232646ccdc93d22e22879979`: полный Vitest **69 files / 736 tests PASS**; targeted App/AudioPreparation **245 PASS**; SQLite source deletion + audio service **38 PASS**; `npm.cmd run lint`, `npm.cmd run build` (TypeScript, Vite, PWA, build metadata), `python scripts/ci_checks.py`, `git diff --check` PASS. Регрессии: реальный 409 reason, переход Аккаунт → reauth → сохранённый cleanup plan → success; 401 session error; явный retry attention; success→blocked notice; restored older preview cancellation и backend source deletion после cancel. Tests используют synthetic/fake integrations; production mutations не выполнялись. Build сохраняет прежний advisory warning о chunk >500 kB.
+
+V28-REVIEW: весь product diff и ранее согласованный documentation diff проверены. F22–F24 исправлены по коду; CODE PASS, CI/DEPLOY/LIVE текущей revision PENDING. Во время диагностики эти четыре AC имели дефект; после исправления снова IMPLEMENTED. Новых product AC нет. Пересчёт реестра перед PR: **355/675 = 52,6%**, Goal **4/4 = 100% по коду**, технические критерии **3/3**; delivery DoD ещё выполняется. Feature PUX 13/13, UXCTL 14/14, AP 30/30.
+
+F25 / P2 / supply-chain / DEFER: плановый [Dependency audit 34105545153](https://github.com/Just9120/Elevenlabs-API/actions/runs/34105545153) на неизменённой base 27644aa, 2026-09-07T09:21Z, FAIL: browserslist и fast-uri, 2 high по npm audit. Это действующий debt; проверку не запускали повторно и не снимали gate. В этом хотфиксе package/lock/workflows не меняются; требуется отдельная узкая dependency remediation с проверкой advisory ranges и frontend/CI regression. Confidence HIGH для факта audit failure, применимость к production runtime отдельно не оценена.
+
+Ограничение F23: UI восстанавливает активные операции из существующей owner-scoped API выборки до 50 последних jobs; бесконечную историю и поиск удерживающего source за этой границей данный patch не реализует. Это не доказательство отсутствия старых ссылок.
+
+Последняя Goal — **AUDIO-NAME-ERROR-UX-01 / DONE**. F20/F21 исправлены и поставлены. Authorization: «Запускай», 2026-09-06; scope AP-11/UXCTL-07. Одноразовый metadata push разрешён ответом «ну делай». Встроенная Goal завершена update_goal и проверена get_goal 2026-09-06T16:34:43Z; это исторический record завершённой работы.
+
+Последний delivery checkpoint: [PR #302](https://github.com/Just9120/Elevenlabs-API/pull/302) merged 2026-09-06T14:23:10Z; product/deployed revision **84ae25f3c53e5152466b0e1e7fa59936d08a24c7**, исходный base b8babc257abf7a33cda2df3c36c33570ee043108, PR head dce041950773f6790b3cc8d422dfa0843b0fa0cd. Metadata опубликованы commit [27644aa](https://github.com/Just9120/Elevenlabs-API/commit/27644aa734b1fea6880a0833c947cadb7eb9c642): exact three-file remote readback PASS; local main = origin/main = GitHub main. [CI 34045687136](https://github.com/Just9120/Elevenlabs-API/actions/runs/34045687136) PASS: 1744 tests, 4 warnings; все обязательные steps выполнены. Ветка codex/audio-name-error-ux удалена local/remote после проверки squash result; один worktree, прежняя чужая ветка и unknown/ignored state сохранены.
 
 Validation Plan выполнен: naming pure/service/processor/frontend; recovery query/API/component, owner/recent-auth/timeout; lint/typecheck/build; Linux PostgreSQL/Redis/security и authenticated Playwright; self-review/exact-head CI; web/API/worker CD, schema/image/health/isolation и узкий read-only LIVE. Primary records — V27 ниже. Schema/workflows не менялись; migration/edge N/A. Provider/Google mutations, canary, переименование старых файлов и решение об отсутствии результата за владельца не выполнялись.
 
-Goal: реализация **2/2 = 100%**, product acceptance **0/2 READY**, оба AC IMPLEMENTED; human-only остаток отдельно. Технические регрессии F20/F21 исправлены и проверены; общий DoD ожидает metadata. Пересчёт после merge/delivery: 353/675 реализации, приёмка ≥3/675 (полный исторический numerator неизвестен), denominator не менялся.
+Готовность завершённой Goal — **2/2 = 100%**. Required технические проверки и delivery выполнены; DOC-GATE-01 закрыт для этой поставки. Постоянный metadata mechanism будущих Goals остаётся отдельным process debt по Project profile §10.9. Правка правил готовности подготовлена по отдельному решению владельца и включена в содержательный hotfix PR; прежнее одноразовое разрешение на direct-main metadata push не продлевается.
 
-**Последний шаг — DOC-GATE-01; механизм разрешён.** Этот финальный snapshot подготовлен для одного ordinary fast-forward commit/push в Just9120/Elevenlabs-API:main. Allowlist: docs/delivery-plan.md, docs/delivery/studio.md, только Project profile docs/ci-cd-rules.md. Перед записью проверены fresh main SHA и protections/rulesets; выполняется full allowlist/diff check. После записи остаются remote file/commit readback, равенство local/remote main и terminal result обычного CI. Studio CI/CD по path filters к этому docs-only diff неприменимы. Результат этих операций не объявлен заранее: первичное подтверждение публикации — commit данного snapshot в [истории main](https://github.com/Just9120/Elevenlabs-API/commits/main/docs/delivery-plan.md) и его [CI check](https://github.com/Just9120/Elevenlabs-API/actions/workflows/ci.yml); окончательный lifecycle — встроенная Goal этого чата. Snapshot фиксирует состояние до собственного push, без цепочки commits ради собственного SHA/CI ID. Runtime поставка уже завершена.
+## Готовность проекта
 
-## Реализация и подтверждённая приёмка
+**Постоянное правило владельца, 2026-09-06:** при аудите и всех последующих пересчётах готовность всегда считается по соответствию реализации в коде согласованным требованиям. Режим **Ad-hoc**: владелец использует проект, обнаруженные баги попадают в backlog и исправляются в разрешённой задаче; плановой программы ручных тестов и отчётов пользователя по функциям нет. Отдельная приёмка и её процент отменены. Агент выполняет доступные автоматические и браузерные проверки. Источник — прямое сообщение «процент готовности при аудите и в дальнейшем всегда считается по коду исходя из требований» и уточнение режима Ad-hoc в текущем чате; opaque message ID не предоставлен. Формула и статусы — [AGENTS.md §5](../AGENTS.md).
 
-Предыдущий snapshot — browser review 2026-09-06T13:10Z, baseline 675 AC: **351/675 = 52,0% реализации**; подтверждённая приёмка не менее 3/675 = 0,4%, полный исторический numerator не установлен.
+Предыдущий snapshot — browser review 2026-09-06T13:10Z: **351/675 = 52,0% готовности** по реализованным AC.
 
-Текущий snapshot — post-delivery checkpoint 2026-09-06T14:36Z, тот же baseline **675 актуальных AC**: **353/675 = 52,3% реализации** (`350 IMPLEMENTED + 3 READY`). **Подтверждённая приёмка: не менее 3/675 = 0,4%; полный исторический numerator пока не установлен.** Это нижняя граница подтверждений, неизвестная приёмка не заменяется нулём.
+Текущий snapshot — code review и пересчёт 2026-09-07 перед hotfix PR (9ab6926), единый словарь статусов по решению 2026-09-06: **355/675 = 52,6% готовности** (`355 IMPLEMENTED`). Это весь согласованный scope, включая будущие commercial-функции и расширения. Переход трёх прежних READY в IMPLEMENTED не меняет число реализованных требований, Evidence или denominator. CR-06 и PR-06 переведены в IMPLEMENTED после точечного source review: код capture/lifecycle и существующие проверки есть, прежнее ожидание серии runtime sessions убрано из критерия статуса. Это изменение метода оценки, без изменения кода и без нового LIVE PASS; полный повтор аудита не выполнялся.
 
-Состав AC не менялся: 687 сохранённых ID минус 12 ALIAS/SUPERSEDED. AP-11 и UXCTL-07 переведены в IMPLEMENTED по текущему коду и V27 local Evidence; CI/DEPLOY и узкий read-only LIVE этой версии PASS; human-only приёмка PENDING. Рост на 0,3 п.п. отражает устранение двух дефектов. Audio preparation: 30/30; UX controls: 14/14. Другие эпики не пересматривались. Goal: реализация 2/2, подтверждённая приёмка 0/2; runtime gates закрыты; DOC-GATE-01 ещё открыт.
+**USER-LIVE-01 / USER_FEEDBACK, 2026-09-06:** владелец сообщил об использовании проекта не менее двух недель и исправлении обнаруживаемых багов по факту. Это опыт реальной эксплуатации. Конкретные сообщения о дефектах связываются с AC и regression checks; период использования не заменяет проверку кода ещё не реализованных возможностей.
 
-| Эпик / feature | Реализация | Подтверждённая приёмка | Состояние |
-|---|---:|---:|---|
-| `COLAB-BATCH-01` | 24/24 (100.0%) | не установлен / 24 | IMPLEMENTED |
-| `COLAB-REALTIME-01` | 5/6 (83.3%) | не установлен / 6 | IN_PROGRESS |
-| `PWA-CORE-01` | 14/14 (100.0%) | ≥2/14 (≥14.3%) | IMPLEMENTED |
-| `PWA-USER-EXPERIENCE-02` | 13/13 (100.0%) | не установлен / 13 | IMPLEMENTED |
-| `PWA-UX-POLISH-03` | 7/7 (100.0%) | не установлен / 7 | IMPLEMENTED |
-| `PWA-UX-CONTROLS-04` | 14/14 (100.0%) | не установлен / 14 | IMPLEMENTED |
-| `PWA-TRANSCRIPTIONS-UX-01` | 4/4 (100.0%) | не установлен / 4 | IMPLEMENTED |
-| `PWA-INGEST-01` | 11/11 (100.0%) | не установлен / 11 | IMPLEMENTED |
-| `PWA-GOOGLE-PICKER-UX-01` | 8/8 (100.0%) | не установлен / 8 | IMPLEMENTED |
-| `PWA-SEGMENTS-01` | 5/5 (100.0%) | не установлен / 5 | IMPLEMENTED |
-| `PWA-BATCH-01` | 10/11 (90.9%) | не установлен / 11 | IN_PROGRESS |
-| `PWA-AUDIO-PREPARATION-01` | 30/30 (100.0%) | ≥1/30 (≥3.3%) | IMPLEMENTED |
-| `PWA-SPEAKER-IDENTITY-01` | 5/5 (100.0%) | не установлен / 5 | IMPLEMENTED |
-| `PWA-MANIFEST-01` | 5/6 (83.3%) | не установлен / 6 | IN_PROGRESS |
-| `PWA-STANDARDIZATION-01` | 14/14 (100.0%) | не установлен / 14 | IMPLEMENTED |
-| `PWA-TRANSCRIPT-MAINTENANCE-01` | 8/9 (88.9%) | не установлен / 9 | IN_PROGRESS |
-| `PWA-REALTIME-01` | 12/13 (92.3%) | не установлен / 13 | IN_PROGRESS |
-| `PWA-OPERABILITY-01` | 17/18 (94.4%) | не установлен / 18 | IN_PROGRESS |
-| `COLAB-LIFECYCLE-02` | 2/2 (100.0%) | не установлен / 2 | IMPLEMENTED |
-| `PWA-SECURITY-HARDENING-02` | 18/18 (100.0%) | не установлен / 18 | IMPLEMENTED |
-| `GOOGLE-DRIVE-RELIABILITY-02` | 6/6 (100.0%) | не установлен / 6 | IMPLEMENTED |
-| `STORAGE-LIFECYCLE-02` | 16/21 (76.2%) | не установлен / 21 | IN_PROGRESS |
-| `STT-PROVIDER-ABSTRACTION-01` | 13/14 (92.9%) | не установлен / 14 | IN_PROGRESS |
-| `YANDEX-STT-01` | 1/5 (20.0%) | не установлен / 5 | IN_PROGRESS |
-| `PWA-DICTIONARIES-01` | 1/1 (100.0%) | не установлен / 1 | IMPLEMENTED |
-| `PWA-WORKER-ISOLATION-02` | 3/3 (100.0%) | не установлен / 3 | IMPLEMENTED |
-| `PWA-DATABASE-LEAST-PRIVILEGE-03` | 7/8 (87.5%) | не установлен / 8 | IN_PROGRESS |
-| `JOB-RELIABILITY-02` | 17/17 (100.0%) | не установлен / 17 | IMPLEMENTED |
-| `JOB-NOTIFICATIONS-01` | 6/6 (100.0%) | не установлен / 6 | IMPLEMENTED |
-| `REALTIME-CONTINUITY-02` | 5/5 (100.0%) | не установлен / 5 | IMPLEMENTED |
-| `TRANSCRIPT-EXPORTS-02` | 0/3 (0.0%) | не установлен / 3 | BACKLOG |
-| `USAGE-COST-ACCOUNTING-01` | 5/6 (83.3%) | не установлен / 6 | IN_PROGRESS |
-| `OBSERVABILITY-AUDIT-02` | 35/35 (100.0%) | не установлен / 35 | IMPLEMENTED |
-| `RELEASE-SAFETY-02` | 4/5 (80.0%) | не установлен / 5 | IN_PROGRESS |
-| `ENVIRONMENT-CAPABILITIES-01` | 0/50 (0.0%) | не установлен / 50 | BACKLOG |
-| `COMMERCIAL-INFRA-DATA-01` | 0/15 (0.0%) | не установлен / 15 | BACKLOG |
-| `COMMERCIAL-IDENTITY-01` | 0/18 (0.0%) | не установлен / 18 | BACKLOG |
-| `COMMERCIAL-DATA-GOVERNANCE-01` | 0/26 (0.0%) | не установлен / 26 | BACKLOG |
-| `COMMERCIAL-CROSS-BORDER-01` | 0/14 (0.0%) | не установлен / 14 | BACKLOG |
-| `COMMERCIAL-STT-QUOTA-01` | 0/16 (0.0%) | не установлен / 16 | BACKLOG |
-| `COMMERCIAL-SPEAKER-PRIVACY-01` | 0/3 (0.0%) | не установлен / 3 | BACKLOG |
-| `COMMERCIAL-QUEUE-FAIRNESS-01` | 0/6 (0.0%) | не установлен / 6 | BACKLOG |
-| `COMMERCIAL-BILLING-01` | 0/27 (0.0%) | не установлен / 27 | BACKLOG |
-| `COMMERCIAL-ECONOMICS-01` | 0/15 (0.0%) | не установлен / 15 | BACKLOG |
-| `COMMERCIAL-SECURITY-01` | 0/19 (0.0%) | не установлен / 19 | BACKLOG |
-| `COMMERCIAL-NOTIFICATIONS-01` | 0/8 (0.0%) | не установлен / 8 | BACKLOG |
-| `COMMERCIAL-LEGAL-01` | 0/15 (0.0%) | не установлен / 15 | BACKLOG |
-| `RESULTS-STUDIO-02` | 0/17 (0.0%) | не установлен / 17 | BACKLOG |
-| `YANDEX-DISK-01` | 0/9 (0.0%) | не установлен / 9 | BACKLOG |
-| `REALTIME-RECOVERY-03` | 1/8 (12.5%) | не установлен / 8 | IN_PROGRESS |
-| `PWA-REQUIREMENTS-05` | 0/7 (0.0%) | не установлен / 7 | IN_PROGRESS |
-| `MEDIA-CONTRACT-03` | 1/8 (12.5%) | не установлен / 8 | IN_PROGRESS |
-| `PERSONAL-VOICE-02` | 1/5 (20.0%) | не установлен / 5 | IN_PROGRESS |
-| `SECURITY-LIFECYCLE-03` | 5/6 (83.3%) | не установлен / 6 | IN_PROGRESS |
-| `RECOVERY-DATA-03` | 0/7 (0.0%) | не установлен / 7 | IN_PROGRESS |
-| `COMMERCIAL-COMPLETENESS-02` | 0/9 (0.0%) | не установлен / 9 | BACKLOG |
+Состав AC не менялся: 687 сохранённых ID минус 12 ALIAS/SUPERSEDED = 675. AP-11 и UXCTL-07 реализованы и поставлены по V27. Рост с предыдущего snapshot на 0,6 п.п. включает два исправленных дефекта и два критерия capture, пересмотренных по новому правилу. Audio preparation: 30/30; UX controls: 14/14; завершённая Goal: 2/2. Технические проверки и ограничения Evidence отражены отдельно и не образуют второй процент. COLAB-REALTIME изменился на +16,7 п.п. из-за удаления runtime-series gate у уже существующей реализации CR-06; это не новое улучшение capture в коде.
+
+| Эпик / feature | Готовность по коду | Состояние |
+| --- | ---: | --- |
+| `COLAB-BATCH-01` | 24/24 (100.0%) | IMPLEMENTED |
+| `COLAB-REALTIME-01` | 6/6 (100.0%) | IMPLEMENTED |
+| `PWA-CORE-01` | 14/14 (100.0%) | IMPLEMENTED |
+| `PWA-USER-EXPERIENCE-02` | 13/13 (100.0%) | IMPLEMENTED |
+| `PWA-UX-POLISH-03` | 7/7 (100.0%) | IMPLEMENTED |
+| `PWA-UX-CONTROLS-04` | 14/14 (100.0%) | IMPLEMENTED |
+| `PWA-TRANSCRIPTIONS-UX-01` | 4/4 (100.0%) | IMPLEMENTED |
+| `PWA-INGEST-01` | 11/11 (100.0%) | IMPLEMENTED |
+| `PWA-GOOGLE-PICKER-UX-01` | 8/8 (100.0%) | IMPLEMENTED |
+| `PWA-SEGMENTS-01` | 5/5 (100.0%) | IMPLEMENTED |
+| `PWA-BATCH-01` | 10/11 (90.9%) | IN_PROGRESS |
+| `PWA-AUDIO-PREPARATION-01` | 30/30 (100.0%) | IMPLEMENTED |
+| `PWA-SPEAKER-IDENTITY-01` | 5/5 (100.0%) | IMPLEMENTED |
+| `PWA-MANIFEST-01` | 5/6 (83.3%) | IN_PROGRESS |
+| `PWA-STANDARDIZATION-01` | 14/14 (100.0%) | IMPLEMENTED |
+| `PWA-TRANSCRIPT-MAINTENANCE-01` | 8/9 (88.9%) | IN_PROGRESS |
+| `PWA-REALTIME-01` | 13/13 (100.0%) | IMPLEMENTED |
+| `PWA-OPERABILITY-01` | 17/18 (94.4%) | IN_PROGRESS |
+| `COLAB-LIFECYCLE-02` | 2/2 (100.0%) | IMPLEMENTED |
+| `PWA-SECURITY-HARDENING-02` | 18/18 (100.0%) | IMPLEMENTED |
+| `GOOGLE-DRIVE-RELIABILITY-02` | 6/6 (100.0%) | IMPLEMENTED |
+| `STORAGE-LIFECYCLE-02` | 16/21 (76.2%) | IN_PROGRESS |
+| `STT-PROVIDER-ABSTRACTION-01` | 13/14 (92.9%) | IN_PROGRESS |
+| `YANDEX-STT-01` | 1/5 (20.0%) | IN_PROGRESS |
+| `PWA-DICTIONARIES-01` | 1/1 (100.0%) | IMPLEMENTED |
+| `PWA-WORKER-ISOLATION-02` | 3/3 (100.0%) | IMPLEMENTED |
+| `PWA-DATABASE-LEAST-PRIVILEGE-03` | 7/8 (87.5%) | IN_PROGRESS |
+| `JOB-RELIABILITY-02` | 17/17 (100.0%) | IMPLEMENTED |
+| `JOB-NOTIFICATIONS-01` | 6/6 (100.0%) | IMPLEMENTED |
+| `REALTIME-CONTINUITY-02` | 5/5 (100.0%) | IMPLEMENTED |
+| `TRANSCRIPT-EXPORTS-02` | 0/3 (0.0%) | BACKLOG |
+| `USAGE-COST-ACCOUNTING-01` | 5/6 (83.3%) | IN_PROGRESS |
+| `OBSERVABILITY-AUDIT-02` | 35/35 (100.0%) | IMPLEMENTED |
+| `RELEASE-SAFETY-02` | 4/5 (80.0%) | IN_PROGRESS |
+| `ENVIRONMENT-CAPABILITIES-01` | 0/50 (0.0%) | BACKLOG |
+| `COMMERCIAL-INFRA-DATA-01` | 0/15 (0.0%) | BACKLOG |
+| `COMMERCIAL-IDENTITY-01` | 0/18 (0.0%) | BACKLOG |
+| `COMMERCIAL-DATA-GOVERNANCE-01` | 0/26 (0.0%) | BACKLOG |
+| `COMMERCIAL-CROSS-BORDER-01` | 0/14 (0.0%) | BACKLOG |
+| `COMMERCIAL-STT-QUOTA-01` | 0/16 (0.0%) | BACKLOG |
+| `COMMERCIAL-SPEAKER-PRIVACY-01` | 0/3 (0.0%) | BACKLOG |
+| `COMMERCIAL-QUEUE-FAIRNESS-01` | 0/6 (0.0%) | BACKLOG |
+| `COMMERCIAL-BILLING-01` | 0/27 (0.0%) | BACKLOG |
+| `COMMERCIAL-ECONOMICS-01` | 0/15 (0.0%) | BACKLOG |
+| `COMMERCIAL-SECURITY-01` | 0/19 (0.0%) | BACKLOG |
+| `COMMERCIAL-NOTIFICATIONS-01` | 0/8 (0.0%) | BACKLOG |
+| `COMMERCIAL-LEGAL-01` | 0/15 (0.0%) | BACKLOG |
+| `RESULTS-STUDIO-02` | 0/17 (0.0%) | BACKLOG |
+| `YANDEX-DISK-01` | 0/9 (0.0%) | BACKLOG |
+| `REALTIME-RECOVERY-03` | 1/8 (12.5%) | IN_PROGRESS |
+| `PWA-REQUIREMENTS-05` | 0/7 (0.0%) | IN_PROGRESS |
+| `MEDIA-CONTRACT-03` | 1/8 (12.5%) | IN_PROGRESS |
+| `PERSONAL-VOICE-02` | 1/5 (20.0%) | IN_PROGRESS |
+| `SECURITY-LIFECYCLE-03` | 5/6 (83.3%) | IN_PROGRESS |
+| `RECOVERY-DATA-03` | 0/7 (0.0%) | IN_PROGRESS |
+| `COMMERCIAL-COMPLETENESS-02` | 0/9 (0.0%) | BACKLOG |
 
 - [Colab: полный реестр AC](delivery/colab.md), [требования](spec/colab.md).
 - [Studio: существующие personal-подсистемы: полный реестр AC](delivery/studio.md), [требования](spec/studio.md).
@@ -86,7 +113,7 @@ Goal: реализация **2/2 = 100%**, product acceptance **0/2 READY**, о�
 
 ## V27 — текущая реализация AUDIO-NAME-ERROR-UX-01
 
-Источник V27: local tree, PR head dce041950773f6790b3cc8d422dfa0843b0fa0cd и эквивалентный squash commit **84ae25f3c53e5152466b0e1e7fa59936d08a24c7**; Windows/Python 3.12/Node 22 локально, Ubuntu/Python 3.11/Node 20 в CI. Runtime production Studio; итог 2026-09-06T14:36Z. Metadata revision отделена от product source: этот локальный snapshot ещё не опубликован.
+Источник V27: local tree, PR head dce041950773f6790b3cc8d422dfa0843b0fa0cd и эквивалентный squash commit **84ae25f3c53e5152466b0e1e7fa59936d08a24c7**; Windows/Python 3.12/Node 22 локально, Ubuntu/Python 3.11/Node 20 в CI. Runtime production Studio; итог 2026-09-06T14:36Z. Metadata revision отделена от product source: 27644aa опубликован; remote readback и CI PASS по checkpoint.
 
 | Evidence | Primary record | Фактический результат / ограничения |
 |---|---|---|
@@ -96,7 +123,7 @@ Goal: реализация **2/2 = 100%**, product acceptance **0/2 READY**, о�
 | Worker lifecycle | [status 34039274029](https://github.com/Just9120/Elevenlabs-API/actions/runs/34039274029) → [drain 34039336472](https://github.com/Just9120/Elevenlabs-API/actions/runs/34039336472) → [worker CD 34039424990](https://github.com/Just9120/Elevenlabs-API/actions/runs/34039424990) | PASS: previous worker healthy; normal drain → exited / exit_code=0 / gracefully-drained; WORKER_DEPLOY_OK. Нет forced stop, миграций или canary. |
 | Worker post-check | [34039644788](https://github.com/Just9120/Elevenlabs-API/actions/runs/34039644788), 14:35:47Z | PASS: running/healthy, identity_match=yes, isolation_match=yes, tag 84ae25f; image sha256:959e88063247b07f4f9fc6ff0b28b7ef0c75c50c1971a75fc9a830362d65c25c. Health/read-only DB не доказывают новую provider/Google обработку. |
 | LIVE web/API | public /build-meta.json и /api/healthz, 14:27Z; authenticated /transcriptions, 14:30Z | Web 84ae25f, health HTTP 200, DB/Redis reachable, schema 0037 current. На старых ошибках новая кнопка; no-case check недоступен с честным пояснением. У исходной задачи один совместимый поздний результат; у другой ошибки несовместимые candidates отсутствуют. Mutations не выполнялись. |
-| Metadata / Git | fresh fetch/API 2026-09-06T16:28Z: local main = origin/main = 84ae25f; protected=false, rulesets=[]; source branch cleanup verified | Product delivery PASS; одноразовый metadata механизм разрешён «ну делай». Pre-push snapshot; remote readback/CI относятся к commit публикации этого snapshot, см. checkpoint. |
+| Metadata / Git | 27644aa / [CI 34045687136](https://github.com/Just9120/Elevenlabs-API/actions/runs/34045687136), 2026-09-06T16:34Z | PASS: exact three-file remote readback; local/remote main совпали, source branch cleanup verified; 1744 tests PASS. Product revision осталась 84ae25f. |
 
 **DOC REVIEW 2026-09-06T14:13Z:** 687 уникальных ID / 675 актуальных AC, 289 исходных bullet paragraphs и 136 local links проверены; project section и deployment lanes сохранены. Внешние файлы в Downloads к повторной проверке уже отличаются от версии, применённой в AUDIT и переданной владельцем в инструкциях этого чата. Они не применяются повторно автоматически; текущая поставка сохраняет явно утверждённый baseline. Результат прежнего exact-template comparison относится к прежнему snapshot, не к изменившимся файлам Downloads.
 
@@ -107,8 +134,8 @@ Goal: реализация **2/2 = 100%**, product acceptance **0/2 READY**, о�
 - **AGENT_BROWSER PASS (isolated UI):** Chromium 149 / Playwright 1.61.1, 1280 и 390px; реальные JobCard/AudioPreparationPage, синтетические API props. Close расположен вне details; decline не закрывает, explicit accept завершает тестовый UI flow. Real Web Audio обработал synthetic WAV, фактический browser download сохранил полное `Лекция 1. Предмет, задачи и методы социальной психологии.wav`. Снимки визуально проверены; внешних интеграций не было. Это не production mutation Evidence.
 - **TEST PARTIAL:** full Windows portable с Git Bash: 1382 PASS, 5 SKIP, 8 FAIL существующих worker-isolation shell fixtures из-за Windows `bash` resolution (F14). Попытка с default WSL имела дополнительный syntax-check failure; Git Bash его снял. Все затронутые Python tests PASS. Linux PostgreSQL/Redis/API tests и 13 authenticated Playwright scenarios — REQUIRED remote-only, теперь PASS по primary records выше; Docker здесь не установлен.
 - **CI / DEPLOY / узкий LIVE PASS:** primary records выше. Migration/edge N/A: schema/edge не менялись; paid canary и Google mutations вне scope.
-- **F20/F21 FIXED:** regression/CI и runtime поставка завершены. AP-11 human-only остаток — новое реальное Google Drive сохранение, если владелец его выполняет. Уже обрезанные files не переименовывались. UXCTL-07 — решение о наличии результата старой операции остаётся за владельцем.
-- **DOC-GATE-01:** отдельное разрешение на один docs-only fast-forward commit получено; approval blocker снят. На момент этого pre-push snapshot остаются публикация, remote readback и CI. Постоянный механизм для будущих Goals отдельно не разрешён; текущей поставке это не препятствует.
+- **F20/F21 FIXED:** regression/CI и runtime поставка завершены. Новый Google Drive side effect не запускался в проверках агента; это ограничение Evidence. Уже обрезанные files не переименовывались. Решение о наличии результата старой операции — обычное действие владельца с его данными, а не обязательный тест функции.
+- **DOC-GATE-01 CLOSED:** разрешённый docs-only commit 27644aa опубликован; remote readback и CI PASS, local main синхронизирован. Постоянный механизм будущих Goals отдельно не разрешён.
 
 ## Validation и Evidence
 
@@ -130,9 +157,9 @@ Goal: реализация **2/2 = 100%**, product acceptance **0/2 READY**, о�
 | V26-BROWSER / AGENT_BROWSER | Authenticated существующая browser session: dashboard → audio, без ввода/записи данных; 2026-09-06 MSK | PASS: navigation/heading/order PC-02, PC-04, AP-01; видны recent-result/connection summary, отдельного Projects нет. Private content/identifiers не сохранены в отчёте. Capture, upload, export, settings mutations не запускались. |
 | V26-SETTINGS / CI policy | GitHub branch/rulesets/Actions permissions/environments, pagination проверена | main protected=false, rulesets пусты; allowed_actions=all, sha_pinning_required=false; token default read, approval by Actions false. Один environment studio-production-migration с reviewer, prevent_self_review=false. 25 external Action refs в YAML pinned SHA. Ничего не менялось. |
 
-**V26-DOC / FORMAT, TEST, SPEC PASS — 2026-09-05T23:12Z, uncommitted documentation поверх b8babc2.** Проверены 687 сохранённых ID, 675 active AC, 353 implemented/ready, 3 READY, 56 эпиков, точное совпадение 289 исходных пунктов, существование всех локальных Markdown links. Общие политики точно совпадают с новыми приложениями; исходный проектный раздел AGENTS и deployment lanes 10.4–10.8 сохранены. `python scripts/ci_checks.py` — 7 guards PASS; `git diff --check` — PASS. `pytest -q -p no:cacheprovider --basetemp=<isolated> tests/test_security_policy.py tests/test_text_processing_helpers.py tests/test_realtime_static.py` — **268 passed**; первый sandbox запуск имел 261 passed/7 fixture PermissionError, повтор в разрешённом окружении полностью PASS. Согласие владельца «Да, применить обе новые версии» выполнено; implementation authorization из него не выводится.
+**V26-DOC / FORMAT, TEST, SPEC PASS — 2026-09-05T23:12Z, uncommitted documentation поверх b8babc2.** Проверены 687 сохранённых ID, 675 active AC, 353 реализованных AC (названия статусов на момент проверки сохранены в Git history), 56 эпиков, точное совпадение 289 исходных пунктов, существование всех локальных Markdown links. Общие политики точно совпадают с новыми приложениями; исходный проектный раздел AGENTS и deployment lanes 10.4–10.8 сохранены. `python scripts/ci_checks.py` — 7 guards PASS; `git diff --check` — PASS. `pytest -q -p no:cacheprovider --basetemp=<isolated> tests/test_security_policy.py tests/test_text_processing_helpers.py tests/test_realtime_static.py` — **268 passed**; первый sandbox запуск имел 261 passed/7 fixture PermissionError, повтор в разрешённом окружении полностью PASS. Согласие владельца «Да, применить обе новые версии» выполнено; implementation authorization из него не выводится.
 
-CODE/TEST surfaces и значения по каждому AC — в реестрах ниже. У inherited PARTIAL нет утверждения о полном текущем runtime acceptance. Доступный browser проверен самим агентом; credentials/provider/privacy side effects не маскируются под human-only приёмку.
+CODE/TEST surfaces и значения по каждому AC — в реестрах ниже. У inherited PARTIAL ограничен охват runtime Evidence. Доступный browser проверен самим агентом; credentials/provider/privacy side effects остаются в соответствующих границах разрешённой задачи.
 
 ## Реестр findings и backlog
 
@@ -228,7 +255,7 @@ API/schema: 37 последовательных Alembic revisions, current head 
 | README source role | DOCUMENT → ссылка на исходник и spec | Исправлено ошибочное «сырые/несогласованные». Current intent согласован пользователем. |
 | Большие spec/plan | CONSOLIDATE → индексы и `docs/spec/*`, `docs/delivery/*` | 56 эпиков разбиты на четыре области; у формулировок и статусов один владелец. Все 687 ID сохранены, 12 связей исключают повторный учёт. |
 | Закрытая Goal #301 и старая подготовка документов | ARCHIVE → `delivery-plan-archive.md` | Исходный незакоммиченный checkpoint сохранён как история; актуальные PR/CI/CD links и pending обязательства остались в dashboard. |
-| Старые readiness оценки в архиве | CONSOLIDATE → текущий/предыдущий snapshot здесь; старые числа доступны через Git history | Удалены накопленные оценки, release records и human obligations сохранены. Проценты progress в реальном job scenario не являются readiness snapshot. |
+| Старые readiness оценки в архиве | CONSOLIDATE → текущий/предыдущий snapshot здесь; старые числа доступны через Git history | Удалены накопленные оценки, release records и технические ограничения сохранены. Проценты progress в реальном job scenario не являются readiness snapshot. |
 | Project profile и validation runbook | DOCUMENT → CI/CD §10, runbook как setup | Обновлены revision/settings/commands/Windows ограничения; устранён ложный count portable exclusions. |
 | architecture / processing contract | DOCUMENT → фактический Google-only output boundary и ссылка на новый intent | Прежние фразы о запрете retained transcript относятся к текущему implementation boundary; новый согласованный scope требует его реализации. Позитивные safety constraints сохранены. |
 | Dated audits в `docs/audits/` | DEFER, оставить historical links в README | Имеют уникальную историческую Evidence; не читались как current readiness и не дублируют dashboard. Удаление не обосновано. |
@@ -260,21 +287,21 @@ API/schema: 37 последовательных Alembic revisions, current head 
 
 - Baseline: восемь текущих AC `YANDEX-01`, `YANDEX-02`, `YANDEX-03`, `YANDEX-05`, `STTPRO-05`, `MC-08`, `MC-09`, `PO-14`; критерии закрытия F04/F05 и Yandex-части F06. Это уточнение прежнего локального proposal: добавлен обнаруженный analytics defect, а остальные варианты выбора сохранены Roadmap.
 - Non-goals: Яндекс Диск, commercial, retained transcript, общий UI redesign, dependency/security settings, real provider calls без явно включённого canary scope. Остальная часть F06 (неизвестная дата/source provenance) остаётся отдельной задачей, не закрывается автоматически.
-- Batch A: REST integer-string timestamps и nested channelTag; malformed/bool/NaN/negative/out-of-range fixtures, provider/model в Google output и analytics, legacy compatibility. Batch B: документированные realtime options; indexed finals/refinements, interleaving/late correction/dedup и truthful UI. Batch C: review, required CI, установленная component поставка и ограниченная приёмка.
+- Batch A: REST integer-string timestamps и nested channelTag; malformed/bool/NaN/negative/out-of-range fixtures, provider/model в Google output и analytics, legacy compatibility. Batch B: документированные realtime options; indexed finals/refinements, interleaving/late correction/dedup и truthful UI. Batch C: review, required CI, установленная component поставка и доступные агенту runtime checks.
 - Validation Plan: REQUIRED local unit/contract tests с official wire shapes; component tests для capabilities и display; Linux CI/Studio CI при соответствующем path scope; текущая schema не должна меняться без необходимости; REVIEW всех существенных findings; exact deployed API/worker/web identity и applicable health checks. Media body, keys и private IDs не включаются в artifacts.
-- DoD реализации: выбранное поведение реализовано, regression checks PASS, review findings закрыты, применимые merge/component delivery и remote metadata synchronization выполнены по действующим rules, Evidence/checkpoint сохранены. Product READY требует AC-specific provider/capture Evidence; human-only очередь отделена. Privileged worker/migration действия не выводятся из технического доступа. DOC-GATE-01 требуется закрыть для полной поставки.
+- DoD реализации: выбранное поведение реализовано, regression checks PASS, review findings закрыты, применимые merge/component delivery и remote metadata synchronization выполнены по действующим rules, Evidence/checkpoint сохранены. Готовность AC определяется реализацией в коде; охват provider/capture checks и недоступные сценарии фиксируются отдельно. Privileged worker/migration действия не выводятся из технического доступа. Перед будущей поставкой требуется установить её разрешённый metadata mechanism; одноразовый DOC-GATE-01 завершённой Goal не переносится на неё.
 - Blockers: до выбора — нет authorization на implementation; рабочий Yandex account/BYOK и paid canary scope не проверены; full realtime diarization нельзя обещать в REAL_TIME при текущей официальной документации. Если цель требует иной latency/diarization tradeoff, это отдельное product decision, а не молчаливое отключение требования.
 
-### Current Goal — `AUDIO-NAME-ERROR-UX-01`
+### Предыдущая завершённая Goal — `AUDIO-NAME-ERROR-UX-01`
 
-**IN_PROGRESS: финальная публикация metadata; runtime поставка завершена. Исполнение разрешено ответом «Запускай», одноразовый metadata push — ответом «ну делай» 2026-09-06.** Источник — два комментария владельца к `/audio` и `/transcriptions` в текущем чате 2026-09-06; opaque message ID не предоставлен. Результат: полное название аудиорезультата сохраняется; ошибочная job имеет понятный доступный путь завершения ручного разбора.
+**DONE: исправления, runtime поставка и metadata synchronization завершены. Исполнение разрешено ответом «Запускай», одноразовый metadata push — ответом «ну делай» 2026-09-06.** Источник — два комментария владельца к `/audio` и `/transcriptions` в текущем чате 2026-09-06; opaque message ID не предоставлен. Результат: полное название аудиорезультата сохраняется; ошибочная job имеет понятный доступный путь завершения ручного разбора.
 
 - Baseline: AP-11, UXCTL-07; критерии закрытия F20/F21. Назначение существующих AC не меняется. Ранее предложенная Yandex Goal остаётся PROPOSED и не выполняется.
 - Batch A: исправить filename/title boundary в frontend/API/formatter, проверить default/custom/dotted/Unicode names и source→job→download/Drive/reuse flow. Для уже созданных укороченных результатов сначала установить однозначную связь с исходником; существующие данные в диагностике не переименовывались.
 - Batch B: заметное действие завершения разбора failed job; корректные availability и checked=0 сообщения; совместимые source/clip candidates; понятные auth/error outcomes. Failed job уже terminal: не выдавать закрытие карточки за остановку процесса или возврат средств. Решение «результата нет» остаётся явным действием владельца.
 - Non-goals: повторная платная транскрибация, массовая очистка/переименование старых данных, изменение правил списания, удаление audit, commercial/Yandex Disk, общий redesign. Снятие safety confirmation из UXCTL-07 не предлагается.
 - Required Evidence/DoD: regression unit + component/integration fixtures на двух выявленных ошибках; негативные сценарии несовместимого кандидата, recent-auth и неопределённого ответа; browser проверка заметности и завершения потока в isolated environment; applicable lint/typecheck/build/CI/review и component delivery; точная revision/health, remote metadata synchronization по DOC-GATE-01. Production решение о наличии результата не принимать за пользователя.
-- Blockers: внешних решений для текущей Goal больше не требуется; техническое завершение DOC-GATE-01 — по checkpoint. Production нажатие «Закрыть ошибку и убрать в историю» не выполнялось: оно меняет durable state и утверждает факт за владельца. Аналогичный flow с тестовым API прошёл CI.
+- Blockers: отсутствуют для завершённой Goal; DOC-GATE-01 закрыт по checkpoint. Production нажатие «Закрыть ошибку и убрать в историю» не выполнялось: оно меняет durable state и утверждает факт за владельца. Аналогичный flow с тестовым API прошёл CI.
 
 ### Дополнительное Evidence по browser comments — 2026-09-06T13:10Z
 
@@ -283,17 +310,19 @@ API/schema: 37 последовательных Alembic revisions, current head 
 - **V26-BC-BROWSER / AGENT_BROWSER:** существующая authenticated вкладка `/transcriptions`, read-only просмотр; «Подтвердить: результата нет» доступна, linking требует выбора; details раскрыты и возвращены в исходное состояние. Повтор запрещён UI из-за uncertain provider outcome. Никакие resolve/cancel/retry/check mutations не нажимались. GitHub main и public web metadata повторно проверены: b8babc2; running API/worker revision этим не подтверждена.
 - Ограничение local environment: global Python Pydantic/core несовместимы; synthetic probe успешно выполнен на ранее созданном isolated graph. Global packages не менялись. Полные suites заново не запускались; предыдущий PASS не закрывает новые regression gaps.
 
-## Manual Validation и внешние gates
+## Ограничения проверок агента и внешние gates
 
-| ID / AC | Версия / окружение | Шаги и ожидаемый результат | Что проверил агент / влияние |
-|---|---|---|---|
-| MV-01 · CR-01..06, PR-01..13 | Зафиксировать exact version; Windows/Chrome и реальные audio devices | Microphone/display/mixed sessions, permissions/source loss, TXT/reload recovery; ожидаются читаемый результат и честные ограничения. | Static/component suites PASS; physical capture/качество и стабильность не проверены. CR-06/PR-06 остаются IN_PROGRESS, не READY. |
-| MV-02 · PC-01, PUX-12, PG-01..08 | Deployed b8babc2 + конкретное мобильное устройство | Проверить 390px/реальный touch, scrolling modal, длинные имена, пустую текущую папку и мультивыбор без потери selection. | Desktop dashboard/audio просмотрены; Playwright synthetic E2E PASS; реальный mobile/touch/assistive-tech feedback PENDING. Доступные локальные browser варианты может проверить агент в отдельной Goal. |
-| MV-03 · SP/AP/VID | Exact future delivered revision; personal, согласованные synthetic samples | Оценить слышимость samples, результат silence/concat и правильность имён; optional voice matching проверять после реализации VID. | Алгоритмы/component tests есть; субъективное качество не подтверждено, VID отсутствует. |
-| EXT-01 · YANDEX/STTPRO/GOOGLE/PD/PTM/JOBREL | Exact API/worker + тестовый provider/Google аккаунт | Ограниченные synthetic batch/deferred/realtime и dry-run/apply; проверить documents, расходы, retries и late results. | Известные F04/F05/F06 сначала исправить. Это credentialed/mutating gate, не human-only задержка реализации и не разрешение платных вызовов сейчас. |
-| EXT-02 · JOBNOT/REALTI | Exact delivered revision, разрешённые notification destinations | Проверить email/Web Push/Telegram и внешние captions, failure одного канала не мешает результату. | Fakes/permission UI tests есть; реальная отправка в AUDIT запрещена. |
-| EXT-03 · REC/STORAG/DBLP/RELEAS | Отдельный disposable restore target, reviewed artifact/backup | Измерить restore, сверить RPO/RTO и отсутствие возврата удалённых данных; проверить versions и cleanup outcome. | Источники и CI migration checks есть. RPO/RTO не заданы, fresh backup/restore и runtime roles не подтверждены; production cleanup не запускался. |
-| EXT-04 · commercial/legal/billing | Будущий commercial sandbox и уполномоченный владелец | Утвердить seller/operator, тарифы/quota outcome rules, payment/legal data flow; проверить callbacks/idempotency/RLS до запуска. | Commercial implementation отсутствует. Это продуктовые/внешние launch gates; юридическое заключение в этом техническом аудите не делалось. |
+Эта таблица — технические gaps и условия конкретных внешних операций. Заданий владельцу пройти функции по списку нет. Известные дефекты учитываются в готовности соответствующих AC; непроверенный сценарий сам по себе не объявляется дефектом. Прежние MV-01..03 заменены VAL-01..03 с сохранением технических ограничений.
+
+| ID / AC | Ограничение или техническая задача | Доступные проверки / действие агента |
+|---|---|---|
+| VAL-01 · CR-01..06, PR-01..13 | Runtime evidence по реальным audio devices, microphone/display/mixed capture и source loss неполно. | Static/component проверки есть; выполнять доступные capture/recovery сценарии в подходящем окружении при работе над эпиком. CR-06/PR-06 реализованы по коду; отсутствие отдельной серии production sessions учитывается только как ограничение runtime Evidence. |
+| VAL-02 · PC-01, PUX-12, PG-01..08 | Физический touch и assistive-tech не проверялись; desktop и narrow viewport доступны агенту. | Desktop/browser и synthetic E2E checks есть; использовать доступную браузерную проверку затронутого поведения. |
+| VAL-03 · SP/AP/VID | Субъективная слышимость samples отдельно не измерялась; VID ещё не реализован. | Алгоритмы/component tests есть; готовность считается по реализации. Жалобы на качество из эксплуатации оформлять как конкретный finding. |
+| EXT-01 · YANDEX/STTPRO/GOOGLE/PD/PTM/JOBREL | Real provider/Google failure matrix требует подходящего тестового аккаунта и разрешения на конкретные платные/изменяющие данные операции. | Faithful fixtures и synthetic checks выполняет агент. Известные F04/F05/F06 исправляются по выбранной Goal; реальные вызовы не запускаются без нужного scope. |
+| EXT-02 · JOBNOT/REALTI | Реальные notification destinations и отправка относятся к внешним side effects. | Fakes/permission UI tests есть; разрешённый delivery scenario проверяет агент при наличии доступа. |
+| EXT-03 · REC/STORAG/DBLP/RELEAS | Disposable restore target, reviewed artifact/backup и недостающие RPO/RTO; fresh restore/runtime roles не подтверждены. | Выполнить доступные isolated recovery checks в соответствующей Goal; production restore/cleanup требуют установленной процедуры и полномочий. |
+| EXT-04 · commercial/legal/billing | Для будущего commercial запуска нужны решения seller/operator, тарифы/quota и разрешённый payment sandbox. | Зафиксировать конкретные продуктовые решения и технически проверить callbacks/idempotency/RLS в выбранной Goal. Юридическое заключение аудитом не проводилось. |
 
 ## Audit quality review
 
@@ -301,9 +330,9 @@ API/schema: 37 последовательных Alembic revisions, current head 
 - Findings HIGH там, где есть code + reproduction/official schema (F04, metadata/analytics F06), settings read или явная отсутствующая модель/route. MEDIUM для фактических provider outcomes, нагрузки, полноты preflight/recovery и применимости tariff/runtime configuration. LOW для неизвестных external consumers. Общая уверенность в production readiness — MEDIUM: scope шире доступного LIVE Evidence.
 - False positives исправлены: diagnostic search уже есть; analytics использует SQL aggregation; native Picker bridge/notebooks/protobuf не dead code; Yandex provider ceiling не равен общему media limit; 86 npm entries не 86 независимых defects. Healthy endpoint не подтверждает worker/backup/product lifecycle.
 - Возможные false negatives: каждый API route не прошёл отдельный pen-test/tenancy proof; нет свежей проверки Linux-specific Python advisory graph, multi-worker/load, real provider/Google/notification failure matrix, restore drill, full mobile capture и commercial runtime. Они отмечены PENDING, а не «проблем нет».
-- Три READY относятся к узким непосредственно проверенным navigation/heading AC; неизвестная историческая приёмка остальных строк не обнулена. Изменённый PB-06 и найденный PO-14 не получают старый PASS. Декомпозиция/alias не считается новой реализацией.
+- По решению владельца от 2026-09-06 сохранён один показатель готовности по реализации в коде. Переименование прежних READY в IMPLEMENTED не увеличивает numerator и не создаёт новых PASS. USER-LIVE-01 фиксирует эксплуатационный опыт; изменённый PB-06 и найденный PO-14 остаются в работе. Декомпозиция/alias не считается новой реализацией.
 - Документационный DoD: V26-DOC подтверждает links/ID/счётчики, source trace, сохранность project policy и user checkpoint, отсутствие product/workflow diff и relevant documentation guards. Commit/push/PR/merge/deploy этого AUDIT не выполнялись. Между предыдущим и текущим snapshot нет изменений реализации отдельного эпика более 10 п.п.; сравнение выполнено по обоим составам AC.
 
-## DOC-GATE-01 — подготовка remote metadata synchronization
+## DOC-GATE-01 — CLOSED для AUDIO-NAME-ERROR-UX-01
 
-P1 process gate текущей Goal; одноразовый механизм из Project profile §10.9 разрешён владельцем ответом «ну делай» 2026-09-06. Код, PR/CI, runtime delivery и cleanup завершены. Заключительный snapshot фиксирует факты до собственного push; оставшиеся механические проверки — remote commit/file readback, local main synchronization и обычный CI на metadata revision. Их первичные records определяются commit публикации этого snapshot, без прогнозного PASS и дополнительной цепочки metadata commits. Встроенная Goal завершается инструментом только после этих проверок. Постоянный механизм будущих Goals остаётся отдельным technical debt, не текущим blocker и не product AC.
+Разрешённый владельцем ответом «ну делай» 2026-09-06 одноразовый механизм из Project profile §10.9 выполнен: commit 27644aa опубликован в remote main; exact three-file remote readback, local/remote main equality и CI 34045687136 PASS. Встроенная Goal завершена после проверок. Постоянный механизм будущих Goals остаётся отдельным process debt. Текущая локальная правка правил готовности не является продолжением прежней Goal или разрешением на повторный direct push.

@@ -1,6 +1,6 @@
 # Реестр AC: Commercial и разделение контуров
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/commercial.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. `IMPLEMENTED` не означает приёмку. `ALIAS`/`SUPERSEDED` не входят в счётчик. У READY строк закрыт узкий наблюдаемый AC; остальная историческая приёмка требует проверки records.
+Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/commercial.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. По решению владельца 2026-09-06 `IMPLEMENTED` означает реализацию требования в коде и входит в готовность проекта. Прежний `READY` объединён с `IMPLEMENTED`; Evidence сохранено. `ALIAS`/`SUPERSEDED` не входят в счётчик. TEST/CI/DEPLOY/LIVE показывают технические проверки и поставку; их пробелы не создают обязательных заданий пользователю.
 
 ### `ENVIRONMENT-CAPABILITIES-01`
 

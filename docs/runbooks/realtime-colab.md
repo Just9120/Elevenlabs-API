@@ -4,7 +4,7 @@
 
 Realtime Colab/proxy contour — experimental validation path for live browser audio capture + ElevenLabs realtime STT. Он отдельный от stable batch Colab workflow and does not replace `elevenlabs_api.py` or `notebooks/elevenlabs_api_colab.ipynb`.
 
-Realtime Colab prototype status is experimental. It has no Google Docs output, no manifest mutation, uses a single-use realtime token boundary, and requires manual Colab runtime validation before any broader claim.
+Realtime Colab prototype status is experimental. It has no Google Docs output, no manifest mutation, uses a single-use realtime token boundary, and has limited Colab runtime evidence. The agent performs available checks; unavailable scenarios are recorded as validation limitations. The owner uses the product and reports encountered bugs, without a per-feature manual testing obligation.
 
 Output-cell UI path is blocked in the tested Colab runtime: active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or sandboxed `iframe srcdoc`. Active validation path is the standalone page through Colab proxy/new tab.
 
@@ -26,14 +26,14 @@ Current confirmed manual evidence is limited to partial standalone-page paths:
 
 This is partial runtime evidence only. Do not claim full realtime E2E success.
 
-## 3. Remaining manual validation gaps
+## 3. Runtime validation limitations
 
-Still pending:
+Scenarios with incomplete runtime evidence (agent validation backlog, not assignments to the owner):
 
 - microphone-only capture;
 - display-only capture and no-audio-track behavior;
 - loopback/virtual input route;
-- explicit Stop while a browser permission prompt remains open (implemented/static-tested, pending manual runtime validation unless separately proven);
+- explicit Stop while a browser permission prompt remains open (implemented/static-tested, runtime behavior not separately observed);
 - refreshed-device UX;
 - structured live presentation verification for `realtime_live_transcript_v1` copy/download/clear behavior;
 - cross-browser validation;

@@ -31,7 +31,7 @@
 | `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. |
 | `CB-24` | Каждый новый Colab transcript создаётся в canonical versionless формате `transcript_doc`: название документа — Google Docs `Heading 2`, метка `Спикер N:` — русская, bold и `14 pt`, обычный текст — `11 pt`; устойчивые technical terms и metadata keys остаются на английском. |
 
-Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests, затем отдельная Windows capture/Google/STT приёмка. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
+Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests и доступные агенту Windows capture/Google/STT проверки в разрешённом окружении. Недоступные сценарии отражаются как ограничения проверок, без обязательного ручного задания пользователю. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
 ### Эпик `COLAB-REALTIME-01` — realtime-транскрибация
 
@@ -42,9 +42,9 @@
 | `CR-03` | Микрофон включается опционально и может смешиваться с display audio. |
 | `CR-04` | Partial и committed transcript отображаются live в окне. |
 | `CR-05` | Подтверждённый transcript скачивается как `.txt`. |
-| `CR-06` | Захват не рвётся в согласованной серии representative Windows/Chrome sessions. |
+| `CR-06` | Захват аудио работает стабильно в поддерживаемых Windows/Chrome sessions. |
 
-Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests, затем отдельная Windows capture/Google/STT приёмка. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
+Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests и доступные агенту Windows capture/Google/STT проверки в разрешённом окружении. Недоступные сценарии отражаются как ограничения проверок, без обязательного ручного задания пользователю. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
 ### Эпик `COLAB-LIFECYCLE-02` — замороженный lifecycle Colab
 
@@ -53,4 +53,4 @@
 | `COLABL-01` | Новые PWA/commercial features не переносятся в Colab. |
 | `COLABL-02` | После feature freeze Colab изменяется только через явно авторизованные bugfixes. |
 
-Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests, затем отдельная Windows capture/Google/STT приёмка. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
+Проверка AC этого эпика: Сценарии Colab с синтетическим media; static/helper tests и доступные агенту Windows capture/Google/STT проверки в разрешённом окружении. Недоступные сценарии отражаются как ограничения проверок, без обязательного ручного задания пользователю. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.

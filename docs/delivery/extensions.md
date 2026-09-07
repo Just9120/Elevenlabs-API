@@ -1,6 +1,6 @@
 # Реестр AC: Studio: расширение согласованных сценариев
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/extensions.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. `IMPLEMENTED` не означает приёмку. `ALIAS`/`SUPERSEDED` не входят в счётчик. У READY строк закрыт узкий наблюдаемый AC; остальная историческая приёмка требует проверки records.
+Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/extensions.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. По решению владельца 2026-09-06 `IMPLEMENTED` означает реализацию требования в коде и входит в готовность проекта. Прежний `READY` объединён с `IMPLEMENTED`; Evidence сохранено. `ALIAS`/`SUPERSEDED` не входят в счётчик. TEST/CI/DEPLOY/LIVE показывают технические проверки и поставку; их пробелы не создают обязательных заданий пользователю.
 
 ### `RESULTS-STUDIO-02`
 
@@ -49,7 +49,7 @@
 | `RTC-05` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F03 |
 | `RTC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F03 |
 | `RTC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F03 |
-| `RTC-08` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
+| `RTC-08` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-REQUIREMENTS-05`
 
@@ -71,7 +71,7 @@
 | `MC-01` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F06 |
 | `MC-03` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F06 |
 | `MC-04` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F06 |
-| `MC-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
+| `MC-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `MC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F06 |
 | `MC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F06 |
 | `MC-08` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F04/F06 |
@@ -85,18 +85,18 @@
 | `VID-02` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F08 |
 | `VID-03` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F08 |
 | `VID-04` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | F08 |
-| `VID-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
+| `VID-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `SECURITY-LIFECYCLE-03`
 
 | AC | Состояние | CODE | TEST | CI | DEPLOY | LIVE | Остаток / Evidence |
 |---|---|---|---|---|---|---|---|
-| `SECX-01` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `SECX-02` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `SECX-03` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `SECX-04` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `SECX-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | CODE/subsystem checks есть; dossier сценария и применимый LIVE PENDING |
-| `SECX-06` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | Полнота реализации или runtime-only условие не подтверждены; dossier PENDING |
+| `SECX-01` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `SECX-02` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `SECX-03` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `SECX-04` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `SECX-05` | IMPLEMENTED | ✅ | ◐ | ✅ | ◐ | — | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `SECX-06` | IN_PROGRESS | ◐ | ◐ | ✅ | ◐ | — | CODE gap: job_notifications.py:205,468 поддерживает job completion/failure email с configurable From; отдельный flow системных access/security писем по S257 не подтверждён |
 
 ### `RECOVERY-DATA-03`
 
