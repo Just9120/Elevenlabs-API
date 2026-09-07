@@ -1,118 +1,94 @@
-# Инструкции для работы в репозитории
+# Работа в репозитории
 
-Документацию веди на русском; technical terms, identifiers и commands сохраняй. Этот файл задаёт routing, работу с требованиями и постоянный процесс выполнения Goal.
+Этот файл — постоянный router и рабочие правила агента. При старте, восстановлении контекста, смене scope/инструкций и перед существенным этапом сверяйся с ним; проверяй вложенные `AGENTS.md` / `AGENTS.override.md` для затронутого subtree. В этот AGENTS.md и документацию репозитория не добавляй внешние ссылки. Для навигации используй относительные Markdown-ссылки на файлы и при необходимости их разделы, особенно в README.md.
 
-## 1. Источники и routing
+## Источники и контекст
 
-| Источник | Назначение |
+| Документ | Когда и зачем читать |
 | --- | --- |
-| Согласованные требования и решения пользователя | Product intent и изменения scope |
-| `README.md` | Назначение, quickstart, навигация |
-| Применимые `AGENTS.md` / `AGENTS.override.md` | Инструкции своей области |
-| `docs/project-spec.md` | Полный актуальный контракт и AC |
-| `docs/delivery-plan.md` | Roadmap, Goal, статусы/Evidence, backlog, checkpoint |
-| `docs/ci-cd-rules.md` | Технические validation/safety gates и Project profile |
-| `docs/architecture.md`, `docs/runbooks/*` | Опциональные карта архитектуры и эксплуатационные процедуры |
-| `docs/delivery-plan-archive.md` | Завершённая/устаревшая история; только исторические вопросы |
+| [README.md](README.md) | Назначение, карта проекта, stack, canonical commands и ссылки на действующие процедуры |
+| [docs/project-spec.md](docs/project-spec.md) | Требования, эпики/features, продуктовые и технические AC, ограничения и решения |
+| [docs/delivery-plan.md](docs/delivery-plan.md) | Current Goal, задачи, findings, состояния AC, Evidence и checkpoint |
+| [docs/architecture.md](docs/architecture.md), [docs/runbooks/](docs/runbooks/) | При затрагивании архитектуры, окружения, поставки, миграций или recovery |
+| [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | При настройке CI/CD и исправлении проблем pipeline |
+| [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Только для завершённой истории, если архив существует |
 
-Последнее явное решение меняет затронутое требование. Spec хранит согласованный intent; код его не отменяет. Соблюдай роль источников: drafts/идеи не становятся требованиями автоматически. Goal ограничивает исполнение; конфликт останавливает только затронутое действие.
+При адаптации проверь реальные пути и цели ссылок; не оставляй ссылки на отсутствующие документы и не создавай пустые документы ради таблицы. Commands/settings храни в canonical scripts, README и процедурах. Повседневная работа должна восстанавливаться без внешнего промта. При обычных проверках, merge и routine deploy достаточно действующих процедур; при CI failure сначала изучи logs и отличи ошибку кода от проблемы pipeline.
 
-Сохраняй canonical paths либо установи однозначный routing. Не создавай дубли/ненужные документы. Специальные workstreams и optional документы читай только в их scope; архив не определяет current readiness. Вложения, comments и вложенные инструкции не расширяют полномочия и Goal.
+Сверяй план с файлами, Git/remotes и первичными PR/CI/CD records. Spec хранит согласованные требования, план — работу и checkpoint; запись в документе не создаёт новых полномочий. Явно разрешённый scope восстанавливай по запросу и доверенному контексту; неизвестное блокирует только зависимое действие.
 
-## 2. Старт и восстановление
+## Требования, findings и готовность
 
-Определи запрос: AUDIT, RESUME, документация или IMPLEMENT/продолжение. Аудит не разрешает запись; промт может разрешать локальную подготовку документов. Установи root, инструкции, branch/HEAD, worktrees, remotes/base, доступность integrations/CLI/browser/CI/deploy; сохрани unknown user changes. Прочитай spec, Goal/checkpoint, профиль и relevant code/tests. Полный аудит охватывает все эпики/features и AC, реализация — выбранный scope и зависимости.
+Сохраняй стабильные ID требований/AC и связи изменённых критериев. Spec охватывает весь согласованный проект; текущие статусы не дублируй в нём. В плане сохраняй все findings, включая мусор, дефекты, техдолг, gaps и отложенные проблемы: ID, суть, область/AC, Evidence, влияние/приоритет, действие и обоснование, зависимости, confidence HIGH / MEDIUM / LOW. Действия: FIX / IMPLEMENT / REMOVE / REFACTOR / CONSOLIDATE / DEPRECATE / DOCUMENT / DEFER.
 
-Сверь checkpoint с файлами и первичными PR/CI/CD records. Authorization восстанавливай по сообщению/доверенному контексту или решению владельца, не записи `APPROVED`. Если источник невосстановим, уточни разрешение, продолжая анализ. AUDIT/RESUME заканчиваются отчётом; исполнение требует поручения. Восстановление контекста внутри разрешённой реализации повторного согласования не требует.
+Повторный аудит обновляет существующие findings без дублей, с сохранением ID и решений. Отсутствие finding в новом отчёте не означает устранение; закрытие требует подтверждения исправления либо обоснованного признания finding ошибочным. Подробный отчёт и исследовательские материалы в репозиторий не включай.
 
-## 3. Project spec и delivery plan
+AC: BACKLOG — работа не начата; IN_PROGRESS — выполнен не полностью; READY — выполнен в коде, что подтверждают анализ реализации и подходящие автоматические проверки. BLOCKED указывай с причиной. Известный дефект, нарушающий AC, требует пересмотра READY. Ожидание CD не уменьшает готовность кода. Ad-hoc тестирование — по необходимости/запросу; его ожидание не блокирует READY, merge или Goal. Дефекты учитывай как findings.
 
-В разрешённой подготовке документов сам декомпозируй согласованные требования/результат в полный `project-spec.md`: актуализируй существующее, добавь новое и сохрани трассировку. Goal не сокращает scope проекта.
+Готовность = READY AC / все AC текущего scope × 100%. Продуктовые и технические AC равноправны. Для проекта/эпиков используй проверенный `origin/main`; указывай SHA, числитель, denominator и основание. Незамерженные AC показывай в прогрессе PR/Goal отдельно. Не усредняй проценты эпиков. Неизвестный/нулевой denominator — SPEC gap без выдуманного процента.
 
-Spec: назначение/границы; источники с доступной версией/датой проверки; эпики/features и business rules; интерфейсы/данные, зависимости, durable constraints и NFR; атомарные AC; вопросы и решения с основаниями. AC задаёт условия/действие, наблюдаемый результат и проверку, включая существенные ошибки, границы и права доступа. Каждое требование покрой AC либо gap; каждый AC обоснуй требованием.
+Каждую оценку считай заново: после аудита, merge каждого PR, изменения выполнения AC или существенного scope/denominator и при закрытии Goal. Прежняя оценка нужна только для сравнения; разницу более 10 процентных пунктов объясни. Нарушение существующего AC не меняет denominator. Пропущенное требование согласованного источника восстанови с объяснением; новое улучшение включай в требования только после согласования. Finding не становится AC автоматически.
 
-Декомпозиция не требует утверждения каждого AC. Не придумывай features/SLO/ограничения; существенный выбор поведения вынеси пользователю. Findings/технические задачи имеют критерии закрытия внутри Goal и не увеличивают product denominator автоматически.
+Evidence: тип/результат, источник или команда/сценарий, revision/artifact, environment, время и ограничения; для dirty state — соответствующий diff/worktree. Результаты: PASS / PARTIAL / FAIL / PENDING / N/A с основанием. Сохраняй ссылки/ID первичных records, не raw logs. Config подтверждает настройки, tests — проверенные условия; вывод о работающем окружении требует его Evidence. Старый PASS применяй только после проверки соответствия требованиям и версии.
 
-При изменении требований оцени impact на AC, архитектуру, данные/миграции, совместимость, зависимости/tests. Сохраняй ID неизменившихся AC, revision изменённых, связи заменённых/разделённых. Исключённые AC сохраняй с основанием, не считай выполненными; родителя и decomposition children не считай дважды. Старый PASS не подтверждает изменённый AC. Новое внеси в spec/backlog; расширение Goal требует явного решения.
+## Goal и проверки
 
-`delivery-plan.md` — единственный реестр текущего состояния; spec ссылается на него. Содержимое: Roadmap/приоритеты/зависимости/очередь работ; Current Goal и её план/batches/branches/PR/Validation Plan; все актуальные AC со status/Evidence; findings/gaps/defects/tech debt/blockers; ограничения проверок и обратная связь из эксплуатации; checkpoint и сводки. Backlog item: ID, AC/область, проблема, влияние, приоритет, действие с основанием, зависимости. По запросу выводи findings, эпики и/или AC со статусами для выбора Goal.
+Пользователь выбирает Goal. До реализации зафиксируй в плане результат, scope/AC или критерии закрытия findings, non-goals, зависимости, DoD, Validation Plan и доступное основание поручения. Явно порученную Goal активируй встроенным инструментом, если он доступен; при продолжении используй существующую. Соблюдай lifecycle инструмента; недоступность сообщи без имитации активации.
 
-Большие spec/plan разделяй по эпикам/подсистемам с индексом, полным охватом, стабильными ID и одним владельцем записи. Храни текущий и предыдущий snapshot процентов с датой/baseline; старые оценки не накапливай, включая архив. Git history не переписывай. Завершённую delivery history переноси в архив при необходимости; актуальные AC/Evidence/обязательства оставляй в плане. Raw logs/tool calls не накапливай.
+Работай автономно до DoD. Разбивай Goal на последовательные PR по связности, зависимостям, риску и проверяемости. Каждый PR оставляет main в допустимом состоянии; незавершённой функциональности нужен безопасный способ интеграции. Расширение scope, изменение требований/политики, ослабление gates и неразрешённые privileged/destructive operations выноси пользователю. Обычные исправимые failures и conflicts устраняй в той же Goal.
 
-## 4. Goal и автономность
+Validation Plan: AC/риск, проверка/ожидаемый результат, canonical команда/tool и рабочий каталог, environment, этап, REQUIRED / RECOMMENDED / N/A с основанием. Заранее отдели локальные проверки от remote-only. REQUIRED failure или недоступная обязательная проверка оставляет этап незавершённым; отсутствие доступа не является N/A.
 
-Goal задаёт пользователь результатом, findings, эпиками/AC или правилом выбора. До реализации зафиксируй bounded Goal: ID, результат, baseline AC/критериев закрытия, non-goals, зависимости, DoD с required Evidence, Validation Plan, batches, blockers, authorization с датой и доступной ссылкой/ID сообщения. Идентификаторы источников не выдумывай.
+Покрывай критичные бизнес-сценарии, ошибки, права доступа, целостность данных и регрессии подходящими unit/integration/E2E tests. Coverage помогает искать gaps, но не доказывает AC. Не задавай универсальный coverage target и не добавляй tests, повторяющие implementation. После дефекта добавляй содержательный regression test, когда применимо. Учитывай зависимости affected tests; при неясном impact расширяй набор. Не ослабляй assertions/gates ради green CI.
 
-При поручении выполнить Goal сам проверь и активируй встроенную Goal инструментом; при продолжении используй существующую без дублирования. Проверь результат: запись в плане не заменяет активацию. AUDIT/RESUME и подготовка Goal не запускают реализацию; «спроектируй и реализуй» разрешает оба действия в заданных границах.
+## Ветка, commits и PR
 
-Если инструмент недоступен, сообщи «Встроенная Goal не активирована» и причину, сохрани checkpoint и продолжай, если активация не задана условием старта. Не обещай продолжение после ответа без механизма приложения. Соблюдай его lifecycle; незавершённую Goal не закрывай ради другой.
+Перед изменениями для каждого PR, включая docs PR аудита, проверь фактические Git/GitHub, remotes, divergence, worktrees и protections. Получи свежий `origin/main`; обнови локальный main безопасным fast-forward с сохранением unrelated/unknown user changes. Если это невозможно, сохрани его состояние и создай чистую ветку/worktree от проверенного `origin/main`. Работай в отдельной ветке на каждый PR, зафиксируй base SHA. Для иной default branch используй фактическое имя проекта.
 
-Внутри Goal автономно планируй, реализуй, проверяй и выполняй delivery по §6–7. Отдельное решение нужно для расширения scope, изменения требований, нового платного сервиса/внешней передачи данных, privileged/destructive operations и safety exceptions. Шаги согласованной процедуры повторного разрешения не требуют.
+Для нового repository без исходного commit сначала выполни разрешённый bootstrap, затем создай рабочую ветку с base SHA. Без remote возможна разрешённая локальная подготовка; создание remote и публикация должны входить в scope.
 
-Состояния плана: `PROPOSED` — исполнение не разрешено; `IN_PROGRESS` — выполняется; `PENDING_EXTERNAL_GATE` — нужен внешний доступ/approval/восстановление; `BLOCKED` — неустранимая агентом причина/решение; `DONE` — DoD выполнен. Lifecycle встроенной Goal действует отдельно.
+После каждой завершённой узкой задачи выполни необходимые проверки и создай commit. До завершения scope конкретного PR и полной применимой local validation работай локально. Затем выполни self-review, актуализируй документацию/план, сделай initial push и создай PR с результатом, AC, проверками и ограничениями. Завершения всей Goal перед первым PR ждать не нужно.
 
-Исправимые failures/conflicts и ожидание проверок — часть работы. Всю Goal отмечай ожидающей/заблокированной, когда безопасной независимой работы не осталось. Сохрани причину, проверенные варианты и нужное внешнее действие. Явное изменение Goal отражай в baseline/DoD/плане и продолжай; неоднозначность уточни. Не подменяй сложные AC лёгкими и не дроби ради процента; время/объём не означают DONE.
+Подтверждённые CI/review failures собирай в batch, исправляй и проверяй локально; отправляй один сгруппированный push на каждый цикл. Число необходимых циклов не ограничено. Необходимое обновление base допускается с сохранением user changes и повторной validation. Speculative pushes не допускаются. Hotfix может иметь сокращённый flow, но сохраняет обязательные safety/CI/deployment gates.
 
-## 5. Требования, Evidence и готовность проекта
+После каждого push дождись required checks/review актуальной revision из предусмотренных источников. Разбери failures, cancellations и skips: skip допустим только при подтверждённой неприменимости. Self-review не заменяет required approval. При выполненных gates и необходимых правах самостоятельно доведи PR до merge, соблюдая protections.
 
-По явному решению владельца 2026-09-06 при аудите и всех последующих пересчётах готовность проекта всегда считается по реализации согласованных требований в коде. Отдельная приёмка, её процент и обязательное ручное тестирование каждой функции пользователем отменены. Постоянный режим — **Ad-hoc**: владелец использует проект, обнаруженные баги фиксируются и исправляются в разрешённом scope. Плановая программа ручных тестов и отчёты пользователя по функциям не требуются. AC остаются стабильными проверяемыми критериями реализации требований, а не заданиями пользователю.
+Разрешённый аудит завершай одним отдельным docs PR с актуализированными spec/plan, по тому же Git/validation flow. После merge покажи готовность, findings и эпики/AC для выбора следующей Goal. Read-only аудит ограничивается отчётом.
 
-AC: ⬜ `BACKLOG` — не реализован; 🟦 `IN_PROGRESS` — реализован частично или известен дефект обязательного поведения; 🟩 `IMPLEMENTED` — требуемое поведение реализовано в коде. ⛔ `BLOCKED` — дополнительный модификатор с причиной. Для статуса проверяй фактический исполняемый путь и соответствие требованию, а не только наличие файлов или названий функций. Прежний `READY` объединён с `IMPLEMENTED`, без потери Evidence и без изменения denominator.
+## Поставка и очистка
 
-Эпик/feature: `BACKLOG` до начала; `IN_PROGRESS` при неполной реализации; `IMPLEMENTED`, когда реализованы все AC. Состояния tests, CI, deployment и runtime отражай отдельно. Заявление о поставке или работе конкретной версии подтверждай соответствующим Evidence; отсутствие доступа не обосновывает N/A.
+После каждого merge подтверди его в GitHub, получи свежий `origin/main` и безопасно синхронизируй локальный main по правилу выше, проверив результат интеграции. Затем дождись applicable delivery flow: для runtime изменений — CD на целевой VPS с expected merge revision/artifact, обязательными environment gates, проверкой запущенной версии, health/readiness и прикладными smoke checks. Для изменений без deployment CD неприменим по scope PR/DoD.
 
-Evidence: type, результат, ссылка/команда/сценарий, revision/artifact, environment, время, ограничения. Типы: `SPEC`, `CODE`, `FORMAT`, `LINT`, `TYPECHECK`, `TEST`, `BUILD`, `AGENT_BROWSER`, `USER_FEEDBACK`, `REVIEW`, `CI`, `DEPLOY`, `LIVE`. Результаты: ✅ `PASS`, ◐ `PARTIAL`, ❌ `FAIL`, — `PENDING`, `N/A` с причиной. Одно Evidence может покрывать несколько AC ссылками; один сценарий не доказывает весь AC/эпик. Отсутствие отдельной записи о проверке не отменяет установленную по коду реализацию. Выявленный дефект возвращает затронутый AC в `IN_PROGRESS` и добавляется в backlog с воспроизведением и влиянием.
+Исполняй проверенную проектную процедуру: установи точный target, artifact/config, preconditions и отсутствие конфликтующей поставки. Сохраняй secrets и persistent state. Не обходи approvals, host verification и recovery gates; неизвестный target блокирует действие. При failed post-check останови дальнейшее продвижение и примени согласованную recovery strategy; содержательный hotfix в scope остаётся частью Goal.
 
-**Готовность проекта = `IMPLEMENTED / все актуальные product AC × 100%`.** Это единственный процент проекта; по той же формуле считай эпики/features и отдельно выбранную Goal.
+Результат CD устанавливай по первичным records с environment, revision/artifact, временем и итогами обязательных checks. Наличие workflow или ответ endpoint без идентификации версии недостаточны. Отдельные статусы DEPLOY/LIVE и обязательная post-merge запись delivery metadata в main не нужны. Metadata-only follow-up PR не создавай. Недоступный/неуспешный CD остаётся неподтверждённой/незавершённой поставкой.
 
-Частичные AC не получают доли. Считай проект по уникальным AC, не среднему процентов эпиков; Goal — отдельно по baseline, технические критерии — отдельно от product AC. Показывай числитель/denominator и основание. При неполном spec или неизвестном/нулевом denominator фиксируй SPEC gap и показывай учтённую часть без процента всего проекта. Процент AC не оценивает время; 100% не заменяют gates DoD.
+Длительный monitoring/observation и speculative reruns на GitHub-hosted Actions требуют отдельного owner approval и проверки остатка included minutes. Неизвестный остаток сообщи. Ограниченные обязательные post-checks входят в поставку.
 
-После полного аудита заново оцени актуальные AC по требованиям/Evidence и рассчитай проект, эпики/features и выбранную Goal. Прежние проценты используй только для сравнения; применимость старого Evidence перепроверь. Изменение scope/denominator отмечай отдельно; расхождение более чем на 10 процентных пунктов объясни. Не меняй обязательность AC ради показателя.
+После applicable delivery удали созданные для PR локальную/remote ветки и ненужный worktree только после safe deletion: принадлежность этой работе, подтверждённый merge, отсутствие неинтегрированных изменений, нужных локальных файлов и зависимостей активных задач. Учитывай squash/rebase по фактическому результату PR. Уже автоматически удалённую GitHub ветку не восстанавливай; CD не должен зависеть от её существования.
 
-После commit пересчитывай затронутые features/эпики при изменении выполнения AC. Готовность проекта пересчитывай перед PR, после каждого merge, при существенном изменении scope/denominator или выполнения AC и при закрытии Goal. Evidence обновляй после фактических TEST/CI/DEPLOY/LIVE и иных проверок; изменение статуса AC отражай в расчёте. Commit не означает CI/merge/deploy. План обновляй в следующем содержательном commit, без служебной цепочки ради SHA/процентов.
+Следующий PR той же Goal начинай после завершения поставки предыдущего, повторной проверки актуальности main и безопасной синхронизации. Создай новую ветку от актуальной base. При закрытии Goal повтори синхронизацию и проверку оставшихся её веток/worktrees; сохрани чужие и созданные до работы, объясни причины сохранения своих.
 
-## 6. Ветки, commits, PR и поставка
+## Checkpoint и завершение
 
-Перед реализацией проверь Git/GitHub: remote, base/default branch, SHA, divergence, worktrees и protections. Получи актуальную remote base. Синхронизируй local base безопасным fast-forward; при divergence/user changes создай чистую feature/fix-ветку/worktree от проверенной remote base. Зафиксируй исходный base SHA. Не реализуй в main, не включай unrelated изменения и не переписывай опубликованную историю без authorization. Branch/remote задаёт профиль; `main`/`origin/main` используй после проверки.
+Обновляй план в содержательных commits и перед прерыванием: Goal, baseline, branch/base SHA/worktree, выполненное/оставшееся, следующий шаг, известные PR/records, проверки и blockers. До последнего push сохрани условия оставшихся gates, не предсказывая их успех. Достаточно текущего и предыдущего snapshot готовности; не создавай commits ради самообновляющихся SHA/процентов.
 
-Для нового repository нужен разрешённый bootstrap: минимальный initial commit, затем рабочая ветка с base SHA. Без remote допустима разрешённая локальная работа; создание remote и публикация требуют соответствующего scope.
+При восстановлении установи связанные PR, merge revision и соответствующие CD records нужного окружения; недостающие ID найди по фактическому Git/GitHub. Не повторяй deploy ради статуса. План может отражать checkpoint до merge; окончательный результат поставки восстанавливается по первичным records независимо от сессии, без обязательного переписывания Markdown.
 
-Одна Goal может включать несколько веток/PR. Сам выбирай batches по результату, зависимостям, риску/миграциям, удобству review и стоимости CI. Одна ветка соответствует одному PR. После связных узких задач выполняй проверки и создавай commits; их количество до PR не ограничено. Поставляй готовые batches, не ожидая всей Goal; избегай micro-PR без самостоятельного результата.
+DONE требует выполненных scope/DoD, обязательных checks/review, merge и applicable delivery всех PR. Исправимый failure не завершает Goal; при внешнем blocker сохрани причину и нужное действие, продолжая независимую работу. Заверши встроенную Goal по её правилам, сообщи результат, готовность, Evidence, PR/поставку и ограничения. Остановись: следующую Goal выбирает пользователь.
 
-До готовности implementation scope batch и полной применимой local validation commits остаются локальными. Затем сделай один initial push и создай PR. Remote-only checks заранее выдели в Validation Plan и выполняй после push. Перед PR проверь весь diff, сделай self-review, обнови relevant docs/plan, укажи AC, проверки, ограничения и rollout.
 
-После разбора CI/review failures исправляй их в той же ветке/PR сгруппированными pushes до устранения проблем. Обновление base и merge conflicts также разрешай автономно с повторной validation. Не отправляй каждую мелкую правку отдельно. Hotfix сокращает только необязательные шаги, сохраняя safety/CI/deployment gates.
+## Особенности Elevenlabs-API
 
-Дождись required checks/review и разбери failures/skips. Self-review не заменяет обязательный чужой approval. При полном delivery scope, выполненных gates и наличии доступа сам выполни merge, затем отслеживай применимый CD/post-checks до terminal result, включая GitHub Environments. DEPLOY/LIVE подтверждай фактически либо ставь N/A по DoD. После merge failure исправляй необходимой recovery-веткой/PR той же Goal; delivery stage остаётся незавершённым.
+- Repository `Just9120/Elevenlabs-API`: ожидаемая default/release branch `main`, рабочие ветки `codex/`. Перед consequential operation проверяй фактические remote/base и target. Существующий canonical путь правил настройки CI/CD — `docs/ci-cd-rules.md`; второй файл в корне не создаётся.
+- Два продукта: Colab entrypoints в корне и VoiceOps Studio. `apps/studio` — React/TypeScript/Vite PWA; `apps/studio-api` — Python/FastAPI API, worker, Alembic и provider adapters; `deploy/studio` и `scripts` — Compose/operations. Runtime/credential/state boundaries различаются; personal implementation не доказывает commercial readiness. Generated protobuf и notebooks не считать dead/duplicate code без проверки callers.
+- Обычные команды, тестовые окружения, required checks и revision model: [validation runbook](docs/runbooks/validation.md). Targets, config owners, credentials boundaries, GitHub Environment, очередь, rollout и recovery: [Studio operations](docs/runbooks/studio-platform-ops.md). Инварианты обработки: [processing contract](docs/studio-processing-contract.md); отдельный Colab capture: [Realtime Colab](docs/runbooks/realtime-colab.md). Optional AI tooling documents не создавать без соответствующего workstream.
+- Windows `pytest -q --portable` сохраняет часть shell-dependent tests и не заменяет Linux CI. Обычные проверки используют synthetic configuration/data; production `.env`, реальные provider/Google calls и пользовательские данные не использовать как тестовые fixtures.
+- Spec и план имеют индексы: [project-spec](docs/project-spec.md), [delivery-plan](docs/delivery-plan.md). Формулировки разделены по `docs/spec/{colab,studio,extensions,commercial}.md`, текущие AC — по соответствующим `docs/delivery/*.md`, трассировка — [source trace](docs/spec/source-trace.md). ALIAS/SUPERSEDED сохраняют ID и связи, но не входят в denominator. Технические AC учитываются наравне с продуктовыми; findings сами по себе denominator не увеличивают.
+- Ad-hoc/dogfooding сохраняется: владелец сообщает встреченные баги, доступные проверки выполняет агент. READY устанавливается по исполняемому коду и подходящим автоматическим проверкам; отсутствие полного runtime сценария отражается в ограничениях Evidence. Last verified revision — фактически проверенный commit; raw logs и secrets в checkpoint не помещать.
 
-GitHub-hosted Actions для длительного monitoring/observation или speculative reruns требуют отдельного owner approval и проверки остатка included Actions minutes; неизвестный остаток сообщи до запуска. Обычный CI, обоснованный retry transient failure и ограниченные post-deploy checks входят в поставку. Ожидание агентом CI вне runner не является monitoring job.
+### Версия инструкций
 
-До финального push сохрани текущее состояние и оставшиеся gates, без прогнозных PASS/DONE и выдуманных run IDs. После каждого merge пересчитай готовность. После applicable delivery синхронизируй в remote main/base фактические статусы, Evidence и metadata через установленный разрешённый механизм; проверь его наличие при подготовке Goal. Отсутствие/недоступность механизма — metadata blocker/technical debt, не выполненный DoD. Не обходи protections и не создавай молча automation. Отдельный metadata-only follow-up PR не создавай; необходимый содержательный hotfix/recovery PR включает актуальный план.
+Владелец явно поручил внедрить новые версии 2026-09-07. Источник — приложенный комплект `workflow-documents/repository`, без изменения глобального AGENTS. Адаптация сохраняет существующие canonical пути и переносит operational сведения прежнего Project profile в действующие runbooks. Внешний входной промт в repository не копируется.
 
-После merge безопасно обнови local main/base; повтори после metadata synchronization, если remote изменился. По завершении поставки удаляй только созданные этой работой merged локальные/remote branches и worktrees без уникальных commits, незакоммиченных изменений и нужной незавершённой работы; учитывай squash/rebase merge. Итог batch — совпадающие local/remote main/base без его ненужных веток. Следующий batch той же Goal начинай от актуальной base без нового согласования.
-
-## 7. Проверки, эксплуатация, checkpoint и завершение
-
-Validation Plan внутри Goal: AC/риск, check/сценарий, команда/tool, environment, `REQUIRED` / `RECOMMENDED` / `N/A`, этап и основание по CI/CD rules. Агент отвечает за доступные автоматические, интеграционные и браузерные проверки. Недоступные устройства, аккаунты и сценарии фиксируй как конкретные ограничения проверки или технический долг. Не создавай очередь обязательных пользовательских тестов по функциям.
-
-В режиме Ad-hoc обратная связь владельца из обычной эксплуатации — источник bugs и требований. По сообщению о баге проверь воспроизведение, затронутый AC и regression scope; исправляй в разрешённой задаче. Отсутствие ручного отчёта владельца не блокирует готовность AC или завершение Goal. Автоматические и доступные браузерные проверки остаются работой агента; их результаты учитываются отдельно от процента готовности по коду. Required test/CI failure, обязательное продуктовое решение, missing GitHub/VPS/infra access и явные разрешения на consequential операции сохраняются как конкретные gates; не подменяй их пользовательским тестированием.
-
-Checkpoint после значимых checks/batches, изменения gates и перед прерыванием: время, Goal/baseline, base/branch/SHA/worktree, сделанное/оставшееся/следующий шаг, PR/CI/deploy records, Evidence, blockers, user changes. Handoff доступен следующему чату по routing; сообщения недостаточно. Недоступное Evidence — PENDING/ограничение; известный failure отменяет соответствующий PASS.
-
-Goal DONE: scope реализован, required checks пройдены, существенные review findings закрыты, применимые merge/deploy/LIVE и metadata synchronization выполнены, Evidence сохранены, base синхронизирована и завершённые ветки очищены по §6. Ручной отчёт пользователя не требуется; local/PR-only Goal завершается в заданных границах.
-
-После DoD заверши встроенную Goal инструментом и проверь результат. Итог: состояние Goal, результат/AC, готовность проекта и Goal, проверки/ограничения, PR/merge/deployed revision, известные defects/blockers. Остановись; следующую Goal выбирает пользователь.
-
-Актуализируй spec/plan, README, relevant architecture/runbooks и Project profile в scope. Общие правила Goal, полномочия, gates/safety меняй по отдельному решению пользователя. При адаптации добавь краткую карту repository и ссылки на canonical commands/profile, без вторых копий настроек.
-
-## 9. Особенности Elevenlabs-API
-
-Этот раздел дополняет действующие правила выше. Правило оценки готовности обновлено по отдельному решению владельца 2026-09-06 (§5 и §7). При последующих адаптациях сохраняй остальные положения и формулировки; сокращение или удаление требует отдельного поручения. Проектные дополнения не расширяют полномочия текущей задачи.
-
-- Repository — `Just9120/Elevenlabs-API`; ожидаемые default/release branch — `main`, рабочие ветки — `codex/`. Перед consequential operation перепроверь remote/base и target; не подставляй ожидание вместо факта.
-- Два продукта: Colab entrypoints в корне и VoiceOps Studio. `apps/studio` — React/TypeScript/Vite PWA; `apps/studio-api` — Python/FastAPI API, worker, Alembic и provider adapters; `deploy/studio` и `scripts` — Compose/operations. Их runtime/credential/state boundaries различаются; personal implementation не доказывает commercial readiness. Generated protobuf и notebooks не считай dead/duplicate code без проверки callers.
-- Дополнительный routing: [processing contract](docs/studio-processing-contract.md), [validation runbook](docs/runbooks/validation.md), [Studio operations](docs/runbooks/studio-platform-ops.md), [Colab realtime](docs/runbooks/realtime-colab.md). Источники требований и проверенные версии — в [project-spec](docs/project-spec.md); фактические commands/settings/deployment lanes — только в разделе 10 [CI/CD rules](docs/ci-cd-rules.md). Optional AI tooling documents не создавать без соответствующего workstream.
-- Быстрые проверки из root: `python scripts/ci_checks.py`, `git diff --check`. Из `apps/studio`: `npm ci`, `npm run lint`, `npm run test -- --run`, `npm run build`; local web — `npm run dev`. Полный Python/DB/Playwright environment и constraints указаны в Project profile. Windows `pytest -q --portable` оставляет часть shell tests и не заменяет Linux CI. Production `.env` и реальные provider/Google calls не использовать для обычной проверки.
-- Для delivery dashboard оценивай реализацию по коду относительно требований. Пробелы tests/runtime Evidence записывай отдельно с охватом и ограничениями. Last verified revision в checkpoint — фактически проверенный commit; секреты и raw logs туда не помещать.
-
-- При полном аудите/выборе эпика используй индексы `docs/project-spec.md` и `docs/delivery-plan.md`: формулировки разделены по `docs/spec/{colab,studio,extensions,commercial}.md`, текущие статусы — по соответствующим `docs/delivery/*.md`; source trace — `docs/spec/source-trace.md`. ALIAS/SUPERSEDED сохраняют ID и связи, но не входят в denominator.
+SHA-256 приложений: `AGENTS.md` — `e939a859e699f84d14635c05d5c168c39874370220c100b5bfaaf9a002f5eb79`; `ci-cd-rules.md` — `a5ada63507c17d77f9691e3c67c83e423d8dc04a4732e4fefe925c96161b7f2e`.

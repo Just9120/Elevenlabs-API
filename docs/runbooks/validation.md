@@ -1,27 +1,42 @@
 # Validation runbook
 
-This runbook consolidates repository validation commands and manual evidence checklists. It is not proof of production-live Studio processing by itself.
+Этот runbook — canonical команды, окружения, CI gates и доступные агенту проверки. Ad-hoc не требует отчётов пользователя. Проверки не доказывают работу production за пределами проверенных сценариев.
 
 ## Safe evidence rules
 
 Do not record secrets, provider API keys, OAuth tokens, refresh tokens, document IDs/URLs, folder IDs, account data, source bytes, transcript bodies, document bodies, raw provider responses, raw Google responses, private paths, stack traces with sensitive values, or production credential values.
 
-Classify manual evidence as `pass`, `fail`, `blocked`, or `not-run`.
+Результаты Evidence: PASS / PARTIAL / FAIL / PENDING / N/A с основанием; всегда указывай revision, environment, время и ограничения.
 
 ## Repository checks
 
-Use the smallest relevant checks for the task.
+Рабочий каталог указан отдельно; команды установки выполняй в изолированном environment. Production config/data не использовать. При расхождении сверяй команды с фактическими workflow/package scripts, фиксируя drift.
 
-```bash
-# Whitespace/diff safety
- git diff --check
+| Назначение | Каталог и команда | Применимость / условия |
+| --- | --- | --- |
+| Install Python | Root: `python -m pip install -r requirements-dev.txt -c constraints-dev.txt` | Изолированный Python 3.11 для CI-equivalent; API-only install — как в `studio-ci.yml` |
+| Install web | `apps/studio`: `npm ci` | Canonical npm lock; не менять lock ради локального окружения |
+| Lightweight | Root: `python scripts/ci_checks.py` | Существующие notebook/guard checks; быстрый repository gate |
+| Format / docs | Root: `git diff --check`; проверить содержимое, links и routing | Отдельного formatter script нет; это не замена configured lint |
+| Lint | `apps/studio`: `npm run lint` | ESLint |
+| Typecheck | `apps/studio`: `node node_modules/typescript/bin/tsc -b` | Также входит в build |
+| Focused tests | Root: `pytest -q <test-path>`; web: `node node_modules/vitest/vitest.mjs run <test-path>` | Выбрать существующие tests затронутого поведения; Python service fixtures требуют соответствующего environment |
+| Frontend suite | `apps/studio`: `npm run test -- --run` | Vitest; если local npm wrapper не передаёт `--run`, эквивалент — `node node_modules/vitest/vitest.mjs run`, различие записать |
+| Full Python / DB | Root: `alembic -c apps/studio-api/alembic.ini upgrade head`, затем `pytest -q` | Только isolated PostgreSQL 17/Redis 7 + synthetic config по `ci.yml`; Linux/bash, тестовый DB owner/runtime setup из workflow |
+| Portable Python | Root: `pytest -q --portable` | Ограниченная диагностика; исключает 9 modules по `conftest.py`, оставляет часть shell tests, не гарантирует Windows compatibility |
+| Browser E2E | `apps/studio`: `npm run test:e2e`; inventory — `npm run test:e2e:list` | Playwright Chromium, isolated DB `studio_browser_e2e`, Redis, migrations, seed и fake external services по `studio-ci.yml` |
+| Build | `apps/studio`: `npm run build` | TypeScript + Vite/PWA + `scripts/write-build-meta.mjs`; отдельный Vite run не равен всей команде |
+| Containers / Compose | Команды build и synthetic Compose checks из `.github/workflows/studio-ci.yml` | Docker/Linux; repository build contexts и env из workflow, без production secrets |
+| Advisory audit | `apps/studio`: `npm audit --audit-level=high`; Python — isolated constrained `pip-audit` по `dependency-audit.yml` | Scheduled/manual supply-chain check; фиксировать дату, lock/revision и advisories |
+| Local web / API | `apps/studio`: `npm run dev`; root: `uvicorn studio_api.main:app` | API требует `PYTHONPATH=apps/studio-api`, isolated DB/Redis/config и synthetic secrets; production `.env` не копировать |
 
-# Lightweight Python/static repository checks
- python scripts/ci_checks.py
+Применимые pre-merge проверки по проектному контракту: `CI / checks`; для path scope Studio — `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`. GitHub platform при проверке 2026-09-07 их не enforces: `main` без protection, rulesets пусты. Перед разрешённым merge агент проверяет актуальную revision, relevant jobs, self-review, существенные findings/conversations и mergeability; отдельно соблюдает реально заданные внешние approvals. Наличие технической возможности merge не снимает эти проверки.
 
-# Python tests
- pytest -q
-```
+`CI` запускается на PR, push main и вручную; `Studio PWA CI` — по своим path filters на PR/main и вручную. Для pull_request workflows используют actions/checkout без ref override: проверяется refs/pull/<PR>/merge, то есть test merge commit, связанный с текущими head/base. В records сохраняй и PR head, и фактический checkout SHA; пример: CI run 34132508136 для head cfd3b11 проверял merge ref be9feac719e7e924ade218a0fc53a3d4e3c2b0e6. Push main проверяет фактический merge SHA. После изменения head/base старый test-merge результат не переиспользовать вслепую. Merge queue не настроена. Required job не считать PASS по skipped/summary; документировать неприменимость по scope. При workflow-only/security change проверяй соответствующие regression tests и новый trust context, даже если Studio path filter не сработал.
+
+Critical scenarios: owner/CSRF/session/TOTP isolation; source multipart reconciliation и storage classes; batch queue/retry/idempotency; Yandex REST timestamp types и realtime final ordering; Google output metadata; retained transcript/re-export; cleanup/backup/recovery; schema compatibility; PWA capture/permissions, 390px viewport и accessibility. AC/риски и нужные проверки выбирай в Validation Plan конкретной Goal. Реальные STT, Google mutation, Telegram notifications и destructive cleanup/restore не входят в обычную suite; live canary требует согласованного scope, тестовых данных и ограниченного побочного эффекта.
+
+Известные gaps: Windows `--portable` всё ещё зависит от bash для части tests; 9 excluded modules; оставшиеся worker isolation fixtures на Windows всё ещё требуют исправления shell discovery. Existing local dependencies не являются clean-install Evidence. Windows Python graph можно проверить изолированным pinned pip-audit; этот результат не покрывает Linux-specific dependencies. Полноценная local Docker/DB/browser suite в последнем аудите не запускалась. Npm advisory findings и результаты отдельных checks — в delivery-plan; запись команд не превращает их в PASS. Универсальный duration/coverage/budget target владельцем не задан; действуют timeout guards конкретных jobs. Ответственность агента за проверки, их ограничения и обратная связь из эксплуатации — по AGENTS.md/плану.
 
 ### Portable local Python profile
 
@@ -31,7 +46,7 @@ Use the smallest relevant checks for the task.
 pytest -q --portable
 ```
 
-Discovery ограничен `tests/`. `--portable` исключает 9 service/shell modules, перечисленных в `conftest.py`, до их импорта. Часть shell fixtures остаётся: на Windows system bash/WSL может выбираться даже при наличии Git Bash в PATH. Поэтому это ограниченный диагностический профиль, а не обещание green cross-platform suite. Plain `pytest` с PostgreSQL/Redis/bash остаётся полным CI-профилем. Точные команды, environment и применимость — в [Project profile](../ci-cd-rules.md); результаты — в [delivery dashboard](../delivery-plan.md).
+Discovery ограничен `tests/`. `--portable` исключает 9 service/shell modules, перечисленных в `conftest.py`, до их импорта. Часть shell fixtures остаётся: на Windows system bash/WSL может выбираться даже при наличии Git Bash в PATH. Поэтому это ограниченный диагностический профиль, а не обещание green cross-platform suite. Plain `pytest` с PostgreSQL/Redis/bash остаётся полным CI-профилем. Точные команды, environment и применимость — в [команды и условия](#repository-checks); результаты — в [delivery dashboard](../delivery-plan.md).
 
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
 
@@ -237,3 +252,30 @@ Stop validation and investigate before repeating paid work on:
 ## Realtime Colab validation
 
 Realtime Colab validation is experimental and lives in `docs/runbooks/realtime-colab.md`.
+
+
+## CI inventory и восстановление результата
+
+Snapshot: workflows на origin/main `3e65322e12ba3d1ac2bc9f3ec7ecc412a6e3090b`, 2026-09-07; settings snapshot 2026-09-06, branch/rulesets повторно 2026-09-07. Набор workflow не означает authorization на dispatch.
+
+| Workflow | Trigger / назначение | Production capability |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` — CI | PR/main/manual; PostgreSQL/Redis, Alembic, lightweight, full pytest | Нет |
+| `.github/workflows/studio-ci.yml` — Studio PWA CI | Path-filtered PR/main/manual; studio и authenticated browser-e2e | Нет |
+| `.github/workflows/dependency-audit.yml` — Dependency audit | Weekly/manual npm/Python advisory audit | Нет; не regular PR gate |
+| `.github/workflows/studio-platform-cd.yml` — Studio Platform CD | Path-filtered main/manual; web/API, gated migration, manual worker | Да |
+| `.github/workflows/studio-migration-environment-probe.yml` | Manual main; no-op Environment reviewer probe | Только Environment gate; без checkout/secrets/SSH |
+| `.github/workflows/studio-edge-cd.yml` — Studio Edge CD | Manual exact main SHA; security-header release | Да, gated |
+| `.github/workflows/studio-processing-preflight.yml` | Manual expected SHA; processing readiness | Read-only SSH |
+| `.github/workflows/studio-worker-status.yml` | Manual expected SHA; worker identity/health | Read-only SSH |
+| `.github/workflows/studio-worker-drain.yml` | Manual expected SHA; graceful stop | Да, меняет worker process state |
+
+GitHub-hosted Ubuntu runners; token read-only, Actions не могут approve PR reviews. Baseline CI и Studio E2E используют synthetic data/fake integrations, не получают production secrets и не вызывают реальные ElevenLabs/Yandex/Google/R2/production. Credentialed integration flow требует собственного scope/trust boundary. Внешние Actions pinned full SHA по YAML и regression guard; repository settings пока разрешают `allowed_actions: all`, `sha_pinning_required: false`. Это gap platform enforcement, не разрешение mutable refs. Cache keys/install inputs проверяй по lock/OS/runtime и trust context; cache не переносит secrets и не является release artifact.
+
+Для routine delivery используй [Studio operations](studio-platform-ops.md#delivery-targets-и-процедуры). Настройка/ремонт pipeline — [CI/CD rules](../ci-cd-rules.md); обычный Git/Goal flow — [AGENTS](../../AGENTS.md). Для восстановления используй repository ID, PR number, run/job ID и exact SHA; подробные logs остаются в первичных records.
+
+## Configuration для изолированных проверок
+
+`Settings` использует `STUDIO_` prefix и `.env` относительно process cwd. Приоритет: constructor values → environment → dotenv → secret source/defaults; прикладные secret-file methods читают только выбранный файл. `database_url` имеет приоритет перед составным DB URL. Cached settings требуют restart/explicit cache invalidation после изменения config. Synthetic проверки задают `_env_file=None` и SQLite/изолированные PostgreSQL credentials, не используют host production `.env`.
+
+Представительный local audit: `python scripts/ci_checks.py`; frontend `node node_modules/vitest/vitest.mjs run`; portable Python с уникальным basetemp; `npm.cmd audit --package-lock-only --json`. Наличие lock проверяет выбор versions, не фактическое соответствие существующего node_modules. Fresh Python advisory audit требует установленного pinned `pip-audit` и isolated constrained graph из workflow; global pip check unrelated environment его не заменяет. CI job-level records проверяются на exact revision; внешние side effects не запускаются для обычной диагностики.

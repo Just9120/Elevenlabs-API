@@ -2,9 +2,57 @@
 
 This is the main Studio operations runbook. It covers platform bootstrap, runtime files, secrets, backups, migrations, component deployment, source storage, Google OAuth, worker rollout, and recovery stop conditions. Processing invariants live in `docs/studio-processing-contract.md`. It does not authorize coding agents to deploy, run migrations, start workers, call providers, or mutate production.
 
+## Delivery targets и процедуры
+
+Перенесено из прежнего Project profile при внедрении правил 2026-09-07. Источники: `.github/workflows/*.yml`, `deploy/studio/compose.platform.yml`, repository scripts на origin/main `3e65322e12ba3d1ac2bc9f3ec7ecc412a6e3090b`; настройки доступа — snapshot 2026-09-06, branch/rulesets повторно 2026-09-07. Это описание действующих процедур, не authorization на privileged operations. Перед поставкой заново проверь settings/target и выбранную revision.
+
+CD используется для Studio; Colab не получает VPS deployment автоматически. Public entrypoint — `studio.librechat.online`; SSH target identity определяется соответствующими secret references и known-hosts, не догадкой по публичному домену. Directory `/opt/elevenlabs-studio`, repository `Just9120/Elevenlabs-API`, branch `main`, Compose project `elevenlabs-studio-platform`, compose `deploy/studio/compose.platform.yml`. Config owner — оператор: target-host `deploy/studio/.env` и отдельные root/operator-owned secret files. Не печатай resolved config и не заменяй `.env` шаблоном.
+
+Deployment units: `studio-web`, `studio-api`, `studio-worker`; отдельно один direct additive Alembic successor и allowlisted host security-header snippet. Обычный component CD не использует GitHub Environment. Migration/edge используют единственный Environment `studio-production-migration`, branch policy main, одного reviewer (Just9120), `prevent_self_review=false`. Admin bypass в свежем scoped ответе не перепроверен; не используй bypass. Dedicated forced-command SSH identities/known-hosts разделяют migration/edge boundaries.
+
+Concurrency: platform `studio-platform-production`, edge `studio-edge-production`, probe `studio-migration-environment-probe`; `cancel-in-progress: false`. Общий remote lock между всеми deployment lanes не подтверждён; найденный `flock` относится только к backup script. Перед пересекающимися operations проверь общий target/state и исключи конфликт; разные concurrency groups сами по себе его не исключают. Standard component workflow передаёт `EXPECTED_COMMIT=${{ github.sha }}` в bundle transport; проверяются 40-hex local HEAD, bundle checksum, exact fetched ref и resulting checkout. Target script получает bundle через `STUDIO_DEPLOY_FETCH_BUNDLE`, checkout обновляется `--ff-only`. Устаревший/расходящийся bundle не должен заменять более новый checkout: identity/fast-forward failure останавливает job. Migration/edge требуют exact current remote main SHA. Очередь не доказывает порядок версий: до dispatch/retry сверяй candidate с actual target/remote; intentional rollback — отдельная procedure. Standalone component entrypoint без bundle имеет иной fetch path и не является active workflow transport.
+
+Stateful surfaces: PostgreSQL persistent volume `studio-postgres-data`, Redis coordination, private external S3/R2 storage, Google Docs side effects вне DB transaction. DB owner — отдельная NOLOGIN role; migrator и API/worker runtime roles/secret files разделены. Класс ordinary component deploy — `NONE`; migration lane — `EXPLICITLY_GATED` (старое имя в runbooks/истории `MANUAL_GATED` означает ту же защищённую процедуру, не автоматизацию). `BACKWARD_COMPATIBLE_AUTOMATED` для production migrations сейчас не используется. Не ослабляй protection только потому, что migration additive.
+
+Recovery по умолчанию — diagnosis и согласованный forward-fix. Автоматического application/data rollback нет; edge допускает только narrow exact snippet-backup restore. При failed identity/schema/health останови продвижение, сохрани Evidence, не делай blind retry. После применения migration сначала проверь реальное schema/API state; повтор run не является стандартным recovery.
+
+Health: web `http://127.0.0.1:8181/healthz`, API `http://127.0.0.1:8182/api/healthz`, worker Docker healthcheck `python -m studio_api.worker_health`; edge — nginx syntax, local/public TLS headers и API health. Web identity — `/build-meta.json` плюс deployment records; API/worker — exact source/image records из job/target. Health подтверждает свой узкий сценарий; проверку прикладного поведения привязывай к конкретному AC/версии. Safe public read-only smoke выполняй в разрешённом scope; платный/provider/Google canary — только по согласованной процедуре.
+
+Release model: target-side Docker build на VPS, registry promotion не используется. Immutable built image ID сравнивается с running image ID, source связан с exact Git bundle SHA. Это заново построенный artifact, не проверенный CI binary. Отдельные provenance/attestations не настроены; их добавление — по требованиям/риску Goal. Browser report retention определяется `.github/workflows/studio-ci.yml`; после expiry отсутствие report нельзя выдавать за повторную проверку.
+
+Имена credentials, без значений:
+
+- Repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` — ordinary component/worker/preflight operations.
+- Environment migration secrets: `STUDIO_MIGRATION_DEPLOY_HOST`, `STUDIO_MIGRATION_SSH_KEY`, `STUDIO_MIGRATION_KNOWN_HOSTS`.
+- Environment edge secrets: `STUDIO_EDGE_DEPLOY_HOST`, `STUDIO_EDGE_SSH_KEY`, `STUDIO_EDGE_KNOWN_HOSTS`.
+- Repository variables: `STUDIO_PLATFORM_CD_ENABLED`, `STUDIO_MIGRATION_RELEASE_ENABLED`, `STUDIO_EDGE_RELEASE_ENABLED` — перед action проверять значение, не только имя.
+
+### Выбор component после merge
+
+`.github/workflows/studio-platform-cd.yml` — единственный standard component router:
+
+- automatic push flow включается только при `STUDIO_PLATFORM_CD_ENABLED=true`;
+- `apps/studio/**` выбирает `studio-web`;
+- non-migration `apps/studio-api/**` выбирает `studio-api`;
+- Alembic change не deploy-ит API обычным путём: он выбирает protected migration lane только при `STUDIO_MIGRATION_RELEASE_ENABLED=true`, иначе API/migration остаются intentionally skipped/blocked;
+- worker dependency changes не auto-deploy-ят worker; `studio-worker` остаётся manual-only;
+- green `deployment-summary` с skipped component jobs не является component deployment Evidence.
+
+Target-side build/recreate ограничен выбранным сервисом через `--no-deps --force-recreate`; schema mismatch или built/running image-ID mismatch останавливает поставку. Compose/process health подтверждает только свой сценарий. Обязательный успешный marker определяется выбранным script; зелёная summary при skipped job поставку не подтверждает.
+
+| Операция | Canonical процедура и условия |
+|---|---|
+| Обычный web/API CD | [Component deployment](#component-deployment); exact trusted merge SHA через Git bundle, без миграций и worker lifecycle |
+| Миграция | [Approval-gated migration release](#approval-gated-migration-release-lane); один direct additive successor, fresh approval/snapshot, worker stopped; не retry после migration_applied=yes |
+| Host edge | [Protected Studio host-edge release](#protected-studio-host-edge-release); единственный allowlisted security-header snippet и exact backup recovery |
+| Worker | [Official worker lifecycle operations](#official-worker-lifecycle-operations-pwa-worker-ops-01); status → graceful drain → confirmed stopped → deploy → image/health checks; canary отдельно |
+| Processing readiness | [Manual processing preflight](#manual-processing-preflight); read-only проверки не разрешают provider/Google call |
+
+Фактический результат восстанавливай из PR merge SHA и соответствующего run/job: target, artifact identity, UTC, terminal result и обязательные post-checks. Отдельные DEPLOY/LIVE поля в реестре и post-merge metadata commit не требуются. При восстановлении не запускай повторный deploy ради статуса; общий flow — [AGENTS](../../AGENTS.md), checks — [validation](validation.md).
+
 ## State vocabulary
 
-Keep these states separate in every report:
+Различай эти факты при объяснении результата; отдельные статусы в реестре AC не требуются:
 
 - `source-done/merged` — repository source reached the target branch.
 - `CI-verified` — checks passed for that source.

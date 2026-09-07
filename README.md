@@ -11,6 +11,12 @@ README не дублирует быстро устаревающие проце�
 
 Commercial production включён в durable product scope; его фактическое состояние и приоритеты отражены в delivery dashboard. Существующий personal code не считается commercial Evidence.
 
+## Stack и карта кода
+
+- Colab: `elevenlabs_api.py`, `elevenlabs_realtime.py`, thin launchers в `notebooks/`; generated protobuf сохраняет собственные entrypoints/upstream.
+- Studio: React 18 / TypeScript 5.6 / Vite 6 в `apps/studio`; Python/FastAPI, SQLAlchemy/Alembic и worker в `apps/studio-api`; PostgreSQL, Redis, FFmpeg; deployment files в `deploy/studio`, операции в `scripts`.
+- Пакеты: npm с `apps/studio/package-lock.json`; engines из `apps/studio/package.json`. Python CI 3.11, `requirements-dev.txt` + `constraints-dev.txt`, API requirements/constraints в `apps/studio-api`. Constraints фиксируют версии и не являются hash-integrity lock. Окружение и setup — [validation](docs/runbooks/validation.md).
+
 ## Быстрый старт и validation
 
 ```bash
@@ -37,22 +43,22 @@ npm run dev
 git diff --check
 ```
 
-На Windows portable suite всё ещё включает shell-dependent проверки; ограничения и фактические результаты последнего аудита указаны в delivery-plan и Project CI/CD profile.
+На Windows portable suite всё ещё включает shell-dependent проверки; ограничения и фактические результаты последнего аудита указаны в [delivery-plan](docs/delivery-plan.md) и [validation runbook](docs/runbooks/validation.md).
 
-Для локального API нужны отдельные тестовые PostgreSQL/Redis, migrations и synthetic configuration. Подготовка окружения и запуск `uvicorn studio_api.main:app` описаны в [validation runbook](docs/runbooks/validation.md) и [Project profile](docs/ci-cd-rules.md#102-команды-и-validation).
+Для локального API нужны отдельные тестовые PostgreSQL/Redis, migrations и synthetic configuration. Подготовка окружения и запуск `uvicorn studio_api.main:app` описаны в [validation runbook](docs/runbooks/validation.md).
 
-Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Studio production operations выполняются только по project CI/CD contract и operational runbook.
+Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Обычные проверки и поставка выполняются по [AGENTS](AGENTS.md), [validation](docs/runbooks/validation.md) и [Studio operations](docs/runbooks/studio-platform-ops.md).
 
 ## Canonical и operational документы
 
 | Документ | Назначение |
 |---|---|
-| [Upstream requirements](https://docs.google.com/document/d/1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI/edit?tab=t.0) | Обязательные согласованные требования владельца; декомпозиция находится в canonical spec. Требования сами по себе не разрешают implementation. |
+| [Источники требований](docs/project-spec.md#1-назначение-источники-и-область) | Согласованные источники, версии и трассировка; сами требования не разрешают implementation. |
 | [AGENTS.md](AGENTS.md) | Goal-driven repository router, execution kernel, authority и scope. |
 | [docs/project-spec.md](docs/project-spec.md) | Canonical product contract и индекс 56 эпиков; формулировки AC — в docs/spec/*.md. |
 | [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и checkpoint; полные реестры AC — в docs/delivery/*.md. |
 | [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Архив завершённой delivery history. |
-| [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | CI/CD, deployment, migration и runtime safety contract. |
+| [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | Настройка и исправление pipeline; не обязательное чтение для routine checks/merge/deploy. |
 | [docs/architecture.md](docs/architecture.md) | Logical/runtime architecture, data flow и state ownership. |
 | [docs/studio-processing-contract.md](docs/studio-processing-contract.md) | Детальные Studio processing invariants. |
 | [SECURITY.md](SECURITY.md) | Security reporting, safe research boundaries и authority routing. |
@@ -76,6 +82,6 @@ Dated audits фиксируют состояние на указанный revis
 
 - Source presence не равна production LIVE.
 - CI success не равен deployment success.
-- Готовность проекта — доля согласованных требований (AC), реализованных в коде; tests, CI/CD и runtime Evidence отражаются отдельно.
+- Готовность проекта — READY / все актуальные продуктовые и технические AC проверенного origin/main; READY подтверждают код и подходящие автоматические проверки. Результат поставки восстанавливается по первичным records.
 - Постоянный режим — Ad-hoc: пользователь использует проект и сообщает о багах, агент выполняет доступные проверки и исправления в разрешённой задаче. Плановой программы ручных тестов и отчётов пользователя по функциям нет.
 - Текущая готовность не копируется из archive — она пересчитывается по соответствию кода актуальным требованиям. Известный дефект возвращает затронутый AC в работу.
