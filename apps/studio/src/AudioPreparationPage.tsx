@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { api, mutateWithCsrfRetry } from "./apiClient";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import { audioSourceTitle } from "./audioOutputNaming";
 import {
   DirectUploadAmbiguousError,
@@ -22,6 +22,7 @@ import {
   type LocalAudioResult,
 } from "./localAudioProcessing";
 import * as googlePicker from "./googlePicker";
+import { googlePickerFailureMessage, googlePickerNeedsReconnect } from "./googlePickerErrors";
 import { isUsableJobSource, type Source } from "./sourceModel";
 
 type Project = { id: string; title: string };
@@ -171,7 +172,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [driveFolder, setDriveFolder] = useState<{ id: string; name: string } | null>(null);
   const [jobs, setJobs] = useState<AudioJob[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [errorState, setErrorState] = useState({ message: "", googleRecovery: false });
+  const error = errorState.message;
+  const setError = useCallback((message: string) => setErrorState({ message, googleRecovery: false }), []);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressView | null>(null);
   const [localProgress, setLocalProgress] = useState<LocalAudioProgress | null>(null);
   const [localResults, setLocalResults] = useState<LocalResultView[]>([]);
@@ -348,11 +351,24 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     return mutate<googlePicker.PickerSession>("/google/picker/session", { method: "POST" });
   }
 
+  async function openDrivePicker(mode: "sources" | "output-folder") {
+    const result = await googlePicker.openGooglePicker(mode, await pickerSession());
+    if (result.action === "error") throw new Error(result.message);
+    return result;
+  }
+
+  function reportDriveFailure(reason: unknown, fallback: string) {
+    setErrorState({
+      message: googlePickerFailureMessage(reason) ?? (reason instanceof Error && !(reason instanceof ApiError) ? reason.message : fallback),
+      googleRecovery: googlePickerNeedsReconnect(reason),
+    });
+  }
+
   async function addFromDrive() {
     if (!project || busy) return;
     setBusy(true); setError("");
     try {
-      const result = await googlePicker.openGooglePicker("sources", await pickerSession());
+      const result = await openDrivePicker("sources");
       if (result.action !== "picked" || result.docs.length === 0) return;
       const response = await mutate<{ sources: Source[] }>(`/projects/${project.id}/sources/google-picker`, {
         method: "POST", body: JSON.stringify({ file_ids: result.docs.map((doc) => doc.id) }),
@@ -363,19 +379,19 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
       setSourceMode("drive");
       setLocalFiles([]);
       setSelected((current) => [...new Set([...current, ...response.sources.map((source) => source.id)])]);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось добавить Google Drive файлы."); }
+    } catch (reason) { reportDriveFailure(reason, "Не удалось добавить Google Drive файлы."); }
     finally { setBusy(false); }
   }
 
   async function chooseOutputFolder() {
     setBusy(true); setError("");
     try {
-      const result = await googlePicker.openGooglePicker("output-folder", await pickerSession());
+      const result = await openDrivePicker("output-folder");
       if (result.action === "picked" && result.docs.length === 1) {
         setDriveFolder({ id: result.docs[0].id, name: result.docs[0].name || "Папка Google Drive" });
         setSaveToDrive(true);
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось выбрать папку Google Drive."); }
+    } catch (reason) { reportDriveFailure(reason, "Не удалось выбрать папку Google Drive."); }
     finally { setBusy(false); }
   }
 
@@ -572,7 +588,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     try {
       let folderId = job.output_folder?.id;
       if (!folderId) {
-        const selected = await googlePicker.openGooglePicker("output-folder", await pickerSession());
+        const selected = await openDrivePicker("output-folder");
         if (selected.action !== "picked" || selected.docs.length !== 1) return;
         folderId = selected.docs[0].id;
       }
@@ -580,8 +596,8 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         method: "POST", body: JSON.stringify({ folder_id: folderId }),
       }));
       setJobs((current) => current.map((item) => item.id === updated.id ? updated : item));
-    } catch {
-      setError("Не удалось начать сохранение в Google Drive. Проверьте подключение, доступ к папке и срок хранения файла, затем повторите.");
+    } catch (reason) {
+      reportDriveFailure(reason, "Не удалось начать сохранение в Google Drive. Проверьте подключение, доступ к папке и срок хранения файла, затем повторите.");
     } finally {
       setBusy(false);
     }
@@ -715,7 +731,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   return (
     <div className="audio-preparation-page">
       <section className="hero"><div><p className="eyebrow">ПОДГОТОВКА ЗАПИСИ</p><h1>Подготовка аудио</h1><p>Склейте записи, сократите длинные паузы, настройте каналы или просто сохраните исходные файлы в Google Drive.</p></div></section>
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && <div role="alert"><p className="error">{error}</p>{errorState.googleRecovery && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("studio:navigate-settings", { detail: { section: "connections" } }))}>Открыть настройки Google Drive</button>}</div>}
       <section className="card audio-preparation-card">
         <h2>1. Исходные файлы</h2>
         <div className="tabs audio-source-tabs" role="tablist" aria-label="Способ получения исходных файлов">

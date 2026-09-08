@@ -4122,6 +4122,52 @@ describe("Studio PWA", () => {
     expect(await screen.findByText(/Статус: revoked/)).toBeInTheDocument();
   });
 
+  it.each(["connect", "disconnect"])("guides Google %s through recent authentication and requires an explicit retry", async (operation) => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let reauthenticated = false;
+    let connected = true;
+    let mutationCount = 0;
+    const endpoint = operation === "connect" ? "/api/google/oauth/start" : "/api/google/connection";
+    const method = operation === "connect" ? "POST" : "DELETE";
+    const connection = () => googleConnectionFixture({ connected, status: connected ? "active" : "revoked", picker_configured: true, picker_scope_ready: connected, picker_ready: connected, reconnect_required: false });
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) return json(connection());
+      if (url === "/api/auth/security") return json({ totp_enabled: false, totp_enrollment_pending: false, recent_auth_expires_at: reauthenticated ? "2099-01-01T00:00:00Z" : null, password_reset_delivery: "disabled" });
+      if (url === "/api/auth/reauth" && init?.method === "POST") { reauthenticated = true; return json({ ok: true }); }
+      if (url === endpoint && init?.method === method) {
+        mutationCount += 1;
+        if (!reauthenticated) return json({ detail: { reason: "recent_reauthentication_required" } }, false, 409);
+        if (operation === "connect") return json(googleOauthStartFixture({}));
+        connected = false;
+        return json(connection());
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { value: { ...originalLocation, assign }, configurable: true });
+    renderApp();
+    await openSettingsSection("Подключения");
+    const action = operation === "connect" ? "Переподключить Google Drive" : "Отключить Google Drive";
+    await userEvent.click(await screen.findByRole("button", { name: action, exact: true }));
+    expect(await screen.findByText("Сначала подтвердите личность в разделе «Аккаунт», затем вернитесь в «Подключения» и повторите действие с Google Drive.")).toHaveAttribute("role", "alert");
+    expect(mutationCount).toBe(1);
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.queryByText("recent_reauthentication_required")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Подтвердить личность для Google Drive" }));
+    const security = screen.getByRole("region", { name: "Защита аккаунта" });
+    await userEvent.type(within(security).getByLabelText("Пароль"), "synthetic-test-password");
+    await userEvent.click(within(security).getByRole("button", { name: "Подтвердить личность", exact: true }));
+    await waitFor(() => expect(reauthenticated).toBe(true));
+    await openSettingsSection("Подключения");
+    expect(mutationCount).toBe(1);
+    await userEvent.click(await screen.findByRole("button", { name: action, exact: true }));
+    await waitFor(() => expect(mutationCount).toBe(2));
+    if (operation === "connect") expect(assign).toHaveBeenCalledTimes(1);
+    else expect(await screen.findByText("Google Drive отключён.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Подтвердить личность для Google Drive" })).not.toBeInTheDocument();
+  });
+
   it("bounds stalled Google connection reads and exposes an explicit retry", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();

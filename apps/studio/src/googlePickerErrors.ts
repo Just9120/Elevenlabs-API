@@ -33,3 +33,7 @@ export function googlePickerFailureMessage(error: unknown) {
   if (error.status === 429) return error.message;
   return null;
 }
+
+export function googlePickerNeedsReconnect(error: unknown): boolean {
+  return error instanceof ApiError && RECONNECT_REASONS.has(safeReason(error) ?? "");
+}
