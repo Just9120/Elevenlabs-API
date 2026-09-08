@@ -30,7 +30,7 @@
 | `PUX-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PUX-06` | READY | ✅ | ◐ | ✅ | V28-DELIVERY / PR #303 / web 3e65322: F22–F24 закрыты; PR/main CI PASS. Read-only LIVE подтверждает доступность интерфейса; destructive production scenario не выполнялся. Regression поведение проверено synthetic tests. |
+| `PUX-06` | READY | ✅ | ✅ | ◐ | V31-LOCAL / F30: Google reauthorization и recent-auth recovery реализованы; 747 Vitest PASS, включая 6 regression cases. Ветка codex/google-drive-recovery-ux, required remote CI/merge/web CD PENDING; реальный Google login выполняет владелец. |
 | `PUX-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |

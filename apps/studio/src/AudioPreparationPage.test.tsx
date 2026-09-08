@@ -46,6 +46,64 @@ function previewJob(id: string, title: string, sourceIds: string[]) {
 describe("AudioPreparationPage", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each(["source", "folder", "result"])("offers Google recovery after rejected authorization in the %s flow", async (flow) => {
+    const ready = { ...previewJob("ready", "Готовое аудио", []), status: "completed", progress: { percent: 100, stage: "completed" }, output: { download_ready: true, source_id: "out", google_drive_url: null } };
+    const picker = vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({ action: "cancel" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [ready] });
+      if (url.endsWith("/picker/session")) return new Response(JSON.stringify({ detail: "google_reauthorization_required" }), { status: 409 });
+      throw new Error(`Unexpected mutation: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Готовое аудио" });
+    if (flow === "folder") await userEvent.click(screen.getByRole("checkbox", { name: "Автоматически сохранить копию в Google Drive" }));
+    const label = flow === "source" ? "Выбрать файлы в Google Drive" : flow === "folder" ? "Выбрать папку" : "Сохранить в Google Drive";
+    await userEvent.click(screen.getByRole("button", { name: label, exact: true }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Переподключите Google Drive в настройках и повторите выбор.");
+    expect(screen.queryByText("google_reauthorization_required")).not.toBeInTheDocument();
+    expect(picker).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: label, exact: true })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Скачать файл" })).toBeVisible();
+    const navigate = vi.fn();
+    window.addEventListener("studio:navigate-settings", navigate);
+    await userEvent.click(screen.getByRole("button", { name: "Открыть настройки Google Drive" }));
+    expect(navigate.mock.calls[0][0].detail).toEqual({ section: "connections" });
+    window.removeEventListener("studio:navigate-settings", navigate);
+    await userEvent.click(screen.getByRole("checkbox", { name: "Автоматически сохранить копию в Google Drive" }));
+    if (flow !== "folder") await userEvent.click(screen.getByRole("checkbox", { name: "Автоматически сохранить копию в Google Drive" }));
+    expect(screen.getByRole("checkbox", { name: "Автоматически сохранить копию в Google Drive" })).not.toBeChecked();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/picker/session"))).toHaveLength(1);
+  });
+
+  it("reports dialog failure, keeps cancellation quiet and allows a later successful folder selection", async () => {
+    vi.spyOn(googlePicker, "openGooglePicker")
+      .mockResolvedValueOnce({ action: "error", message: "Не удалось загрузить Google Drive. Повторите попытку." })
+      .mockResolvedValueOnce({ action: "cancel" })
+      .mockResolvedValueOnce({ action: "picked", docs: [{ id: "folder", name: "Выбранная папка" }] });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      if (url.endsWith("/picker/session")) return json({ access_token: "synthetic", scope_ready: true });
+      throw new Error(url);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(screen.getByRole("checkbox", { name: "Автоматически сохранить копию в Google Drive" }));
+    const choose = screen.getByRole("button", { name: "Выбрать папку", exact: true });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await userEvent.click(choose);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось загрузить Google Drive. Повторите попытку.");
+    await userEvent.click(choose);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(choose);
+    expect(await screen.findByText("Выбранная папка")).toBeVisible();
+  });
+
   it("restores older pending previews and allows cancelling them to release their sources", async () => {
     const pending = { ...previewJob("older-preview", "Подготовка исходного файла", ["source-id"]), status: "preview_ready", progress: { percent: 100, stage: "preview_ready" } };
     const latest = { ...previewJob("latest-result", "Последний результат", []), status: "completed", progress: { percent: 100, stage: "completed" } };

@@ -1476,7 +1476,21 @@ type GoogleConnectionMutationNotice = {
   message: string;
   tone: "notice" | "error";
   refreshOnMount: boolean;
+  requiresReauth?: boolean;
 };
+
+function googleConnectionFailureNotice(kind: GoogleConnectionMutationKind, error: unknown, fallback: string): GoogleConnectionMutationNotice {
+  const requiresReauth = apiErrorDetailReason(error) === "recent_reauthentication_required";
+  return {
+    kind,
+    message: requiresReauth
+      ? "Сначала подтвердите личность в разделе «Аккаунт», затем вернитесь в «Подключения» и повторите действие с Google Drive."
+      : fallback,
+    tone: "error",
+    refreshOnMount: false,
+    requiresReauth,
+  };
+}
 function credentialMutationKey(
   operation: Pick<CredentialMutationOperation, "credentialId">,
 ) {
@@ -8261,13 +8275,8 @@ function SettingsPage({
       if (isAmbiguousGoogleConnectionMutationFailure(error)) {
         await reconcileAmbiguousStart();
       } else {
-        notice = {
-          kind: operation.kind,
-          message:
-            "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.",
-          tone: "error",
-          refreshOnMount: false,
-        };
+        notice = googleConnectionFailureNotice(operation.kind, error,
+          "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.");
       }
     } finally {
       finishGoogleConnectionMutation(operation, notice);
@@ -8330,12 +8339,8 @@ function SettingsPage({
       if (isAmbiguousGoogleConnectionMutationFailure(error)) {
         await reconcileAmbiguousDisconnect();
       } else {
-        notice = {
-          kind: operation.kind,
-          message: "Не удалось отключить Google Drive. Обновите статус и повторите.",
-          tone: "error",
-          refreshOnMount: false,
-        };
+        notice = googleConnectionFailureNotice(operation.kind, error,
+          "Не удалось отключить Google Drive. Обновите статус и повторите.");
       }
     } finally {
       finishGoogleConnectionMutation(operation, notice);
@@ -8868,17 +8873,16 @@ function SettingsPage({
                     Drive.
                   </div>
                 )}
-                {googleConnection.reconnect_required && (
-                  <button
-                    className="primary"
-                    type="button"
-                    disabled={googleConnectionMutation !== null}
-                    aria-busy={googleConnectionMutation !== null || undefined}
-                    onClick={connectGoogle}
-                  >
-                    Переподключить Google Drive
-                  </button>
-                )}
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={googleConnectionMutation !== null}
+                  aria-busy={googleConnectionMutation !== null || undefined}
+                  onClick={connectGoogle}
+                >
+                  Переподключить Google Drive
+                </button>
+                <p className="muted">Если Google требует повторного входа, переподключите аккаунт. Предварительно отключать его не нужно.</p>
               </>
             ) : googleConnection ? (
               <>
@@ -8934,6 +8938,9 @@ function SettingsPage({
               >
                 {googleConnectionMutationNotice.message}
               </p>
+            )}
+            {googleConnectionMutationNotice?.requiresReauth && (
+              <button type="button" onClick={() => onSectionChange("account")}>Подтвердить личность для Google Drive</button>
             )}
           </article>
           <details className="card technical-details">
