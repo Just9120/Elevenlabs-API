@@ -30,8 +30,8 @@
 | `PUX-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PUX-06` | READY | ✅ | ✅ | ◐ | V31-LOCAL / F30: Google reauthorization и recent-auth recovery реализованы; 747 Vitest PASS, включая 6 regression cases. Ветка codex/google-drive-recovery-ux, required remote CI/merge/web CD PENDING; реальный Google login выполняет владелец. |
-| `PUX-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PUX-06` | IN_PROGRESS | ◐ | ◐ | ✅ | V32-BROWSER / F32 на f9c47e3: local audio validation error находится вне viewport без focus/announcement. F30 Google recovery закрыт PR #307/CI/CD; это отдельный дефект feedback. |
+| `PUX-07` | IN_PROGRESS | ◐ | ◐ | ✅ | V32-BROWSER / F34 на f9c47e3: timestamp повторяется в default title и «Создана»; items одной группы неразличимы до раскрытия source name. |
 | `PUX-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -156,7 +156,7 @@
 | `AP-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-15` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `AP-17` | IN_PROGRESS | ◐ | ◐ | ✅ | V32-BROWSER / F31 на f9c47e3: local WAV processing/download PASS, но внутренний переход audio → overview → audio теряет результат в той же вкладке без предупреждения. Component state/unmount подтверждены source review. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |

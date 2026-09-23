@@ -2,6 +2,17 @@
 
 ## Current Goal и checkpoint
 
+**UX-BROWSER-AUDIT-20260924 / аудит, реализация не поручена.** Пользователь запросил автономный UX/Web/PWA аудит в текущем viewport. Проверены production web `f9c47e3a08249725de16453964ce9f7b77b95162`, API/worker `a56afb827e33dcc29d100c0efcdaa8a4819949c8`, schema `0037_ux_audit_controls`; identity прочитана в UI «Для поддержки». Время: 2026-09-24, около 00:00–00:20 MSK. Viewport 1280×720, авторизованная сессия, системная тёмная тема. Подробный отчёт остаётся вне repository.
+
+- Scope: обзор, аудио (выбор режимов; local WAV happy path, Drive и direct-link controls), Drive dialogs, batch composer/history/result/analytics, Live setup, maintenance access state, шесть вкладок settings, representative empty/loading/validation/success states, keyboard и геометрия. Платные STT/Live calls, OAuth changes, реальная очистка и запись пользовательских документов не выполнялись. Синтетический WAV обработан локально и скачан; тестовая вкладка закрыта, исходная вкладка сохранена.
+- Findings F31–F38 ниже. Реальные persistent пользовательские данные не менялись. Полный code/requirements audit не повторялся; browser inspection не доказывает offline/standalone/mobile/poor-network поведение. Эмуляция сети/install/standalone недоступна в данном browser tool. Уведомления в production показывают «Пока не настроено на сервере», расширенный Google Docs access — «отозван»; это ограничения доступных сценариев, а не доказательство дефекта реализации.
+- Docs branch `codex/ux-browser-audit-20260924`, base `f9c47e3a08249725de16453964ce9f7b77b95162`; fresh main, open PR нет, protected=false/rulesets пусты. Validation REQUIRED: diff/link/registry checks и self-review локально; CI / checks на актуальном PR head remote. Studio path checks и CD N/A для docs-only diff. Local diff/link/registry checks и self-review PASS 2026-09-24: 676 active AC, 353 READY; external Markdown links не добавлены. Remote CI / checks, PR и merge PENDING до initial push; исправление продукта не входит в scope.
+- Следующий предлагаемый bounded scope: F31–F33, F35–F36 — сохранность локального результата, видимая validation, геометрия forms, scroll/focus recovery. DoD предложения: targeted component/browser regressions и production safe smoke, существующие CI gates и web delivery. Non-goals: commercial, provider/OAuth policy, новый storage/export scope, переработка pipeline. Выбор и запуск implementation Goal остаются за владельцем.
+
+**GOOGLE-RECOVERY-UX-01 / DONE** восстановлено по primary records: PR #307 merged 2026-09-08T10:03:45Z в `f9c47e3`; CI 34212996656, Studio 34212996643 (studio/browser-e2e), web CD 34213417382 SUCCESS. F30 CLOSED в пределах UX recovery; фактическое восстановление Google grant не выводится из тестов. В текущем аудите folder listing/sorting/selection доступны. Ниже сохранён прежний pre-merge checkpoint, а не активная implementation Goal.
+
+### Предыдущий checkpoint GOOGLE-RECOVERY-UX-01
+
 **GOOGLE-RECOVERY-UX-01 / IN_PROGRESS.** Authorization: сообщение владельца 2026-09-08 о невозможности выбрать папку и переподключить Google Drive; продолжение исправления Google UX. Встроенная Goal активирована. Branch `codex/google-drive-recovery-ux`, base `dd401df01127e7914fadd1c44568c6bf9548204f`; main clean, open PR нет, protection=false/rulesets пусты.
 
 - Scope / F30 / PUX-06, связанные PC-07, PI-01, AP-23: actionable ошибки Picker session и самого dialog; явный переход к Google settings; доступное переподключение active connection; recent-auth ответ подключения/отключения ведёт к подтверждению личности. Ошибку/отмену не считать успешным выбором, повтор не выполнять автоматически.
@@ -90,28 +101,26 @@ Validation Plan выполнен: naming pure/service/processor/frontend; recove
 
 **Постоянное правило владельца, 2026-09-06:** при аудите и всех последующих пересчётах готовность всегда считается по соответствию реализации в коде согласованным требованиям. Режим **Ad-hoc**: владелец использует проект, обнаруженные баги попадают в backlog и исправляются в разрешённой задаче; плановой программы ручных тестов и отчётов пользователя по функциям нет. Отдельная приёмка и её процент отменены. Агент выполняет доступные автоматические и браузерные проверки. Источник — прямое сообщение «процент готовности при аудите и в дальнейшем всегда считается по коду исходя из требований» и уточнение режима Ad-hoc в текущем чате; opaque message ID не предоставлен. Формула и статусы — [AGENTS: требования и готовность](../AGENTS.md#требования-findings-и-готовность).
 
-Предыдущий snapshot — browser review 2026-09-06T13:10Z: **351/675 = 52,0% готовности** по реализованным AC.
+Предыдущий snapshot — проверенный main f9c47e3 после PR #307: **356/676 = 52,7%**, без commercial **356/435 = 81,8%**.
 
-Текущий snapshot — пересчёт по проверенному origin/main **3e65322e12ba3d1ac2bc9f3ec7ecc412a6e3090b**, 2026-09-07: **355/675 = 52,6%**. Продуктовые и технические AC учитываются наравне. Все 355 прежних IMPLEMENTED имеют CODE PASS и существующие подходящие subsystem tests (350 TEST PARTIAL, 5 TEST PASS); они соответствуют новому READY без новых runtime утверждений. Миграция названия статуса не меняет numerator, denominator или охват проверок. Полный повтор аудита не выполнялся; findings и ограничения tests сохранены. Незамерженные изменения этой docs Goal не добавляют реализации требований.
+Текущий пересчёт на том же проверенном origin/main `f9c47e3a08249725de16453964ce9f7b77b95162`, 2026-09-24: **353/676 = 52,2%**, без commercial **353/435 = 81,1%**. F31/F32/F34 переоткрывают AP-17/PUX-06/PUX-07; denominator не изменён. Это корректировка реестра по обнаруженным дефектам, не полный повторный code audit и не процент ручной приёмки. Незатронутое Evidence наследуется с прежними ограничениями; браузерная проверка не добавляет новые READY. Изменение проекта относительно предыдущего snapshot −0,4 п.п. (расчёт до округления). PWA-USER-EXPERIENCE-02 снижен на 15,4 п.п.: два из 13 AC переоткрыты по F32/F34; это найденные нарушения, не расширение scope.
 
-**USER-LIVE-01 / USER_FEEDBACK, 2026-09-06:** владелец сообщил об использовании проекта не менее двух недель и исправлении обнаруживаемых багов по факту. Это опыт реальной эксплуатации. Конкретные сообщения о дефектах связываются с AC и regression checks; период использования не заменяет проверку кода ещё не реализованных возможностей.
-
-Состав AC не менялся: 687 сохранённых ID минус 12 ALIAS/SUPERSEDED = 675. AP-11 и UXCTL-07 реализованы и поставлены по V27. Рост с предыдущего snapshot на 0,6 п.п. включает два исправленных дефекта и два критерия capture, пересмотренных по новому правилу. Audio preparation: 30/30; UX controls: 14/14; завершённая Goal: 2/2. Технические проверки и ограничения Evidence отражены отдельно и не образуют второй процент. COLAB-REALTIME изменился на +16,7 п.п. из-за удаления runtime-series gate у уже существующей реализации CR-06; это не новое улучшение capture в коде.
+Состав: 688 сохранённых ID минус 12 ALIAS/SUPERSEDED = 676. PG-09 уже добавлен и поставлен ранее по явному запросу. В текущем аудите новые требования не создавались. Режим Ad-hoc/dogfooding сохраняется, обязательной пользовательской приёмки нет.
 
 | Эпик / feature | Готовность по коду | Состояние |
 | --- | ---: | --- |
 | `COLAB-BATCH-01` | 24/24 (100.0%) | READY |
 | `COLAB-REALTIME-01` | 6/6 (100.0%) | READY |
 | `PWA-CORE-01` | 14/14 (100.0%) | READY |
-| `PWA-USER-EXPERIENCE-02` | 13/13 (100.0%) | READY |
+| `PWA-USER-EXPERIENCE-02` | 11/13 (84.6%) | IN_PROGRESS |
 | `PWA-UX-POLISH-03` | 7/7 (100.0%) | READY |
 | `PWA-UX-CONTROLS-04` | 14/14 (100.0%) | READY |
 | `PWA-TRANSCRIPTIONS-UX-01` | 4/4 (100.0%) | READY |
 | `PWA-INGEST-01` | 11/11 (100.0%) | READY |
-| `PWA-GOOGLE-PICKER-UX-01` | 8/8 (100.0%) | READY |
+| `PWA-GOOGLE-PICKER-UX-01` | 9/9 (100.0%) | READY |
 | `PWA-SEGMENTS-01` | 5/5 (100.0%) | READY |
 | `PWA-BATCH-01` | 10/11 (90.9%) | IN_PROGRESS |
-| `PWA-AUDIO-PREPARATION-01` | 30/30 (100.0%) | READY |
+| `PWA-AUDIO-PREPARATION-01` | 29/30 (96.7%) | IN_PROGRESS |
 | `PWA-SPEAKER-IDENTITY-01` | 5/5 (100.0%) | READY |
 | `PWA-MANIFEST-01` | 5/6 (83.3%) | IN_PROGRESS |
 | `PWA-STANDARDIZATION-01` | 14/14 (100.0%) | READY |
@@ -213,6 +222,27 @@ Validation Plan выполнен: naming pure/service/processor/frontend; recove
 CODE/TEST surfaces и значения по каждому AC — в реестрах ниже. У inherited PARTIAL ограничен охват runtime Evidence. Доступный browser проверен самим агентом; credentials/provider/privacy side effects остаются в соответствующих границах разрешённой задачи.
 
 ## Реестр findings и backlog
+
+### Browser UX findings, 2026-09-24
+
+Общее Evidence **V32-BROWSER / PARTIAL**: production identity и условия в текущем checkpoint; скриншоты/AX и DOM geometry текущей задачи. HIGH ниже означает воспроизведённый UX symptom, а не установленную причину во всех browsers. Прежние findings сохраняются; отсутствие старого дефекта в этом ограниченном аудите не закрывает его автоматически. Зависимость всех FIX — выбранная владельцем implementation Goal; новый product scope/AC не добавлен.
+
+| ID | Приоритет / Severity / область | Наблюдение и Evidence | Влияние / действие и критерий закрытия | Confidence |
+|---|---|---|---|---|
+| F31 | P1 / High / AP-17 | `/audio`: synthetic 4-sec WAV → local processing → готовый download → «Обзор» → обратно → local mode: результат и выбранный файл исчезли без предупреждения. Подсказка обещает сохранность до закрытия/reload вкладки. `apps/studio/src/AudioPreparationPage.tsx:180,202–205` хранит результаты в component state и отзывает URL при unmount. | FIX: сохранять результат при внутренней навигации в текущей вкладке либо явно предотвращать потерю несохранённого результата; согласовать текст с lifecycle. Regression: local output → внутренний переход/возврат → доступный файл; отдельно reload/close. AP-17 IN_PROGRESS. | HIGH: повторено двумя безопасными local runs; source подтверждает lifecycle |
+| F32 | P1 / High / PUX-06; related AP-22 | `/audio`: threshold `-`, submit local processing. Ошибка «введите число от −60 до −10 dB» появилась с rect.top ≈ −1049 px при высоте окна 720; экран остался у кнопки, поле не получило focus. Ошибка без role/live; некорректная обработка не началась. | FIX: inline error, aria-invalid/description, focus/scroll к первой ошибке и доступный summary. Сохранить рабочий ввод минуса/запятой и fail-closed bounds. PUX-06 IN_PROGRESS; AP-22 validation по существу работает. | HIGH: native UI action + DOM geometry |
+| F33 | P2 / Medium / forms layout | Batch composer: «Провайдер транскрибацииПровайдер»; имя документа, input и help в одной строке. Live receivers и dictionary form также сливают label/input/help. Diagnostics: selectors «Период»/«Формат» растягиваются на высоту колонки candidate list. Скриншоты 1280×720, `App.tsx`, `SttDictionariesPanel.tsx`, `LiveTranscriptionPanel.tsx`, styles. | FIX: единая вертикальная структура label/control/help, выравнивание grid по началу, стабильная высота controls. Проверить длинные подписи, populated candidate list и desktop/mobile component geometry. Мешает чтению и сопоставлению поля с подсказкой. | HIGH: несколько разных форм; конкретный CSS root cause ещё не установлен |
+| F34 | P2 / Medium / PUX-07; history discovery | Overview/history: default titles — только «Транскрибация от [дата/время]», та же дата повторена как «Создана»; исходное имя видно лишь после «Открыть». В группе несколько задач имеют одинаковые timestamp titles; видимых search/filter истории нет, есть progressive loading. | FIX: показывать meaningful source/output title в collapsed card, убрать duplicate timestamp, обеспечить различимость items. Поиск — рекомендация для выбора scope, не новый обязательный AC. PUX-07 IN_PROGRESS из-за duplicate metadata. | HIGH: populated history и раскрытый результат; вся историческая база не исследовалась |
+| F35 | P2 / Medium / navigation | Переход из прокрученного overview в audio, позднее diagnostics → audio, оставляет scroll ниже начала нового экрана; повторно observed scrollY≈490 и обрезанный hero/пропущенный source section. | FIX: при явной смене раздела показывать начало и переносить focus на heading; Back/Forward восстанавливают позицию отдельно. Проверить transitions между длинными/короткими страницами. | HIGH: два разных перехода |
+| F36 | P2 / Medium / keyboard, Drive dialog | Folder dialog: Escape и successful «Выбрать эту папку» закрывают modal, но activeElement=BODY, а не launcher. Навигация внутрь папки также теряет focus. Keyboard ArrowRight в settings tabs работает, видимый focus ring есть. | FIX: сохранять launcher до его disabled state, возвращать focus после close; при загрузке папки сохранять логичную позицию. Проверить keyboard-only enter/navigate/select/cancel. Не утверждается отсутствие trap в целом. | HIGH: оба close paths + DOM activeElement; код уже содержит restore, поэтому требуется исправить lifecycle, не добавить второй механизм |
+| F37 | P2 / Medium / diagnostics time | В 00:08 MSK 24.09 UI показывает период до 21:08 23.09, но candidates из тех же событий имеют 23:49 23.09, то есть позднее видимой границы. Account/security timestamps используют местное время. `App.tsx:9829` форматирует period через formatTime. | FIX/INVESTIGATE: единая трактовка timezone для period/events и явный timezone label; regression UTC boundary и переход даты. Пока не доказана потеря данных server filter/export, найдено несогласованное представление времени. | MEDIUM: расхождение видно, wire timestamps/export не анализировались |
+| F38 | P2 / Low / UX writing, diagnostics candidates | Default UI содержит «элементов мульти-транскрибации», `nominal`, `overage`, `invoices`, `credential data`; предлагаемые операции диагностики — `LEASE_HEARTBEAT_STARTED/STOPPED`, `OUTPUT_PERSISTED` вместо различимых задач. | REFACTOR: пользовательские термины в основном flow, понятные operation labels, technical codes под disclosure. Не удалять полезные предупреждения о цене/данных. Связанные PUX-03, UXPOL-07/08, UXCTL-12 требуют targeted review; неоднозначная область AC не переоткрывается автоматически. | HIGH для наблюдаемого текста; MEDIUM для влияния на разные группы пользователей |
+
+Quality review V32: важнейшие F31/F32 повторены или проверены геометрией; F33–F36 подтверждены несколькими состояниями. Не сделаны выводы о production cleanup, Google upload, OAuth reconnect, paid STT, offline/standalone и mobile: эти end-to-end состояния не проверены. Нет подтверждённых Critical defects в выполненном охвате. Empty notifications и revoked maintenance access не выданы за новый кодовый баг. В console проверенного тестового tab не зарегистрированы error/warn; это не performance/availability SLO. Автотесты кода не запускались и не расширялись в browser-only аудите. Required docs/CI gates фиксируются отдельно.
+
+Рабочая очередь UX: F31 → F32; затем общий forms/focus/scroll batch F33/F35/F36; далее F34; после проверки timestamps F37; F38 вместе с соответствующими экранами. Эти рекомендации не запускают реализацию. Product spec без новых требований; scope/denominator сохранены.
+
+### Прежний реестр
 
 Приоритет: P1 — существенный product/correctness/security/release gap, P2 — ограниченная функциональность или maintainability/validation gap. Повторная проверка source findings — `b8babc257abf7a33cda2df3c36c33570ee043108`, 2026-09-06 MSK. Короткие Python paths в findings относятся к `apps/studio-api/studio_api/`, frontend paths — к `apps/studio/src/`; root Colab, scripts и tests указаны отдельно в таблице surfaces. CODE paths относятся к этой revision; внешние settings — snapshot текущего аудита. Рекомендации REFACTOR/CONSOLIDATE/DOCUMENT/DEFER не являются разрешением на реализацию. Рекомендации не авторизуют исправления.
 
