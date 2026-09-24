@@ -4602,9 +4602,8 @@ function PreparationPanel({
         </div>
         <div className="provider-card">
           <div>
-            <span className="field-label">Провайдер транскрибации</span>
             <label className="profile-selector">
-              Провайдер
+              Провайдер транскрибации
               <select
                 aria-label="Провайдер транскрибации"
                 value={selectedProvider}
