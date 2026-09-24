@@ -5649,7 +5649,7 @@ function PreparationPanel({
         <div className="composer-footer">
           <div>
             <b>Задач: {rows.length}</b>
-            <span>Элементов мульти-транскрибации: {plannedJobCount}</span>
+            <span>Будет создано транскрибаций: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
             </span>

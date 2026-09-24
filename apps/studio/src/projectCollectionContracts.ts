@@ -459,6 +459,7 @@ function parseJob(
   const historyAttentionResolvedAt = candidate.history_attention_resolved_at;
   const historyAttentionResolution = candidate.history_attention_resolution;
   const historyAttentionLinkedJobId = candidate.history_attention_linked_job_id;
+  const sourceNames = candidate.source_names;
   const speakerIdentities = parseOptionalSpeakerIdentities(
     candidate.speaker_identities,
   );
@@ -495,6 +496,10 @@ function parseJob(
       historyAttentionLinkedJobId !== null &&
       !boundedString(historyAttentionLinkedJobId, 36)) ||
     !isNonNegativeInteger(candidate.source_count) ||
+    (sourceNames !== undefined &&
+      (!Array.isArray(sourceNames) ||
+        sourceNames.length > 3 ||
+        sourceNames.some((name) => !boundedString(name, 512)))) ||
     !isIsoDate(candidate.created_at) ||
     !isIsoDate(candidate.updated_at) ||
     !isNullableIsoDate(candidate.cancelled_at) ||
@@ -536,6 +541,7 @@ function parseJob(
         }
       : {}),
     source_count: candidate.source_count,
+    ...(sourceNames !== undefined ? { source_names: sourceNames as string[] } : {}),
     created_at: candidate.created_at,
     updated_at: candidate.updated_at,
     cancelled_at: candidate.cancelled_at,

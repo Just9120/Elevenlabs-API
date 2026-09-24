@@ -196,6 +196,16 @@ describe("project collection contracts", () => {
     expect(parsed?.[0]).not.toHaveProperty("sources");
   });
 
+  it("preserves bounded source names for history titles and rejects malformed names", () => {
+    const named = { ...job, title: null, source_names: ["Лекция 1.mp4"] };
+    expect(parseProjectJobCollection({ jobs: [named] }, "project-safe")?.[0].source_names)
+      .toEqual(["Лекция 1.mp4"]);
+    expect(parseProjectJobCollection({ jobs: [{ ...named, source_names: [" "] }] }, "project-safe"))
+      .toBeNull();
+    expect(parseProjectJobCollection({ jobs: [{ ...named, source_names: ["x".repeat(513)] }] }, "project-safe"))
+      .toBeNull();
+  });
+
   it("accepts only a boolean history-attention marker", () => {
     expect(
       parseProjectJobCollection(
