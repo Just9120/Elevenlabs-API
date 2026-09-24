@@ -62,6 +62,27 @@ describe("app-owned Google Drive picker", () => {
     vi.restoreAllMocks();
   });
 
+  it("returns keyboard focus to the launcher after choosing a folder", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith("/files/root")) return json(rootPayload());
+      if (url.pathname.endsWith("/drives")) return json({ drives: [] });
+      return json({ files: [] });
+    }));
+    const launcher = document.createElement("button");
+    launcher.textContent = "Выбрать папку";
+    document.body.appendChild(launcher);
+    launcher.focus();
+    try {
+      const { resultPromise } = await startPicker("output-folder", pickerSession(), { returnFocusTo: launcher });
+      await userEvent.click(await screen.findByRole("button", { name: "Выбрать эту папку" }));
+      expect((await resultPromise).action).toBe("picked");
+      await waitFor(() => expect(launcher).toHaveFocus());
+    } finally {
+      launcher.remove();
+    }
+  });
+
   it("sorts all pages through Drive and preserves folder/search context while discarding old tokens", async () => {
     const requests: URL[] = [];
     const folder = (id: string, name: string) => ({ id, name, mimeType: FOLDER_MIME_TYPE });

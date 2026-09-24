@@ -267,7 +267,7 @@ export function AccountSessionsPanel({
           <h3 id="active-sessions-title">Активные сессии</h3>
           <p className="muted">
             Показываются только время входа, последняя активность и срок
-            действия. Данные устройства, IP и credential data не собираются.
+            действия. Данные устройства, IP и учётные данные не собираются.
           </p>
         </div>
         <button

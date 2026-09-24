@@ -404,9 +404,9 @@ export function TranscriptionAnalyticsPanel({
               </div>
               <p className="muted analytics-footnote">
                 Сумма рассчитана по подтверждённой длительности, реально
-                отправленной в ElevenLabs, и сохранённому тарифу. Это nominal
-                оценка, а не счёт после подписки или квоты; фактические overage
-                и invoices показаны в Настройки → Подключения.
+                отправленной в ElevenLabs, и сохранённому тарифу. Это расчётная
+                стоимость, а не счёт после подписки или квоты; фактические расходы
+                сверх лимита и счета показаны в Настройки → Подключения.
               </p>
               {(analytics.usage_cost.uncertain_jobs > 0 ||
                 analytics.usage_cost.unavailable_jobs > 0) && (

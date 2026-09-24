@@ -6037,6 +6037,8 @@ def test_job_output_existing_job_payloads_remain_unchanged_after_outputs_exist()
         assert "outputs" not in response.json()
         assert "doc-output-compat" not in response.text
         assert "compat/edit" not in response.text
+    assert detail.json()["source_names"] == ["one.mp4"]
+    assert listed.json()["jobs"][0]["source_names"] == ["one.mp4"]
 
 
 def test_job_output_archived_project_matches_existing_job_detail_authority():

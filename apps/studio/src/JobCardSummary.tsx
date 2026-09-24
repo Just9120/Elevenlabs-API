@@ -18,7 +18,7 @@ export function JobCardSummary({ job }: { job: TranscriptionJob }) {
       <span>Статус: {jobСтатусLabel(job.status)}</span>
       {job.source_count > 1 && <span>Файлов: {job.source_count}</span>}
       {mediaClipLabel && <span>Часть созвона: {mediaClipLabel}</span>}
-      <span>Создана: {formatTime(job.created_at)}</span>
+      {(job.title?.trim() || job.source_names?.[0]?.trim()) && <span>Создана: {formatTime(job.created_at)}</span>}
       {job.output_folder && (
         <span>
           Папка результата: {job.output_folder.name || "Папка Google Drive"}

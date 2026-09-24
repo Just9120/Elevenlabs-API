@@ -539,6 +539,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       1,
       "transcript-folder",
       expect.objectContaining({ access_token: "private-access-token" }),
+      expect.objectContaining({ returnFocusTo: expect.any(HTMLButtonElement) }),
     );
     expect(standardization).toHaveTextContent(
       "Будут проверены Google Docs в ней и всех подпапках",
@@ -588,6 +589,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       2,
       "transcript-folder",
       expect.objectContaining({ access_token: "private-access-token" }),
+      expect.objectContaining({ returnFocusTo: expect.any(HTMLButtonElement) }),
     );
     await userEvent.click(
       within(catalog).getByRole("button", { name: "Проверить документы" }),
@@ -858,6 +860,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       1,
       "transcript-document",
       expect.objectContaining({ access_token: "private-access-token" }),
+      expect.objectContaining({ returnFocusTo: expect.any(HTMLButtonElement) }),
     );
     await userEvent.click(
       within(standardization).getByRole("button", {
@@ -883,6 +886,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       2,
       "transcript-document",
       expect.objectContaining({ access_token: "private-access-token" }),
+      expect.objectContaining({ returnFocusTo: expect.any(HTMLButtonElement) }),
     );
     await userEvent.click(
       within(catalog).getByRole("button", {

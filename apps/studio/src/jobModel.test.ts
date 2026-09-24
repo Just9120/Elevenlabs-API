@@ -80,6 +80,8 @@ describe("job model", () => {
 
   it("uses a trimmed explicit title and falls back to the creation time", () => {
     expect(jobTitle(job)).toBe("Интервью");
+    expect(jobTitle({ ...job, title: " ", source_names: ["Лекция 1.mp4", "Лекция 2.mp4"] }))
+      .toBe("Лекция 1.mp4");
     expect(jobTitle({ ...job, title: " " })).toBe(
       `Транскрибация от ${new Date(job.created_at).toLocaleString("ru-RU")}`,
     );

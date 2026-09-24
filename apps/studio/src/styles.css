@@ -2181,13 +2181,16 @@ code {
 }
 .diagnostics-bundle-fields {
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  align-items: start;
 }
 .diagnostics-bundle-fields label {
   display: grid;
   gap: 0.35rem;
   min-width: 0;
   font-weight: 700;
+  align-content: start;
 }
+.diagnostics-bundle-fields select { align-self: start; }
 .diagnostics-bundle-fields label:first-child {
   grid-column: 1 / -1;
 }
@@ -2366,6 +2369,17 @@ code {
 .provider-ready {
   display: block;
 }
+.provider-card .field-label { display: block; margin-bottom: 0.35rem; }
+.provider-card .profile-selector,
+.composer-row-grid > label,
+.realtime-consumers > label,
+.stack > label {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+  min-width: 0;
+}
+.stack { display: grid; gap: 0.75rem; align-items: start; }
 
 .provider-ready {
   color: var(--studio-success-text);

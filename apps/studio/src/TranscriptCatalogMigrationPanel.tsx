@@ -1021,6 +1021,7 @@ function MaintenanceOperationCard({
 
   async function chooseTarget() {
     if (!operationReady || busy || pickerActive.current || runInProgress) return;
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     pickerActive.current = true;
     setBusy("target-picker");
     setMessage("");
@@ -1030,6 +1031,7 @@ function MaintenanceOperationCard({
           ? "transcript-folder"
           : "transcript-document",
         await pickerSession(),
+        { returnFocusTo },
       );
       if (result.action === "cancel") return;
       if (result.action === "error") {

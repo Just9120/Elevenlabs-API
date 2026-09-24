@@ -168,6 +168,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [threshold, setThreshold] = useState("-45");
   const [minimum, setMinimum] = useState("1");
   const [keep, setKeep] = useState("0,3");
+  const [silenceError, setSilenceError] = useState<{ field: "threshold" | "minimum" | "keep"; message: string } | null>(null);
   const [saveToDrive, setSaveToDrive] = useState(false);
   const [driveFolder, setDriveFolder] = useState<{ id: string; name: string } | null>(null);
   const [jobs, setJobs] = useState<AudioJob[]>([]);
@@ -182,6 +183,10 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const localFileInput = useRef<HTMLInputElement>(null);
   const localAbort = useRef<AbortController | null>(null);
   const localResultUrls = useRef<string[]>([]);
+  const silenceDetailsRef = useRef<HTMLDetailsElement>(null);
+  const thresholdInput = useRef<HTMLInputElement>(null);
+  const minimumInput = useRef<HTMLInputElement>(null);
+  const keepInput = useRef<HTMLInputElement>(null);
 
   const usable = useMemo(() => sources.filter(isUsableJobSource), [sources]);
   const orderedSelected = useMemo(() => {
@@ -351,8 +356,8 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     return mutate<googlePicker.PickerSession>("/google/picker/session", { method: "POST" });
   }
 
-  async function openDrivePicker(mode: "sources" | "output-folder") {
-    const result = await googlePicker.openGooglePicker(mode, await pickerSession());
+  async function openDrivePicker(mode: "sources" | "output-folder", returnFocusTo?: HTMLElement | null) {
+    const result = await googlePicker.openGooglePicker(mode, await pickerSession(), { returnFocusTo });
     if (result.action === "error") throw new Error(result.message);
     return result;
   }
@@ -366,9 +371,10 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
 
   async function addFromDrive() {
     if (!project || busy) return;
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBusy(true); setError("");
     try {
-      const result = await openDrivePicker("sources");
+      const result = await openDrivePicker("sources", returnFocusTo);
       if (result.action !== "picked" || result.docs.length === 0) return;
       const response = await mutate<{ sources: Source[] }>(`/projects/${project.id}/sources/google-picker`, {
         method: "POST", body: JSON.stringify({ file_ids: result.docs.map((doc) => doc.id) }),
@@ -384,9 +390,10 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   }
 
   async function chooseOutputFolder() {
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBusy(true); setError("");
     try {
-      const result = await openDrivePicker("output-folder");
+      const result = await openDrivePicker("output-folder", returnFocusTo);
       if (result.action === "picked" && result.docs.length === 1) {
         setDriveFolder({ id: result.docs[0].id, name: result.docs[0].name || "Папка Google Drive" });
         setSaveToDrive(true);
@@ -562,33 +569,38 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   }
 
   function silenceValues() {
+    setSilenceError(null);
     if (!silenceEnabled) return { threshold: -45, minimum: 1, keep: 0.3 };
+    const reject = (field: "threshold" | "minimum" | "keep", message: string) => {
+      setSilenceError({ field, message });
+      if (silenceDetailsRef.current) silenceDetailsRef.current.open = true;
+      ({ threshold: thresholdInput, minimum: minimumInput, keep: keepInput })[field].current?.focus();
+      return null;
+    };
     const read = (text: string) => /^-?\d+(?:[,.]\d+)?$/.test(text.trim())
       ? Number(text.trim().replace(",", ".")) : NaN;
     const values = { threshold: read(threshold), minimum: read(minimum), keep: read(keep) };
     if (!Number.isFinite(values.threshold) || values.threshold < -60 || values.threshold > -10) {
-      setError("Что считать тишиной: введите число от −60 до −10 dB.");
-      return null;
+      return reject("threshold", "введите число от −60 до −10 dB.");
     }
     if (!Number.isFinite(values.minimum) || values.minimum < 0.2 || values.minimum > 10) {
-      setError("Минимальная пауза: введите число от 0,2 до 10 секунд.");
-      return null;
+      return reject("minimum", "Введите число от 0,2 до 10 секунд.");
     }
     if (!Number.isFinite(values.keep) || values.keep < 0 || values.keep > 5 || values.keep > values.minimum) {
-      setError("Оставляемая пауза: введите число от 0 до 5 секунд, не больше минимальной паузы.");
-      return null;
+      return reject("keep", "Введите число от 0 до 5 секунд, не больше минимальной паузы.");
     }
     return values;
   }
 
   async function saveResultToDrive(job: AudioJob) {
     if (busy || driveExportActive(job)) return;
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBusy(true);
     setError("");
     try {
       let folderId = job.output_folder?.id;
       if (!folderId) {
-        const selected = await openDrivePicker("output-folder");
+        const selected = await openDrivePicker("output-folder", returnFocusTo);
         if (selected.action !== "picked" || selected.docs.length !== 1) return;
         folderId = selected.docs[0].id;
       }
@@ -805,7 +817,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         </div>
         {format !== "copy" && <p className="muted">Для изменения каналов или пауз файл будет перекодирован в выбранный формат.</p>}
         <label className="audio-source-choice"><input type="checkbox" checked={silenceEnabled} onChange={(e) => applySilence(e.target.checked)} /><span>Уменьшить длинные паузы в аудио или видео</span></label>
-        {silenceEnabled && <details className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input type="text" inputMode="text" value={threshold} onChange={(e) => setThreshold(e.target.value.replaceAll(".", ","))} /><small>Порог от −60 до −10 dB.</small></label><label>Минимальная пауза, сек<input type="text" inputMode="decimal" value={minimum} onChange={(e) => setMinimum(e.target.value.replaceAll(".", ","))} /></label><label>Сколько паузы оставить, сек<input type="text" inputMode="decimal" value={keep} onChange={(e) => setKeep(e.target.value.replaceAll(".", ","))} /></label></div></details>}
+        {silenceEnabled && <details ref={silenceDetailsRef} className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input ref={thresholdInput} type="text" inputMode="text" value={threshold} aria-invalid={silenceError?.field === "threshold"} aria-describedby={silenceError?.field === "threshold" ? "audio-threshold-error" : undefined} onChange={(e) => { setThreshold(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} /><small>Порог от −60 до −10 dB.</small>{silenceError?.field === "threshold" && <small id="audio-threshold-error" className="error" role="alert">{silenceError.message}</small>}</label><label>Минимальная пауза, сек<input ref={minimumInput} type="text" inputMode="decimal" value={minimum} aria-invalid={silenceError?.field === "minimum"} aria-describedby={silenceError?.field === "minimum" ? "audio-minimum-error" : undefined} onChange={(e) => { setMinimum(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} />{silenceError?.field === "minimum" && <small id="audio-minimum-error" className="error" role="alert">{silenceError.message}</small>}</label><label>Сколько паузы оставить, сек<input ref={keepInput} type="text" inputMode="decimal" value={keep} aria-invalid={silenceError?.field === "keep"} aria-describedby={silenceError?.field === "keep" ? "audio-keep-error" : undefined} onChange={(e) => { setKeep(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} />{silenceError?.field === "keep" && <small id="audio-keep-error" className="error" role="alert">{silenceError.message}</small>}</label></div></details>}
         {processingPath === "studio" ? <fieldset className="audio-drive-save"><legend>Сохранение</legend><label><input type="checkbox" checked={saveToDrive} onChange={(e) => setSaveToDrive(e.target.checked)} /> Автоматически сохранить копию в Google Drive</label>{saveToDrive && <div className="actions"><button type="button" onClick={chooseOutputFolder} disabled={busy}>Выбрать папку</button>{driveFolder && <span>{driveFolder.name}</span>}</div>}<small>Скачать результат и передать его в транскрибацию можно будет после обработки независимо от этой настройки.</small></fieldset> : <p className="notice">Локальный результат останется в браузере до закрытия или перезагрузки вкладки. После обработки его можно скачать либо явно загрузить в Studio для Google Drive или транскрибации.</p>}
         {localProgress && <div className="upload-progress" aria-live="polite"><p><strong>{localProgress.stage === "decoding" ? "Декодируем" : localProgress.stage === "processing" ? "Обрабатываем" : localProgress.stage === "encoding" ? "Создаём WAV" : "Читаем файл"}</strong>{localProgress.filename ? `: ${localProgress.filename}` : ""}</p><progress aria-label="Прогресс локальной обработки" max="100" value={localProgress.percent}>{localProgress.percent}%</progress><small>{localProgress.percent}% · исходные файлы не отправляются в сеть</small><button type="button" onClick={() => localAbort.current?.abort()}>Отменить локальную обработку</button></div>}
         <button className="primary" type="button" disabled={busy || planCount === 0 || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
