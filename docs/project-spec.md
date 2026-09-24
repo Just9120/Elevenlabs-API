@@ -6,6 +6,8 @@ Canonical продуктовый контракт на русском языке
 
 Исходная декомпозиция выполнена в разрешённом AUDIT 2026-09-06. Правила workflow и оценки актуализированы по отдельному поручению владельца 2026-09-07. Product intent и стабильные AC сохранены; текущие полномочия и границы исполнения определяет [AGENTS](../AGENTS.md), а не исторический checkpoint.
 
+Последующее решение владельца 2026-09-24 о PWA update prompt зафиксировано в [source trace](spec/source-trace.md#последующие-решения-владельца) как `D20260924-PWA-UPDATE`; атомарные PC-15/PC-16 находятся в [Studio spec](spec/studio.md#эпик-pwa-core-01--application-shell-auth-и-integrations).
+
 Исходные требования (`Google Doc ID 1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI`) прочитаны через Google Drive; modifiedTime `2026-09-05T09:31:26.419Z`, Google revision `ANLCKQnVfm_EtgFLB0o55UiZZ4i8uq16A700xp0wG1GHyC3kk_gZAVlMlxSeBvaDLUdisiOWP9U8M987txWQoLV7tDmnJxNJh2ElGGTMG74`, один tab `t.0`. Повторное чтение текста/modifiedTime 2026-09-06 совпало с этим snapshot; revision ID/tab сохранены из прежней проверки. Нумерация `S001–S289` в source trace относится к 289 bullet paragraphs этой revision. Старые `R001–R275/N001–N008` относились к revision от 2026-08-27 и не применяются к новому порядку пунктов.
 
 При предыдущей декомпозиции 2026-09-05 стабильные 610 прежних AC сохранены; 77 недостающих проверяемых AC добавлены в пределах текущего intent. Изменены формулировки PB-06/PM-05 (независимый результат), PTM-01 (название workspace), CID-13/14 (облака по контурам); основание — S007/031/122/123/138/143/176. Это не реализация и не расширение прежней Goal. Детализация, явно не отменённая последующим решением, сохранена; отсутствие повтора старого AC в новом документе само по себе его не удаляет.

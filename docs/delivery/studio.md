@@ -20,6 +20,8 @@
 | `PC-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PC-15` | BACKLOG | ❌ | ❌ | ⏳ | Решение владельца 2026-09-24; ветка `codex/pwa-update-prompt-20260924`, проверки и PR PENDING. Текущий `autoUpdate` принудительно перезагружает UI. |
+| `PC-16` | BACKLOG | ❌ | ❌ | ⏳ | Решение владельца 2026-09-24; явный apply/defer и multi-tab regression PENDING. |
 
 ### `PWA-USER-EXPERIENCE-02`
 
@@ -31,7 +33,7 @@
 | `PUX-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-06` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: local audio validation раскрывает настройки, фокусирует неверное поле и показывает inline/ARIA error; Vitest 751/751, Studio CI и browser-e2e PASS, web/API CD 35962179284 PASS. |
-| `PUX-07` | IN_PROGRESS | ◐ | ◐ | ✅ | V32-BROWSER / F34 на f9c47e3: timestamp повторяется в default title и «Создана»; items одной группы неразличимы до раскрытия source name. |
+| `PUX-07` | READY | ✅ | ✅ | ✅ | PR #310 доставил `source_names`, PR #311 убрал второе отображение имени внутри группы; targeted/full Vitest 239/752 PASS, PR CI 35967620882/35967621016 и main CI 35967953699/35967953526 PASS. Web CD 35967953684, live web `02fc21d`: имя ровно один раз, номер элемента сохранён. |
 | `PUX-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
