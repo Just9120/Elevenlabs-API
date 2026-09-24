@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { jobTitle, type TranscriptionJob } from "./jobModel";
+import type { TranscriptionJob } from "./jobModel";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
@@ -56,7 +56,6 @@ export function MultiTranscriptionCard({
             <li key={job.id}>
               <div className="multi-transcription-item-heading">
                 <strong>Транскрибация {index + 1} из {jobs.length}</strong>
-                <span>{jobTitle(job)}</span>
               </div>
               {renderJob(
                 job,
