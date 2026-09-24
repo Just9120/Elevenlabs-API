@@ -3112,10 +3112,14 @@ describe("Studio PWA", () => {
     const multi = await screen.findByRole("article", {
       name: "Группа транскрибаций · 2",
     });
+    expect(within(multi).getByText("Транскрибация 1 из 2")).toBeInTheDocument();
+    expect(within(multi).getByText("Транскрибация 2 из 2")).toBeInTheDocument();
+    expect(within(multi).getAllByText("Первая запись")).toHaveLength(1);
+    expect(within(multi).getAllByText("Вторая запись")).toHaveLength(1);
     expect(
-      Array.from(
-        multi.querySelectorAll(".multi-transcription-item-heading span"),
-      ).map((element) => element.textContent),
+      within(multi)
+        .getAllByText(/^(Первая запись|Вторая запись)$/)
+        .map((element) => element.textContent),
     ).toEqual(["Первая запись", "Вторая запись"]);
     expect(within(multi).getByText("Завершено: 0 из 2"))
       .toBeInTheDocument();
