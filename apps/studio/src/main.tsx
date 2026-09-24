@@ -4,7 +4,9 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { RealtimeOverlay } from "./RealtimeOverlay";
 import { PwaErrorBoundary } from "./PwaErrorBoundary";
+import { PwaUpdateNotice } from "./PwaUpdateNotice";
 import { emitPwaServiceWorkerError, installPwaGlobalErrorHandlers } from "./pwaDiagnostics";
+import { installPwaReturnChecks, pwaUpdates } from "./pwaUpdates";
 import { initializeStudioTheme } from "./theme";
 
 let pwaRuntimeInitialized = false;
@@ -14,7 +16,15 @@ export function initializePwaRuntime(enableServiceWorker = import.meta.env.PROD 
   installPwaGlobalErrorHandlers();
   if (pwaRuntimeInitialized || !enableServiceWorker) return;
   pwaRuntimeInitialized = true;
-  registerSW({ immediate: true, onRegisterError: () => emitPwaServiceWorkerError() });
+  const updateSW = registerSW({
+    immediate: true,
+    onNeedRefresh: () => pwaUpdates.announceAvailable(),
+    onNeedReload: () => pwaUpdates.onControllerChange(),
+    onRegisteredSW: (_url, registration) => pwaUpdates.setRegistration(registration),
+    onRegisterError: () => emitPwaServiceWorkerError(),
+  });
+  pwaUpdates.setUpdateWorker(updateSW);
+  installPwaReturnChecks();
   navigator.serviceWorker?.addEventListener?.("messageerror", () => emitPwaServiceWorkerError());
 }
 
@@ -26,11 +36,8 @@ export function renderStudioApp() {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <PwaErrorBoundary>
-        {window.location.pathname === "/realtime-overlay" ? (
-          <RealtimeOverlay />
-        ) : (
-          <App />
-        )}
+        {window.location.pathname === "/realtime-overlay" ? <RealtimeOverlay /> : <App />}
+        <PwaUpdateNotice />
       </PwaErrorBoundary>
     </React.StrictMode>,
   );

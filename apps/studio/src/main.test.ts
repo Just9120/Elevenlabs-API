@@ -35,6 +35,12 @@ describe("service-worker diagnostics registration", () => {
     options.onRegisterError();
     expect(emit).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(registerSWMock.mock.calls)).not.toContain("synthetic-script-url");
+    expect(options).toEqual(expect.objectContaining({
+      immediate: true,
+      onNeedRefresh: expect.any(Function),
+      onNeedReload: expect.any(Function),
+      onRegisteredSW: expect.any(Function),
+    }));
   });
 
   it("messageerror emits without serializing message data and listener is not duplicated", async () => {
