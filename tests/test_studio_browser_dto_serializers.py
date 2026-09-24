@@ -37,6 +37,7 @@ JOB_KEYS = {
     "history_attention_resolution",
     "history_attention_linked_job_id",
     "source_count",
+    "source_names",
     "created_at",
     "updated_at",
     "cancelled_at",
@@ -126,6 +127,7 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     payload = job_payload(job)
 
     assert set(payload) == JOB_KEYS
+    assert payload["source_names"] == []
     assert "owner_user_id" not in payload
     assert "provider_credential_id" not in payload
     assert "lease_owner_id" not in payload

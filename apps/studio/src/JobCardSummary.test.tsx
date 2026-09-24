@@ -25,6 +25,12 @@ const job: TranscriptionJob = {
 };
 
 describe("JobCardSummary", () => {
+  it("shows the source filename as a title and the creation date only once", () => {
+    render(<JobCardSummary job={{ ...job, title: null, source_names: ["Лекция 1.mp4"] }} />);
+    expect(screen.getByText("Лекция 1.mp4")).toBeInTheDocument();
+    expect(screen.getAllByText(/Создана:/)).toHaveLength(1);
+  });
+
   it("renders job metadata and an approved result folder link", () => {
     render(<JobCardSummary job={job} />);
 

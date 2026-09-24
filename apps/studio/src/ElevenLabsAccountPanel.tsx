@@ -189,7 +189,7 @@ function AccountCard({
           )}
           {subscription.open_invoices.present && (
             <p className="notice" role="status">
-              Открытых invoices: {subscription.open_invoices.count}; к оплате{" "}
+              Открытых счетов: {subscription.open_invoices.count}; к оплате{" "}
               {formatMoneyCents(
                 subscription.open_invoices.total_due_cents,
                 subscription.open_invoices.currency,

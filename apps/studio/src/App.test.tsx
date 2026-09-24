@@ -3022,6 +3022,52 @@ describe("Studio PWA", () => {
     expect(window.location.pathname).toBe("/audio");
   });
 
+  it("keeps a finished browser-only WAV available across section navigation and opens the new section at its heading", async () => {
+    class FakeAudioContext {
+      async decodeAudioData() {
+        const channel = Float32Array.from([0.2, -0.2]);
+        return { length: 2, numberOfChannels: 1, sampleRate: 48_000, getChannelData: () => channel } as AudioBuffer;
+      }
+      async close() { return undefined; }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const createUrl = vi.fn(() => "blob:ux-audit-result");
+    const revokeUrl = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createUrl });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeUrl });
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 490 });
+    try {
+      renderApp();
+      await waitForPlatformOverview();
+      const navigation = screen.getByRole("navigation");
+      await userEvent.click(within(navigation).getByRole("button", { name: "Подготовка аудио" }));
+      const heading = await screen.findByRole("heading", { name: "Подготовка аудио" });
+      expect(heading).toHaveFocus();
+      expect(scrollTo).toHaveBeenCalledWith(0, 0);
+      await userEvent.click(screen.getByRole("tab", { name: "Обработать на устройстве" }));
+      const file = new File(["encoded"], "safe.wav", { type: "audio/wav" });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("encoded").buffer });
+      await userEvent.upload(screen.getByLabelText("Выбрать файлы для обработки на устройстве"), file);
+      await userEvent.click(screen.getByRole("button", { name: "Обработать на устройстве" }));
+      const download = await screen.findByRole("link", { name: "Скачать файл" });
+      expect(download).toHaveAttribute("href", "blob:ux-audit-result");
+      expect(createUrl).toHaveBeenCalledOnce();
+
+      await userEvent.click(within(navigation).getByRole("button", { name: "Обзор" }));
+      expect(screen.queryByRole("link", { name: "Скачать файл" })).not.toBeInTheDocument();
+      expect(revokeUrl).not.toHaveBeenCalled();
+      await userEvent.click(within(navigation).getByRole("button", { name: "Подготовка аудио" }));
+      expect(screen.getByRole("link", { name: "Скачать файл" })).toHaveAttribute("href", "blob:ux-audit-result");
+      expect(revokeUrl).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+      Reflect.deleteProperty(URL, "createObjectURL");
+      Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+  });
+
   it("renders one batch as one ordered multi-transcription with item controls", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -6658,6 +6704,7 @@ describe("Studio PWA", () => {
       "sources",
       expect.objectContaining({ scope_ready: true }),
       {
+        returnFocusTo: expect.any(HTMLButtonElement),
         sourceMimePolicy: {
           supported_mime_prefixes: ["audio/", "video/"],
           supported_mime_types: ["application/ogg"],
@@ -14623,9 +14670,9 @@ describe("settings diagnostics", () => {
     await userEvent.type(operationSearch, "job_cre");
     const matchingOperation = within(
       screen.getByRole("group", { name: "Подходящие недавние операции" }),
-    ).getByRole("button", { name: /JOB_CREATED/ });
+    ).getByRole("button", { name: /Задача транскрибации создана/ });
     await userEvent.click(matchingOperation);
-    expect((operationSearch as HTMLInputElement).value).toMatch(/JOB_CREATED/);
+    expect((operationSearch as HTMLInputElement).value).toMatch(/Задача транскрибации создана/);
     diagnosticsEventUrls.length = 0;
 
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");

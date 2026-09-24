@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import * as googlePicker from "./googlePicker";
+import { diagnosticsTimeZoneLabel, formatDiagnosticsTime } from "./diagnosticsTime";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
@@ -2585,6 +2586,7 @@ function PreparationPanel({
     return orderedSources;
   }
   async function chooseRowDriveSources(rowId: string) {
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const operation: GooglePickerOperation = {
       projectId: project.id,
       panelId: googlePickerPanelId,
@@ -2602,6 +2604,7 @@ function PreparationPanel({
     try {
       const session = await acquireGooglePickerSession();
       const result = await googlePicker.openGooglePicker("sources", session, {
+        returnFocusTo,
         sourceMimePolicy: sourceUploadPolicy
           ? {
               supported_mime_prefixes:
@@ -2689,6 +2692,7 @@ function PreparationPanel({
     }
   }
   async function chooseRowDriveFolder(rowId: string) {
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const operation: GooglePickerOperation = {
       projectId: project.id,
       panelId: googlePickerPanelId,
@@ -2708,6 +2712,7 @@ function PreparationPanel({
       const result = await googlePicker.openGooglePicker(
         "source-folder",
         session,
+        { returnFocusTo },
       );
       if (result.action === "cancel") {
         const message = "Выбор папки отменён.";
@@ -3242,6 +3247,7 @@ function PreparationPanel({
   }
   async function chooseRowFolder(rowId: string, segmentId?: string) {
     if (!driveSourcePickerEnabled || rowFolderPickerRef.current) return;
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const operation: GooglePickerOperation = {
       projectId: project.id,
       panelId: googlePickerPanelId,
@@ -3257,6 +3263,7 @@ function PreparationPanel({
       const result = await googlePicker.openGooglePicker(
         "output-folder",
         session,
+        { returnFocusTo },
       );
       if (result.action === "cancel") {
         outcome = { message: "Выбор папки отменён.", tone: "notice" };
@@ -4575,7 +4582,7 @@ function PreparationPanel({
           <div>
             <h2>Подготовка задач</h2>
             <p className="muted">
-              Одна задача создаёт один элемент мульти-транскрибации: один файл
+              Одна задача создаёт одну транскрибацию: один файл
               или фрагмент → один документ в выбранной папке.
             </p>
           </div>
@@ -9448,19 +9455,17 @@ function DiagnosticsSettings({
   const operationSearch = reportContext.operationReference
     .trim()
     .toLocaleLowerCase("ru-RU");
-  const operationSuggestions = Array.from(
-    new Set(
-      timeline.map(
-        (event) =>
-          `${diagnosticsComponentLabel(event.component)} · ${event.event_code} · ${formatTime(event.occurred_at)}`,
-      ),
-    ),
-  )
+  const operationSuggestions = timeline.map((event) => ({
+    label: `${diagnosticEventPresentation(event).title} · ${diagnosticsComponentLabel(event.component)} · ${formatDiagnosticsTime(event.occurred_at)}`,
+    code: event.event_code,
+  }))
     .filter(
-      (label) =>
+      ({ label, code }) =>
         !operationSearch ||
-        label.toLocaleLowerCase("ru-RU").includes(operationSearch),
+        label.toLocaleLowerCase("ru-RU").includes(operationSearch) ||
+        code.toLocaleLowerCase("ru-RU").includes(operationSearch),
     )
+    .filter((suggestion, index, all) => all.findIndex((item) => item.label === suggestion.label) === index)
     .slice(0, 5);
   const priorityTimeline = timeline.filter(
     (event) => event.level === "ERROR" || event.level === "WARNING",
@@ -9480,7 +9485,7 @@ function DiagnosticsSettings({
             <span>·</span>
             <span>{diagnosticsComponentLabel(event.component)}</span>
             <span>·</span>
-            <time dateTime={event.occurred_at}>{formatTime(event.occurred_at)}</time>
+            <time dateTime={event.occurred_at}>{formatDiagnosticsTime(event.occurred_at)}</time>
             <span>·</span>
             <span>повторов: {event.occurrence_count ?? 1}</span>
           </summary>
@@ -9703,7 +9708,7 @@ function DiagnosticsSettings({
                 role="group"
                 aria-label="Подходящие недавние операции"
               >
-                {operationSuggestions.map((label) => (
+                {operationSuggestions.map(({ label }) => (
                   <button
                     key={label}
                     type="button"
@@ -9826,7 +9831,7 @@ function DiagnosticsSettings({
         </form>
         {period && (
           <p className="muted">
-            Период: {formatTime(period.start)} — {formatTime(period.end)}
+            Период: {formatDiagnosticsTime(period.start)} — {formatDiagnosticsTime(period.end)} ({diagnosticsTimeZoneLabel()})
           </p>
         )}
         {eventsState === "loading" && timeline.length === 0 && (
@@ -10035,6 +10040,9 @@ function PlatformShell() {
   const [requestedTranscriptionMode, setRequestedTranscriptionMode] =
     useState<"maintenance" | null>(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
+  const [audioOpened, setAudioOpened] = useState(page === "audio");
+  const focusNextPageRef = useRef(false);
+  const scrollNextPageRef = useRef(false);
   const credentialMutationGenerationRef = useRef(0);
   const activeCredentialMutationsRef = useRef(
     new Map<string, CredentialMutationOperation>(),
@@ -10191,6 +10199,9 @@ function PlatformShell() {
     nextSettingsSection: SettingsSection = "account",
   ) => {
     if (nextPage === "projects") setProjectsOpened(true);
+    if (nextPage === "audio") setAudioOpened(true);
+    scrollNextPageRef.current = true;
+    focusNextPageRef.current = nextPage !== page;
     const nextRoute = {
       page: nextPage,
       settingsSection:
@@ -10240,6 +10251,19 @@ function PlatformShell() {
   useEffect(() => {
     if (page === "projects") setProjectsOpened(true);
   }, [page]);
+  useEffect(() => {
+    if (!scrollNextPageRef.current) return;
+    scrollNextPageRef.current = false;
+    if (window.scrollY !== 0) window.scrollTo(0, 0);
+    if (!focusNextPageRef.current) return;
+    focusNextPageRef.current = false;
+    const heading = Array.from(document.querySelectorAll<HTMLElement>("main h1, main h2"))
+      .find((element) => !element.closest("[hidden]"));
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+  }, [page, settingsSection]);
   const [session, setSession] = useState<SessionBootstrapState>({
     status: "checking",
     user: null,
@@ -10468,14 +10492,16 @@ function PlatformShell() {
             />
           </div>
         )}
-        {page === "audio" && (
-          <AudioPreparationPage
+        {audioOpened && (
+          <div hidden={page !== "audio"}>
+            <AudioPreparationPage
             csrf={csrf}
             onCsrf={(token) => {
               setSession((current) => ({ ...current, csrf: token }));
               updatePwaDiagnosticsCsrf(token);
             }}
-          />
+            />
+          </div>
         )}
         {page === "settings" && (
           <SettingsPage

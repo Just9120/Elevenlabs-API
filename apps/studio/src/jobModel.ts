@@ -99,6 +99,7 @@ export type TranscriptionJob = {
   project_id: string;
   status: JobСтатус;
   title: string | null;
+  source_names?: string[];
   provider: string | null;
   language_mode?: TranscriptionLanguageMode | null;
   diarization_enabled?: boolean;
@@ -133,8 +134,11 @@ export type JobState = {
   nextCursor: string | null;
 };
 
-export function jobTitle(job: Pick<TranscriptionJob, "title" | "created_at">) {
-  return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
+export function jobTitle(job: Pick<TranscriptionJob, "title" | "created_at"> & Partial<Pick<TranscriptionJob, "source_names" | "source_count">>) {
+  if (job.title?.trim()) return job.title.trim();
+  const firstSource = job.source_names?.[0]?.trim();
+  if (firstSource) return firstSource;
+  return `Транскрибация от ${formatTime(job.created_at)}`;
 }
 
 export function jobMediaClipLabel(job: TranscriptionJob) {

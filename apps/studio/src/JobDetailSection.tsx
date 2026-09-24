@@ -74,8 +74,8 @@ function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost }) {
       </span>
       {incompleteMessage && <p className="notice">{incompleteMessage}</p>}
       <p className="muted">
-        Это nominal оценка по подтверждённой длительности и сохранённому тарифу,
-        а не фактическое списание. Account-level остаток, overage и invoices
+        Это расчётная стоимость по подтверждённой длительности и сохранённому тарифу,
+        а не фактическое списание. Остаток на счёте, расходы сверх лимита и счета
         показаны отдельно в Настройки → Подключения.
       </p>
       {usageCost.rate_snapshot && (

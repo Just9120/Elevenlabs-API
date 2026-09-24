@@ -24,6 +24,7 @@ export type PickerSession = {
 };
 export type PickerOptions = {
   sourceMimePolicy?: DriveSourceMimePolicy;
+  returnFocusTo?: HTMLElement | null;
 };
 
 type PickerCallback = (data: unknown) => void;
@@ -196,7 +197,7 @@ export async function openGooglePicker(
     mode === "transcript-folder" ||
     mode === "transcript-document"
   ) {
-    return openGoogleDrivePicker(mode, session, options.sourceMimePolicy);
+    return openGoogleDrivePicker(mode, session, options.sourceMimePolicy, options.returnFocusTo);
   }
   const folderMode =
     mode === "catalog-folder";

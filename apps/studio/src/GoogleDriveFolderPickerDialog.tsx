@@ -456,6 +456,7 @@ function GoogleDrivePickerDialog({
   mode,
   accessToken,
   sourceMimePolicy,
+  returnFocusTo,
   onSelect,
   onCancel,
   onFatalError,
@@ -463,6 +464,7 @@ function GoogleDrivePickerDialog({
   mode: AppOwnedDrivePickerMode;
   accessToken: string;
   sourceMimePolicy?: DriveSourceMimePolicy;
+  returnFocusTo?: HTMLElement | null;
   onSelect: (items: DriveItem[]) => void;
   onCancel: () => void;
   onFatalError: () => void;
@@ -502,10 +504,10 @@ function GoogleDrivePickerDialog({
   const [searchError, setSearchError] = useState("");
 
   useEffect(() => {
-    returnFocusRef.current =
+    returnFocusRef.current = returnFocusTo ?? (
       document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
     cancelRef.current?.focus();
     const controller = new AbortController();
     requestRef.current = controller;
@@ -571,9 +573,9 @@ function GoogleDrivePickerDialog({
     return () => {
       controller.abort();
       const target = returnFocusRef.current;
-      if (target?.isConnected) target.focus();
+      if (target?.isConnected && !target.matches(":disabled")) target.focus();
     };
-  }, [accessToken, mode, onFatalError, policy]);
+  }, [accessToken, mode, onFatalError, policy, returnFocusTo]);
 
   const visitFolder = (folder: DriveItem, nextPath: DriveItem[]) => {
     requestRef.current?.abort();
@@ -589,6 +591,9 @@ function GoogleDrivePickerDialog({
     setBrowsePage(EMPTY_PAGE);
     setError("");
     setLoading(true);
+    window.requestAnimationFrame(() => {
+      dialogRef.current?.querySelector<HTMLButtonElement>(".google-drive-folder-breadcrumbs button:last-child")?.focus();
+    });
     void loadItemPage({
       parent: folder,
       mode,
@@ -1157,6 +1162,7 @@ export function openGoogleDrivePicker(
   mode: AppOwnedDrivePickerMode,
   session: PickerSession,
   sourceMimePolicy?: DriveSourceMimePolicy,
+  returnFocusTo?: HTMLElement | null,
 ): Promise<PickerResult> {
   let token = session.access_token;
   session.access_token = "";
@@ -1185,6 +1191,11 @@ export function openGoogleDrivePicker(
         releaseDocumentScroll();
         token = "";
         resolve(result);
+        if (returnFocusTo) {
+          window.setTimeout(() => {
+            if (returnFocusTo.isConnected && !returnFocusTo.matches(":disabled")) returnFocusTo.focus();
+          }, 0);
+        }
       });
     };
     const timeout = window.setTimeout(
@@ -1200,6 +1211,7 @@ export function openGoogleDrivePicker(
         mode={mode}
         accessToken={token}
         sourceMimePolicy={sourceMimePolicy}
+        returnFocusTo={returnFocusTo}
         onSelect={(items) =>
           finish({
             action: "picked",

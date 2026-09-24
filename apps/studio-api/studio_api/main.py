@@ -1254,6 +1254,7 @@ def job_payload(job: TranscriptionJob, include_sources=False):
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
     attention_resolved_at=getattr(job,"history_attention_resolved_at",None)
     payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "operating_mode": getattr(job,"operating_mode","standard"), "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "history_attention_resolved_at": attention_resolved_at.isoformat() if attention_resolved_at else None, "history_attention_resolution": getattr(job,"history_attention_resolution",None), "history_attention_linked_job_id": getattr(job,"history_attention_linked_job_id",None), "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job), "speaker_identities": [job_speaker_payload(row) for row in sorted(getattr(job, "speakers", ()), key=lambda row: row.display_ordinal)], "usage_cost": job_usage_cost_payload(job)}
+    payload["source_names"]=[entry.source.original_filename for entry in sorted(job.sources, key=lambda item: item.position)[:3]]
     batch=browser_batch_reference(job)
     if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
@@ -3283,7 +3284,7 @@ def list_project_jobs(
     except CollectionCursorError:
         raise HTTPException(422, "Invalid jobs cursor") from None
     attention_required=history_attention_required_expression()
-    query=db.query(TranscriptionJob).options(selectinload(TranscriptionJob.speakers)).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
+    query=db.query(TranscriptionJob).options(selectinload(TranscriptionJob.speakers), selectinload(TranscriptionJob.sources).selectinload(TranscriptionJobSource.source)).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
     if p.history_reset_at is not None:
         query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at, attention_required))
     if position:
