@@ -6245,6 +6245,7 @@ describe("Studio PWA", () => {
                 provider: null,
                 provider_credential_id: "cred-active",
                 source_count: 1,
+                source_names: ["Лекция 1.mp4"],
                 created_at: "2026-07-03T00:00:00Z",
                 updated_at: "2026-07-03T00:01:00Z",
                 cancelled_at: null,
@@ -6462,8 +6463,9 @@ describe("Studio PWA", () => {
     expect(
       screen.getByLabelText("Готовность задач подготовки"),
     ).toHaveTextContent("Готово: 0 из 1");
+    expect(screen.getByText("Будет создано транскрибаций: 1")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("worker/provider");
-    expect(screen.getByText(/Транскрибация от/)).toBeInTheDocument();
+    expect(screen.getByText("Лекция 1.mp4")).toBeInTheDocument();
     expect(screen.getByText("Статус: В очереди")).toBeInTheDocument();
     expect(screen.getByText("Статус: Ошибка")).toBeInTheDocument();
     expect(screen.getByText("Статус: Обрабатывается")).toBeInTheDocument();

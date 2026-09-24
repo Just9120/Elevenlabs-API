@@ -2369,9 +2369,10 @@ code {
 .provider-ready {
   display: block;
 }
-.provider-card .field-label { display: block; margin-bottom: 0.35rem; }
 .provider-card .profile-selector,
 .composer-row-grid > label,
+.composer-document-title,
+.row-source-cell > label,
 .realtime-consumers > label,
 .stack > label {
   display: grid;

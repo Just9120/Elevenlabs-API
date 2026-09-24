@@ -4602,9 +4602,8 @@ function PreparationPanel({
         </div>
         <div className="provider-card">
           <div>
-            <span className="field-label">Провайдер транскрибации</span>
             <label className="profile-selector">
-              Провайдер
+              Провайдер транскрибации
               <select
                 aria-label="Провайдер транскрибации"
                 value={selectedProvider}
@@ -5649,7 +5648,7 @@ function PreparationPanel({
         <div className="composer-footer">
           <div>
             <b>Задач: {rows.length}</b>
-            <span>Элементов мульти-транскрибации: {plannedJobCount}</span>
+            <span>Будет создано транскрибаций: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
             </span>
