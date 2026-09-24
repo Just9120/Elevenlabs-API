@@ -12,7 +12,7 @@ export default defineConfig({
     react(),
     VitePWA({
       strategies: 'generateSW',
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       manifest: false,
       includeAssets: ['icons/icon.svg', 'manifest.webmanifest', 'push-handler.js'],
       workbox: {

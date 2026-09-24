@@ -622,6 +622,28 @@ code {
   padding: 1rem;
   border-radius: 14px;
 }
+.pwa-update-notice {
+  position: fixed;
+  z-index: 900;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  width: min(26rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+}
+.pwa-update-notice p {
+  margin: 0.6rem 0;
+}
+.pwa-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+@media (max-width: 390px) {
+  .pwa-update-actions button {
+    flex: 1 1 100%;
+  }
+}
 .error {
   color: var(--studio-error);
   font-weight: 700;
