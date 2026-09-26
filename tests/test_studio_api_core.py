@@ -6784,6 +6784,7 @@ def _add_batch_provider_attempt(
     retry_disposition="undetermined",
     language="ru",
     diarization_enabled=True,
+    document_creation_started=False,
 ):
     db = SessionLocal()
     try:
@@ -6836,6 +6837,22 @@ def _add_batch_provider_attempt(
                 updated_at=now,
             )
         )
+        if document_creation_started:
+            db.add(
+                TranscriptionOutputReconciliation(
+                    owner_user_id=user_id,
+                    project_id=project_id,
+                    job_id=job.id,
+                    job_source_id=rel.id,
+                    reconciliation_token=str(uuid.uuid4()),
+                    lease_generation=1,
+                    attempt_number=1,
+                    status=OutputReconciliationStatus.reconciliation_required,
+                    expected_output_drive_folder_id="synthetic-folder",
+                    expected_document_character_count=1,
+                    creation_started_at=now,
+                )
+            )
         db.commit()
         return job.id
     finally:
@@ -7304,7 +7321,7 @@ def test_batch_preflight_and_create_enforce_linked_catalog_authority(
         ),
         (
             "failed",
-            "provider_outcome_uncertain",
+            "output_reconciliation_required",
             "equivalent_provider_outcome_unresolved",
         ),
     ],
@@ -7431,7 +7448,7 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
         source_b,
         cred_id,
         status="failed",
-        retry_disposition="provider_result_lost",
+        retry_disposition="output_reconciliation_required",
     )
 
     reselected_preview = c.post(
@@ -7453,10 +7470,38 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
     assert own_job_id not in reselected_preview.text
 
 
+def test_batch_preflight_blocks_failed_attempt_if_document_creation_started(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-document-uncertain@example.com"
+    )
+    _add_batch_provider_attempt(
+        user_id,
+        pid,
+        source_a,
+        cred_id,
+        status="failed",
+        retry_disposition="provider_result_lost",
+        document_creation_started=True,
+    )
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=_batch_body(source_a, credential_id=cred_id),
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["items"][0]["provider_attempt_authority"] == {
+        "status": "blocked",
+        "reason_code": "equivalent_provider_outcome_unresolved",
+    }
+
+
 @pytest.mark.parametrize(
     "status,retry_disposition,language",
     [
         ("failed", "retry_safe", "ru"),
+        ("failed", "provider_outcome_uncertain", "ru"),
+        ("failed", "provider_result_lost", "ru"),
         ("processing", "undetermined", "detect"),
     ],
 )
@@ -7521,7 +7566,7 @@ def test_batch_provider_authority_conflict_keeps_mixed_batch_atomic(
         source_b,
         cred_id,
         status="failed",
-        retry_disposition="provider_result_lost",
+        retry_disposition="output_reconciliation_required",
     )
     body = _batch_body(
         source_a,

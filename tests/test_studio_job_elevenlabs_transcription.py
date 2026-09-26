@@ -722,8 +722,8 @@ def test_competing_provider_attempt_with_different_settings_does_not_block(
 @pytest.mark.parametrize(
     "retry_disposition,blocked",
     [
-        ("provider_outcome_uncertain", True),
-        ("provider_result_lost", True),
+        ("provider_outcome_uncertain", False),
+        ("provider_result_lost", False),
         ("output_reconciliation_required", True),
         ("retry_safe", False),
     ],

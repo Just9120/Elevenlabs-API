@@ -77,6 +77,7 @@ class ProviderAttemptEvidence:
     job_status: str
     retry_disposition: str
     accepted_output_persisted: bool = False
+    document_creation_started: bool = False
 
 
 def current_effective_settings(
@@ -660,6 +661,7 @@ def load_provider_attempt_authorities(
         TranscriptionJobOutput,
         TranscriptionJobSource,
         TranscriptionJobSourceAttempt,
+        TranscriptionOutputReconciliation,
     )
 
     source_rows = tuple(sources)
@@ -707,6 +709,7 @@ def load_provider_attempt_authorities(
             TranscriptionJob.status,
             TranscriptionJobSourceAttempt.retry_disposition,
             func.count(TranscriptionJobOutput.id),
+            func.max(TranscriptionOutputReconciliation.creation_started_at),
         )
         .select_from(Source)
         .join(
@@ -733,6 +736,11 @@ def load_provider_attempt_authorities(
                 TranscriptionJobOutput.output_kind
                 == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
             ),
+        )
+        .outerjoin(
+            TranscriptionOutputReconciliation,
+            TranscriptionOutputReconciliation.job_source_id
+            == TranscriptionJobSource.id,
         )
         .join(Project, Project.id == Source.project_id)
         .outerjoin(
@@ -793,6 +801,7 @@ def load_provider_attempt_authorities(
             job_status=_enum_value(job_status),
             retry_disposition=_enum_value(retry_disposition),
             accepted_output_persisted=bool(output_count),
+            document_creation_started=document_creation_started_at is not None,
         )
         for (
             source_id,
@@ -808,6 +817,7 @@ def load_provider_attempt_authorities(
             job_status,
             retry_disposition,
             output_count,
+            document_creation_started_at,
         ) in query_rows
         if catalog_source_identity(
             _SourceIdentityProjection(source_id, source_type, drive_file_id)
@@ -844,8 +854,10 @@ def classify_provider_attempt_authorities(
             and (row.settings is None or row.settings == target_settings)
         )
         # A persisted output closes this source attempt even while a multi-source
-        # parent job is still processing other sources. A merely "completed"
-        # disposition without required output evidence remains fail closed.
+        # parent job is still processing other sources. A terminal provider
+        # failure before Google Docs creation is not a transcript document and
+        # must not prevent the owner from starting a new job. The original job
+        # remains non-retryable: this only governs a separately created job.
         open_attempts = tuple(
             row
             for row in relevant
@@ -857,7 +869,14 @@ def classify_provider_attempt_authorities(
         if any(row.job_status == "processing" for row in open_attempts):
             status = ProviderAttemptAuthorityStatus.in_flight
         elif any(
-            row.retry_disposition != "retry_safe" for row in open_attempts
+            row.document_creation_started
+            or row.retry_disposition
+            not in {
+                "retry_safe",
+                "provider_outcome_uncertain",
+                "provider_result_lost",
+            }
+            for row in open_attempts
         ):
             status = ProviderAttemptAuthorityStatus.unresolved
         else:
