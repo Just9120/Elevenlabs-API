@@ -769,6 +769,32 @@ def test_failed_provider_attempt_blocks_only_while_outcome_is_unresolved(
         assert len(transport.calls) == 1
 
 
+def test_worker_allows_new_job_after_owner_acknowledges_no_document(db, models):
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db, models
+    )
+    prior = add_provider_attempt(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+        status="failed",
+        retry_disposition="output_reconciliation_required",
+    )
+    prior.history_attention_resolved_at = now
+    prior.history_attention_resolution = "acknowledged_no_result"
+    prior.terminal_dismissed_at = now
+    db.commit()
+    transport = CaptureTransport()
+
+    with run_boundary(db, models, job, rel, transport, now):
+        pass
+    assert len(transport.calls) == 1
+
+
 def test_completed_attempt_without_accepted_output_fails_closed(db, models):
     from studio_api.job_elevenlabs_transcription import (
         JobElevenLabsTranscriptionError,

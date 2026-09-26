@@ -78,6 +78,7 @@ class ProviderAttemptEvidence:
     retry_disposition: str
     accepted_output_persisted: bool = False
     document_creation_started: bool = False
+    absence_acknowledged: bool = False
 
 
 def current_effective_settings(
@@ -707,6 +708,7 @@ def load_provider_attempt_authorities(
             TranscriptionJob.media_clip_start_seconds,
             TranscriptionJob.media_clip_end_seconds,
             TranscriptionJob.status,
+            TranscriptionJob.history_attention_resolution,
             TranscriptionJobSourceAttempt.retry_disposition,
             func.count(TranscriptionJobOutput.id),
             func.max(TranscriptionOutputReconciliation.creation_started_at),
@@ -775,6 +777,7 @@ def load_provider_attempt_authorities(
         TranscriptionJob.media_clip_start_seconds,
         TranscriptionJob.media_clip_end_seconds,
         TranscriptionJob.status,
+        TranscriptionJob.history_attention_resolution,
         TranscriptionJobSourceAttempt.retry_disposition,
     )
     query_rows = query.limit(CATALOG_QUERY_EVIDENCE_BUDGET + 1).all()
@@ -802,6 +805,9 @@ def load_provider_attempt_authorities(
             retry_disposition=_enum_value(retry_disposition),
             accepted_output_persisted=bool(output_count),
             document_creation_started=document_creation_started_at is not None,
+            absence_acknowledged=(
+                history_attention_resolution == "acknowledged_no_result"
+            ),
         )
         for (
             source_id,
@@ -815,6 +821,7 @@ def load_provider_attempt_authorities(
             media_clip_start_seconds,
             media_clip_end_seconds,
             job_status,
+            history_attention_resolution,
             retry_disposition,
             output_count,
             document_creation_started_at,
@@ -868,14 +875,23 @@ def classify_provider_attempt_authorities(
         )
         if any(row.job_status == "processing" for row in open_attempts):
             status = ProviderAttemptAuthorityStatus.in_flight
+        # A separate, recent-auth owner acknowledgement closes only a terminal
+        # no-result job. It never overrides active work or persisted documents.
         elif any(
-            row.document_creation_started
-            or row.retry_disposition
-            not in {
-                "retry_safe",
-                "provider_outcome_uncertain",
-                "provider_result_lost",
-            }
+            (
+                row.document_creation_started
+                or row.retry_disposition
+                not in {
+                    "retry_safe",
+                    "provider_outcome_uncertain",
+                    "provider_result_lost",
+                }
+            )
+            and not (
+                row.job_status in {"failed", "cancelled"}
+                and row.absence_acknowledged
+                and not row.accepted_output_persisted
+            )
             for row in open_attempts
         ):
             status = ProviderAttemptAuthorityStatus.unresolved

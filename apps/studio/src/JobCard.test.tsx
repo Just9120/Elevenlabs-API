@@ -274,6 +274,10 @@ describe("JobCard", () => {
     expect(confirm).toHaveBeenCalledWith(
       expect.stringContaining("мог уже списать средства"),
     );
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining("можно будет создать отдельно"),
+    );
+    expect(screen.getByText(/После подтверждения можно создать новую транскрибацию отдельно/)).toBeInTheDocument();
     expect(onResolveAttention).toHaveBeenCalledWith(
       "job-1",
       "acknowledged_no_result",
