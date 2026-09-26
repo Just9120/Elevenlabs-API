@@ -603,6 +603,42 @@ def test_started_document_creation_keeps_failed_attempt_unresolved():
     assert authority[candidate.id] == ProviderAttemptAuthorityStatus.unresolved
 
 
+def test_owner_acknowledged_absence_overrides_terminal_document_uncertainty_only():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("acknowledged-no-document")
+    target = current_effective_settings(language_mode="ru", diarization_enabled=False)
+    identity = catalog_source_identity(candidate)
+    for job_status, accepted_output, expected in (
+        ("failed", False, ProviderAttemptAuthorityStatus.available),
+        ("processing", False, ProviderAttemptAuthorityStatus.in_flight),
+        ("failed", True, ProviderAttemptAuthorityStatus.unresolved),
+        ("completed", False, ProviderAttemptAuthorityStatus.unresolved),
+    ):
+        authority = classify_provider_attempt_authorities(
+            sources=(candidate,),
+            evidence=(
+                ProviderAttemptEvidence(
+                    source_identity=identity,
+                    settings=target,
+                    job_status=job_status,
+                    retry_disposition="output_reconciliation_required",
+                    accepted_output_persisted=accepted_output,
+                    document_creation_started=True,
+                    absence_acknowledged=True,
+                ),
+            ),
+            target_settings=target,
+        )
+        assert authority[candidate.id] == expected
+
+
 def test_completed_provider_attempt_without_output_remains_unresolved():
     from studio_api.transcript_catalog import (
         ProviderAttemptAuthorityStatus,

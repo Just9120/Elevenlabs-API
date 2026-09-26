@@ -6785,6 +6785,7 @@ def _add_batch_provider_attempt(
     language="ru",
     diarization_enabled=True,
     document_creation_started=False,
+    absence_acknowledged=False,
 ):
     db = SessionLocal()
     try:
@@ -6809,6 +6810,13 @@ def _add_batch_provider_attempt(
             started_at=now,
             finished_at=now if job_status == JobStatus.failed else None,
             attempt_count=1,
+            history_attention_resolved_at=(
+                now if absence_acknowledged else None
+            ),
+            history_attention_resolution=(
+                "acknowledged_no_result" if absence_acknowledged else None
+            ),
+            terminal_dismissed_at=(now if absence_acknowledged else None),
         )
         db.add(job); db.flush()
         rel = TranscriptionJobSource(
@@ -7494,6 +7502,54 @@ def test_batch_preflight_blocks_failed_attempt_if_document_creation_started(monk
         "status": "blocked",
         "reason_code": "equivalent_provider_outcome_unresolved",
     }
+
+
+@pytest.mark.parametrize(
+    "retry_disposition,document_creation_started",
+    [
+        ("provider_result_lost", True),
+        ("output_reconciliation_required", True),
+    ],
+)
+def test_acknowledged_no_result_allows_new_batch_after_hidden_failed_job(
+    monkeypatch, retry_disposition, document_creation_started
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        f"batch-ack-{retry_disposition}@example.com"
+    )
+    previous_job_id = _add_batch_provider_attempt(
+        user_id,
+        pid,
+        source_a,
+        cred_id,
+        status="failed",
+        retry_disposition=retry_disposition,
+        document_creation_started=document_creation_started,
+        absence_acknowledged=True,
+    )
+    body = _batch_body(source_a, credential_id=cred_id)
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["items"][0]["provider_attempt_authority"] == {
+        "status": "available",
+        "reason_code": None,
+    }
+    assert preview.json()["items"][0]["planned_outcome"] == "process"
+    assert previous_job_id not in preview.text
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 1
+    assert previous_job_id not in created.text
 
 
 @pytest.mark.parametrize(
