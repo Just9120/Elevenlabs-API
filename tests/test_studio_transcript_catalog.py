@@ -414,7 +414,7 @@ def test_provider_attempt_authority_is_per_source_safe_and_fail_closed():
     )
     available = source("available")
     in_flight = source("in-flight")
-    unresolved = source(
+    failed_without_document = source(
         "new-drive-row",
         source_type="google_drive",
         drive_file_id="private-drive-file",
@@ -453,7 +453,7 @@ def test_provider_attempt_authority_is_per_source_safe_and_fail_closed():
     )
 
     authorities = classify_provider_attempt_authorities(
-        sources=(available, in_flight, unresolved),
+        sources=(available, in_flight, failed_without_document),
         evidence=evidence,
         target_settings=target,
     )
@@ -461,7 +461,7 @@ def test_provider_attempt_authority_is_per_source_safe_and_fail_closed():
     assert authorities == {
         "available": ProviderAttemptAuthorityStatus.available,
         "in-flight": ProviderAttemptAuthorityStatus.in_flight,
-        "new-drive-row": ProviderAttemptAuthorityStatus.unresolved,
+        "new-drive-row": ProviderAttemptAuthorityStatus.available,
     }
     encoded = json.dumps(
         {source_id: authority.value for source_id, authority in authorities.items()}
@@ -538,7 +538,7 @@ def test_completed_provider_attempt_does_not_conflict_with_accepted_output():
         assert authority[candidate.id] == ProviderAttemptAuthorityStatus.available
 
 
-def test_completed_provider_attempt_does_not_mask_real_uncertainty():
+def test_completed_provider_attempt_does_not_make_failed_attempt_a_document():
     from studio_api.transcript_catalog import (
         ProviderAttemptAuthorityStatus,
         ProviderAttemptEvidence,
@@ -571,6 +571,33 @@ def test_completed_provider_attempt_does_not_mask_real_uncertainty():
     authority = classify_provider_attempt_authorities(
         sources=(candidate,),
         evidence=evidence,
+        target_settings=target,
+    )
+    assert authority[candidate.id] == ProviderAttemptAuthorityStatus.available
+
+
+def test_started_document_creation_keeps_failed_attempt_unresolved():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("google-create-uncertain")
+    target = current_effective_settings(language_mode="ru", diarization_enabled=False)
+    authority = classify_provider_attempt_authorities(
+        sources=(candidate,),
+        evidence=(
+            ProviderAttemptEvidence(
+                source_identity=catalog_source_identity(candidate),
+                settings=target,
+                job_status="failed",
+                retry_disposition="provider_result_lost",
+                document_creation_started=True,
+            ),
+        ),
         target_settings=target,
     )
     assert authority[candidate.id] == ProviderAttemptAuthorityStatus.unresolved
