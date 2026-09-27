@@ -193,7 +193,7 @@
 | `PM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F01 |
 | `PM-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PM-07` | IN_PROGRESS | ◐ | ◐ | ✅ | PR #313/#314 поставлены: ошибка до Google Docs и явное `acknowledged_no_result` больше не блокируют новую задачу. F39 остаётся открыт до доступного из preflight разрешения старой terminal-задачи и проверки указанного файла; третий batch в работе. |
+| `PM-07` | IN_PROGRESS | ◐ | ◐ | ✅ | PR #313/#314/#315 поставлены: ошибка до Google Docs, явное `acknowledged_no_result` и скрытая terminal-задача имеют путь новой проверки. F39 остаётся открыт из-за accepted imported catalog edge case; четвёртый batch в работе. |
 
 ### `PWA-STANDARDIZATION-01`
 

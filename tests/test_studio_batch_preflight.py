@@ -215,12 +215,17 @@ def test_batch_preflight_reprocess_does_not_override_provider_uncertainty():
         provider_attempt_authorities={
             "private-source": ProviderAttemptAuthorityStatus.unresolved
         },
+        attention_job_ids={
+            "private-source": "11111111-1111-4111-8111-111111111111"
+        },
+        include_attention_job_id=True,
     )
 
     assert payload["items"][0]["existing_result_match"]["resolution"] == "reprocess"
     assert payload["items"][0]["provider_attempt_authority"] == {
         "status": "blocked",
         "reason_code": "equivalent_provider_outcome_unresolved",
+        "attention_job_id": None,
     }
     assert payload["items"][0]["planned_outcome"] == "blocked"
     assert payload["summary"] == {

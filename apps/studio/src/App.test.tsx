@@ -5685,7 +5685,9 @@ describe("Studio PWA", () => {
                 provider_attempt_authority: {
                   status: "blocked",
                   reason_code: reasonCode,
-                  attention_job_id: null,
+                  attention_job_id: reasonCode === "equivalent_provider_outcome_unresolved"
+                    ? "11111111-1111-4111-8111-111111111111"
+                    : null,
                 },
                 planned_outcome: "blocked",
               },
@@ -5714,6 +5716,7 @@ describe("Studio PWA", () => {
       );
       expect(blocked).toHaveTextContent("План временно заблокирован");
       expect(blocked).toHaveTextContent(expectedCopy);
+      expect(screen.queryByRole("button", { name: "Подтвердить отсутствие документа" })).not.toBeInTheDocument();
       expect(
         screen.getByRole("link", { name: "Посмотреть текущие транскрибации" }),
       ).toHaveAttribute("href", "#current-transcriptions");
