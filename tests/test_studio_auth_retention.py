@@ -23,16 +23,16 @@ def auth_retention_contract(monkeypatch):
     get_settings.cache_clear()
     from studio_api.auth_retention import cleanup_expired_auth_state
     from studio_api.db import Base
-    from studio_api.models import GoogleOAuthState, LoginContext, Session, User
+    from studio_api.models import GoogleOAuthState, LoginContext, Session, TrustedDevice, User
 
     try:
-        yield cleanup_expired_auth_state, Base, GoogleOAuthState, LoginContext, Session, User
+        yield cleanup_expired_auth_state, Base, GoogleOAuthState, LoginContext, Session, TrustedDevice, User
     finally:
         get_settings.cache_clear()
 
 
 def test_auth_state_cleanup_is_terminal_only_and_batch_bounded(auth_retention_contract):
-    cleanup_expired_auth_state, Base, GoogleOAuthState, LoginContext, Session, User = auth_retention_contract
+    cleanup_expired_auth_state, Base, GoogleOAuthState, LoginContext, Session, TrustedDevice, User = auth_retention_contract
     engine=create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -54,6 +54,9 @@ def test_auth_state_cleanup_is_terminal_only_and_batch_bounded(auth_retention_co
             Session(id="session-active", user_id=user.id, token_hash="session-active", csrf_hash="csrf", expires_at=now+timedelta(hours=1)),
             Session(id="session-expired", user_id=user.id, token_hash="session-expired", csrf_hash="csrf", expires_at=now-timedelta(seconds=1)),
             Session(id="session-revoked", user_id=user.id, token_hash="session-revoked", csrf_hash="csrf", expires_at=now+timedelta(hours=1), revoked_at=now),
+            TrustedDevice(id="trust-active", user_id=user.id, token_hash="trust-active", expires_at=now+timedelta(days=1), created_at=now),
+            TrustedDevice(id="trust-expired", user_id=user.id, token_hash="trust-expired", expires_at=now-timedelta(seconds=1), created_at=now),
+            TrustedDevice(id="trust-revoked", user_id=user.id, token_hash="trust-revoked", expires_at=now+timedelta(days=1), created_at=now, revoked_at=now),
         ])
         db.commit()
 
@@ -65,7 +68,7 @@ def test_auth_state_cleanup_is_terminal_only_and_batch_bounded(auth_retention_co
         force=True,
     )
     assert first.succeeded
-    assert (first.login_contexts, first.google_oauth_states, first.sessions) == (1, 1, 1)
+    assert (first.login_contexts, first.google_oauth_states, first.sessions, first.trusted_devices) == (1, 1, 1, 1)
 
     second=cleanup_expired_auth_state(
         session_factory=SessionFactory,
@@ -74,11 +77,12 @@ def test_auth_state_cleanup_is_terminal_only_and_batch_bounded(auth_retention_co
         force=True,
     )
     assert second.succeeded
-    assert (second.login_contexts, second.google_oauth_states, second.sessions) == (1, 1, 1)
+    assert (second.login_contexts, second.google_oauth_states, second.sessions, second.trusted_devices) == (1, 1, 1, 1)
 
     with SessionFactory() as db:
         assert {row.id for row in db.query(LoginContext).all()} == {"login-active"}
         assert {row.id for row in db.query(GoogleOAuthState).all()} == {"oauth-active"}
         assert {row.id for row in db.query(Session).all()} == {"session-active"}
+        assert {row.id for row in db.query(TrustedDevice).all()} == {"trust-active"}
     Base.metadata.drop_all(engine)
     engine.dispose()

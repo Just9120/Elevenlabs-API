@@ -66,6 +66,13 @@ from .session_control import (
     revoke_all_owned_other_sessions,
     revoke_owned_other_session,
 )
+from .trusted_device import (
+    clear_trusted_device_cookie,
+    current_trusted_device,
+    remember_current_browser,
+    revoke_all_browsers,
+    revoke_current_browser,
+)
 from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
 from .elevenlabs_account import ElevenLabsAccountTransport
@@ -261,6 +268,11 @@ class ReauthenticateIn(BaseModel):
     password: str=Field(min_length=1,max_length=1024)
     verification_code: str|None=Field(default=None,max_length=32)
     recovery_code: str|None=Field(default=None,max_length=64)
+    remember_device: StrictBool=False
+
+class TrustedDeviceRevokeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    all_devices: StrictBool=False
 
 class TotpConfirmIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -736,10 +748,15 @@ def _recent_auth_deadline(sess: Session) -> datetime|None:
         return None
     return sess.reauthenticated_at+timedelta(seconds=settings.recent_auth_seconds)
 
-def require_recent_auth(pair) -> tuple[Session,User]:
+def require_recent_auth(pair, *, request: Request|None=None, db: Session|None=None) -> tuple[Session,User]:
     sess,user=pair
     deadline=_recent_auth_deadline(sess)
-    if deadline is None or deadline <= utcnow():
+    now=utcnow()
+    if deadline is None or deadline <= now:
+        if request is not None and db is not None and current_trusted_device(
+            db, request=request, user_id=user.id, now=now,
+        ) is not None:
+            return sess,user
         raise HTTPException(
             409,
             detail={
@@ -823,13 +840,20 @@ def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=D
 def account(pair=Depends(current_session)): return session(pair)
 
 @app.get("/api/auth/security")
-def account_security_status(response: Response,pair=Depends(current_session),db: Session=Depends(get_db),_=Depends(require_same_origin)):
+def account_security_status(request: Request,response: Response,pair=Depends(current_session),db: Session=Depends(get_db),_=Depends(require_same_origin)):
     sess,user=pair; limiter.check("auth:security:get:"+user.id,120,3600); _browser_capability_cache_headers(response)
     factor=db.get(UserTotpFactor,user.id); deadline=_recent_auth_deadline(sess)
+    now=utcnow()
+    device=current_trusted_device(db,request=request,user_id=user.id,now=now)
+    trusted_count=db.query(TrustedDevice).filter(
+        TrustedDevice.user_id==user.id,TrustedDevice.revoked_at.is_(None),TrustedDevice.expires_at>now,
+    ).count()
     return {
         "totp_enabled":bool(factor and factor.confirmed_at is not None and factor.disabled_at is None),
         "totp_enrollment_pending":bool(factor and factor.confirmed_at is None and factor.disabled_at is None),
         "recent_auth_expires_at":deadline.isoformat() if deadline and deadline > utcnow() else None,
+        "trusted_device_expires_at":device.expires_at.isoformat() if device else None,
+        "trusted_device_count":trusted_count,
         "password_reset_delivery":"not_configured",
     }
 
@@ -845,9 +869,30 @@ def reauthenticate(data: ReauthenticateIn,request: Request,response: Response,pa
         audit(db,"auth.reauthentication_failed",actor_user_id=user.id,subject_user_id=user.id,outcome="rejected")
         db.commit(); raise HTTPException(401,"Не удалось подтвердить личность")
     sess.reauthenticated_at=now
+    trusted=None
+    if data.remember_device:
+        trusted=remember_current_browser(
+            db,request=request,response=response,user_id=user.id,now=now,settings=settings,
+        )
+        audit(db,"auth.trusted_device_created",actor_user_id=user.id,subject_user_id=user.id)
     audit(db,"auth.reauthenticated",actor_user_id=user.id,subject_user_id=user.id,session_id=sess.id)
     db.commit(); _browser_capability_cache_headers(response)
-    return {"ok":True,"recent_auth_expires_at":_recent_auth_deadline(sess).isoformat()}
+    return {"ok":True,"recent_auth_expires_at":_recent_auth_deadline(sess).isoformat(),
+            "trusted_device_expires_at":trusted.expires_at.isoformat() if trusted else None}
+
+@app.post("/api/auth/trusted-device/revoke")
+def revoke_trusted_device(data: TrustedDeviceRevokeIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+    _,user=pair
+    limiter.check("auth:trusted-device:revoke:"+user.id,10,3600)
+    now=utcnow()
+    if data.all_devices:
+        count=revoke_all_browsers(db,user_id=user.id,now=now)
+        clear_trusted_device_cookie(response,settings=settings)
+    else:
+        count=int(revoke_current_browser(db,request=request,response=response,user_id=user.id,now=now,settings=settings))
+    audit(db,"auth.trusted_device_revoked",actor_user_id=user.id,subject_user_id=user.id,reason="all" if data.all_devices else "current")
+    db.commit(); _browser_capability_cache_headers(response)
+    return {"ok":True,"revoked_count":count}
 
 @app.post("/api/auth/totp/enroll")
 def enroll_totp(response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
@@ -882,6 +927,8 @@ def confirm_totp(data: TotpConfirmIn,request: Request,response: Response,pair=De
     db.query(UserTotpRecoveryCode).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.add_all([UserTotpRecoveryCode(user_id=user.id,code_hash=recovery_code_hash(code),created_at=now) for code in recovery_codes])
     sess.reauthenticated_at=now
+    revoke_all_browsers(db,user_id=user.id,now=now)
+    clear_trusted_device_cookie(response,settings=settings)
     audit(db,"auth.totp_enabled",actor_user_id=user.id,subject_user_id=user.id)
     db.commit(); _browser_capability_cache_headers(response)
     return {"enabled":True,"recovery_codes":recovery_codes}
@@ -894,6 +941,8 @@ def rotate_totp_recovery_codes(response: Response,pair=Depends(require_csrf),db:
     now=utcnow(); codes=generate_recovery_codes()
     db.query(UserTotpRecoveryCode).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.add_all([UserTotpRecoveryCode(user_id=user.id,code_hash=recovery_code_hash(code),created_at=now) for code in codes])
+    revoke_all_browsers(db,user_id=user.id,now=now)
+    clear_trusted_device_cookie(response,settings=settings)
     audit(db,"auth.totp_recovery_rotated",actor_user_id=user.id,subject_user_id=user.id)
     db.commit(); _browser_capability_cache_headers(response)
     return {"recovery_codes":codes}
@@ -911,6 +960,8 @@ def disable_totp(data: TotpDisableIn,request: Request,response: Response,pair=De
     factor.disabled_at=now; factor.updated_at=now
     db.query(UserTotpRecoveryCode).filter_by(user_id=user.id,used_at=None).delete(synchronize_session=False)
     revoke_all_owned_other_sessions(db,owner_user_id=user.id,current_session_id=sess.id,now=now)
+    revoke_all_browsers(db,user_id=user.id,now=now)
+    clear_trusted_device_cookie(response,settings=settings)
     audit(db,"auth.totp_disabled",actor_user_id=user.id,subject_user_id=user.id)
     db.commit(); _browser_capability_cache_headers(response)
     return {"enabled":False}
@@ -939,6 +990,8 @@ def confirm_password_reset(data: PasswordResetConfirmIn,request: Request,respons
         raise HTTPException(422,"Ссылка сброса недействительна или устарела")
     ident.password_hash=hash_password(data.new_password); challenge.used_at=now
     db.query(Session).filter(Session.user_id==user.id,Session.revoked_at.is_(None)).update({Session.revoked_at:now},synchronize_session=False)
+    revoke_all_browsers(db,user_id=user.id,now=now)
+    clear_trusted_device_cookie(response,settings=settings)
     audit(db,"auth.password_reset_completed",actor_user_id=user.id,subject_user_id=user.id)
     db.commit(); return {"ok":True}
 
@@ -3004,7 +3057,7 @@ def apply_bulk_source_deletion(
     db: Session=Depends(get_db),
     _=Depends(require_same_origin),
 ):
-    _, user = require_recent_auth(pair)
+    _, user = require_recent_auth(pair,request=request,db=db)
     limiter.check("source:bulk-delete:apply:" + user.id, 10, 3600)
     now = utcnow()
     preview = bulk_source_deletion_preview(
@@ -3317,8 +3370,8 @@ def list_project_jobs(
     return {"jobs":payloads, "next_cursor": next_cursor, "page_size": page_size}
 
 @app.post("/api/projects/{project_id}/history/clear")
-def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+def clear_project_history(project_id: str, data: ConfirmedClearIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
     reset_at=utcnow()
     terminal_scope=(
         TranscriptionJob.project_id==p.id,
@@ -3360,8 +3413,8 @@ def get_project_transcription_analytics(response: Response, project_id: str, pai
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить аналитику транскрибаций") from None
 
 @app.post("/api/projects/{project_id}/transcription-analytics/clear")
-def clear_project_transcription_analytics(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("analytics:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+def clear_project_transcription_analytics(project_id: str, data: ConfirmedClearIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("analytics:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
     reset_at=utcnow()
     hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.created_at <= reset_at).count()
     p.analytics_reset_at=reset_at; p.updated_at=reset_at
@@ -3434,11 +3487,12 @@ def dismiss_terminal_job(job_id: str, pair=Depends(require_csrf), db: Session=De
 def resolve_job_history_attention(
     job_id: str,
     data: JobAttentionResolutionIn,
+    request: Request,
     pair=Depends(require_csrf),
     db: Session=Depends(get_db),
     _=Depends(require_same_origin),
 ):
-    _, user = require_recent_auth(pair)
+    _, user = require_recent_auth(pair,request=request,db=db)
     limiter.check("job:attention-resolution:" + user.id, 20, 3600)
     job = db.execute(
         select(TranscriptionJob)
@@ -4198,7 +4252,7 @@ def _start_google_oauth(
 
 @app.post("/api/google/oauth/start")
 def start_google_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=require_recent_auth(pair); limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
+    sess,user=require_recent_auth(pair,request=request,db=db); limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cleanup_expired_auth_state()
     cfg=google_config_or_503()
     from .google_oauth import PRIMARY_OAUTH_PURPOSE
@@ -4212,8 +4266,8 @@ def start_google_oauth(request: Request, response: Response, pair=Depends(requir
     )
 
 @app.post("/api/google/maintenance/oauth/start")
-def start_google_maintenance_oauth(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=require_recent_auth(pair); limiter.check("google:maintenance:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
+def start_google_maintenance_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    sess,user=require_recent_auth(pair,request=request,db=db); limiter.check("google:maintenance:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cleanup_expired_auth_state()
     conn=current_google_connection(db, user)
     if (
@@ -4444,8 +4498,8 @@ def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|
     return google_oauth_redirect("connected", purpose=purpose)
 
 @app.delete("/api/google/maintenance/connection")
-def delete_google_maintenance_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("google:maintenance:disconnect:"+user.id, 20, 3600)
+def delete_google_maintenance_connection(request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("google:maintenance:disconnect:"+user.id, 20, 3600)
     conn=current_google_connection(db, user)
     if not conn:
         return google_maintenance_connection_payload(None)
@@ -4460,8 +4514,8 @@ def delete_google_maintenance_connection(pair=Depends(require_csrf), db: Session
     return google_maintenance_connection_payload(conn)
 
 @app.delete("/api/google/connection")
-def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("google:disconnect:"+user.id, 20, 3600)
+def delete_google_connection(request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("google:disconnect:"+user.id, 20, 3600)
     conn=current_google_connection(db, user)
     if not conn: return google_connection_payload(None)
     already_disconnected = (
@@ -4780,29 +4834,29 @@ def add_version(db,user,c,raw):
 
 @app.post("/api/credentials")
 def create_credential(data: CredentialIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=require_recent_auth(pair); limiter.check("cred:create:"+user.id, 20, 3600)
+    sess,user=require_recent_auth(pair,request=request,db=db); limiter.check("cred:create:"+user.id, 20, 3600)
     config_json=json.dumps({"folder_id":data.folder_id},ensure_ascii=False,separators=(",",":")) if data.provider==CredentialProvider.yandex else None
     c=ProviderCredential(user_id=user.id, provider=data.provider, label=data.label.strip(),config_json=config_json); db.add(c); db.flush(); v=add_version(db,user,c,data.raw_value)
     audit(db,"credential.created",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"id": c.id, "provider": c.provider.value, "label": c.label, "status": c.status.value, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/replace")
-def replace_credential(credential_id: str, data: CredentialIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("cred:replace:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
+def replace_credential(credential_id: str, data: CredentialIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("cred:replace:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id or c.provider!=data.provider or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
     c.label=data.label.strip()
     c.config_json=json.dumps({"folder_id":data.folder_id},ensure_ascii=False,separators=(",",":")) if data.provider==CredentialProvider.yandex else None
     v=add_version(db,user,c,data.raw_value); audit(db,"credential.replaced",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"ok": True, "active_version": v.version, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/revoke")
-def revoke_credential(credential_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("cred:revoke:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
+def revoke_credential(credential_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("cred:revoke:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
     if c.status==CredentialStatus.revoked: return {"ok": True}
     c.status=CredentialStatus.revoked; audit(db,"credential.revoked",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id); db.commit(); return {"ok": True}
 
 @app.delete("/api/credentials/{credential_id}")
-def delete_credential(credential_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("cred:delete:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
+def delete_credential(credential_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=require_recent_auth(pair,request=request,db=db); limiter.check("cred:delete:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id: raise HTTPException(404,"Не найдено")
     if c.status==CredentialStatus.deleted and c.deleted_at is not None: return {"ok": True}
     now=utcnow(); c.status=CredentialStatus.deleted; c.deleted_at=now

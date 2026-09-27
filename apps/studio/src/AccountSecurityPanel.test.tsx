@@ -95,6 +95,53 @@ describe("Account security panel", () => {
     expect(api).toHaveBeenCalledTimes(3);
   });
 
+  it("remembers this browser only after opt-in and lets the owner revoke it", async () => {
+    const trusted = {
+      ...disabledStatus,
+      trusted_device_expires_at: "2026-10-27T12:00:00Z",
+      trusted_device_count: 1,
+    };
+    api.mockResolvedValueOnce({
+      ...disabledStatus,
+      trusted_device_expires_at: null,
+      trusted_device_count: 0,
+    }).mockResolvedValue(trusted);
+    mutateWithCsrfRetry.mockResolvedValue({ ok: true });
+    const onCsrf = vi.fn();
+    render(<AccountSecurityPanel csrf="csrf" onCsrf={onCsrf} />);
+    await userEvent.type(screen.getByLabelText("Пароль"), "correct password");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Запомнить этот браузер/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Подтвердить личность" }));
+    expect(mutateWithCsrfRetry).toHaveBeenCalledWith(
+      "/auth/reauth", "csrf", onCsrf,
+      expect.objectContaining({
+        body: expect.stringContaining('"remember_device":true'),
+      }),
+    );
+    await screen.findByText(/Этот браузер доверенный до/);
+    await userEvent.click(screen.getByRole("button", { name: "Забыть этот браузер" }));
+    expect(mutateWithCsrfRetry).toHaveBeenCalledWith(
+      "/auth/trusted-device/revoke", "csrf", onCsrf,
+      expect.objectContaining({ body: JSON.stringify({ all_devices: false }) }),
+    );
+  });
+
+  it("can revoke trust on other browsers without a current-browser cookie", async () => {
+    api.mockResolvedValue({
+      ...disabledStatus,
+      trusted_device_expires_at: null,
+      trusted_device_count: 2,
+    });
+    mutateWithCsrfRetry.mockResolvedValue({ ok: true, revoked_count: 2 });
+    const onCsrf = vi.fn();
+    render(<AccountSecurityPanel csrf="csrf" onCsrf={onCsrf} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Забыть все доверенные браузеры" }));
+    expect(mutateWithCsrfRetry).toHaveBeenCalledWith(
+      "/auth/trusted-device/revoke", "csrf", onCsrf,
+      expect.objectContaining({ body: JSON.stringify({ all_devices: true }) }),
+    );
+  });
+
   it("turns a recent-auth server decision into an actionable safe message", async () => {
     mutateWithCsrfRetry.mockRejectedValue(
       new ApiError(409, "safe", {
