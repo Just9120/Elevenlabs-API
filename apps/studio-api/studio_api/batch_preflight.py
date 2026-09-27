@@ -79,6 +79,11 @@ def build_batch_preflight_payload(
             provider_attempt_authority
             != ProviderAttemptAuthorityStatus.available
         )
+        attention_job_id = (
+            (attention_job_ids or {}).get(decision_key)
+            if not existing_result_conflict
+            else None
+        )
         source_type = getattr(source, "source_type", None)
         if hasattr(source_type, "value"):
             source_type = source_type.value
@@ -117,7 +122,7 @@ def build_batch_preflight_payload(
                 },
                 "provider_attempt_authority": _provider_attempt_authority_payload(
                     provider_attempt_authority,
-                    (attention_job_ids or {}).get(decision_key),
+                    attention_job_id,
                     include_attention_job_id=include_attention_job_id,
                 ),
                 "planned_outcome": (

@@ -5591,7 +5591,8 @@ function PreparationPanel({
                     ? "Для этого источника уже выполняется транскрибация. Дождитесь её завершения и повторите проверку."
                     : item.provider_attempt_authority.reason_code ===
                         "equivalent_provider_outcome_unresolved"
-                      ? item.provider_attempt_authority.attention_job_id
+                      ? item.existing_result_match.status === "no_match" &&
+                          item.provider_attempt_authority.attention_job_id
                         ? "Предыдущая транскрибация имеет неопределённый результат. Проверьте папку в Google Drive; если документа нет, подтвердите это ниже."
                         : "Предыдущая транскрибация имеет неопределённый результат. Дождитесь завершения проверки результата или обратитесь к сохранённой задаче."
                       : null;
@@ -5631,7 +5632,8 @@ function PreparationPanel({
                       {providerAuthorityLabel && (
                         <span className="error">{providerAuthorityLabel}</span>
                       )}
-                      {item.provider_attempt_authority.attention_job_id && (
+                      {item.existing_result_match.status === "no_match" &&
+                        item.provider_attempt_authority.attention_job_id && (
                         <button
                           type="button"
                           className="secondary"
@@ -5699,7 +5701,8 @@ function PreparationPanel({
             {activeProviderAuthorityBlocked &&
               activePreflight.items.some(
                 (item) => item.provider_attempt_authority.status === "blocked" &&
-                  !item.provider_attempt_authority.attention_job_id,
+                  (item.existing_result_match.status !== "no_match" ||
+                    !item.provider_attempt_authority.attention_job_id),
               ) && (
               <a
                 className="button-like secondary"
