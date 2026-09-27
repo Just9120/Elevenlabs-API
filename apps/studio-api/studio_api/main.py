@@ -3487,6 +3487,7 @@ def dismiss_terminal_job(job_id: str, pair=Depends(require_csrf), db: Session=De
 def resolve_job_history_attention(
     job_id: str,
     data: JobAttentionResolutionIn,
+    request: Request,
     pair=Depends(require_csrf),
     db: Session=Depends(get_db),
     _=Depends(require_same_origin),
