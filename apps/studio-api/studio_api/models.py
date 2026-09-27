@@ -90,6 +90,15 @@ class Session(Base):
     reauthenticated_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
 
+class TrustedDevice(Base):
+    __tablename__="trusted_devices"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    token_hash: Mapped[str]=mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+
 class UserTotpFactor(Base):
     __tablename__="user_totp_factors"
     user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), primary_key=True)

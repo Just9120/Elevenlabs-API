@@ -193,7 +193,7 @@
 | `PM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F01 |
 | `PM-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PM-07` | IN_PROGRESS | ◐ | ◐ | ✅ | PR #313/#314/#315 поставлены: ошибка до Google Docs, явное `acknowledged_no_result` и скрытая terminal-задача имеют путь новой проверки. F39 остаётся открыт из-за accepted imported catalog edge case; четвёртый batch в работе. |
+| `PM-07` | READY | ✅ | ✅ | ✅ | PR #313–#316 поставлены; последний merge `3902b2a`, main CI 36285760379/36285760427 и web/API CD 36285760435 PASS. Принятый связанный catalog-result блокирует подтверждение отсутствия; private replay исходного файла не проверен. |
 
 ### `PWA-STANDARDIZATION-01`
 
@@ -291,6 +291,9 @@
 | `PWASEC-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PWASEC-19` | IN_PROGRESS | ✅ | ✅ local | PENDING | `D20260927-TRUSTED-DEVICE`: явное 30-дневное запоминание браузера после reauth; synthetic API + UI regression PASS на рабочей ветке, PR/CI/delivery PENDING. |
+| `PWASEC-20` | IN_PROGRESS | ✅ | ✅ local | PENDING | Trust только для текущего владельца и действующей сессии, не для входа и 2FA changes; expiry/revoke/owner/CSRF regressions PASS локально. |
+| `PWASEC-21` | IN_PROGRESS | ✅ | ✅ local | PENDING | UI срока и отзыв current/all; password reset и TOTP disable отзывают trust; API/component tests PASS локально. |
 
 ### `GOOGLE-DRIVE-RELIABILITY-02`
 

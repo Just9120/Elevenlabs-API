@@ -6,6 +6,9 @@ type SecurityStatus = {
   totp_enrollment_pending: boolean;
   recent_auth_expires_at: string | null;
   password_reset_delivery: string;
+  trusted_device_expires_at: string | null;
+  trusted_device_count: number;
+  trusted_device_supported: boolean;
 };
 
 type Enrollment = {
@@ -24,7 +27,18 @@ function parseStatus(value: unknown): SecurityStatus | null {
       typeof row.recent_auth_expires_at !== "string") ||
     typeof row.password_reset_delivery !== "string"
   ) return null;
-  return row as SecurityStatus;
+  if (row.trusted_device_expires_at !== undefined &&
+      row.trusted_device_expires_at !== null &&
+      typeof row.trusted_device_expires_at !== "string") return null;
+  if (row.trusted_device_count !== undefined &&
+      (!Number.isInteger(row.trusted_device_count) || row.trusted_device_count < 0)) return null;
+  return {
+    ...row,
+    trusted_device_expires_at: row.trusted_device_expires_at ?? null,
+    trusted_device_count: row.trusted_device_count ?? 0,
+    trusted_device_supported:
+      row.trusted_device_expires_at !== undefined && row.trusted_device_count !== undefined,
+  } as SecurityStatus;
 }
 
 function apiReason(error: unknown) {
@@ -77,6 +91,9 @@ export function AccountSecurityPanel({
             password: String(data.get("password") ?? ""),
             verification_code: String(data.get("verificationCode") ?? "").trim() || undefined,
             recovery_code: String(data.get("recoveryCode") ?? "").trim() || undefined,
+            ...(status?.trusted_device_supported
+              ? { remember_device: data.get("rememberDevice") === "on" }
+              : {}),
           }),
         },
       );
@@ -85,6 +102,23 @@ export function AccountSecurityPanel({
       await load();
     } catch {
       setMessage("Не удалось подтвердить личность.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function revokeDevice(allDevices: boolean) {
+    if (pending) return;
+    setPending(true); setMessage("");
+    try {
+      await mutateWithCsrfRetry("/auth/trusted-device/revoke", csrf, onCsrf, {
+        method: "POST",
+        body: JSON.stringify({ all_devices: allDevices }),
+      });
+      setMessage(allDevices ? "Доверие отозвано на всех устройствах." : "Доверие к этому браузеру отозвано.");
+      await load();
+    } catch {
+      setMessage("Не удалось отозвать доверие. Повторите попытку.");
     } finally {
       setPending(false);
     }
@@ -171,6 +205,9 @@ export function AccountSecurityPanel({
       <p className="muted">
         Для ключей, подключения или отключения Google Drive, управления сессиями и очистки данных Studio просит заново подтвердить личность. Подтверждение действует недолго.
       </p>
+      {status?.trusted_device_supported && (
+        <p className="muted">Доверенный браузер позволяет выполнять операции с данными, Google Drive и ключами без повторного ввода пароля в течение 30 дней. Вход с двухфакторной защитой, изменение 2FA и управление сессиями всё равно требуют обычного подтверждения.</p>
+      )}
       <form onSubmit={reauthenticate} className="security-form">
         <label>Пароль<input name="password" type="password" autoComplete="current-password" required /></label>
         {status?.totp_enabled && (
@@ -179,8 +216,20 @@ export function AccountSecurityPanel({
             <label>Или резервный код<input name="recoveryCode" autoComplete="off" /></label>
           </>
         )}
+        {status?.trusted_device_supported && (
+          <label><input name="rememberDevice" type="checkbox" /> Запомнить этот браузер на 30 дней</label>
+        )}
         <button type="submit" disabled={pending}>Подтвердить личность</button>
       </form>
+      {status?.trusted_device_expires_at && (
+        <p>Этот браузер доверенный до {new Date(status.trusted_device_expires_at).toLocaleString("ru-RU")}.</p>
+      )}
+      {status?.trusted_device_expires_at && (
+        <button type="button" disabled={pending} onClick={() => void revokeDevice(false)}>Забыть этот браузер</button>
+      )}
+      {(status?.trusted_device_count ?? 0) > 0 && (
+        <button type="button" disabled={pending} onClick={() => void revokeDevice(true)}>Забыть все доверенные браузеры</button>
+      )}
       {status && !status.totp_enabled && !enrollment && (
         <button type="button" onClick={() => void beginEnrollment()} disabled={pending}>Включить двухфакторную защиту</button>
       )}

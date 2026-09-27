@@ -6,7 +6,7 @@ from sqlalchemy import or_
 
 from .config import Settings, get_settings
 from .db import SessionLocal
-from .models import GoogleOAuthState, LoginContext, Session
+from .models import GoogleOAuthState, LoginContext, Session, TrustedDevice
 from .security import utcnow
 
 
@@ -20,6 +20,7 @@ class AuthStateCleanupResult:
     login_contexts: int = 0
     google_oauth_states: int = 0
     sessions: int = 0
+    trusted_devices: int = 0
 
 
 def _utc(value: datetime) -> datetime:
@@ -84,6 +85,12 @@ def cleanup_expired_auth_state(
             or_(Session.expires_at <= now_dt, Session.revoked_at.is_not(None)),
             limit=limit,
         )
+        trusted_devices = _delete_candidates(
+            db,
+            TrustedDevice,
+            or_(TrustedDevice.expires_at <= now_dt, TrustedDevice.revoked_at.is_not(None)),
+            limit=limit,
+        )
         db.commit()
         _LAST_CLEANUP_SUCCESS = now_dt
         return AuthStateCleanupResult(
@@ -91,6 +98,7 @@ def cleanup_expired_auth_state(
             login_contexts=login_contexts,
             google_oauth_states=google_oauth_states,
             sessions=sessions,
+            trusted_devices=trusted_devices,
         )
     except Exception:
         if db is not None:
