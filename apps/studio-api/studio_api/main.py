@@ -2574,11 +2574,15 @@ def _load_batch_existing_result_matches(db: Session, user: User, sources, media_
         decisions[_batch_decision_key(source,media_clip)]=match
     return decisions
 
-def _load_batch_provider_attempt_authorities(db: Session, user: User, sources, media_clips, *, provider: str="elevenlabs", model: str="scribe_v2", language: str, diarization_enabled: bool):
+def _load_batch_provider_attempt_authorities(db: Session, user: User, sources, media_clips, *, provider: str="elevenlabs", model: str="scribe_v2", language: str, diarization_enabled: bool, attention_job_ids: dict[str, str] | None = None):
     decisions={}
     for source,media_clip in zip(sources,media_clips,strict=True):
-        authority=load_provider_attempt_authorities(db,owner_user_id=user.id,sources=(source,),target_settings=_batch_target_settings(provider=provider,model=model,language=language,diarization_enabled=diarization_enabled,media_clip=media_clip)).get(source.id)
-        decisions[_batch_decision_key(source,media_clip)]=authority
+        attention_for_source={} if attention_job_ids is not None else None
+        authority=load_provider_attempt_authorities(db,owner_user_id=user.id,sources=(source,),target_settings=_batch_target_settings(provider=provider,model=model,language=language,diarization_enabled=diarization_enabled,media_clip=media_clip),attention_job_ids=attention_for_source).get(source.id)
+        decision_key=_batch_decision_key(source,media_clip)
+        decisions[decision_key]=authority
+        if attention_job_ids is not None and attention_for_source and source.id in attention_for_source:
+            attention_job_ids[decision_key]=attention_for_source[source.id]
     return decisions
 
 def _require_batch_preflight_decisions(sources, media_clips, matches, provider_attempt_authorities, reprocess_existing):
@@ -2603,12 +2607,14 @@ def _require_batch_preflight_decisions(sources, media_clips, matches, provider_a
         )
 
 @app.post("/api/projects/{project_id}/jobs/batch/preflight")
-def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:batch:preflight:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
     language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, media_clips, _hash_items=_normalize_batch_creation_input(data)
     _provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
     existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
-    provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
+    include_attention_job_id=request.headers.get("x-studio-preflight-recovery") == "1"
+    attention_job_ids={} if include_attention_job_id else None
+    provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize,attention_job_ids=attention_job_ids)
     return build_batch_preflight_payload(
         sources=sources,
         output_folders=[verified_by_id[fid] for fid in folder_ids],
@@ -2622,6 +2628,8 @@ def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBa
         existing_result_matches=existing_result_matches,
         reprocess_existing=reprocess_existing,
         provider_attempt_authorities=provider_attempt_authorities,
+        attention_job_ids=attention_job_ids,
+        include_attention_job_id=include_attention_job_id,
         decision_keys=[_batch_decision_key(source,media_clip) for source,media_clip in zip(sources,media_clips,strict=True)],
         media_clips=media_clips,
     )

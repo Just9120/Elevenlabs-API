@@ -230,6 +230,50 @@ def test_batch_preflight_reprocess_does_not_override_provider_uncertainty():
     }
 
 
+def test_batch_preflight_recovery_id_is_opt_in_for_new_browser_clients():
+    from studio_api.batch_preflight import build_batch_preflight_payload
+    from studio_api.transcript_catalog import (
+        ExistingResultMatch,
+        ExistingResultMatchStatus,
+        ProviderAttemptAuthorityStatus,
+    )
+
+    source = SimpleNamespace(
+        id="private-source",
+        source_type=SimpleNamespace(value="google_drive"),
+        original_filename="Lecture.flac",
+    )
+    kwargs = dict(
+        sources=[source],
+        output_folders=[SimpleNamespace(name="Results")],
+        titles=[None],
+        language_mode="ru",
+        diarization_enabled=False,
+        existing_result_matches={
+            source.id: ExistingResultMatch(
+                status=ExistingResultMatchStatus.no_match,
+                accepted_output_count=0,
+                matching_settings_count=0,
+            )
+        },
+        reprocess_existing=[False],
+        provider_attempt_authorities={
+            source.id: ProviderAttemptAuthorityStatus.unresolved,
+        },
+        attention_job_ids={source.id: "11111111-1111-4111-8111-111111111111"},
+    )
+    legacy = build_batch_preflight_payload(**kwargs)
+    recovery = build_batch_preflight_payload(**kwargs, include_attention_job_id=True)
+    assert legacy["items"][0]["provider_attempt_authority"] == {
+        "status": "blocked", "reason_code": "equivalent_provider_outcome_unresolved",
+    }
+    assert recovery["items"][0]["provider_attempt_authority"] == {
+        "status": "blocked",
+        "reason_code": "equivalent_provider_outcome_unresolved",
+        "attention_job_id": "11111111-1111-4111-8111-111111111111",
+    }
+
+
 def test_batch_preflight_fails_closed_without_provider_attempt_authority():
     from studio_api.batch_preflight import build_batch_preflight_payload
     from studio_api.transcript_catalog import (

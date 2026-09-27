@@ -27,6 +27,8 @@ def build_batch_preflight_payload(
     provider_attempt_authorities: dict[
         str, ProviderAttemptAuthorityStatus
     ],
+    attention_job_ids: dict[str, str] | None = None,
+    include_attention_job_id: bool = False,
     decision_keys: Sequence[str] | None = None,
     media_clips: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
@@ -114,7 +116,9 @@ def build_batch_preflight_payload(
                     "resolution": resolution,
                 },
                 "provider_attempt_authority": _provider_attempt_authority_payload(
-                    provider_attempt_authority
+                    provider_attempt_authority,
+                    (attention_job_ids or {}).get(decision_key),
+                    include_attention_job_id=include_attention_job_id,
                 ),
                 "planned_outcome": (
                     "blocked"
@@ -161,19 +165,31 @@ def _optional_text(value: object, max_length: int) -> str | None:
 
 def _provider_attempt_authority_payload(
     status: ProviderAttemptAuthorityStatus,
+    attention_job_id: str | None,
+    *,
+    include_attention_job_id: bool,
 ) -> dict[str, str | None]:
     if status == ProviderAttemptAuthorityStatus.available:
-        return {"status": "available", "reason_code": None}
+        payload = {"status": "available", "reason_code": None}
+        if include_attention_job_id:
+            payload["attention_job_id"] = None
+        return payload
     if status == ProviderAttemptAuthorityStatus.in_flight:
-        return {
+        payload = {
             "status": "blocked",
             "reason_code": "equivalent_provider_work_in_flight",
         }
+        if include_attention_job_id:
+            payload["attention_job_id"] = None
+        return payload
     if status == ProviderAttemptAuthorityStatus.unresolved:
-        return {
+        payload = {
             "status": "blocked",
             "reason_code": "equivalent_provider_outcome_unresolved",
         }
+        if include_attention_job_id:
+            payload["attention_job_id"] = attention_job_id
+        return payload
     raise ValueError("Unsupported provider-attempt authority")
 
 

@@ -87,6 +87,7 @@ export type BatchPreflightItem = {
       | "equivalent_provider_work_in_flight"
       | "equivalent_provider_outcome_unresolved"
       | null;
+    attention_job_id?: string | null;
   };
   planned_outcome: "process" | "skip" | "blocked";
 };
@@ -518,10 +519,14 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
       String(value.existing_result_match.resolution),
     ) ||
     !isRecord(value.provider_attempt_authority) ||
-    !hasExactKeys(value.provider_attempt_authority, [
+    !(hasExactKeys(value.provider_attempt_authority, [
       "status",
       "reason_code",
-    ]) ||
+    ]) || hasExactKeys(value.provider_attempt_authority, [
+      "status",
+      "reason_code",
+      "attention_job_id",
+    ])) ||
     !["available", "blocked"].includes(
       String(value.provider_attempt_authority.status),
     ) ||
@@ -540,6 +545,7 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
   );
   const providerAuthorityReason =
     value.provider_attempt_authority.reason_code;
+  const attentionJobId = value.provider_attempt_authority.attention_job_id ?? null;
   if (
     status !== "no_match" &&
     (!isNonNegativeInteger(acceptedOutputCount) || acceptedOutputCount < 1)
@@ -552,12 +558,16 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
       ["required", "reprocess"].includes(resolution));
   const coherentProviderAuthority =
     (providerAuthorityStatus === "available" &&
-      providerAuthorityReason === null) ||
+      providerAuthorityReason === null && attentionJobId === null) ||
     (providerAuthorityStatus === "blocked" &&
       [
         "equivalent_provider_work_in_flight",
         "equivalent_provider_outcome_unresolved",
-      ].includes(String(providerAuthorityReason)));
+      ].includes(String(providerAuthorityReason)) &&
+      (attentionJobId === null ||
+        (providerAuthorityReason === "equivalent_provider_outcome_unresolved" &&
+          typeof attentionJobId === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attentionJobId))));
   const existingResultAllowsProcessing =
     status === "no_match" || resolution === "reprocess";
   const coherentOutcome =

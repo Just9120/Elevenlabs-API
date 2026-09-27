@@ -79,6 +79,8 @@ class ProviderAttemptEvidence:
     accepted_output_persisted: bool = False
     document_creation_started: bool = False
     absence_acknowledged: bool = False
+    attention_resolved: bool = False
+    job_id: str | None = None
 
 
 def current_effective_settings(
@@ -649,8 +651,9 @@ def load_provider_attempt_authorities(
     sources: Iterable[Any],
     target_settings: EffectiveTranscriptionSettings,
     exclude_job_id: str | None = None,
+    attention_job_ids: dict[str, str] | None = None,
 ) -> dict[str, ProviderAttemptAuthorityStatus]:
-    """Classify owner-scoped paid-call authority without exposing identities."""
+    """Classify owner-scoped paid-call authority; optionally collect recovery IDs."""
     from sqlalchemy import and_, func, or_
 
     from .models import (
@@ -700,6 +703,7 @@ def load_provider_attempt_authorities(
             Source.id,
             Source.source_type,
             Source.drive_file_id,
+            TranscriptionJob.id,
             TranscriptionJob.provider,
             ProviderCredential.provider,
             TranscriptionJob.operating_mode,
@@ -769,6 +773,7 @@ def load_provider_attempt_authorities(
         Source.id,
         Source.source_type,
         Source.drive_file_id,
+        TranscriptionJob.id,
         TranscriptionJob.provider,
         ProviderCredential.provider,
         TranscriptionJob.operating_mode,
@@ -808,11 +813,14 @@ def load_provider_attempt_authorities(
             absence_acknowledged=(
                 history_attention_resolution == "acknowledged_no_result"
             ),
+            attention_resolved=history_attention_resolution is not None,
+            job_id=job_id,
         )
         for (
             source_id,
             source_type,
             drive_file_id,
+            job_id,
             job_provider,
             credential_provider,
             operating_mode,
@@ -831,11 +839,67 @@ def load_provider_attempt_authorities(
         )
         is not None
     )
-    return classify_provider_attempt_authorities(
+    authorities = classify_provider_attempt_authorities(
         sources=source_rows,
         evidence=evidence,
         target_settings=target_settings,
     )
+    if attention_job_ids is not None:
+        attention_job_ids.update(
+            actionable_provider_attempt_job_ids(
+                sources=source_rows,
+                evidence=evidence,
+                target_settings=target_settings,
+                authorities=authorities,
+            )
+        )
+    return authorities
+
+
+def actionable_provider_attempt_job_ids(
+    *,
+    sources: Iterable[Any],
+    evidence: Iterable[ProviderAttemptEvidence],
+    target_settings: EffectiveTranscriptionSettings,
+    authorities: dict[str, ProviderAttemptAuthorityStatus],
+) -> dict[str, str]:
+    """Point an unresolved preflight at one owned terminal job it can resolve.
+
+    The existing recent-auth endpoint rechecks ownership and eligibility before
+    writing. No action is offered if a document is already persisted, work is
+    still running, or the catalog query could not establish the evidence.
+    """
+    evidence_rows = tuple(evidence)
+    result: dict[str, str] = {}
+    for source in sources:
+        source_id = _clean_private_identity(getattr(source, "id", None))
+        identity = catalog_source_identity(source)
+        if (
+            not source_id
+            or identity is None
+            or authorities.get(source_id) != ProviderAttemptAuthorityStatus.unresolved
+        ):
+            continue
+        relevant = tuple(
+            row
+            for row in evidence_rows
+            if row.source_identity == identity
+            and (row.settings is None or row.settings == target_settings)
+        )
+        if any(row.accepted_output_persisted for row in relevant):
+            continue
+        candidates = sorted(
+            row.job_id
+            for row in relevant
+            if row.job_id
+            and row.job_status in {"completed", "failed", "cancelled"}
+            and row.retry_disposition != "retry_safe"
+            and not row.absence_acknowledged
+            and not row.attention_resolved
+        )
+        if candidates:
+            result[source_id] = candidates[0]
+    return result
 
 
 def classify_provider_attempt_authorities(

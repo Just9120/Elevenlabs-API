@@ -1718,6 +1718,7 @@ function PreparationPanel({
     signature: string;
     data: BatchPreflightResponse;
   } | null>(null);
+  const [attentionResolutionJobId, setAttentionResolutionJobId] = useState<string | null>(null);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
   const [detail, setDetail] = useState<Record<string, JobDetailState>>({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
@@ -3672,7 +3673,12 @@ function PreparationPanel({
             `/projects/${project.id}/jobs/batch/preflight`,
             csrf,
             onCsrf,
-            { method: "POST", body: JSON.stringify(requestBody), signal },
+            {
+              method: "POST",
+              headers: { "x-studio-preflight-recovery": "1" },
+              body: JSON.stringify(requestBody),
+              signal,
+            },
           ),
         );
         if (result.status === "timed_out") {
@@ -3695,7 +3701,7 @@ function PreparationPanel({
         setMessage(
           response.summary.blocked_count > 0
             ? providerAuthorityBlocked
-              ? "Найдена активная или неразрешённая предыдущая транскрибация. Перейдите к сохранённой задаче ниже и выберите доступное действие."
+              ? "Найдена активная или неразрешённая предыдущая транскрибация. Если доступно действие в плане, проверьте Google Drive и подтвердите отсутствие документа."
               : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной задачи."
             : "Проверка готова. Сверьте план и подтвердите создание задач.",
         );
@@ -3717,6 +3723,47 @@ function PreparationPanel({
       );
     } finally {
       setSubmissionStage(null);
+    }
+  }
+  async function resolvePreflightAttention(jobId: string) {
+    if (attentionResolutionJobId !== null) return;
+    if (!window.confirm(
+      "Вы проверили папку результата в Google Drive и подтверждаете, что документа транскрибации нет? Возможный расход провайдера и история прежней задачи сохранятся. Новая транскрибация не запустится автоматически.",
+    )) return;
+    setAttentionResolutionJobId(jobId);
+    try {
+      const result = await runBoundedRequest((signal) => batchMutateWithCsrfRetry<unknown>(
+        `/jobs/${jobId}/attention-resolution`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          signal,
+          body: JSON.stringify({
+            resolution: "acknowledged_no_result",
+            linked_job_id: null,
+            confirm_possible_spend: true,
+          }),
+        },
+      ));
+      setPreflight(null);
+      if (result.status === "timed_out") {
+        setMessage("Ответ Studio задержался. Проверьте план заново: это покажет, сохранено ли подтверждение. Повторный запрос автоматически не отправлялся.");
+        return;
+      }
+      const response = result.value;
+      if (!response || typeof response !== "object" ||
+          (response as { history_attention_resolution?: unknown }).history_attention_resolution !== "acknowledged_no_result" ||
+          typeof (response as { history_attention_resolved_at?: unknown }).history_attention_resolved_at !== "string") {
+        throw new Error("invalid_attention_resolution_response");
+      }
+      setMessage("Отсутствие документа подтверждено для прежней задачи. Проверьте план заново; если были другие неопределённые попытки, Studio покажет следующую.");
+      onReloadJobs(project.id);
+    } catch {
+      setPreflight(null);
+      setMessage("Не удалось подтвердить отсутствие документа. Обновите вход при необходимости и проверьте план заново; новая задача не создавалась.");
+    } finally {
+      setAttentionResolutionJobId(null);
     }
   }
   function settleLatestJobRead<T>(
@@ -5544,7 +5591,9 @@ function PreparationPanel({
                     ? "Для этого источника уже выполняется транскрибация. Дождитесь её завершения и повторите проверку."
                     : item.provider_attempt_authority.reason_code ===
                         "equivalent_provider_outcome_unresolved"
-                      ? "Предыдущая транскрибация имеет неопределённый результат. Перейдите к сохранённой задаче ниже и выберите доступное безопасное действие."
+                      ? item.provider_attempt_authority.attention_job_id
+                        ? "Предыдущая транскрибация имеет неопределённый результат. Проверьте папку в Google Drive; если документа нет, подтвердите это ниже."
+                        : "Предыдущая транскрибация имеет неопределённый результат. Дождитесь завершения проверки результата или обратитесь к сохранённой задаче."
                       : null;
                 const expandedItem = expandedComposerItems[item.position];
                 const row = rows.find(
@@ -5581,6 +5630,18 @@ function PreparationPanel({
                       {clipLabel && <span>Часть файла: {clipLabel}</span>}
                       {providerAuthorityLabel && (
                         <span className="error">{providerAuthorityLabel}</span>
+                      )}
+                      {item.provider_attempt_authority.attention_job_id && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={attentionResolutionJobId !== null}
+                          onClick={() => void resolvePreflightAttention(item.provider_attempt_authority.attention_job_id!)}
+                        >
+                          {attentionResolutionJobId === item.provider_attempt_authority.attention_job_id
+                            ? "Сохраняем подтверждение…"
+                            : "Подтвердить отсутствие документа"}
+                        </button>
                       )}
                     </div>
                     <div>
@@ -5635,12 +5696,16 @@ function PreparationPanel({
                 подтверждённой связи с исходником не считаются совпадениями.
               </p>
             )}
-            {activeProviderAuthorityBlocked && (
+            {activeProviderAuthorityBlocked &&
+              activePreflight.items.some(
+                (item) => item.provider_attempt_authority.status === "blocked" &&
+                  !item.provider_attempt_authority.attention_job_id,
+              ) && (
               <a
                 className="button-like secondary"
                 href="#current-transcriptions"
               >
-                Перейти к предыдущей задаче
+                Посмотреть текущие транскрибации
               </a>
             )}
           </section>

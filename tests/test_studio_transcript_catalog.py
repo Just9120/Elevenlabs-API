@@ -669,6 +669,66 @@ def test_completed_provider_attempt_without_output_remains_unresolved():
     assert authority[candidate.id] == ProviderAttemptAuthorityStatus.unresolved
 
 
+def test_unresolved_preflight_points_to_owned_terminal_attention_job_only():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        actionable_provider_attempt_job_ids,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("old-hidden-attempt")
+    target = current_effective_settings(language_mode="ru", diarization_enabled=False)
+    identity = catalog_source_identity(candidate)
+    old_job_id = "11111111-1111-4111-8111-111111111111"
+    terminal = ProviderAttemptEvidence(
+        source_identity=identity,
+        settings=target,
+        job_status="failed",
+        retry_disposition="output_reconciliation_required",
+        document_creation_started=True,
+        job_id=old_job_id,
+    )
+    authorities = classify_provider_attempt_authorities(
+        sources=(candidate,), evidence=(terminal,), target_settings=target,
+    )
+    assert authorities[candidate.id] == ProviderAttemptAuthorityStatus.unresolved
+    assert actionable_provider_attempt_job_ids(
+        sources=(candidate,), evidence=(terminal,), target_settings=target,
+        authorities=authorities,
+    ) == {candidate.id: old_job_id}
+
+    another = ProviderAttemptEvidence(
+        **{**vars(terminal), "job_id": "22222222-2222-4222-8222-222222222222"}
+    )
+    first_resolved = ProviderAttemptEvidence(
+        **{**vars(terminal), "absence_acknowledged": True, "attention_resolved": True}
+    )
+    multiple_authorities = classify_provider_attempt_authorities(
+        sources=(candidate,), evidence=(first_resolved, another), target_settings=target,
+    )
+    assert actionable_provider_attempt_job_ids(
+        sources=(candidate,), evidence=(first_resolved, another),
+        target_settings=target, authorities=multiple_authorities,
+    ) == {candidate.id: another.job_id}
+
+    for unsafe in (
+        ProviderAttemptEvidence(**{**vars(terminal), "job_status": "processing"}),
+        ProviderAttemptEvidence(**{**vars(terminal), "accepted_output_persisted": True}),
+        ProviderAttemptEvidence(**{**vars(terminal), "absence_acknowledged": True}),
+        ProviderAttemptEvidence(**{**vars(terminal), "retry_disposition": "retry_safe"}),
+    ):
+        unsafe_authorities = classify_provider_attempt_authorities(
+            sources=(candidate,), evidence=(unsafe,), target_settings=target,
+        )
+        assert actionable_provider_attempt_job_ids(
+            sources=(candidate,), evidence=(unsafe,), target_settings=target,
+            authorities=unsafe_authorities,
+        ) == {}
+
+
 def test_media_clip_range_participates_in_existing_result_identity():
     from studio_api.transcript_catalog import (
         ExistingResultMatchStatus,
