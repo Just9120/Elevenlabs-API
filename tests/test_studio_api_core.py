@@ -7362,6 +7362,7 @@ def test_batch_preflight_and_create_block_competing_provider_authority(
         headers={
             "origin": "https://studio.test",
             "x-csrf-token": csrf,
+            "x-studio-preflight-recovery": "1",
         },
     )
 
@@ -7374,6 +7375,7 @@ def test_batch_preflight_and_create_block_competing_provider_authority(
     assert preview.json()["items"][0]["provider_attempt_authority"] == {
         "status": "blocked",
         "reason_code": reason_code,
+        "attention_job_id": competing_job_id if status == "failed" else None,
     }
     assert preview.json()["items"][0]["planned_outcome"] == "blocked"
     assert preview.json()["summary"] == {
@@ -7381,7 +7383,7 @@ def test_batch_preflight_and_create_block_competing_provider_authority(
         "skip_count": 0,
         "blocked_count": 1,
     }
-    assert competing_job_id not in preview.text
+    assert (competing_job_id in preview.text) == (status == "failed")
     assert _count_batch_rows() == before
 
     create = c.post(
@@ -7417,10 +7419,15 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
     private_drive_id = "same-private-drive-id"
     db = SessionLocal()
     try:
+        old_project = Project(owner_user_id=user_id, title="Old transcription project")
+        db.add(old_project)
+        db.flush()
+        old_project_id = old_project.id
         for source_id in (source_a, source_b, other_source):
             source_row = db.get(Source, source_id)
             source_row.source_type = SourceType.google_drive
             source_row.drive_file_id = private_drive_id
+        db.get(Source, source_b).project_id = old_project_id
         db.commit()
     finally:
         db.close()
@@ -7436,6 +7443,7 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
     headers = {
         "origin": "https://studio.test",
         "x-csrf-token": csrf,
+        "x-studio-preflight-recovery": "1",
     }
 
     owner_preview = c.post(
@@ -7448,11 +7456,12 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
     assert owner_preview.json()["items"][0]["provider_attempt_authority"] == {
         "status": "available",
         "reason_code": None,
+        "attention_job_id": None,
     }
     assert other_job_id not in owner_preview.text
     own_job_id = _add_batch_provider_attempt(
         user_id,
-        pid,
+        old_project_id,
         source_b,
         cred_id,
         status="failed",
@@ -7471,11 +7480,35 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
     ] == {
         "status": "blocked",
         "reason_code": "equivalent_provider_outcome_unresolved",
+        "attention_job_id": own_job_id,
     }
     assert reselected_preview.json()["items"][0]["planned_outcome"] == "blocked"
     assert private_drive_id not in reselected_preview.text
     assert other_job_id not in reselected_preview.text
-    assert own_job_id not in reselected_preview.text
+    assert own_job_id in reselected_preview.text
+
+    resolved = c.post(
+        f"/api/jobs/{own_job_id}/attention-resolution",
+        json={
+            "resolution": "acknowledged_no_result",
+            "linked_job_id": None,
+            "confirm_possible_spend": True,
+        },
+        headers=headers,
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["history_attention_resolution"] == "acknowledged_no_result"
+    ready_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+    assert ready_preview.status_code == 200
+    assert ready_preview.json()["items"][0]["provider_attempt_authority"] == {
+        "status": "available",
+        "reason_code": None,
+        "attention_job_id": None,
+    }
 
 
 def test_batch_preflight_blocks_failed_attempt_if_document_creation_started(monkeypatch):
@@ -7483,7 +7516,7 @@ def test_batch_preflight_blocks_failed_attempt_if_document_creation_started(monk
     c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
         "batch-document-uncertain@example.com"
     )
-    _add_batch_provider_attempt(
+    previous_job_id = _add_batch_provider_attempt(
         user_id,
         pid,
         source_a,
@@ -7495,12 +7528,13 @@ def test_batch_preflight_blocks_failed_attempt_if_document_creation_started(monk
     preview = c.post(
         f"/api/projects/{pid}/jobs/batch/preflight",
         json=_batch_body(source_a, credential_id=cred_id),
-        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf, "x-studio-preflight-recovery": "1"},
     )
     assert preview.status_code == 200
     assert preview.json()["items"][0]["provider_attempt_authority"] == {
         "status": "blocked",
         "reason_code": "equivalent_provider_outcome_unresolved",
+        "attention_job_id": previous_job_id,
     }
 
 
@@ -7532,12 +7566,13 @@ def test_acknowledged_no_result_allows_new_batch_after_hidden_failed_job(
     preview = c.post(
         f"/api/projects/{pid}/jobs/batch/preflight",
         json=body,
-        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf, "x-studio-preflight-recovery": "1"},
     )
     assert preview.status_code == 200
     assert preview.json()["items"][0]["provider_attempt_authority"] == {
         "status": "available",
         "reason_code": None,
+        "attention_job_id": None,
     }
     assert preview.json()["items"][0]["planned_outcome"] == "process"
     assert previous_job_id not in preview.text
@@ -7632,6 +7667,7 @@ def test_batch_provider_authority_conflict_keeps_mixed_batch_atomic(
     headers = {
         "origin": "https://studio.test",
         "x-csrf-token": csrf,
+        "x-studio-preflight-recovery": "1",
     }
     before = _count_batch_rows()
 
@@ -7646,10 +7682,11 @@ def test_batch_provider_authority_conflict_keeps_mixed_batch_atomic(
         item["provider_attempt_authority"]
         for item in preview.json()["items"]
     ] == [
-        {"status": "available", "reason_code": None},
+        {"status": "available", "reason_code": None, "attention_job_id": None},
         {
             "status": "blocked",
             "reason_code": "equivalent_provider_outcome_unresolved",
+            "attention_job_id": competing_job_id,
         },
     ]
     assert [item["planned_outcome"] for item in preview.json()["items"]] == [
@@ -7661,7 +7698,7 @@ def test_batch_provider_authority_conflict_keeps_mixed_batch_atomic(
         "skip_count": 0,
         "blocked_count": 1,
     }
-    assert competing_job_id not in preview.text
+    assert competing_job_id in preview.text
     assert _count_batch_rows() == before
 
     create = c.post(

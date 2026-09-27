@@ -326,6 +326,7 @@ describe("batch composer model", () => {
           provider_attempt_authority: {
             status: "available",
             reason_code: null,
+            attention_job_id: null,
           },
           planned_outcome: "process",
         },
@@ -335,6 +336,13 @@ describe("batch composer model", () => {
     };
 
     expect(parseBatchPreflightResponse(valid)).toEqual(valid);
+    expect(parseBatchPreflightResponse({
+      ...valid,
+      items: [{
+        ...valid.items[0],
+        provider_attempt_authority: { status: "available", reason_code: null },
+      }],
+    })).not.toBeNull();
     expect(
       parseBatchPreflightResponse({
         ...valid,
@@ -360,6 +368,7 @@ describe("batch composer model", () => {
             provider_attempt_authority: {
               status: "blocked",
               reason_code: "equivalent_provider_outcome_unresolved",
+              attention_job_id: null,
             },
             planned_outcome: "blocked",
           },
@@ -370,12 +379,43 @@ describe("batch composer model", () => {
     expect(
       parseBatchPreflightResponse({
         ...valid,
+        items: [{
+          ...valid.items[0],
+          provider_attempt_authority: {
+            status: "blocked",
+            reason_code: "equivalent_provider_outcome_unresolved",
+            attention_job_id: "11111111-1111-4111-8111-111111111111",
+          },
+          planned_outcome: "blocked",
+        }],
+        summary: { process_count: 0, skip_count: 0, blocked_count: 1 },
+      }),
+    ).not.toBeNull();
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
+        items: [{
+          ...valid.items[0],
+          provider_attempt_authority: {
+            status: "blocked",
+            reason_code: "equivalent_provider_work_in_flight",
+            attention_job_id: "11111111-1111-4111-8111-111111111111",
+          },
+          planned_outcome: "blocked",
+        }],
+        summary: { process_count: 0, skip_count: 0, blocked_count: 1 },
+      }),
+    ).toBeNull();
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
         items: [
           {
             ...valid.items[0],
             provider_attempt_authority: {
               status: "blocked",
               reason_code: null,
+              attention_job_id: null,
             },
             planned_outcome: "blocked",
           },

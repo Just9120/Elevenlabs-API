@@ -297,6 +297,7 @@ function batchPreflightJson(init?: RequestInit) {
       provider_attempt_authority: {
         status: "available",
         reason_code: null,
+        attention_job_id: null,
       },
       planned_outcome: "process",
     })),
@@ -5537,6 +5538,7 @@ describe("Studio PWA", () => {
               provider_attempt_authority: {
                 status: "available",
                 reason_code: null,
+                attention_job_id: null,
               },
               planned_outcome: reprocess ? "process" : "blocked",
             },
@@ -5642,7 +5644,7 @@ describe("Studio PWA", () => {
     ],
     [
       "equivalent_provider_outcome_unresolved",
-      "Предыдущая транскрибация имеет неопределённый результат. Перейдите к сохранённой задаче ниже и выберите доступное безопасное действие.",
+      "Предыдущая транскрибация имеет неопределённый результат. Дождитесь завершения проверки результата или обратитесь к сохранённой задаче.",
     ],
   ] as const)(
     "keeps provider authority %s blocked even when accepted-output reprocessing is available",
@@ -5683,6 +5685,7 @@ describe("Studio PWA", () => {
                 provider_attempt_authority: {
                   status: "blocked",
                   reason_code: reasonCode,
+                  attention_job_id: null,
                 },
                 planned_outcome: "blocked",
               },
@@ -5712,11 +5715,11 @@ describe("Studio PWA", () => {
       expect(blocked).toHaveTextContent("План временно заблокирован");
       expect(blocked).toHaveTextContent(expectedCopy);
       expect(
-        screen.getByRole("link", { name: "Перейти к предыдущей задаче" }),
+        screen.getByRole("link", { name: "Посмотреть текущие транскрибации" }),
       ).toHaveAttribute("href", "#current-transcriptions");
       expect(
         screen.getByText(
-          "Найдена активная или неразрешённая предыдущая транскрибация. Перейдите к сохранённой задаче ниже и выберите доступное действие.",
+          "Найдена активная или неразрешённая предыдущая транскрибация. Если доступно действие в плане, проверьте Google Drive и подтвердите отсутствие документа.",
         ),
       ).toBeInTheDocument();
       expect(
@@ -5746,6 +5749,58 @@ describe("Studio PWA", () => {
       ).toBe(false);
     },
   );
+
+  it("resolves an older hidden attempt from the blocked plan without starting STT", async () => {
+    const oldJobId = "11111111-1111-4111-8111-111111111111";
+    let acknowledged = false;
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (isBatchPreflightRequest(url, init)) {
+        return json({
+          provider: "elevenlabs", model: "scribe_v2", operating_mode: "standard",
+          dictionary_term_count: 0, language_mode: "ru", diarization_enabled: false,
+          existing_result_authority: { status: "partial", reason_code: "unlinked_catalog_entries_excluded" },
+          items: [{
+            position: 0, title: null, media_clip: null,
+            source: { name: "Практика №44.flac", source_type: "google_drive", mime_type: "audio/flac", size_bytes: 123, duration_seconds: null },
+            output_destination: { name: "Results" },
+            existing_result_match: { status: "no_match", accepted_output_count: 0, resolution: "not_required" },
+            provider_attempt_authority: acknowledged
+              ? { status: "available", reason_code: null, attention_job_id: null }
+              : { status: "blocked", reason_code: "equivalent_provider_outcome_unresolved", attention_job_id: oldJobId },
+            planned_outcome: acknowledged ? "process" : "blocked",
+          }],
+          summary: { process_count: acknowledged ? 1 : 0, skip_count: 0, blocked_count: acknowledged ? 0 : 1 },
+          confirmation_required: true,
+        });
+      }
+      if (url === `/api/jobs/${oldJobId}/attention-resolution` && init?.method === "POST") {
+        acknowledged = true;
+        return json({ history_attention_resolution: "acknowledged_no_result", history_attention_resolved_at: "2026-09-27T00:00:00Z" });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+    await userEvent.click(screen.getByRole("button", { name: "Проверить задачи (1)" }));
+    expect(await screen.findByRole("button", { name: "Подтвердить отсутствие документа" })).toBeEnabled();
+    expect(screen.queryByRole("link", { name: "Посмотреть текущие транскрибации" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Подтвердить отсутствие документа" }));
+    await waitFor(() => expect(screen.queryByLabelText("Проверка перед созданием задач")).not.toBeInTheDocument());
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("проверили папку результата в Google Drive"));
+    const resolveCall = baseFetch.mock.calls.find(([url]) => url === `/api/jobs/${oldJobId}/attention-resolution`);
+    expect(JSON.parse(String(resolveCall?.[1]?.body))).toEqual({
+      resolution: "acknowledged_no_result", linked_job_id: null, confirm_possible_spend: true,
+    });
+    expect(baseFetch.mock.calls.some(([url, init]) => url === "/api/projects/p1/jobs/batch" && init?.method === "POST")).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Проверить задачи (1)" }));
+    expect(await screen.findByText("План: обработать")).toBeInTheDocument();
+  });
 
   it("invalidates a stale plan after a create-time provider authority race", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
