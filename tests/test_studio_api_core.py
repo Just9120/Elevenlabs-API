@@ -7698,7 +7698,7 @@ def test_batch_provider_authority_conflict_keeps_mixed_batch_atomic(
         "skip_count": 0,
         "blocked_count": 1,
     }
-    assert competing_job_id not in preview.text
+    assert competing_job_id in preview.text
     assert _count_batch_rows() == before
 
     create = c.post(
