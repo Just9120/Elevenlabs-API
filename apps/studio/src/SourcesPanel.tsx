@@ -276,7 +276,7 @@ export function SourcesPanel({
       source.source_type === "google_drive"
         ? "Источник будет убран только из Studio. Файл останется на Google Drive."
         : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
-    if (!safeConfirm(message) || !beginDeletion(id)) return;
+    if (!safeConfirm(`${message} Старые неудачные задачи сохранятся в истории, но повтор с этим источником станет недоступен.`) || !beginDeletion(id)) return;
     let notice: SourceDeletionNotice | null = null;
     try {
       const bounded = await runBoundedRequest((signal) =>
@@ -415,6 +415,7 @@ export function SourcesPanel({
           )}
           <p className="notice">
             Удаляются только записи и оставшиеся временные копии Studio. Исходные файлы Google Drive останутся на месте.
+            Старые неудачные задачи сохранятся в истории, но повтор с удалёнными источниками станет недоступен.
           </p>
           <div className="actions">
             <button

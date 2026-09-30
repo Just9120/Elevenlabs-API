@@ -182,7 +182,7 @@ def _project_owner_id(db: Session, project_id: str) -> str | None:
     return project.owner_user_id if project is not None else None
 
 
-def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_jobs: list[TranscriptionJob] | None = None) -> SourceDeletionReason:
+def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_jobs: list[TranscriptionJob] | None = None, discard_failed_retry: bool = False) -> SourceDeletionReason:
     if source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted:
         return SourceDeletionReason.source_already_deleted
     if source.source_type not in {SourceType.local_upload, SourceType.google_drive}:
@@ -192,7 +192,7 @@ def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_job
             return SourceDeletionReason.queued_job_uses_source
         if job.status == JobStatus.processing:
             return SourceDeletionReason.processing_job_uses_source
-        if job.status == JobStatus.failed and compute_explicit_retry_readiness(db, job, now=now).available:
+        if not discard_failed_retry and job.status == JobStatus.failed and compute_explicit_retry_readiness(db, job, now=now).available:
             return SourceDeletionReason.retryable_failed_job_uses_source
     if _active_audio_preparation_references(db, source.id, lock=False):
         return SourceDeletionReason.audio_preparation_uses_source
@@ -234,7 +234,7 @@ def bulk_source_deletion_preview(
             listed_count += 1
         else:
             hidden_expired_count += 1
-        reason = deletion_readiness(db, source, now=now)
+        reason = deletion_readiness(db, source, now=now, discard_failed_retry=True)
         preview_entries.append(
             {
                 "source_id": source.id,
@@ -280,7 +280,7 @@ def bulk_source_deletion_preview(
     )
 
 
-def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, now: datetime) -> SourceDeletionResult | None:
+def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, now: datetime, discard_failed_retry: bool = False) -> SourceDeletionResult | None:
     source = _lock_source(db, source_id)
     if source is None:
         return None
@@ -290,7 +290,7 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     jobs = _referencing_jobs(db, source.id, lock=True)
     _active_audio_preparation_references(db, source.id, lock=True)
     already_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
-    reason = deletion_readiness(db, source, now=now, locked_jobs=jobs)
+    reason = deletion_readiness(db, source, now=now, locked_jobs=jobs, discard_failed_retry=discard_failed_retry)
     if reason not in {SourceDeletionReason.available, SourceDeletionReason.source_already_deleted}:
         audit(db, "source.deletion_blocked", actor_user_id=owner_user_id, subject_user_id=owner_user_id, outcome="rejected", project_id=project.id, blocker=reason.value)
         write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="SOURCE_DELETION_BLOCKED", project_id=project.id, metadata={"blocker": reason.value, "source_type": source.source_type.value, "boundary": "source_deletion"})

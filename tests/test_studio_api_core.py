@@ -8866,3 +8866,41 @@ def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
     assert first.json()["output"]["download_ready"] is True
     assert "s3_object_key" not in first.text and "synthetic" not in first.text
     assert client.post(route, headers=headers, json={"folder_id": "folder"}).json()["id"] == job_id
+
+
+def test_audio_legacy_recovery_api_is_owner_csrf_scoped_and_never_calls_google(monkeypatch):
+    from studio_api.audio_preparation_service import OUTPUT_SOURCE_NAMESPACE
+    from studio_api.models import AudioPreparationJob, AudioPreparationStatus
+    from studio_api.source_storage import safe_filename
+    email = "audio-recovery-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]["id"]
+    with SessionLocal() as db:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        job = AudioPreparationJob(id=str(uuid.uuid4()), project_id=project_id, owner_user_id=owner.id,
+            title="Ready", options_json="{}", status=AudioPreparationStatus.failed, current_stage="failed")
+        source = Source(id=str(uuid.uuid5(OUTPUT_SOURCE_NAMESPACE, job.id)), project_id=project_id,
+            source_type=SourceType.local_upload, reference_class="audio_processing", original_filename="Ready.flac",
+            mime_type="audio/flac", size_bytes=5, s3_bucket="audio-private",
+            s3_object_key=f"audio-preparation/{owner.id}/{job.id}/{safe_filename('Ready.flac')}",
+            upload_status=SourceUploadStatus.uploaded, expires_at=utcnow() + timedelta(days=1))
+        db.add_all([job, source]); db.commit()
+        job_id, source_id = job.id, source.id
+    def no_google(*args, **kwargs):
+        pytest.fail("Recovery must not call Google or a provider")
+    monkeypatch.setattr("studio_api.main.refresh_user_google_drive_access_token", no_google)
+    route = f"/api/audio-preparations/{job_id}/recover-output"
+    assert TestClient(app).post(route, headers=headers).status_code == 401
+    assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403
+    assert client.post(route, headers={**headers, "origin": "https://foreign.test"}).status_code == 403
+    other = TestClient(app)
+    other_email = "audio-recovery-other@example.com"
+    other_csrf = login(other, admin(other_email), other_email)
+    assert other.post(route, headers={**headers, "x-csrf-token": other_csrf}).status_code == 404
+    first = client.post(route, headers=headers)
+    assert first.status_code == 200 and first.json()["output"]["source_id"] == source_id
+    assert first.json()["status"] == "completed" and first.json()["progress"]["stage"] == "google_drive_export_failed"
+    assert "s3_object_key" not in first.text and "audio-private" not in first.text
+    assert client.post(route, headers=headers).json()["id"] == job_id

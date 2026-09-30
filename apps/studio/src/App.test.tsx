@@ -2156,7 +2156,7 @@ describe("Studio PWA", () => {
       }),
     );
     expect(confirm).toHaveBeenCalledWith(
-      "Источник будет убран только из Studio. Файл останется на Google Drive.",
+      "Источник будет убран только из Studio. Файл останется на Google Drive. Старые неудачные задачи сохранятся в истории, но повтор с этим источником станет недоступен.",
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -2169,7 +2169,7 @@ describe("Studio PWA", () => {
       screen.getByRole("button", { name: "Убрать из Studio: local-temp.ogg" }),
     );
     expect(confirm).toHaveBeenLastCalledWith(
-      "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.",
+      "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач. Старые неудачные задачи сохранятся в истории, но повтор с этим источником станет недоступен.",
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(

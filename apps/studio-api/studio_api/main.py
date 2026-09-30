@@ -149,6 +149,7 @@ from .direct_drive_upload import (
 from .audio_preparation_service import (
     AudioPreparationServiceError,
     audio_preparation_payload,
+    recover_audio_preparation_output,
     cancel_audio_preparation_job,
     create_audio_preparation_job,
     list_owned_audio_preparation_jobs,
@@ -3019,7 +3020,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
 @app.delete("/api/sources/{source_id}")
 def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
     _,user=pair; limiter.check("source:delete:"+user.id, 60, 3600)
-    result=request_source_deletion(db, owner_user_id=user.id, source_id=source_id, now=utcnow())
+    result=request_source_deletion(db, owner_user_id=user.id, source_id=source_id, now=utcnow(), discard_failed_retry=True)
     if result is None:
         raise HTTPException(404,"Не найдено")
     if not result.ok:
@@ -3087,6 +3088,7 @@ def apply_bulk_source_deletion(
             owner_user_id=user.id,
             source_id=source_id,
             now=now,
+            discard_failed_retry=True,
         )
         if result is None or not result.ok:
             db.rollback()
@@ -3263,6 +3265,21 @@ def save_audio_preparation_to_drive(job_id: str, data: GooglePickerOutputFolderI
     except GoogleConnectionAccessError as exc:
         db.rollback()
         raise HTTPException(409, detail={"reason": exc.reason.value}) from None
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    return audio_preparation_payload(job)
+
+
+@app.post("/api/audio-preparations/{job_id}/recover-output")
+def recover_audio_output(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:recover:" + user.id, 30, 3600)
+    try:
+        job = recover_audio_preparation_output(db, owner_user_id=user.id, job_id=job_id, now=utcnow())
+        audit(db, "audio_preparation.output_recovered", actor_user_id=user.id, subject_user_id=user.id, project_id=job.project_id, job_id=job.id)
+        db.commit()
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id)
     except AudioPreparationServiceError as exc:
         db.rollback()
         _raise_audio_preparation_error(exc)

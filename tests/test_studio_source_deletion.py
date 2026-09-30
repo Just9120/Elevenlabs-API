@@ -317,6 +317,27 @@ def test_retryable_failed_job_blocks_but_skipped_relation_is_ignored(sqlite_db):
     assert blocked_result and not blocked_result.ok
     assert blocked_result.reason == SourceDeletionReason.retryable_failed_job_uses_source
     assert skipped_result and skipped_result.ok
+    from studio_api.source_deletion import bulk_source_deletion_preview
+    preview = bulk_source_deletion_preview(sqlite_db, owner_user_id=user.id, project_id=project.id, now=now)
+    assert preview is not None and preview.eligible_ids == (blocked.id,)
+    # Explicit owner deletion abandons the old retry; automated cleanup does not.
+    explicit_result = request_source_deletion(sqlite_db, owner_user_id=user.id, source_id=blocked.id, now=now, discard_failed_retry=True)
+    assert explicit_result and explicit_result.ok
+    assert blocked.upload_status == m.SourceUploadStatus.deleted
+    assert job.status == m.JobStatus.failed
+
+
+@pytest.mark.parametrize("status", ["queued", "processing"])
+def test_explicit_retry_discard_cannot_delete_active_input(sqlite_db, status):
+    from studio_api.source_deletion import request_source_deletion
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    source = _local_source(sqlite_db, m, project, now)
+    _job_for_source(sqlite_db, m, user, project, source, status=m.JobStatus(status))
+    sqlite_db.commit()
+    result = request_source_deletion(sqlite_db, owner_user_id=user.id, source_id=source.id, now=now, discard_failed_retry=True)
+    assert result and not result.ok
+    assert source.deleted_at is None
 
 
 def test_retention_expiry_and_candidate_starvation(sqlite_db):

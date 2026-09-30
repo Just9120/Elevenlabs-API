@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, object_session, selectinload
 
 from .audio_preparation import MAX_AUDIO_INPUTS, AudioPreparationOptions, normalize_options
 from .models import (
@@ -19,10 +20,11 @@ from .models import (
     SourceUploadStatus,
 )
 from .source_policy import is_source_expired, is_supported_source_mime_type
-from .source_storage import normalize_source_display_filename
+from .source_storage import AUDIO_PROCESSING_REFERENCE_CLASS, normalize_source_display_filename, safe_filename, source_reference_class
 
 
 AUDIO_DRIVE_EXPORT_STAGES = ("google_drive_export_queued", "google_drive_upload")
+OUTPUT_SOURCE_NAMESPACE = uuid.UUID("b87bbd61-e1e5-4e0b-8c5a-1a6bc043bbce")
 
 EPHEMERAL_REFERENCE_TTL = timedelta(hours=24)
 TERMINAL_AUDIO_PREPARATION_STATUSES = {
@@ -220,6 +222,7 @@ def cancel_audio_preparation_job(
     db: Session, *, owner_user_id: str, job_id: str, now: datetime
 ) -> AudioPreparationJob:
     job = _locked_owned_job(db, owner_user_id, job_id)
+    _recover_legacy_stored_output(db, job, now=now)
     if job.status is AudioPreparationStatus.completed and job.current_stage in AUDIO_DRIVE_EXPORT_STAGES:
         job.cancel_requested_at = _naive_utc(now)
         if job.current_stage == "google_drive_export_queued":
@@ -282,6 +285,7 @@ def claim_next_audio_preparation_job(
     ).scalar_one_or_none()
     if job is None:
         return None
+    _recover_legacy_stored_output(db, job, now=now)
     job.lease_generation = (job.lease_generation or 0) + 1
     job.lease_owner_id = owner
     job.claimed_at = _naive_utc(now)
@@ -299,6 +303,47 @@ def claim_next_audio_preparation_job(
         job.progress_percent = 5
         job.started_at = job.started_at or _naive_utc(now)
     db.flush()
+    return job
+
+
+def _legacy_stored_output(db: Session, job: AudioPreparationJob, *, now: datetime) -> Source | None:
+    # Releases inputs only after the former processor has persisted a complete
+    # output. The export keeps its lease; this never steals an active upload.
+    if job.output_source_id is not None or not (job.status in {AudioPreparationStatus.failed, AudioPreparationStatus.cancelled}
+        or (job.status is AudioPreparationStatus.processing and job.current_stage == "google_drive_upload")):
+        return None
+    source = db.get(Source, str(uuid.uuid5(OUTPUT_SOURCE_NAMESPACE, job.id)))
+    if (source is None or source.project_id != job.project_id or source.deleted_at is not None
+        or source.upload_status is not SourceUploadStatus.uploaded or is_source_expired(source.expires_at, now)
+        or source.source_type is not SourceType.local_upload or source_reference_class(source) != AUDIO_PROCESSING_REFERENCE_CLASS
+        or not source.size_bytes or source.size_bytes <= 0
+        or source.s3_object_key != f"audio-preparation/{job.owner_user_id}/{job.id}/{safe_filename(source.original_filename)}"):
+        return None
+    return source
+
+
+def _recover_legacy_stored_output(db: Session, job: AudioPreparationJob, *, now: datetime) -> bool:
+    source = _legacy_stored_output(db, job, now=now)
+    if source is None:
+        return False
+    prior_status = job.status
+    job.output_source_id = source.id
+    job.status = AudioPreparationStatus.completed
+    job.finished_at = _naive_utc(now)
+    if prior_status in {AudioPreparationStatus.failed, AudioPreparationStatus.cancelled}:
+        job.current_stage = "google_drive_export_cancelled" if prior_status is AudioPreparationStatus.cancelled else "google_drive_export_failed"
+        job.progress_percent = 100
+    db.flush()
+    return True
+
+
+def recover_audio_preparation_output(db: Session, *, owner_user_id: str, job_id: str, now: datetime) -> AudioPreparationJob:
+    job = _locked_owned_job(db, owner_user_id, job_id)
+    _owned_project(db, owner_user_id, job.project_id)
+    if job.output_source_id is not None and job.status is AudioPreparationStatus.completed:
+        return job
+    if not _recover_legacy_stored_output(db, job, now=now):
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
     return job
 
 
@@ -446,6 +491,7 @@ def audio_preparation_payload(job: AudioPreparationJob) -> dict[str, object]:
             if job.output_source_id is not None
             else None
         ),
+        "recoverable_output": object_session(job) is not None and _legacy_stored_output(object_session(job), job, now=datetime.now(timezone.utc)) is not None,
         "error_code": job.error_code,
         "cancel_requested": job.cancel_requested_at is not None,
         "created_at": _iso(job.created_at),
