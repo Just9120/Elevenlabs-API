@@ -25,6 +25,7 @@ from .audio_preparation import (
 from .audio_preparation_service import (
     AudioPreparationServiceError,
     AudioPreparationServiceReason,
+    OUTPUT_SOURCE_NAMESPACE,
     complete_audio_preview,
     complete_audio_drive_export,
     deserialize_options,
@@ -61,7 +62,6 @@ from .source_storage import (
 
 
 _COPY_CHUNK_SIZE = 1024 * 1024
-OUTPUT_SOURCE_NAMESPACE = uuid.UUID("b87bbd61-e1e5-4e0b-8c5a-1a6bc043bbce")
 
 
 @dataclass(frozen=True)
@@ -221,19 +221,26 @@ def process_claimed_audio_preparation_job(
                 operation_now=operation_now,
                 storage_factory=storage_factory,
             )
+            # Audio success is durable independently of the optional Drive copy.
+            # Persist the link before entering external I/O so cancellation,
+            # restart and export failures retain the already produced bytes.
+            _require_not_cancelled(db, job)
+            job.output_source_id = source.id
+            job.output_duration_ms = round(output_probe.duration_seconds * 1000)
+            job.status = AudioPreparationStatus.completed
+            job.current_stage = "google_drive_upload" if job.output_destination == "google_drive" else "completed"
+            job.progress_percent = 92 if job.output_destination == "google_drive" else 100
+            job.finished_at = _naive_utc(operation_now)
+            db.flush()
+            _request_ephemeral_cleanup(db, job, operation_now)
+            db.commit()
             if job.output_destination == "google_drive":
-                _checkpoint(db, job, "google_drive_upload", 92)
                 token = drive_token_resolver(db, user_id=job.owner_user_id, settings=settings)
-                uploaded = drive_uploader(
-                    token,
-                    folder_id=job.output_drive_folder_id,
-                    path=output_path,
-                    filename=output_filename,
-                    mime_type=mime_type,
-                    idempotency_key=job.id,
-                )
-                job.output_drive_file_id = uploaded.file_id
-                job.output_drive_web_view_url = uploaded.web_view_url
+                uploaded = _upload_ready_output(db, job, drive_uploader, token, output_path, output_filename, mime_type, lease_owner_id, lease_generation, start_percent=92)
+                complete_audio_drive_export(db, job_id=job.id, lease_owner_id=lease_owner_id,
+                    lease_generation=lease_generation, file_id=uploaded.file_id, web_view_url=uploaded.web_view_url)
+                db.commit()
+                return AudioProcessingResult(job.id, "completed", "completed", True)
             job.output_source_id = source.id
             job.output_duration_ms = round(output_probe.duration_seconds * 1000)
             job.status = AudioPreparationStatus.completed
@@ -352,12 +359,33 @@ def _export_existing_output(db, *, job, root, settings, storage_factory, drive_t
     _checkpoint(db, job, "google_drive_upload", 40)
     token = drive_token_resolver(db, user_id=job.owner_user_id, settings=settings)
     check_export_lease()
-    uploaded = drive_uploader(token, folder_id=job.output_drive_folder_id, path=path,
-        filename=source.original_filename, mime_type=source.mime_type, idempotency_key=job.id)
+    uploaded = _upload_ready_output(db, job, drive_uploader, token, path, source.original_filename, source.mime_type, lease_owner_id, lease_generation, start_percent=40)
     complete_audio_drive_export(db, job_id=job.id, lease_owner_id=lease_owner_id,
         lease_generation=lease_generation, file_id=uploaded.file_id, web_view_url=uploaded.web_view_url)
     db.commit()
     return AudioProcessingResult(job.id, "completed", "completed", False)
+
+
+def _upload_ready_output(db, job, uploader, token, path, filename, mime_type, owner, generation, *, start_percent):
+    def check():
+        db.refresh(job)
+        if (job.lease_owner_id != owner or job.lease_generation != generation
+            or job.status is not AudioPreparationStatus.completed or job.current_stage != "google_drive_upload"
+            or job.lease_expires_at is None or _naive_utc(job.lease_expires_at) <= _naive_utc(utcnow())):
+            raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
+        _require_not_cancelled(db, job)
+
+    def progress(sent, total):
+        check()
+        percent = min(99, start_percent + round((99 - start_percent) * sent / total))
+        if percent > job.progress_percent:
+            job.progress_percent = percent
+            db.commit()
+
+    check()
+    return uploader(token, folder_id=job.output_drive_folder_id, path=path,
+        filename=filename, mime_type=mime_type, idempotency_key=job.id,
+        check_cancelled=check, progress_callback=progress)
 
 
 def _materialize_inputs(
@@ -506,7 +534,10 @@ def _request_ephemeral_cleanup(db, job, now):
 
 
 def _require_not_cancelled(db, job):
+    owner, generation = job.lease_owner_id, job.lease_generation
     db.refresh(job)
+    if job.lease_owner_id != owner or job.lease_generation != generation:
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
     db_status = job.cancel_requested_at
     if db_status is not None:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.cancellation_requested)

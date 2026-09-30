@@ -217,3 +217,55 @@ def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_referen
         assert persisted.status is AudioPreparationStatus.cancelled
         assert source.upload_status is SourceUploadStatus.deleted
         assert storage.puts == []
+
+
+@pytest.mark.parametrize("outcome", ["failure", "cancel", "confirmed_after_cancel"])
+def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, outcome):
+    from studio_api.audio_preparation_service import cancel_audio_preparation_job
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 9, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr("studio_api.audio_preparation_processor.utcnow", lambda: now)
+    storage = Storage(b"reference-audio")
+    @contextmanager
+    def temp_directory_factory(prefix):
+        yield str(tmp_path)
+    with Session(engine, autoflush=False, expire_on_commit=False) as db:
+        user = User(id="owner", email="owner@example.test")
+        project = Project(id="project", owner_user_id=user.id, title="Studio")
+        source = Source(id="input", project_id=project.id, source_type=SourceType.local_upload,
+            original_filename="input.flac", mime_type="audio/flac", size_bytes=15,
+            s3_bucket="private", s3_object_key="input", upload_status=SourceUploadStatus.uploaded, expires_at=datetime(2099, 1, 1))
+        db.add_all([user, project, source]); db.commit()
+        folder = SimpleNamespace(id="folder", name="Folder", web_view_url="https://drive.google.com/drive/folders/folder")
+        job = create_audio_preparation_job(db, owner_user_id=user.id, project_id=project.id, title="Ready",
+            source_ids=[source.id], ephemeral_source_ids={source.id}, manual_order=True,
+            options_payload={"output_format": "flac"}, output_destination="google_drive", output_folder=folder, now=now)
+        job.status = AudioPreparationStatus.queued; db.commit()
+        claimed = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=now, lease_ttl=timedelta(minutes=10)); db.commit()
+        def upload(_token, **kwargs):
+            with Session(engine) as observer:
+                persisted = observer.get(AudioPreparationJob, job.id)
+                assert persisted.status is AudioPreparationStatus.completed
+                assert persisted.output_source_id is not None and persisted.output_duration_ms == 60_000
+                assert observer.get(Source, source.id).upload_status is SourceUploadStatus.deleted
+            if outcome == "failure":
+                raise RuntimeError("synthetic transport failure")
+            cancel_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id, now=now); db.commit()
+            if outcome == "cancel":
+                kwargs["check_cancelled"]()
+            return SimpleNamespace(file_id="drive-file", web_view_url="https://drive.google.com/file/d/drive-file/view")
+        call = lambda: process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker",
+            lease_generation=claimed.lease_generation, settings=isolated_storage_settings(), now=now,
+            storage_factory=lambda _settings: storage, drive_token_resolver=lambda *args, **kwargs: "synthetic",
+            drive_uploader=upload, runner=runner, temp_directory_factory=temp_directory_factory)
+        if outcome == "confirmed_after_cancel":
+            assert call().status == "completed"
+            assert job.output_drive_file_id == "drive-file" and job.cancel_requested_at is None
+        else:
+            with pytest.raises(Exception):
+                call()
+            assert job.current_stage == ("google_drive_export_failed" if outcome == "failure" else "google_drive_export_cancelled")
+        assert job.status is AudioPreparationStatus.completed and job.output_source_id is not None
+        assert job.lease_owner_id is None and len(storage.puts) == 1
+    engine.dispose()

@@ -361,6 +361,25 @@ describe("AudioPreparationPage", () => {
 
 
 describe("audio UX regression", () => {
+  it("recovers persisted legacy audio without creating another processing job", async () => {
+    const stuck = { ...previewJob("stuck", "Практика №48", []), status: "processing", progress: { stage: "google_drive_upload", percent: 92 }, recoverable_output: true };
+    const recovered = { ...stuck, status: "completed", recoverable_output: false, output: { download_ready: true, source_id: "ready-source", google_drive_url: null } };
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [stuck] });
+      if (url.endsWith("/recover-output") && init?.method === "POST") { posts.push(url); return json(recovered); }
+      throw new Error(url);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить готовый файл" }));
+    expect(await screen.findByRole("link", { name: "Скачать файл" })).toHaveAttribute("href", "/api/audio-preparations/stuck/download");
+    expect(screen.getByRole("button", { name: "Использовать для транскрибации" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Восстановить готовый файл" })).not.toBeInTheDocument();
+    expect(posts).toEqual(["/api/audio-preparations/stuck/recover-output"]);
+  });
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   it("keeps empty/minus drafts and sends comma/point decimals as numbers only after validation", async () => {

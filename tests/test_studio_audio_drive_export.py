@@ -19,6 +19,7 @@ from studio_api.audio_preparation_service import (
     AudioPreparationServiceError, audio_preparation_payload, cancel_audio_preparation_job,
     claim_next_audio_preparation_job, complete_audio_drive_export, queue_audio_drive_export,
     renew_audio_preparation_lease,
+    OUTPUT_SOURCE_NAMESPACE, recover_audio_preparation_output,
 )
 from studio_api.db import Base
 from studio_api.models import AudioPreparationJob, AudioPreparationStatus, Project, Source, SourceType, SourceUploadStatus, User
@@ -212,3 +213,68 @@ def test_queue_reloads_cached_job_before_changing_a_concurrent_destination(expor
     with pytest.raises(AudioPreparationServiceError): queue(db)
     db.rollback()
     assert job.output_drive_folder_id == "concurrent-folder"
+
+
+def legacy_output(db, job, source, status):
+    import uuid
+    from studio_api.source_storage import safe_filename
+    source.id = str(uuid.uuid5(OUTPUT_SOURCE_NAMESPACE, job.id))
+    source.reference_class = "audio_processing"
+    source.s3_bucket = "audio-private"
+    source.s3_object_key = f"audio-preparation/owner/{job.id}/{safe_filename(source.original_filename)}"
+    source.expires_at = datetime(2099, 1, 1)
+    job.output_source_id = None
+    job.status = status
+    job.current_stage = "google_drive_upload" if status is AudioPreparationStatus.processing else status.value
+    job.output_destination = "google_drive"
+    job.output_drive_folder_id = FOLDER.id
+    job.output_drive_folder_name = FOLDER.name
+    job.output_drive_folder_url = FOLDER.web_view_url
+    job.lease_owner_id = "old-worker" if status is AudioPreparationStatus.processing else None
+    job.lease_expires_at = (NOW + timedelta(minutes=5)).replace(tzinfo=None) if job.lease_owner_id else None
+    db.commit()
+
+
+@pytest.mark.parametrize("status", [AudioPreparationStatus.processing, AudioPreparationStatus.failed, AudioPreparationStatus.cancelled])
+def test_legacy_output_recovery_preserves_bytes_and_active_lease(export_state, status):
+    db, job, source = export_state
+    legacy_output(db, job, source, status)
+    lease = job.lease_owner_id, job.lease_generation, job.lease_expires_at
+    assert audio_preparation_payload(job)["recoverable_output"] is True
+    with pytest.raises(AudioPreparationServiceError):
+        recover_audio_preparation_output(db, owner_user_id="other", job_id=job.id, now=NOW)
+    result = recover_audio_preparation_output(db, owner_user_id="owner", job_id=job.id, now=NOW)
+    db.commit()
+    assert result.status is AudioPreparationStatus.completed and result.output_source_id == source.id
+    assert (result.lease_owner_id, result.lease_generation, result.lease_expires_at) == lease
+    assert recover_audio_preparation_output(db, owner_user_id="owner", job_id=job.id, now=NOW).output_source_id == source.id
+    if status is AudioPreparationStatus.processing:
+        assert result.current_stage == "google_drive_upload"
+        assert claim(db, owner="other-worker") is None
+    else:
+        assert result.current_stage in {"google_drive_export_failed", "google_drive_export_cancelled"}
+
+
+def test_legacy_expired_claim_exports_existing_bytes_without_transcoding(export_state, tmp_path):
+    db, job, source = export_state
+    legacy_output(db, job, source, AudioPreparationStatus.processing)
+    generation = job.lease_generation
+    claim(db, now=NOW + timedelta(minutes=6))
+    assert job.status is AudioPreparationStatus.completed and job.lease_generation == generation + 1
+    result, reads = process(db, job, tmp_path, lambda *args, **kwargs: RESULT)
+    assert result.output_created is False and reads == [source.s3_object_key]
+    assert job.output_drive_file_id == RESULT.file_id
+
+
+@pytest.mark.parametrize("invalid", ["foreign-project", "wrong-key", "expired", "deleted"])
+def test_legacy_recovery_rejects_unusable_or_unrelated_source(export_state, invalid):
+    db, job, source = export_state
+    legacy_output(db, job, source, AudioPreparationStatus.processing)
+    if invalid == "foreign-project": source.project_id = "other-project"
+    if invalid == "wrong-key": source.s3_object_key = "unrelated-object"
+    if invalid == "expired": source.expires_at = (NOW - timedelta(seconds=1)).replace(tzinfo=None)
+    if invalid == "deleted": source.deleted_at = NOW.replace(tzinfo=None)
+    db.commit()
+    with pytest.raises(AudioPreparationServiceError):
+        recover_audio_preparation_output(db, owner_user_id="owner", job_id=job.id, now=NOW)
+    assert job.status is AudioPreparationStatus.processing and job.output_source_id is None

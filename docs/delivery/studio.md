@@ -20,8 +20,8 @@
 | `PC-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PC-15` | BACKLOG | ❌ | ❌ | ⏳ | Решение владельца 2026-09-24; ветка `codex/pwa-update-prompt-20260924`, проверки и PR PENDING. Текущий `autoUpdate` принудительно перезагружает UI. |
-| `PC-16` | BACKLOG | ❌ | ❌ | ⏳ | Решение владельца 2026-09-24; явный apply/defer и multi-tab regression PENDING. |
+| `PC-15` | READY | ✅ | ✅ | ✅ | Восстановлено по code и primary records 2026-09-30: PR #312/e01bc91, CI 35970014222/35970014302, web CD 35970355470 SUCCESS. |
+| `PC-16` | READY | ✅ | ✅ | ✅ | Восстановлено по code и primary records 2026-09-30: PR #312/e01bc91, CI 35970014222/35970014302, web CD 35970355470 SUCCESS. |
 
 ### `PWA-USER-EXPERIENCE-02`
 
@@ -154,9 +154,9 @@
 | `AP-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-13` | READY | ✅ | ◐ | ✅ | V28-DELIVERY / PR #303 / web 3e65322: F22–F24 закрыты; PR/main CI PASS. Read-only LIVE подтверждает доступность интерфейса; destructive production scenario не выполнялся. Regression поведение проверено synthetic tests. |
+| `AP-13` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
 | `AP-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-15` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `AP-15` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
 | `AP-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -164,7 +164,7 @@
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-22` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
-| `AP-23` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
+| `AP-23` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
 | `AP-24` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-25` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-26` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -291,15 +291,15 @@
 | `PWASEC-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PWASEC-19` | IN_PROGRESS | ✅ | ✅ local | PENDING | `D20260927-TRUSTED-DEVICE`: явное 30-дневное запоминание браузера после reauth; synthetic API + UI regression PASS на рабочей ветке, PR/CI/delivery PENDING. |
-| `PWASEC-20` | IN_PROGRESS | ✅ | ✅ local | PENDING | Trust только для текущего владельца и действующей сессии, не для входа и 2FA changes; expiry/revoke/owner/CSRF regressions PASS локально. |
-| `PWASEC-21` | IN_PROGRESS | ✅ | ✅ local | PENDING | UI срока и отзыв current/all; password reset и TOTP disable отзывают trust; API/component tests PASS локально. |
+| `PWASEC-19` | READY | ✅ | ✅ | ✅ | Восстановлено по code и primary records 2026-09-30: PR #317/5dcd3e6, migration/CD 36299859149, worker CD 36300397903 и status 36300716206 SUCCESS. |
+| `PWASEC-20` | READY | ✅ | ✅ | ✅ | Восстановлено по code и primary records 2026-09-30: PR #317/5dcd3e6, migration/CD 36299859149, worker CD 36300397903 и status 36300716206 SUCCESS. |
+| `PWASEC-21` | READY | ✅ | ✅ | ✅ | Восстановлено по code и primary records 2026-09-30: PR #317/5dcd3e6, migration/CD 36299859149, worker CD 36300397903 и status 36300716206 SUCCESS. |
 
 ### `GOOGLE-DRIVE-RELIABILITY-02`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `GOOGLE-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `GOOGLE-01` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
 | `GOOGLE-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `GOOGLE-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `GOOGLE-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
