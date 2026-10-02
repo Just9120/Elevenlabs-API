@@ -10382,6 +10382,30 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("submits cached assembly without provider-cost confirmation", async () => {
+    installFocusedOutputFixture({ jobStatus: "failed", retryResponse: {
+      job_id: "job-focused", job_status: "failed", available: true,
+      reason: "full_provider_restore_available", attempt_count: 1, max_attempts: 3,
+      missing_output_count: 1, retry_safe_source_count: 1,
+      resumable_provider_part_count: 3, provider_total_part_count: 3,
+    } });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const posts: RequestInit[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/api/jobs/job-focused/retry") && init?.method === "POST") {
+        posts.push(init);
+        return json({ detail: "synthetic restore rejected" }, false, 409);
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Собрать и сохранить результат" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body).toBeUndefined();
+  });
+
   it("deduplicates provider-cost retry and unlocks after failure", async () => {
     const retryResponse = {
       job_id: "job-focused",

@@ -19,6 +19,13 @@ const retry = {
   provider_failure_code: "provider_rate_limited",
 };
 
+it("accepts only a complete cached restore set", () => {
+  const complete = { ...retry, reason: "full_provider_restore_available", resumable_provider_part_count: 4 };
+  expect(parseJobRetryResponse(complete, retry.job_id)?.available).toBe(true);
+  expect(parseJobRetryResponse({ ...complete, resumable_provider_part_count: 3 }, retry.job_id)).toBeNull();
+  expect(parseJobRetryResponse({ ...complete, provider_total_part_count: 0 }, retry.job_id)).toBeNull();
+});
+
 const reconciliation = {
   job_id: "job-safe",
   job_status: "failed",

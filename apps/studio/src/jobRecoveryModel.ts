@@ -63,6 +63,7 @@ const JOB_STATUSES = new Set([
   "completed",
 ]);
 const RETRY_REASONS = new Set([
+  "full_provider_restore_available",
   "available",
   "partial_provider_resume_available",
   "partial_provider_restart_available",
@@ -78,6 +79,7 @@ const RETRY_REASONS = new Set([
   "non_retryable",
 ]);
 const AVAILABLE_RETRY_REASONS = new Set([
+  "full_provider_restore_available",
   "available",
   "partial_provider_resume_available",
   "partial_provider_restart_available",
@@ -141,6 +143,8 @@ export function parseJobRetryResponse(
       status === "failed" &&
       ((resumableParts ?? 0) !== 0 ||
         (totalParts ?? 0) !== 0)) ||
+    (reason === "full_provider_restore_available" &&
+      (!(totalParts && totalParts > 1) || resumableParts !== totalParts)) ||
     (reason === "partial_provider_resume_available" &&
       (!(resumableParts && totalParts) || resumableParts > totalParts)) ||
     (reason === "partial_provider_restart_available" &&
@@ -356,6 +360,7 @@ function retryStatusReasonIsConsistent(status: string, reason: string) {
 }
 
 export function retryUnavailableLabel(reason: string | undefined) {
+  if (reason === "full_provider_restore_available") return "";
   if (reason === "provider_outcome_uncertain") {
     return "Повтор недоступен: результат внешнего вызова не определён";
   }
@@ -371,6 +376,10 @@ export function retryUnavailableLabel(reason: string | undefined) {
 
 export function isPartialProviderResume(data: JobRetryResponse | null | undefined) {
   return data?.reason === "partial_provider_resume_available";
+}
+
+export function isFullProviderRestore(data: JobRetryResponse | null | undefined) {
+  return data?.reason === "full_provider_restore_available";
 }
 
 export function isPartialProviderRestart(data: JobRetryResponse | null | undefined) {
