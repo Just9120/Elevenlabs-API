@@ -8,6 +8,7 @@ import {
   type TranscriptionJob,
 } from "./jobModel";
 import {
+  isFullProviderRestore,
   isPartialProviderResume,
   isPartialProviderRestart,
   providerFailureLabel,
@@ -110,10 +111,12 @@ export function JobDetailSection({
 }) {
   const unavailable = retryUnavailableLabel(retry?.data?.reason);
   const partialResume = isPartialProviderResume(retry?.data);
+  const fullRestore = isFullProviderRestore(retry?.data);
   const partialRestart = isPartialProviderRestart(retry?.data);
   const ordinaryProviderFailure =
     retry?.data?.available &&
     !partialResume &&
+    !fullRestore &&
     !partialRestart &&
     retry.data.provider_failure_code
       ? providerFailureLabel(retry.data.provider_failure_code)
@@ -157,6 +160,12 @@ export function JobDetailSection({
                   повтор будет безопасным и не продублирует подтверждённый результат.
                 </span>
               )}
+              {fullRestore && (
+                <span className="notice">
+                  Все части уже распознаны и сохранены. Studio соберёт результат
+                  и сохранит документ без повторного вызова ElevenLabs.
+                </span>
+              )}
               {partialResume && (
                 <span className="notice">
                   Сохранено частей: {retry.data.resumable_provider_part_count ?? 0} из{" "}
@@ -179,7 +188,9 @@ export function JobDetailSection({
                 disabled={retry.posting}
                 aria-busy={retry.posting}
               >
-                {partialResume
+                {fullRestore
+                  ? "Собрать и сохранить результат"
+                  : partialResume
                   ? "Продолжить оставшиеся части"
                   : partialRestart
                     ? "Начать транскрибацию заново"

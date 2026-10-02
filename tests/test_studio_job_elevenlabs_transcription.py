@@ -415,6 +415,14 @@ def test_request_construction_language_and_redaction():
     assert "language_code" not in calls[0][1]["data"]
 
 
+def test_diarized_transport_accepts_silent_part_without_speaker_labels():
+    from studio_api.elevenlabs_transcription import ElevenLabsTranscriptionTransport
+    transport = ElevenLabsTranscriptionTransport(post=lambda *args, **kwargs: httpx.Response(200, json={"text": "", "words": []}))
+    result = transport.transcribe(api_key="synthetic", stream=BytesIO(b"silence"), filename="silent.mp3", mime_type="audio/mpeg", diarize=True)
+    assert result.text == ""
+    assert result.word_count == 0
+
+
 def test_diarized_transport_rejects_success_without_speaker_labels():
     from studio_api.elevenlabs_transcription import (
         ElevenLabsTranscriptionError,
@@ -990,6 +998,46 @@ def test_media_preparation_failure_blocks_provider_with_safe_reason(db, models):
     assert "private" not in str(exc.value)
 
 
+@pytest.mark.parametrize("empty_index", [0, 1, 2])
+def test_merge_preserves_timeline_with_a_silent_part(empty_index):
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response as normalize, merge_elevenlabs_transcript_results
+    parts = []
+    for index in range(3):
+        payload = {"text": "", "words": []} if index == empty_index else {
+            "text": f"word{index}", "words": [{"text": f"word{index}", "start": 3, "end": 4}],
+        }
+        parts.append((normalize(payload), index * 8, 2 if index else 0))
+    result = merge_elevenlabs_transcript_results(parts)
+    assert [word.text for word in result.words] == [f"word{i}" for i in range(3) if i != empty_index]
+    assert [word.start for word in result.words] == [i * 8 + 3 for i in range(3) if i != empty_index]
+
+
+def test_merge_does_not_discard_text_without_words():
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response as normalize, merge_elevenlabs_transcript_results, ElevenLabsTranscriptionError
+    with pytest.raises(ElevenLabsTranscriptionError) as error:
+        merge_elevenlabs_transcript_results(((normalize({"text": "speech", "words": []}), 0, 0),))
+    assert error.value.assembly_code == "transcript_part_words_missing"
+
+
+def test_merge_does_not_accept_an_empty_overall_transcript():
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response as normalize, merge_elevenlabs_transcript_results, ElevenLabsTranscriptionError
+    with pytest.raises(ElevenLabsTranscriptionError) as error:
+        merge_elevenlabs_transcript_results(((normalize({"text": "", "words": []}), 0, 0), (normalize({"text": " ", "words": []}), 8, 2)))
+    assert error.value.assembly_code == "transcript_assembly_empty"
+
+
+def test_single_silent_source_does_not_reach_export(db, models):
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response as normalize
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    *_, job, rel, now = make_job(db, models)
+    class SilentProvider:
+        def transcribe(self, **kwargs):
+            return normalize({"text": "", "words": []})
+    with pytest.raises(JobElevenLabsTranscriptionError, match="malformed_provider_response"):
+        with run_boundary(db, models, job, rel, SilentProvider(), now):
+            pytest.fail("empty overall transcript cannot authorize export")
+
+
 def test_chunk_transcripts_merge_in_order_without_duplicate_overlap():
     from studio_api.elevenlabs_transcription import (
         merge_elevenlabs_transcript_results,
@@ -1332,6 +1380,109 @@ def test_explicit_partial_resume_calls_only_unfinished_provider_part(db, models)
     assert transport.calls == 1
     attempt = db.query(models.TranscriptionJobSourceAttempt).filter_by(job_source_id=rel.id, attempt_number=2).one()
     assert attempt.provider_completed_parts == attempt.provider_total_parts == 2
+
+
+@pytest.mark.parametrize("checkpoint_state", ["intact", "expired", "missing", "corrupt", "wrong_owner", "wrong_shape"])
+def test_complete_checkpoint_restore_never_calls_provider(monkeypatch, db, models, checkpoint_state):
+    import studio_api.job_elevenlabs_transcription as boundary
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response as normalize, ElevenLabsTranscriptionError, ElevenLabsTranscriptionReason
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    from studio_api.job_retry_recovery import compute_explicit_retry_readiness, prepare_current_attempt_sources, queue_retry, requires_provider_cost_confirmation
+    from studio_api.media_preparation import PreparedMediaBatch, PreparedMediaInput
+
+    *_, job, rel, now = make_job(db, models)
+
+    @contextmanager
+    def prepare(**kwargs):
+        with BytesIO(b"one") as first, BytesIO(b"two") as second:
+            yield PreparedMediaBatch(parts=(
+                PreparedMediaInput("part-001.m4a", "audio/mp4", 3, first, part_count=2, duration_seconds=10),
+                PreparedMediaInput("part-002.m4a", "audio/mp4", 3, second, part_index=2, part_count=2, timeline_offset_seconds=8, duration_seconds=5),
+            ), duration_seconds=13, split_reason="duration")
+
+    class Provider:
+        calls = 0
+        def transcribe(self, **kwargs):
+            self.calls += 1
+            return normalize({"text": "alpha", "words": [{"text": "alpha", "start": 0, "end": 1}]}) if self.calls == 1 else normalize({"text": "", "words": []})
+
+    transport = Provider()
+    events = []
+    monkeypatch.setattr(boundary, "_emit_provider", lambda db, job_id, code, metadata: events.append((code, metadata)))
+    with monkeypatch.context() as failing_merge:
+        def crash(*args):
+            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response, assembly_code="transcript_part_words_missing")
+        failing_merge.setattr(boundary, "merge_elevenlabs_transcript_results", crash)
+        with pytest.raises(JobElevenLabsTranscriptionError, match="malformed_provider_response"):
+            with run_boundary(db, models, job, rel, transport, now, media_preparer=prepare):
+                pass
+    assert transport.calls == 2
+    failure = next(metadata for code, metadata in events if code == "PROVIDER_REQUEST_FAILED")
+    assert failure["boundary"] == "transcript_assembly"
+    assert failure["error_code"] == "transcript_part_words_missing"
+    original = db.query(models.TranscriptionJobSourceAttempt).filter_by(attempt_number=1).one()
+    billed = original.provider_billed_duration_ms
+    job.status = models.JobStatus.failed
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    db.commit()
+    readiness = compute_explicit_retry_readiness(db, job, now=now)
+    assert readiness.available
+    assert readiness.reason.value == "full_provider_restore_available"
+    assert readiness.resumable_provider_part_count == readiness.provider_total_part_count == 2
+    assert not requires_provider_cost_confirmation(readiness)
+    first_checkpoint = db.query(models.TranscriptionProviderPartCheckpoint).filter_by(part_index=0).one()
+    expiry = first_checkpoint.expires_at
+    first_checkpoint.expires_at = now - timedelta(seconds=1)
+    db.flush()
+    expired_readiness = compute_explicit_retry_readiness(db, job, now=now)
+    assert not expired_readiness.available
+    assert expired_readiness.reason.value == "provider_result_lost"
+    first_checkpoint.expires_at = expiry
+    db.flush()
+    assert queue_retry(db, owner_user_id=job.owner_user_id, job_id=job.id, now=now).transitioned
+    job.status = models.JobStatus.processing
+    job.attempt_count = 2
+    job.lease_owner_id = "worker"
+    job.lease_generation = 7
+    job.lease_expires_at = now + timedelta(minutes=5)
+    prepare_current_attempt_sources(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, now=now)
+    rows = db.query(models.TranscriptionProviderPartCheckpoint).order_by(models.TranscriptionProviderPartCheckpoint.part_index).all()
+    if checkpoint_state == "expired":
+        rows[0].expires_at = now - timedelta(seconds=1)
+    elif checkpoint_state == "missing":
+        db.delete(rows[0])
+    elif checkpoint_state == "corrupt":
+        rows[0].ciphertext = b"invalid"
+    elif checkpoint_state == "wrong_owner":
+        rows[0].owner_user_id = "other-owner"
+    elif checkpoint_state == "wrong_shape":
+        rows[0].timeline_offset_seconds = 1
+    db.commit()
+
+    class NeverCallProvider:
+        def transcribe(self, **kwargs):
+            pytest.fail("restore must not submit paid STT")
+
+    if checkpoint_state == "intact":
+        with run_boundary(db, models, job, rel, NeverCallProvider(), now, media_preparer=prepare) as result:
+            assert result.text == "alpha"
+        restored = db.query(models.TranscriptionJobSourceAttempt).filter_by(attempt_number=2).one()
+        assert restored.provider_completed_parts == restored.provider_total_parts == 2
+        assert int(restored.provider_billed_duration_ms or 0) == 0
+    else:
+        with pytest.raises(JobElevenLabsTranscriptionError, match="retry_state_persistence_failed"):
+            with run_boundary(db, models, job, rel, NeverCallProvider(), now, media_preparer=prepare):
+                pass
+        if checkpoint_state in {"expired", "missing"}:
+            job.status = models.JobStatus.failed
+            job.lease_owner_id = None
+            job.lease_expires_at = None
+            db.commit()
+            unavailable = compute_explicit_retry_readiness(db, job, now=now)
+            assert not unavailable.available
+            assert unavailable.reason.value == "provider_result_lost"
+    assert original.provider_billed_duration_ms == billed
 
 
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):

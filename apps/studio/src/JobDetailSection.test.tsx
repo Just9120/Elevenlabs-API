@@ -256,6 +256,18 @@ describe("JobDetailSection", () => {
     await userEvent.click(button);
     expect(onRetry).not.toHaveBeenCalled();
   });
+  it("offers cached assembly without a paid restart", async () => {
+    const onRetry = vi.fn();
+    render(<JobDetailSection job={job} outputs={null} retry={retry({ data: {
+      ...retry().data!, reason: "full_provider_restore_available",
+      resumable_provider_part_count: 3, provider_total_part_count: 3,
+    } })} onRetry={onRetry} />);
+    expect(screen.getByRole("region", { name: "Действия после ошибки" })).toHaveTextContent("без повторного вызова ElevenLabs");
+    await userEvent.click(screen.getByRole("button", { name: "Собрать и сохранить результат" }));
+    expect(onRetry).toHaveBeenCalledWith(job.id);
+    expect(screen.queryByRole("button", { name: "Начать транскрибацию заново" })).not.toBeInTheDocument();
+  });
+
   it("explains partial provider progress and resumes only remaining parts", async () => {
     const onRetry = vi.fn();
     render(

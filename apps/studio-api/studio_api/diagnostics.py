@@ -56,8 +56,9 @@ class EventDef:
     level: str
     metadata: dict[str, MetaRule]
 
-BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "provider_checkpoint", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "storage_reconciliation", "unknown"})
+BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "provider_checkpoint", "transcript_assembly", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "storage_reconciliation", "unknown"})
 ERROR_CODES = frozenset({
+    "transcript_part_words_missing", "transcript_overlap_timestamps_missing", "transcript_assembly_empty", "provider_complete_checkpoint_set_unavailable",
     "unknown", "provider_authentication_rejected", "provider_payment_required", "provider_scope_rejected", "provider_request_rejected", "provider_rate_limited",
     "provider_unavailable", "provider_timeout", "malformed_provider_response", "lifecycle_changed_after_provider_call",
     "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call",
