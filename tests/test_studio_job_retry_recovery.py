@@ -378,6 +378,34 @@ def test_partial_output_preserved_and_prepared_next_source_is_safe(sqlite_db):
     assert sqlite_db.query(m.TranscriptionJobSourceAttempt).filter_by(job_source_id=rels[0].id).count() == 0
 
 
+@pytest.mark.parametrize("source_count", [1, 2])
+def test_cached_restore_does_not_hide_cost_of_an_unstarted_source(sqlite_db, source_count):
+    from studio_api.job_retry_recovery import compute_explicit_retry_readiness, compute_expired_recovery_readiness, requires_provider_cost_confirmation
+    m, now, _, _, job, rels = _job_with_sources(sqlite_db, source_count=source_count, status="failed")
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    attempt = _attempt(sqlite_db, m, job, rels[0], stage=m.SourceAttemptStage.failed, disposition=m.SourceAttemptRetryDisposition.provider_result_lost, started=True)
+    attempt.provider_total_parts = attempt.provider_completed_parts = 2
+    for index in range(2):
+        sqlite_db.add(m.TranscriptionProviderPartCheckpoint(
+            owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id,
+            job_source_id=rels[0].id, part_index=index, total_parts=2,
+            timeline_offset_seconds=index * 8, duration_seconds=10,
+            provider="elevenlabs", model="scribe_v2", ciphertext=b"synthetic", nonce=b"synthetic",
+            key_id="key-v1", payload_hmac="a" * 64, created_at=now, expires_at=now + timedelta(hours=1),
+        ))
+    if source_count == 2:
+        _attempt(sqlite_db, m, job, rels[1])
+    sqlite_db.commit()
+    readiness = compute_explicit_retry_readiness(sqlite_db, job, now=now)
+    assert readiness.available
+    assert readiness.reason.value == ("full_provider_restore_available" if source_count == 1 else "partial_provider_resume_available")
+    assert requires_provider_cost_confirmation(readiness) == (source_count == 2)
+    job.status = m.JobStatus.processing
+    job.lease_expires_at = now - timedelta(seconds=1)
+    assert not compute_expired_recovery_readiness(sqlite_db, job, now=now).available
+
+
 def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
     from studio_api.job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 

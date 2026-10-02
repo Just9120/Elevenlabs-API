@@ -68,8 +68,12 @@ class ElevenLabsTranscriptionError(RuntimeError):
         *,
         provider_error_code: str | None = None,
         http_status: int | None = None,
+        assembly_code: str | None = None,
     ):
         self.reason = reason
+        self.assembly_code = assembly_code if assembly_code in {
+            "transcript_part_words_missing", "transcript_overlap_timestamps_missing", "transcript_assembly_empty",
+        } else None
         self.provider_error_code = (
             provider_error_code
             if provider_error_code in SAFE_PROVIDER_ERROR_CODES
@@ -262,7 +266,7 @@ class ElevenLabsTranscriptionTransport:
         except Exception as exc:
             raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response) from exc
         result = normalize_elevenlabs_transcript_response(payload)
-        if diarize and not any((word.speaker_id or "").strip() for word in result.words):
+        if diarize and (result.text.strip() or result.word_count) and not any((word.speaker_id or "").strip() for word in result.words):
             result.revoke()
             raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
         return result
@@ -302,15 +306,25 @@ def merge_elevenlabs_transcript_results(
             for word in result.words
         )
         if not current_words:
+            if not result.text.strip():
+                # A silent part is valid; its position still determines overlap
+                # ownership for the following part.
+                continue
             raise ElevenLabsTranscriptionError(
                 ElevenLabsTranscriptionReason.malformed_provider_response,
+                assembly_code="transcript_part_words_missing",
             )
         drop_count = 0
         if index:
-            drop_count = max(
-                _duplicate_prefix_word_count(merged_words, current_words),
-                _owned_overlap_prefix_count(current_words, overlap_seconds),
-            )
+            try:
+                drop_count = max(
+                    _duplicate_prefix_word_count(merged_words, current_words),
+                    _owned_overlap_prefix_count(current_words, overlap_seconds),
+                )
+            except ElevenLabsTranscriptionError as exc:
+                raise ElevenLabsTranscriptionError(
+                    exc.reason, assembly_code="transcript_overlap_timestamps_missing",
+                ) from exc
         for word in current_words[drop_count:]:
             merged_words.append(
                 _WordData(
@@ -325,6 +339,11 @@ def merge_elevenlabs_transcript_results(
         probabilities.append(result.language_probability)
 
     text = _join_transcript_tokens([word.text for word in merged_words])
+    if not text.strip():
+        raise ElevenLabsTranscriptionError(
+            ElevenLabsTranscriptionReason.malformed_provider_response,
+            assembly_code="transcript_assembly_empty",
+        )
     language_code, probability = _merged_language(language_codes, probabilities)
     holder = _RevocableTranscript(text, tuple(merged_words))
     return ElevenLabsTranscriptResult(

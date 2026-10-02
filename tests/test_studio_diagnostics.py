@@ -53,6 +53,19 @@ def test_model_table_constraints_and_audit_separate(db):
     assert {c.name for c in m.DiagnosticEvent.__table__.columns} >= {"owner_user_id","project_id","job_id","level","component","event_code","metadata_json","dedup_fingerprint","expires_at"}
     assert "dedup_fingerprint" not in {c.name for c in m.AuditEvent.__table__.columns}
 
+def test_assembly_failure_is_safe_structured_diagnostic(db):
+    from studio_api.diagnostics import write_diagnostic_event
+    from studio_api import models as m
+    user, project, job = user_project_job(db)
+    Session = sessionmaker(bind=db.bind, expire_on_commit=False)
+    metadata = {"boundary": "transcript_assembly", "error_code": "transcript_part_words_missing", "retryable": False, "attempt_number": 1}
+    result = write_diagnostic_event(owner_user_id=user.id, component="worker", event_code="PROVIDER_REQUEST_FAILED", project_id=project.id, job_id=job.id, metadata=metadata, session_factory=Session)
+    assert result.persisted
+    row = db.query(m.DiagnosticEvent).filter_by(event_code="PROVIDER_REQUEST_FAILED").one()
+    assert json.loads(row.metadata_json) == metadata
+    assert not write_diagnostic_event(owner_user_id=user.id, component="worker", event_code="PROVIDER_REQUEST_FAILED", metadata={**metadata, "transcript": "private text"}, session_factory=Session).accepted
+
+
 def test_writer_sanitizes_retains_and_deduplicates(db, monkeypatch):
     import studio_api.diagnostics as diagnostics
     from studio_api import models as m

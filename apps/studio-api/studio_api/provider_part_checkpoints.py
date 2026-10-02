@@ -17,6 +17,7 @@ from .elevenlabs_transcription import (
 from .models import (
     TranscriptionJob,
     TranscriptionJobSource,
+    TranscriptionJobSourceAttempt,
     TranscriptionProviderPartCheckpoint,
 )
 from .security import decrypt, encrypt, master_key_from_b64
@@ -29,6 +30,7 @@ class ProviderPartCheckpointReason(str, Enum):
     persistence_failed = "provider_part_checkpoint_persistence_failed"
     decryption_failed = "provider_part_checkpoint_decryption_failed"
     payload_invalid = "provider_part_checkpoint_payload_invalid"
+    complete_set_unavailable = "provider_complete_checkpoint_set_unavailable"
 
 
 class ProviderPartCheckpointError(RuntimeError):
@@ -125,6 +127,7 @@ def load_provider_part_checkpoints(
     parts,
     settings,
     now: datetime,
+    require_complete: bool = False,
 ) -> tuple[ElevenLabsTranscriptResult, ...]:
     job, relation = _scope(db, job_id, job_source_id)
     rows = db.execute(
@@ -132,13 +135,17 @@ def load_provider_part_checkpoints(
         .where(TranscriptionProviderPartCheckpoint.job_source_id == relation.id)
         .order_by(TranscriptionProviderPartCheckpoint.part_index)
     ).scalars().all()
+    if require_complete and (
+        len(rows) != len(parts) or any(_expired(row.expires_at, now) for row in rows)
+    ):
+        raise ProviderPartCheckpointError(ProviderPartCheckpointReason.complete_set_unavailable)
     if not rows:
         return ()
     if any(_expired(row.expires_at, now) for row in rows):
         delete_provider_part_checkpoints(db, job_source_id=relation.id)
         return ()
     total_parts = len(parts)
-    if total_parts <= 1 or len(rows) >= total_parts:
+    if total_parts <= 1 or len(rows) > total_parts:
         raise ProviderPartCheckpointError(ProviderPartCheckpointReason.shape_conflict)
     key = master_key_from_b64(settings.master_key_b64())
     loaded: list[ElevenLabsTranscriptResult] = []
@@ -192,7 +199,7 @@ def checkpoint_resume_count(
     completed_parts: int,
     now: datetime,
 ) -> int:
-    if total_parts is None or total_parts <= 1 or completed_parts <= 0 or completed_parts >= total_parts:
+    if total_parts is None or total_parts <= 1 or completed_parts <= 0 or completed_parts > total_parts:
         return 0
     rows = db.execute(
         select(TranscriptionProviderPartCheckpoint)
@@ -208,6 +215,34 @@ def checkpoint_resume_count(
     if any(row.total_parts != total_parts for row in rows):
         return 0
     return completed_parts
+
+
+def complete_provider_attempt(db: Session, *, job_id: str, job_source_id: str, before_attempt: int | None = None) -> TranscriptionJobSourceAttempt | None:
+    job, relation = _scope(db, job_id, job_source_id)
+    statement = select(TranscriptionJobSourceAttempt).where(
+        TranscriptionJobSourceAttempt.job_id == job.id,
+        TranscriptionJobSourceAttempt.job_source_id == relation.id,
+        TranscriptionJobSourceAttempt.owner_user_id == job.owner_user_id,
+        TranscriptionJobSourceAttempt.project_id == job.project_id,
+        TranscriptionJobSourceAttempt.attempt_number <= int(job.attempt_count or 0),
+        TranscriptionJobSourceAttempt.provider_total_parts > 1,
+        TranscriptionJobSourceAttempt.provider_completed_parts == TranscriptionJobSourceAttempt.provider_total_parts,
+    )
+    if before_attempt is not None:
+        statement = statement.where(TranscriptionJobSourceAttempt.attempt_number < before_attempt)
+    return db.execute(statement.order_by(TranscriptionJobSourceAttempt.attempt_number.desc()).limit(1)).scalar_one_or_none()
+
+
+def requires_complete_checkpoint_restore(db: Session, *, job_id: str, job_source_id: str) -> bool:
+    """A fully returned earlier attempt never authorizes another provider call.
+
+    Use the durable attempt record rather than checkpoint presence: expiry or
+    cleanup between enqueue and execution must not turn restore into paid STT.
+    """
+    job, _ = _scope(db, job_id, job_source_id)
+    return complete_provider_attempt(
+        db, job_id=job_id, job_source_id=job_source_id, before_attempt=int(job.attempt_count or 0),
+    ) is not None
 
 
 def delete_provider_part_checkpoints(

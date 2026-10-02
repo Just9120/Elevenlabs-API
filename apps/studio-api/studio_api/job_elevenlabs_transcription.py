@@ -41,6 +41,7 @@ from .security import utcnow
 from .provider_part_checkpoints import (
     ProviderPartCheckpointError,
     load_provider_part_checkpoints,
+    requires_complete_checkpoint_restore,
     save_provider_part_checkpoint,
 )
 from .provider_usage_accounting import (
@@ -265,9 +266,16 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     parts=prepared_batch.parts,
                                     settings=settings,
                                     now=clock(),
+                                    require_complete=requires_complete_checkpoint_restore(
+                                        db, job_id=job_id, job_source_id=job_source_id,
+                                    ),
                                 )
                             )
                         except ProviderPartCheckpointError as exc:
+                            _emit_provider_failure(
+                                db, job_id, JobElevenLabsTranscriptionReason.retry_state_persistence_failed,
+                                boundary="provider_checkpoint", diagnostic_code=exc.reason.value,
+                            )
                             _best_effort_classify(
                                 db,
                                 job_id,
@@ -493,9 +501,17 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 result = merge_elevenlabs_transcript_results(
                                     _merge_inputs(prepared_batch, part_results),
                                 )
+                            if not result.text.strip():
+                                raise ElevenLabsTranscriptionError(
+                                    ElevenLabsTranscriptionReason.malformed_provider_response,
+                                    assembly_code="transcript_assembly_empty",
+                                )
                         except ElevenLabsTranscriptionError as exc:
                             mapped = _map_provider_reason(exc.reason)
-                            _emit_provider_failure(db, job_id, mapped)
+                            _emit_provider_failure(
+                                db, job_id, mapped, boundary="transcript_assembly",
+                                diagnostic_code=exc.assembly_code,
+                            )
                             _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                             raise JobElevenLabsTranscriptionError(mapped) from exc
                         _post_provider_revalidate_or_fail(
@@ -917,6 +933,10 @@ def _emit_provider_failure(
         "provider_part_checkpoint_scope_conflict",
         "provider_part_checkpoint_shape_conflict",
         "provider_part_progress_persistence_failed",
+        "transcript_part_words_missing",
+        "transcript_overlap_timestamps_missing",
+        "transcript_assembly_empty",
+        "provider_complete_checkpoint_set_unavailable",
     }
     metadata = {
         "boundary": boundary,
