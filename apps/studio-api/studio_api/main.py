@@ -16,6 +16,8 @@ from .db import Base, engine, get_db
 from .deps import current_session, get_client_ip, require_csrf, require_same_origin
 from .models import *
 from .rate_limit import RateLimiter
+from .http_limits import RequestBodyLimitMiddleware
+from .oauth_session import lock_oauth_initiator
 from .security import *
 from .source_storage import (
     get_reference_storage,
@@ -222,6 +224,8 @@ async def request_validation_error_handler(request: Request, exc: RequestValidat
     response.headers["Pragma"] = "no-cache"
     return response
 
+app.add_middleware(RequestBodyLimitMiddleware)
+
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
     request_id = new_request_id()
@@ -259,8 +263,8 @@ async def request_correlation_middleware(request: Request, call_next):
 class LoginIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: EmailStr
-    password: str
-    login_csrf_token: str
+    password: str=Field(min_length=1, max_length=1024)
+    login_csrf_token: str=Field(min_length=1, max_length=256)
     verification_code: str|None=Field(default=None, max_length=32)
     recovery_code: str|None=Field(default=None, max_length=64)
 
@@ -806,7 +810,7 @@ def login_context(request: Request, db: Session=Depends(get_db), _=Depends(requi
 
 @app.post("/api/auth/login")
 def login(data: LoginIn, request: Request, response: Response, db: Session=Depends(get_db), _=Depends(require_same_origin)):
-    email=normalize_email(data.email); limiter.check("login:"+rate_key_part(client_id(request))+":"+rate_key_part(email), 5, 300)
+    email=normalize_email(data.email); limiter.check("login:account:"+rate_key_part(email), 10, 300); limiter.check("login:"+rate_key_part(client_id(request))+":"+rate_key_part(email), 5, 300)
     ctx=db.query(LoginContext).filter_by(csrf_hash=token_hash(data.login_csrf_token), used_at=None).first()
     if not ctx or ctx.expires_at <= utcnow(): raise HTTPException(403, "Не удалось выполнить вход")
     user=db.query(User).filter_by(email=email, status=UserStatus.active).first(); ident=db.get(LocalIdentity, user.id) if user else None
@@ -861,6 +865,7 @@ def account_security_status(request: Request,response: Response,pair=Depends(cur
 @app.post("/api/auth/reauth")
 def reauthenticate(data: ReauthenticateIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
     sess,user=pair
+    limiter.check("auth:reauth:account:"+rate_key_part(user.id),10,300)
     limiter.check("auth:reauth:"+rate_key_part(client_id(request))+":"+rate_key_part(user.id),5,300)
     ident=db.get(LocalIdentity,user.id); now=utcnow()
     valid=bool(ident and verify_password(ident.password_hash,data.password))
@@ -928,6 +933,7 @@ def confirm_totp(data: TotpConfirmIn,request: Request,response: Response,pair=De
     db.query(UserTotpRecoveryCode).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.add_all([UserTotpRecoveryCode(user_id=user.id,code_hash=recovery_code_hash(code),created_at=now) for code in recovery_codes])
     sess.reauthenticated_at=now
+    revoke_all_owned_other_sessions(db,owner_user_id=user.id,current_session_id=sess.id,now=now)
     revoke_all_browsers(db,user_id=user.id,now=now)
     clear_trusted_device_cookie(response,settings=settings)
     audit(db,"auth.totp_enabled",actor_user_id=user.id,subject_user_id=user.id)
@@ -936,7 +942,7 @@ def confirm_totp(data: TotpConfirmIn,request: Request,response: Response,pair=De
 
 @app.post("/api/auth/totp/recovery-codes")
 def rotate_totp_recovery_codes(response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
-    _,user=require_recent_auth(pair); limiter.check("totp:recovery:rotate:"+user.id,3,3600)
+    sess,user=require_recent_auth(pair); limiter.check("totp:recovery:rotate:"+user.id,3,3600)
     if _active_totp_factor(db,user.id) is None:
         raise HTTPException(409,"Двухфакторная защита не включена")
     now=utcnow(); codes=generate_recovery_codes()
@@ -944,6 +950,7 @@ def rotate_totp_recovery_codes(response: Response,pair=Depends(require_csrf),db:
     db.add_all([UserTotpRecoveryCode(user_id=user.id,code_hash=recovery_code_hash(code),created_at=now) for code in codes])
     revoke_all_browsers(db,user_id=user.id,now=now)
     clear_trusted_device_cookie(response,settings=settings)
+    revoke_all_owned_other_sessions(db,owner_user_id=user.id,current_session_id=sess.id,now=now)
     audit(db,"auth.totp_recovery_rotated",actor_user_id=user.id,subject_user_id=user.id)
     db.commit(); _browser_capability_cache_headers(response)
     return {"recovery_codes":codes}
@@ -2244,6 +2251,7 @@ def _write_realtime_diagnostic_event(
 
 def _raise_realtime_draft_failure(exc: RealtimeDraftError) -> None:
     status_code = {
+        RealtimeDraftReason.storage_limit: status.HTTP_409_CONFLICT,
         RealtimeDraftReason.scope_conflict: status.HTTP_404_NOT_FOUND,
         RealtimeDraftReason.revision_conflict: status.HTTP_409_CONFLICT,
         RealtimeDraftReason.payload_too_large: status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -2771,7 +2779,7 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response
             src.multipart_part_count=part_count
             upload={"mode":"multipart", "part_size_bytes":part_size, "part_count":part_count, "expires_in":settings.source_upload_ttl_seconds}
         else:
-            url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
+            url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds, data.size_bytes)
             upload={"mode":"single", "method":"PUT", "url":url, "headers":{"Content-Type":mime}, "expires_in":settings.source_presign_ttl_seconds}
         audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id,upload_protocol=src.upload_protocol)
         db.commit()
@@ -2835,7 +2843,8 @@ def issue_local_upload_part(source_id: str, part_number: int, response: Response
         raise HTTPException(422, "Некорректный номер части")
     db.rollback()
     url=get_reference_storage(settings,str(snapshot["reference_class"])).presigned_upload_part_url(
-        str(snapshot["key"]),str(snapshot["upload_id"]),part_number,settings.source_presign_ttl_seconds
+        str(snapshot["key"]),str(snapshot["upload_id"]),part_number,settings.source_presign_ttl_seconds,
+        min(int(snapshot["part_size_bytes"]), int(snapshot["size_bytes"]) - (part_number - 1) * int(snapshot["part_size_bytes"]))
     )
     return {"part_number":part_number,"upload":{"method":"PUT","url":url,"headers":{},"expires_in":settings.source_presign_ttl_seconds}}
 
@@ -3195,6 +3204,7 @@ def create_audio_preparation(
             output_folder=folder,
             now=utcnow(),
             trace_id=getattr(request.state, "trace_id", None),
+            max_total_input_bytes=settings.audio_preparation_max_input_bytes,
         )
         audit(db, "audio_preparation.created", actor_user_id=user.id, subject_user_id=user.id, project_id=project_id, job_id=job.id)
         db.commit()
@@ -4363,7 +4373,7 @@ def google_oauth_failed_redirect(
     return google_oauth_redirect(result, purpose=purpose)
 
 @app.get("/api/google/oauth/callback")
-def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|None=None, db: Session=Depends(get_db)):
+def google_oauth_callback(request: Request, state: str|None=None, code: str|None=None, error: str|None=None, db: Session=Depends(get_db)):
     from .google_oauth import (
         GOOGLE_OAUTH_PURPOSES,
         MAINTENANCE_OAUTH_PURPOSE,
@@ -4372,6 +4382,7 @@ def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|
     row=(
         db.query(GoogleOAuthState)
         .filter_by(state_hash=token_hash(state))
+        .with_for_update()
         .first()
         if state
         else None
@@ -4381,6 +4392,8 @@ def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|
         if row and row.purpose in GOOGLE_OAUTH_PURPOSES
         else PRIMARY_OAUTH_PURPOSE
     )
+    if row and lock_oauth_initiator(db, state=row, raw_session=request.cookies.get(settings.cookie_name), now=utcnow()) is None:
+        return google_oauth_redirect("invalid_state", purpose=purpose)
     if error:
         if (
             row

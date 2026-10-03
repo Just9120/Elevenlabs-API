@@ -70,7 +70,8 @@ def runner(command, **_kwargs):
 
 
 @pytest.mark.parametrize("result_title", ["Готовая запись", "Лекция 1. Предмет, задачи и методы социальной психологии", "Версия 2.1. Обсуждение"])
-def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch, result_title):
+@pytest.mark.parametrize("output_limit", [None, 14])
+def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch, result_title, output_limit):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -79,6 +80,8 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
     payload = b"reference-audio"
     storage = Storage(payload)
     settings = isolated_storage_settings()
+    if output_limit is not None:
+        settings.audio_preparation_max_output_bytes = output_limit
 
     @contextmanager
     def temp_directory_factory(prefix):
@@ -101,9 +104,19 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
 
         start_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id); db.commit()
         process_claim = claim_next_audio_preparation_job(db, lease_owner_id="worker", now=now + timedelta(minutes=1), lease_ttl=timedelta(minutes=10)); db.commit()
-        result = process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=process_claim.lease_generation, settings=settings, now=now + timedelta(minutes=1), storage_factory=lambda _settings: storage, runner=runner, temp_directory_factory=temp_directory_factory)
+        if output_limit is not None:
+            from studio_api.audio_preparation import AudioPreparationError
+            with pytest.raises(AudioPreparationError, match="output_too_large"):
+                process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=process_claim.lease_generation, settings=settings, now=now + timedelta(minutes=1), storage_factory=lambda _settings: storage, runner=runner, temp_directory_factory=temp_directory_factory)
+        else:
+            result = process_claimed_audio_preparation_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=process_claim.lease_generation, settings=settings, now=now + timedelta(minutes=1), storage_factory=lambda _settings: storage, runner=runner, temp_directory_factory=temp_directory_factory)
 
         persisted = db.get(AudioPreparationJob, job.id)
+        if output_limit is not None:
+            assert persisted.status is AudioPreparationStatus.failed
+            assert persisted.error_code == "output_too_large"
+            assert persisted.output_source_id is None and storage.puts == []
+            return
         assert result.output_created is True
         assert persisted.status is AudioPreparationStatus.completed
         assert persisted.output_source_id is not None
@@ -269,3 +282,28 @@ def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, 
         assert job.status is AudioPreparationStatus.completed and job.output_source_id is not None
         assert job.lease_owner_id is None and len(storage.puts) == 1
     engine.dispose()
+
+
+@pytest.mark.parametrize("known_sizes", [True, False])
+def test_materialization_bounds_actual_aggregate_and_closes_streams(tmp_path, known_sizes):
+    from studio_api.audio_preparation_processor import _materialize_inputs
+    from studio_api.audio_preparation_service import AudioPreparationServiceError
+    closed = []
+    class InputStream:
+        def iter_chunks(self, size): yield b"abcdefgh"
+        def close(self): closed.append(True)
+    inputs = [SimpleNamespace(position=i, source=SimpleNamespace(
+        project_id="project", upload_status=SourceUploadStatus.uploaded, deleted_at=None,
+        expires_at=None, mime_type="audio/flac", original_filename="input.flac",
+        source_type=SourceType.google_drive, drive_file_id=str(i), size_bytes=8 if known_sizes else None)) for i in range(3)]
+    job = SimpleNamespace(project_id="project", owner_user_id="owner", inputs=inputs)
+    db = SimpleNamespace(get=lambda *a: SimpleNamespace(owner_user_id="owner", archived_at=None))
+    settings = SimpleNamespace(source_max_upload_bytes=10, audio_preparation_max_input_bytes=20)
+    with pytest.raises(AudioPreparationServiceError, match="input_too_large"):
+        _materialize_inputs(db, job=job, root=tmp_path, settings=settings, storage_factory=None,
+            drive_token_resolver=lambda *a, **k: "synthetic", drive_content_fetcher=lambda *a: InputStream())
+    if known_sizes:
+        assert closed == [] and list(tmp_path.iterdir()) == []
+    else:
+        assert len(closed) == 3
+        assert sum(p.stat().st_size for p in tmp_path.iterdir()) == 16

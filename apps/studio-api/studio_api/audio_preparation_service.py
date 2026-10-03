@@ -44,6 +44,7 @@ class AudioPreparationServiceReason(str, Enum):
     not_found = "not_found"
     project_unavailable = "project_unavailable"
     invalid_sources = "invalid_sources"
+    input_too_large = "input_too_large"
     source_unavailable = "source_unavailable"
     invalid_state = "invalid_state"
     invalid_destination = "invalid_destination"
@@ -71,6 +72,7 @@ def create_audio_preparation_job(
     output_folder: object | None,
     now: datetime,
     trace_id: str | None = None,
+    max_total_input_bytes: int = 1024 * 1024 * 1024,
 ) -> AudioPreparationJob:
     project = _owned_project(db, owner_user_id, project_id)
     # The client supplies a title, not a filename. Its dots are meaningful.
@@ -86,6 +88,8 @@ def create_audio_preparation_job(
     if len(by_id) != len(source_ids):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
     ordered = [by_id[source_id] for source_id in source_ids]
+    if sum(max(0, source.size_bytes or 0) for source in ordered) > max_total_input_bytes:
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.input_too_large)
     for source in ordered:
         if not _source_available(source, project_id=project.id, now=now):
             raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)

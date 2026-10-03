@@ -117,7 +117,7 @@ class FakeSourceStorage:
         self.objects: dict[str, tuple[bytes, str]] = {}
         self.last_presigned_key: str | None = None
 
-    def presigned_put_url(self, key: str, content_type: str, expires_seconds: int) -> str:
+    def presigned_put_url(self, key: str, content_type: str, expires_seconds: int, size_bytes: int) -> str:
         assert 60 <= expires_seconds <= 900
         self.last_presigned_key = key
         return f"https://uploads.test/{uuid.uuid4().hex}"

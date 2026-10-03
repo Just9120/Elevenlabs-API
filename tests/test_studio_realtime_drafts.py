@@ -275,3 +275,30 @@ def test_realtime_draft_cleanup_is_bounded_and_repeatable(draft_db):
     db.commit()
     assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 0
     assert db.query(RealtimeTranscriptDraft).count() == 1
+
+
+def test_owner_draft_budget_rejects_new_ids_without_losing_existing_text(draft_db):
+    from studio_api.realtime_drafts import save_realtime_draft, load_latest_realtime_draft, delete_realtime_draft, RealtimeDraftError
+    from studio_api.models import RealtimeTranscriptDraft
+    db, project, other_project = draft_db
+    settings = DraftSettings()
+    settings.realtime_draft_max_count = 2
+    settings.realtime_draft_max_storage_bytes = 400
+    now = datetime(2026, 10, 3)
+    def save(client, revision=1, text="saved text", target=project):
+        return save_realtime_draft(db, owner_user_id=target.owner_user_id, project=target,
+            client_session_id=client, revision=revision, committed_segments=[text], partial="", settings=settings, now=now)
+    save("session_123456789a"); save("session_123456789b"); db.commit()
+    with pytest.raises(RealtimeDraftError, match="realtime_draft_storage_limit"):
+        save("session_123456789c")
+    db.rollback()
+    assert db.query(RealtimeTranscriptDraft).count() == 2
+    save("session_123456789a", 2, "updated text"); db.commit()
+    with pytest.raises(RealtimeDraftError, match="realtime_draft_storage_limit"):
+        save("session_123456789a", 3, "x" * 390)
+    db.rollback()
+    assert db.query(RealtimeTranscriptDraft).filter_by(client_session_id="session_123456789a").one().revision == 2
+    save("session_123456789c", target=other_project); db.commit()
+    assert delete_realtime_draft(db, owner_user_id=project.owner_user_id, project=project, client_session_id="session_123456789b")
+    save("session_123456789c"); db.commit()
+    assert db.query(RealtimeTranscriptDraft).count() == 3

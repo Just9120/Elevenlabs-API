@@ -2426,9 +2426,11 @@ class FakeStorage:
         self.head_type = "audio/mpeg"
         self.missing = False
         self.multipart_parts = []
+        self.signed_lengths = []
         self.multipart_completed = []
         self.multipart_aborted = []
-    def presigned_put_url(self, key, content_type, expires_seconds):
+    def presigned_put_url(self, key, content_type, expires_seconds, size_bytes):
+        self.signed_lengths.append(("single", size_bytes))
         return f"https://upload.test/{key}?signature=fake"
     def head_object(self, key):
         self.head_calls.append(key)
@@ -2438,7 +2440,8 @@ class FakeStorage:
         return ObjectHead(size_bytes=self.head_size, content_type=self.head_type)
     def create_multipart_upload(self, key, content_type):
         return "multipart-session"
-    def presigned_upload_part_url(self, key, upload_id, part_number, expires_seconds):
+    def presigned_upload_part_url(self, key, upload_id, part_number, expires_seconds, size_bytes):
+        self.signed_lengths.append((part_number, size_bytes))
         return f"https://upload.test/part/{part_number}?signature=fake"
     def list_multipart_parts(self, key, upload_id):
         return tuple(self.multipart_parts)
@@ -3125,6 +3128,9 @@ def test_large_local_upload_uses_owner_scoped_multipart_authority(monkeypatch):
     )
     assert issued.status_code == 200
     assert issued.json()["part_number"] == 2
+    assert fake.signed_lengths == [(2, 3)]
+    assert c.post(f"/api/sources/{source_id}/local-upload/multipart/parts/1", headers=headers).status_code == 200
+    assert fake.signed_lengths == [(2, 3), (1, part_size)]
     assert "multipart-session" not in issued.text
     assert c.post(
         f"/api/sources/{source_id}/local-upload/multipart/parts/3",
@@ -8904,3 +8910,119 @@ def test_audio_legacy_recovery_api_is_owner_csrf_scoped_and_never_calls_google(m
     assert first.json()["status"] == "completed" and first.json()["progress"]["stage"] == "google_drive_export_failed"
     assert "s3_object_key" not in first.text and "audio-private" not in first.text
     assert client.post(route, headers=headers).json()["id"] == job_id
+
+
+@pytest.mark.parametrize("session_mode", ["missing", "other_browser", "other_owner", "revoked", "expired"])
+def test_oauth_callback_never_exchanges_outside_initiating_session(monkeypatch, tmp_path, session_mode):
+    from urllib.parse import parse_qs, urlparse
+    from studio_api.models import GoogleOAuthState, GoogleConnection
+    configure_google_oauth(monkeypatch, tmp_path)
+    password = admin("oauth-initiator@example.com")
+    initiator = TestClient(app, follow_redirects=False)
+    csrf = login(initiator, password, "oauth-initiator@example.com")
+    started = initiator.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
+    callback_client = initiator
+    if session_mode == "missing": callback_client = TestClient(app, follow_redirects=False)
+    if session_mode == "other_browser":
+        callback_client = TestClient(app, follow_redirects=False)
+        login(callback_client, password, "oauth-initiator@example.com")
+    if session_mode == "other_owner":
+        other_password = admin("oauth-other@example.com")
+        callback_client = TestClient(app, follow_redirects=False)
+        login(callback_client, other_password, "oauth-other@example.com")
+    with SessionLocal() as db:
+        pending = db.query(GoogleOAuthState).one()
+        sess = db.get(DbSession, pending.session_id)
+        if session_mode == "revoked": sess.revoked_at = utcnow()
+        if session_mode == "expired": sess.expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda *a: pytest.fail("unauthorized token exchange"))
+    assert_oauth_redirect(callback_client.get(f"/api/google/oauth/callback?state={state}&code=synthetic"), "invalid_state")
+    with SessionLocal() as db:
+        assert db.query(GoogleConnection).count() == 0
+        assert db.query(GoogleOAuthState).one().used_at is None
+
+
+def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions():
+    password = admin("totp-security@example.com")
+    owner = TestClient(app)
+    other_session = TestClient(app)
+    csrf = login(owner, password, "totp-security@example.com")
+    login(other_session, password, "totp-security@example.com")
+    stranger_password = admin("totp-stranger@example.com")
+    stranger = TestClient(app)
+    login(stranger, stranger_password, "totp-stranger@example.com")
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    secret = owner.post("/api/auth/totp/enroll", headers=headers).json()["secret"]
+    code = _totp(secret, int(time.time()) // 30)
+    assert owner.post("/api/auth/totp/confirm", json={"verification_code": code}, headers=headers).status_code == 200
+    assert other_session.get("/api/auth/session").status_code == 401
+    assert owner.get("/api/auth/session").status_code == 200
+    assert stranger.get("/api/auth/session").status_code == 200
+    context = other_session.post("/api/auth/login-context", headers={"origin": "https://studio.test"}).json()["login_csrf_token"]
+    assert other_session.post("/api/auth/login", json={"email": "totp-security@example.com", "password": password, "login_csrf_token": context, "verification_code": code}, headers={"origin": "https://studio.test"}).status_code == 200
+    assert owner.post("/api/auth/totp/recovery-codes", headers=headers).status_code == 200
+    assert other_session.get("/api/auth/session").status_code == 401
+    assert owner.get("/api/auth/session").status_code == 200
+    assert stranger.get("/api/auth/session").status_code == 200
+
+
+def test_login_account_limit_survives_rotating_network_identity(monkeypatch):
+    from studio_api import main
+    password = admin("account-throttle@example.com")
+    for attempt in range(11):
+        monkeypatch.setattr(main, "client_id", lambda _r, attempt=attempt: f"198.51.100.{attempt + 1}")
+        client = TestClient(app)
+        context = client.post("/api/auth/login-context", headers={"origin": "https://studio.test"}).json()["login_csrf_token"]
+        rejected = client.post("/api/auth/login", json={"email": "account-throttle@example.com", "password": "wrong-password", "login_csrf_token": context}, headers={"origin": "https://studio.test"})
+        assert rejected.status_code == (401 if attempt < 10 else 429)
+    assert rejected.headers["retry-after"]
+
+
+def test_concurrent_owner_drafts_cannot_overrun_shared_budget(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from studio_api import main
+    from studio_api.realtime_drafts import save_realtime_draft, RealtimeDraftError
+    admin("draft-budget@example.com")
+    with SessionLocal() as db:
+        owner = db.query(User).filter_by(email="draft-budget@example.com").one()
+        project = Project(owner_user_id=owner.id, title="Budget fixture")
+        db.add(project); db.commit()
+        owner_id, project_id = owner.id, project.id
+    monkeypatch.setattr(main.settings, "realtime_draft_max_count", 1)
+    barrier = Barrier(2)
+    def save(index):
+        with SessionLocal() as db:
+            project = db.get(Project, project_id)
+            barrier.wait(timeout=5)
+            try:
+                save_realtime_draft(db, owner_user_id=owner_id, project=project,
+                    client_session_id=f"synthetic_session_{index}", revision=1,
+                    committed_segments=["synthetic text"], partial="", settings=main.settings, now=utcnow())
+                db.commit()
+                return True
+            except RealtimeDraftError as exc:
+                assert exc.reason.value == "realtime_draft_storage_limit"
+                db.rollback()
+                return False
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(save, range(2))) == 1
+    with SessionLocal() as db:
+        assert db.query(RealtimeTranscriptDraft).filter_by(owner_user_id=owner_id).count() == 1
+
+
+def test_yandex_capability_redis_consume_allows_only_one_concurrent_claim():
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+    from studio_api.yandex_realtime_relay import consume_yandex_realtime_capability, YandexRealtimeCapabilityError
+    authority = SimpleNamespace(nonce="synthetic-redis-replay-regression", expires_epoch=int(time.time()) + 300)
+    def consume(_):
+        try:
+            consume_yandex_realtime_capability(authority, settings=None, redis=limiter.redis)
+            return True
+        except YandexRealtimeCapabilityError:
+            return False
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        assert sum(pool.map(consume, range(16))) == 1

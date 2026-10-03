@@ -287,6 +287,26 @@ describe("AudioPreparationPage", () => {
     expect(created).toMatchObject({ title: "arbitrary-y", source_ids: ["source-c", "source-b", "source-a"], manual_order: true });
   });
 
+  it("explains an aggregate server size rejection without starting processing", async () => {
+    const row = source("source-a", "large.wav", "2026-08-24T20:00:00Z");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
+      if (url.endsWith("/sources")) return json({ sources: [row] });
+      if (url.endsWith("/audio-preparations") && init?.method === "POST") return new Response(JSON.stringify({ detail: { reason: "input_too_large" } }), { status: 422, headers: { "content-type": "application/json" } });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(await screen.findByText("Выбрать из сохранённых файлов Studio"));
+    await userEvent.click(screen.getByRole("checkbox", { name: /large.wav/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Проверить файлы и рассчитать" }));
+    expect(await screen.findByText("Суммарный размер файлов превышает доступное место для обработки. Выберите меньше файлов.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Запустить обработку" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/execute"))).toBe(false);
+  });
+
   it("keeps device files browser-local until the user explicitly chooses Studio upload", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

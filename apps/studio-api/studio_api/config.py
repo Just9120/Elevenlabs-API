@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     storage_reconciliation_page_size: int = Field(default=100, ge=1, le=1000)
     storage_reconciliation_plan_ttl_seconds: int = Field(default=600, ge=60, le=1800)
     storage_reconciliation_apply_limit: int = Field(default=100, ge=1, le=500)
+    audio_preparation_max_input_bytes: int = Field(default=1073741824, ge=1, le=2147483647)
+    audio_preparation_max_scratch_bytes: int = Field(default=3221225472, ge=134217728, le=8589934592)
     audio_preparation_max_output_bytes: int = Field(default=2147483647, ge=1, le=2147483647)
     google_oauth_client_id: str | None = None
     google_oauth_client_secret_file: str | None = None
@@ -100,6 +102,8 @@ class Settings(BaseSettings):
     elevenlabs_scribe_v2_rate_per_hour_usd: Decimal | None = Field(default=None, gt=0, le=100)
     elevenlabs_pricing_effective_date: date | None = None
     elevenlabs_pricing_source: str | None = Field(default=None, max_length=80)
+    realtime_draft_max_count: int = Field(default=20, ge=1, le=100)
+    realtime_draft_max_storage_bytes: int = Field(default=33554432, ge=1048576, le=134217728)
     realtime_draft_ttl_seconds: int = Field(default=259200, ge=259200, le=259200)
     realtime_webhook_allowed_hosts: str = Field(default="", max_length=2000)
     diagnostic_retention_days: int = Field(default=14, ge=1, le=30)
