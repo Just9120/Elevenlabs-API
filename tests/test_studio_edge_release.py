@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import re
 import shutil
 import subprocess
@@ -171,6 +172,7 @@ def test_studio_ci_watches_edge_release_contract_files() -> None:
     for path in (
         ".github/workflows/studio-edge-cd.yml",
         "scripts/release_studio_edge.sh",
+        "scripts/prepare_studio_edge_known_hosts.py",
         "tests/test_studio_edge_release.py",
     ):
         assert workflow.count(f"- '{path}'") == 2
@@ -180,3 +182,106 @@ def test_studio_ci_watches_edge_release_contract_files() -> None:
 def test_edge_validator_rejects_logging_destinations_and_duplicate_disable(tmp_path, directive):
     with pytest.raises(SystemExit):
         _run_header_validator(tmp_path, HEADERS.read_text(encoding="utf-8") + "\n" + directive)
+
+
+@pytest.fixture
+def pinned_host(tmp_path):
+    key = tmp_path / "synthetic_host"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
+                   capture_output=True, check=True, timeout=10)
+    public = key.with_suffix(".pub").read_text().split()
+    return "example.com " + " ".join(public[:2]) + "\n"
+
+
+def _prepare_host_trust(destination, environment):
+    spec = importlib.util.spec_from_file_location("edge_host_trust", ROOT / "scripts/prepare_studio_edge_known_hosts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.prepare(destination, environment)
+
+
+def test_same_target_uses_existing_component_pin_without_reusing_authentication(tmp_path, pinned_host):
+    destination = tmp_path / "hosts"
+    source = _prepare_host_trust(destination, {
+        "DEPLOY_HOST": "example.com", "COMPONENT_DEPLOY_HOST": "example.com",
+        "COMPONENT_KNOWN_HOSTS": pinned_host, "DEPLOY_KNOWN_HOSTS": "obsolete invalid pin",
+    })
+    assert source == "component-same-target"
+    assert destination.read_text() == pinned_host
+    if sys.platform != "win32":
+        assert destination.stat().st_mode & 0o777 == 0o600
+    workflow = CD_WORKFLOW.read_text()
+    assert "secrets.DEPLOY_SSH_KEY" not in workflow
+    assert "secrets.STUDIO_EDGE_SSH_KEY" in workflow
+    assert "ssh-keyscan" not in workflow
+    assert "StrictHostKeyChecking=yes" in workflow
+
+
+def test_different_target_keeps_dedicated_pin(tmp_path, pinned_host):
+    destination = tmp_path / "hosts"
+    assert _prepare_host_trust(destination, {
+        "DEPLOY_HOST": "example.com", "COMPONENT_DEPLOY_HOST": "other.example.com",
+        "COMPONENT_KNOWN_HOSTS": "invalid", "DEPLOY_KNOWN_HOSTS": pinned_host,
+    }) == "edge"
+
+
+@pytest.mark.parametrize("content", ["", "example.com ssh-ed25519 invalid", "other.example.com ssh-ed25519 invalid"])
+def test_invalid_or_unmatched_pin_fails_before_ssh_and_removes_file(tmp_path, content):
+    destination = tmp_path / "hosts"
+    with pytest.raises(ValueError):
+        _prepare_host_trust(destination, {"DEPLOY_HOST": "example.com", "DEPLOY_KNOWN_HOSTS": content})
+    assert not destination.exists()
+
+
+def test_different_target_cannot_borrow_component_trust(tmp_path, pinned_host):
+    with pytest.raises(ValueError):
+        _prepare_host_trust(tmp_path / "hosts", {
+            "DEPLOY_HOST": "different.example.com", "COMPONENT_DEPLOY_HOST": "example.com",
+            "COMPONENT_KNOWN_HOSTS": pinned_host, "DEPLOY_KNOWN_HOSTS": "",
+        })
+
+
+def test_valid_pin_for_other_host_cannot_authorize_edge(tmp_path, pinned_host):
+    destination = tmp_path / "hosts"
+    with pytest.raises(ValueError):
+        _prepare_host_trust(destination, {
+            "DEPLOY_HOST": "other.example.com", "DEPLOY_KNOWN_HOSTS": pinned_host,
+        })
+    assert not destination.exists()
+
+
+def test_invalid_canonical_pin_does_not_fall_back_to_another_identity(tmp_path, pinned_host):
+    with pytest.raises(ValueError):
+        _prepare_host_trust(tmp_path / "hosts", {
+            "DEPLOY_HOST": "example.com", "COMPONENT_DEPLOY_HOST": "example.com",
+            "COMPONENT_KNOWN_HOSTS": "invalid", "DEPLOY_KNOWN_HOSTS": pinned_host,
+        })
+
+
+def test_existing_trust_file_is_not_overwritten(tmp_path, pinned_host):
+    destination = tmp_path / "hosts"
+    destination.write_text("existing operator file")
+    with pytest.raises(FileExistsError):
+        _prepare_host_trust(destination, {"DEPLOY_HOST": "example.com", "DEPLOY_KNOWN_HOSTS": pinned_host})
+    assert destination.read_text() == "existing operator file"
+
+
+def test_hashed_host_pin_is_supported(tmp_path, pinned_host):
+    source = tmp_path / "source"
+    source.write_text(pinned_host)
+    subprocess.run(["ssh-keygen", "-H", "-f", str(source)], capture_output=True, check=True, timeout=10)
+    assert _prepare_host_trust(tmp_path / "hosts", {
+        "DEPLOY_HOST": "example.com", "DEPLOY_KNOWN_HOSTS": source.read_text(),
+    }) == "edge"
+
+
+def test_host_trust_failure_output_does_not_expose_values(tmp_path):
+    import os
+    environment = dict(os.environ, DEPLOY_HOST="private.invalid", DEPLOY_KNOWN_HOSTS="secret-invalid-payload",
+                       COMPONENT_DEPLOY_HOST="", COMPONENT_KNOWN_HOSTS="")
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/prepare_studio_edge_known_hosts.py"), str(tmp_path / "hosts")],
+                            env=environment, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 1
+    assert "no SSH connection attempted" in result.stderr
+    assert "private.invalid" not in result.stderr
+    assert "secret-invalid-payload" not in result.stderr

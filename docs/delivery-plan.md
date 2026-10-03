@@ -2,7 +2,7 @@
 
 ## Current Goal и checkpoint
 
-**SECURITY-FINDINGS-20261003 / IN_PROGRESS.** Authorization: владелец поручил «исправляй тогда эти файнды» после разбора Security Cloud scan. Встроенная Goal активна. Branch `codex/security-findings-20261003`, base/fresh origin/main `3632c4c0e60bb5e3e6fa8f3a080be2fa9b7c2748`; один worktree, main синхронизирован, open PR нет, protections/rulesets отсутствуют. Unrelated branch/state сохранены.
+**SECURITY-FINDINGS-20261003 / IN_PROGRESS — продолжение 2026-10-04 по «Ну давай делать».** #320 MERGED, main/base recovery PR `a666df13a4b232d7bcd0ab851181335d16a3ba89`. Web/API/worker поставлены; незавершён только protected nginx edge. Recovery branch `codex/security-edge-trust-recovery`; прежняя merged branch сохраняется до завершения delivery. Встроенная Goal существует со статусом BLOCKED, инструмент не предоставляет resume; новое дублирование Goal не создаётся. Данное поручение разрешает продолжение прежнего scope и устранение подтверждённого pipeline failure; safety gates сохраняются.
 
 - Scope: закрыть F44–F47 и F49–F54 ниже. Non-goals: новый платный scan; pinning Colab (F48 — необязательное усиление); коммерческие quotas/billing; полный пересмотр требований F42; очистка production-данных/исторических logs. Существующие ownership, CSRF, recent-auth и delivery gates сохраняются.
 - DoD: реализованные критерии findings, содержательные synthetic regressions, self-review, local canonical checks; один PR с required checks актуальной revision, merge; applicable API/worker/edge delivery с identity/health и безопасным smoke без платных provider calls. Миграция N/A при отсутствии schema diff. Runtime config неизвестного target не менять на предположениях.
@@ -12,6 +12,15 @@
 - Checkpoint перед initial push: 10 fixes реализованы локально. Synthetic security/widget/resource suite PASS; full Windows portable: **1473 PASS, 5 SKIP, 8 FAIL** только существующие worker isolation fixtures, которые запускают system bash вместо Git Bash; edge syntax и speaker tmpdir tests PASS вне sandbox. Audio frontend **17 PASS**, ESLint/TypeScript/PWA build и lightweight guards PASS; прежний chunk-size advisory сохранён. Actual SigV4 signatures include Content-Length; auth/JSON/chunked, OAuth exact initiator, draft budgets, replay before provider call, aggregate unknown-size copying и truncated-output rejection проверены локально. PostgreSQL owner-row race, реальный Redis replay и API lifecycle новые regression tests — remote-only. Self-review: scope/ownership/atomicity/log redaction/caller signatures проверены; schema/lockfiles/workflows не меняются. Edge delivery ограничен прежним snippet; добавлено единственное exact allowlisted `access_log off;`, backup/reviewer/rollback gates сохранены. Canonical host site 4m/XFF overwrite не заменяется ordinary CD; app preparse limit/rightmost observed hop работают независимо. Initial push/PR, current-revision CI/review, merge и web/API/worker/protected edge CD PENDING. Нового платного scan и production mutations для тестов нет.
 
 V-SEC-CI-1: PR #320, head b09a37e; Studio 37154331529 (studio и browser-e2e) PASS. CI 37154331571: 1844 PASS, 7 FAIL — новые login fixtures использовали зарезервированный email-домен `.test`, отклонённый EmailStr до проверяемого действия. Concurrent PostgreSQL draft budget и real Redis single-use tests PASS. Fixtures исправлены на synthetic example.com без ослабления assertions. Admission-size error теперь предлагает уменьшить выборку; 18 audio UI tests, lint/TypeScript/build, email validation/syntax и diff check PASS локально. Новый grouped push, актуальный Linux CI и delivery PENDING; последний push содержит этот checkpoint.
+
+### Подтверждённое состояние и edge recovery
+
+- Code: 10/10 критериев security fixes в main #320; F48 DEFER вне scope. PR CI 37154958672 (1851 Python PASS) / 37154958675 (765 Vitest и browser-e2e PASS); main CI 37155276745/37155276751 PASS, SHA a666df1. Pre-push checkpoint выше исторический.
+- Delivery: web/API 37155276752, graceful worker drain 37155896562, worker CD 37155975723 SUCCESS, exact a666df1/schema 0038, authenticated diagnostics и synthetic oversized auth body → 413 PASS. Никаких STT/Google calls или платного rescan.
+- Edge 37156564109: после owner approval SSH остановился до подключения (`Host key verification failed`, exit 255), nginx не изменён. Enable variable восстановлена false. Secret values не прочитаны/не изменены.
+- F55 / P1 / FIX / HIGH: edge known-host pin не покрывает SSH target; отдельные host-trust secrets допускают drift относительно работающего component lane. Evidence: .github/workflows/studio-edge-cd.yml, failed run 37156564109 на a666df1. Влияние: nginx query-log protection остаётся непоставленной. Recovery: существующий component pin использовать лишь при точном совпадении host secrets; иначе только dedicated edge pin. Identity/root forced-command/reviewer/strict host verification неизменны. Если host различается или доступ/root bootstrap отсутствует, соответствующий gate остаётся BLOCKED; ssh-keyscan/accept-new не используются.
+- Validation Plan recovery: REQUIRED local synthetic valid/invalid/unmatched/hashed pins, exact target isolation, fail-closed и secret-free errors; existing edge validator/shell tests, ci_checks и diff/self-review. REQUIRED remote current PR CI/checks + Studio studio/browser-e2e. REQUIRED delivery fresh exact-main edge run с protected approval и existing nginx/headers/health post-checks. Повтор web/API/worker deployment N/A при workflow-only diff; runtime source остаётся a666df1.
+- До push: local edge suite 24 PASS вне Windows sandbox (в sandbox Git Bash/ssh-keygen hashing ограничены), lightweight/diff PASS. Initial push, новый recovery PR, current revision CI/review/merge и edge approval/delivery PENDING. Это содержательный pipeline recovery, не metadata-only follow-up. Остальная новая продуктовая работа F42 не входит.
 
 | Finding | Область / Evidence на 3632c4c / влияние | Действие / критерий закрытия / приоритет / confidence |
 |---|---|---|
@@ -175,9 +184,9 @@ Validation Plan выполнен: naming pure/service/processor/frontend; recove
 
 Предыдущий snapshot — проверенный main `3902b2aed20ff99b76066f05c36e9f53ef5ae977` после PR #316, до trusted-device scope: **359/679 = 52,9%**, без commercial **359/438 = 82,0%**. PM-07 READY по code/test/CI/CD Evidence; private file replay не выполнен.
 
-Текущий пересчёт для согласованного scope на проверенном origin/main `3902b2aed20ff99b76066f05c36e9f53ef5ae977`, 2026-09-27: **359/682 = 52,6%**, без commercial **359/441 = 81,4%**. PWASEC-19..21 добавлены решением `D20260927-TRUSTED-DEVICE` и ещё не находятся в main; незамерженный progress текущего PR отделён. Это изменение denominator, не регрессия прежних AC и не процент ручной приёмки. Незатронутое Evidence наследуется с прежними ограничениями. Разница с предыдущим snapshot менее 1 п.п.
+Текущий пересчёт **прежнего реестра** на проверенном origin/main `a666df13a4b232d7bcd0ab851181335d16a3ba89`, 2026-10-04: **362/682 = 53,1%**, без commercial **362/441 = 82,1%**. PWA-SECURITY-HARDENING-02 вырос с 18/21 до 21/21 (+14,3 п.п.) после поставки трёх trusted-device AC #317; это восстановление уже проверенных записей, не новая реализация в recovery PR. Семь stale IN_PROGRESS строк восстановлены по #318/#320, code и actual Linux/main CI (AP-13/15/23, GOOGLE-01, PC-07, OBSERV-20, SECX-04); ожидание nginx CD не уменьшает готовность кода. Состав AC не меняется; разница с предыдущим snapshot менее 1 п.п. Незатронутое Evidence наследуется с прежними ограничениями. **Полная готовность по обновлённому источнику revision 2994 — UNSET (F42)**: этот narrow recovery не заменяет сверку требований.
 
-Состав: 694 сохранённых ID минус 12 ALIAS/SUPERSEDED = 682. PWASEC-19..21 добавлены в текущей Goal; PM-07, PC-15/16 и PG-09 добавлены ранее по отдельным решениям. Режим Ad-hoc/dogfooding сохраняется, обязательной пользовательской приёмки нет.
+Состав: 694 сохранённых ID минус 12 ALIAS/SUPERSEDED = 682. PWASEC-19..21 добавлены и поставлены в прежней trusted-device Goal; PM-07, PC-15/16 и PG-09 добавлены ранее по отдельным решениям. Режим Ad-hoc/dogfooding сохраняется, обязательной пользовательской приёмки нет.
 
 | Эпик / feature | Готовность по коду | Состояние |
 | --- | ---: | --- |
@@ -200,7 +209,7 @@ Validation Plan выполнен: naming pure/service/processor/frontend; recove
 | `PWA-REALTIME-01` | 13/13 (100.0%) | READY |
 | `PWA-OPERABILITY-01` | 17/18 (94.4%) | IN_PROGRESS |
 | `COLAB-LIFECYCLE-02` | 2/2 (100.0%) | READY |
-| `PWA-SECURITY-HARDENING-02` | 18/21 (85.7%) | IN_PROGRESS |
+| `PWA-SECURITY-HARDENING-02` | 21/21 (100.0%) | READY |
 | `GOOGLE-DRIVE-RELIABILITY-02` | 6/6 (100.0%) | READY |
 | `STORAGE-LIFECYCLE-02` | 16/21 (76.2%) | IN_PROGRESS |
 | `STT-PROVIDER-ABSTRACTION-01` | 13/14 (92.9%) | IN_PROGRESS |
