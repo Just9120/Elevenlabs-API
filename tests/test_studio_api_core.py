@@ -8917,20 +8917,20 @@ def test_oauth_callback_never_exchanges_outside_initiating_session(monkeypatch, 
     from urllib.parse import parse_qs, urlparse
     from studio_api.models import GoogleOAuthState, GoogleConnection
     configure_google_oauth(monkeypatch, tmp_path)
-    password = admin("oauth-initiator@example.test")
+    password = admin("oauth-initiator@example.com")
     initiator = TestClient(app, follow_redirects=False)
-    csrf = login(initiator, password, "oauth-initiator@example.test")
+    csrf = login(initiator, password, "oauth-initiator@example.com")
     started = initiator.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
     callback_client = initiator
     if session_mode == "missing": callback_client = TestClient(app, follow_redirects=False)
     if session_mode == "other_browser":
         callback_client = TestClient(app, follow_redirects=False)
-        login(callback_client, password, "oauth-initiator@example.test")
+        login(callback_client, password, "oauth-initiator@example.com")
     if session_mode == "other_owner":
-        other_password = admin("oauth-other@example.test")
+        other_password = admin("oauth-other@example.com")
         callback_client = TestClient(app, follow_redirects=False)
-        login(callback_client, other_password, "oauth-other@example.test")
+        login(callback_client, other_password, "oauth-other@example.com")
     with SessionLocal() as db:
         pending = db.query(GoogleOAuthState).one()
         sess = db.get(DbSession, pending.session_id)
@@ -8945,14 +8945,14 @@ def test_oauth_callback_never_exchanges_outside_initiating_session(monkeypatch, 
 
 
 def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions():
-    password = admin("totp-security@example.test")
+    password = admin("totp-security@example.com")
     owner = TestClient(app)
     other_session = TestClient(app)
-    csrf = login(owner, password, "totp-security@example.test")
-    login(other_session, password, "totp-security@example.test")
-    stranger_password = admin("totp-stranger@example.test")
+    csrf = login(owner, password, "totp-security@example.com")
+    login(other_session, password, "totp-security@example.com")
+    stranger_password = admin("totp-stranger@example.com")
     stranger = TestClient(app)
-    login(stranger, stranger_password, "totp-stranger@example.test")
+    login(stranger, stranger_password, "totp-stranger@example.com")
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
     secret = owner.post("/api/auth/totp/enroll", headers=headers).json()["secret"]
     code = _totp(secret, int(time.time()) // 30)
@@ -8961,7 +8961,7 @@ def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions():
     assert owner.get("/api/auth/session").status_code == 200
     assert stranger.get("/api/auth/session").status_code == 200
     context = other_session.post("/api/auth/login-context", headers={"origin": "https://studio.test"}).json()["login_csrf_token"]
-    assert other_session.post("/api/auth/login", json={"email": "totp-security@example.test", "password": password, "login_csrf_token": context, "verification_code": code}, headers={"origin": "https://studio.test"}).status_code == 200
+    assert other_session.post("/api/auth/login", json={"email": "totp-security@example.com", "password": password, "login_csrf_token": context, "verification_code": code}, headers={"origin": "https://studio.test"}).status_code == 200
     assert owner.post("/api/auth/totp/recovery-codes", headers=headers).status_code == 200
     assert other_session.get("/api/auth/session").status_code == 401
     assert owner.get("/api/auth/session").status_code == 200
@@ -8970,12 +8970,12 @@ def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions():
 
 def test_login_account_limit_survives_rotating_network_identity(monkeypatch):
     from studio_api import main
-    password = admin("account-throttle@example.test")
+    password = admin("account-throttle@example.com")
     for attempt in range(11):
         monkeypatch.setattr(main, "client_id", lambda _r, attempt=attempt: f"198.51.100.{attempt + 1}")
         client = TestClient(app)
         context = client.post("/api/auth/login-context", headers={"origin": "https://studio.test"}).json()["login_csrf_token"]
-        rejected = client.post("/api/auth/login", json={"email": "account-throttle@example.test", "password": "wrong-password", "login_csrf_token": context}, headers={"origin": "https://studio.test"})
+        rejected = client.post("/api/auth/login", json={"email": "account-throttle@example.com", "password": "wrong-password", "login_csrf_token": context}, headers={"origin": "https://studio.test"})
         assert rejected.status_code == (401 if attempt < 10 else 429)
     assert rejected.headers["retry-after"]
 
@@ -8985,9 +8985,9 @@ def test_concurrent_owner_drafts_cannot_overrun_shared_budget(monkeypatch):
     from threading import Barrier
     from studio_api import main
     from studio_api.realtime_drafts import save_realtime_draft, RealtimeDraftError
-    admin("draft-budget@example.test")
+    admin("draft-budget@example.com")
     with SessionLocal() as db:
-        owner = db.query(User).filter_by(email="draft-budget@example.test").one()
+        owner = db.query(User).filter_by(email="draft-budget@example.com").one()
         project = Project(owner_user_id=owner.id, title="Budget fixture")
         db.add(project); db.commit()
         owner_id, project_id = owner.id, project.id

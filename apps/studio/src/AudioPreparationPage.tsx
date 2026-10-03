@@ -649,7 +649,13 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         created.push(parseJob(value));
         setJobs([...created]);
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось проверить файлы."); }
+    } catch (reason) {
+      const detail = reason instanceof ApiError && reason.data && typeof reason.data === "object" && "detail" in reason.data
+        ? reason.data.detail : null;
+      setError(detail && typeof detail === "object" && "reason" in detail && detail.reason === "input_too_large"
+        ? errorLabel("input_too_large")
+        : reason instanceof Error ? reason.message : "Не удалось проверить файлы.");
+    }
     finally { setBusy(false); }
   }
 
