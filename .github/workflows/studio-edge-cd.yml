@@ -62,6 +62,11 @@ jobs:
     timeout-minutes: 10
     environment: studio-production-migration
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-selection.outputs.release_sha }}
+          persist-credentials: false
+
       - name: Validate dedicated edge deployment secrets
         shell: bash
         env:
@@ -70,7 +75,7 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.STUDIO_EDGE_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          for name in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+          for name in DEPLOY_HOST DEPLOY_SSH_KEY; do
             [[ -n "${!name}" ]] || {
               echo "required Studio edge deployment secret is missing: $name" >&2
               exit 1
@@ -82,13 +87,15 @@ jobs:
         env:
           DEPLOY_SSH_KEY: ${{ secrets.STUDIO_EDGE_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.STUDIO_EDGE_KNOWN_HOSTS }}
+          COMPONENT_DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          COMPONENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.STUDIO_EDGE_DEPLOY_HOST }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/studio_edge_deploy_key
           chmod 600 ~/.ssh/studio_edge_deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/studio_edge_known_hosts
-          chmod 600 ~/.ssh/studio_edge_known_hosts
+          python scripts/prepare_studio_edge_known_hosts.py ~/.ssh/studio_edge_known_hosts
 
       - name: Release exact main commit to the Studio host edge
         id: release

@@ -454,6 +454,13 @@ Bootstrap is a separate root/operator action. Before enabling the workflow:
    `STUDIO_EDGE_DEPLOY_HOST`, `STUDIO_EDGE_SSH_KEY`, and
    `STUDIO_EDGE_KNOWN_HOSTS` without copying their values into evidence. Do not
    reuse the migration SSH identity for the edge lane.
+   For an exactly identical `DEPLOY_HOST` and `STUDIO_EDGE_DEPLOY_HOST`, the
+   workflow uses the existing component `DEPLOY_KNOWN_HOSTS` as the canonical
+   server pin. This shares server host identity, never the component private
+   key or permissions. Otherwise only `STUDIO_EDGE_KNOWN_HOSTS` is used.
+   The preparation script validates the pinned file and target match without
+   network discovery or printing values. Invalid/missing pins fail before SSH;
+   strict host verification and the dedicated edge identity remain required.
 4. Keep repository variable `STUDIO_EDGE_RELEASE_ENABLED=false` except for one
    reviewed release window. Confirm the active site contains exactly one
    include of `/etc/nginx/snippets/studio-security-headers.conf`; the lane will

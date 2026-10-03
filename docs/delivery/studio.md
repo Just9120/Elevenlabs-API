@@ -12,7 +12,7 @@
 | `PC-04` | READY | ✅ | ✅ | ✅ | V26-BROWSER + V26-CD + V26-CI; полный узкий AC подтверждён |
 | `PC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F46: callback session binding отсутствует на base 3632c4c; fix и regression в security Goal, remote CI PENDING |
+| `PC-07` | READY | ✅ | ✅ | ✅ | F46 исправлен #320/a666df1: exact initiating-session binding, чужая/отозванная/истёкшая session fail-closed; Linux CI 37154958672 и main CI 37155276745 PASS. |
 | `PC-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PC-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -154,9 +154,9 @@
 | `AP-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-13` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
+| `AP-13` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
 | `AP-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-15` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
+| `AP-15` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
 | `AP-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -164,7 +164,7 @@
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-22` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
-| `AP-23` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
+| `AP-23` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
 | `AP-24` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-25` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-26` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -299,7 +299,7 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `GOOGLE-01` | IN_PROGRESS | ◐ main / ✅ branch | ✅ local | PENDING | F41: baseline 5dcd3e6 не сохраняет ready link до initial Drive export, cancellation/progress/restart неполны. Branch STUCK-JOBS-RECOVERY: 113 synthetic backend / 257 affected UI tests PASS; remote CI/merge/CD PENDING. |
+| `GOOGLE-01` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
 | `GOOGLE-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `GOOGLE-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `GOOGLE-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -473,7 +473,7 @@
 | `OBSERV-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `OBSERV-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `OBSERV-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `OBSERV-20` | IN_PROGRESS | ◐ | ◐ | ✅ | F47: raw query access logs на base 3632c4c; исправление и regression в security Goal, remote CI/edge delivery PENDING |
+| `OBSERV-20` | READY | ✅ | ✅ | ✅ | F47 code READY #320/a666df1: HTTP/WS query redaction и exact nginx access_log off; main CI 37155276745 PASS, API CD 37155276752 PASS. Protected nginx delivery не завершён: run 37156564109 host verification FAIL; см. F55. |
 | `OBSERV-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `OBSERV-22` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `OBSERV-23` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
