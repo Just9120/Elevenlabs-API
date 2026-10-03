@@ -21,4 +21,4 @@ RUN chmod -R u=rwX,go=rX /app
 EXPOSE 8000
 USER 10001:10001
 ENTRYPOINT ["python", "-m", "studio_api.container_entrypoint"]
-CMD ["uvicorn", "studio_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "studio_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "/app/uvicorn-log-config.json"]

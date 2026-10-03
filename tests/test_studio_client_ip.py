@@ -37,7 +37,7 @@ def test_client_ip_trusts_forwarding_only_from_the_exact_configured_peer() -> No
             request_with_peer(("127.0.0.1", 12345), "1.2.3.4, 10.0.0.1"),
             settings,
         )
-        == "1.2.3.4"
+        == "10.0.0.1"
     )
     assert (
         get_client_ip(

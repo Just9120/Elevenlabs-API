@@ -77,10 +77,16 @@ required = (
 )
 pattern = re.compile(r'^add_header\s+([A-Za-z-]+)\s+"([^"\r\n]+)"\s+always;$')
 seen = {}
+access_log_disabled = False
 
 for raw_line in text.splitlines():
     line = raw_line.strip()
     if not line or line.startswith("#"):
+        continue
+    if line == "access_log off;":
+        if access_log_disabled:
+            raise SystemExit(1)
+        access_log_disabled = True
         continue
     match = pattern.fullmatch(line)
     if match is None:
@@ -90,7 +96,7 @@ for raw_line in text.splitlines():
         raise SystemExit(1)
     seen[name] = value
 
-if tuple(seen) != required:
+if tuple(seen) != required or not access_log_disabled:
     raise SystemExit(1)
 PY
 }

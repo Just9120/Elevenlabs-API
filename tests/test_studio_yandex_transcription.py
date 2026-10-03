@@ -388,6 +388,7 @@ def test_yandex_realtime_relay_streams_audio_and_committed_text(monkeypatch):
         "_open_api_key",
         lambda *_args, **_kwargs: "api-key-safe",
     )
+    monkeypatch.setattr(realtime_relay, "consume_yandex_realtime_capability", lambda *a, **k: None)
     monkeypatch.setattr(realtime_relay, "RecognizerStub", Stub)
     monkeypatch.setattr(
         realtime_relay.grpc.aio,

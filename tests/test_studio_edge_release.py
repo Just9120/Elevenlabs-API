@@ -174,3 +174,9 @@ def test_studio_ci_watches_edge_release_contract_files() -> None:
         "tests/test_studio_edge_release.py",
     ):
         assert workflow.count(f"- '{path}'") == 2
+
+
+@pytest.mark.parametrize("directive", ["access_log /tmp/leak.log;", "access_log on;", "proxy_pass http://evil;", "access_log off;"])
+def test_edge_validator_rejects_logging_destinations_and_duplicate_disable(tmp_path, directive):
+    with pytest.raises(SystemExit):
+        _run_header_validator(tmp_path, HEADERS.read_text(encoding="utf-8") + "\n" + directive)

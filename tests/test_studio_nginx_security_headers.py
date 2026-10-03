@@ -129,3 +129,11 @@ def test_internal_static_container_serves_webmanifest_with_standard_media_type()
     assert "default_type application/manifest+json;" in manifest_config
     assert "try_files $uri =404;" in manifest_config
     assert "add_header Content-Type" not in manifest_config
+
+
+def test_edge_stops_raw_query_logs_and_does_not_append_untrusted_forwarding():
+    assert "access_log off;" in HOST_HEADERS.read_text(encoding="utf-8")
+    site = HOST_NGINX.read_text(encoding="utf-8")
+    assert "$proxy_add_x_forwarded_for" not in site
+    assert site.count("proxy_set_header X-Forwarded-For $remote_addr;") == 3
+    assert "client_max_body_size 4m;" in site

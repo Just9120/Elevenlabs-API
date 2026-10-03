@@ -94,7 +94,7 @@
 | `SECX-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `SECX-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `SECX-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `SECX-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `SECX-04` | IN_PROGRESS | ◐ | ◐ | ✅ | F52: enable/rotate оставляют другие sessions на base 3632c4c; fix и API regression в security Goal, remote CI PENDING |
 | `SECX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `SECX-06` | IN_PROGRESS | ◐ | ◐ | ✅ | CODE gap: job_notifications.py:205,468 поддерживает job completion/failure email с configurable From; отдельный flow системных access/security писем по S257 не подтверждён |
 

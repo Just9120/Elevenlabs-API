@@ -246,3 +246,16 @@ def test_active_lease_can_be_renewed_only_by_exact_owner_and_generation(db):
     with pytest.raises(AudioPreparationServiceError) as caught:
         renew_audio_preparation_lease(db, job_id=job.id, lease_owner_id="other", lease_generation=generation, now=datetime(2026, 8, 24, 20, 6), lease_ttl=timedelta(minutes=10))
     assert caught.value.reason is AudioPreparationServiceReason.lease_unavailable
+
+
+def test_aggregate_audio_admission_fails_before_job_or_retention_mutation(db):
+    from studio_api.models import AudioPreparationJob
+    _, _, _, early, late, _ = seed(db)
+    old_expiry = early.expires_at
+    with pytest.raises(AudioPreparationServiceError, match="input_too_large"):
+        create_audio_preparation_job(db, owner_user_id="owner", project_id="project", title="Test",
+            source_ids=[early.id, late.id], ephemeral_source_ids={early.id}, manual_order=True,
+            options_payload={"output_format": "flac"}, output_destination="download", output_folder=None,
+            now=datetime(2026, 8, 24), max_total_input_bytes=29)
+    assert db.query(AudioPreparationJob).count() == 0
+    assert early.expires_at == old_expiry

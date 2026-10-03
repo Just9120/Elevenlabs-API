@@ -14,7 +14,7 @@ def get_client_ip(request: Request, settings: Settings) -> str:
     if direct != settings.trusted_proxy_ip:
         return peer
 
-    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[-1].strip()
     if not forwarded:
         return peer
     try:

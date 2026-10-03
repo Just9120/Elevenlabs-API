@@ -10,6 +10,7 @@ Original file is located at
 # @title
 !pip -q install google-api-python-client google-auth-httplib2 google-auth-oauthlib requests ipywidgets
 
+from html import escape as escape_html
 import io
 import os
 import re
@@ -7013,7 +7014,7 @@ def refresh_folder_picker():
         background:#f8f9fa;
         color:#202124;
         font-family:monospace;">
-        <b>Текущая папка:</b> {current_path}
+        <b>Текущая папка:</b> {escape_html(str(current_path))}
     </div>
     """
 
@@ -7025,8 +7026,8 @@ def refresh_folder_picker():
             border:1px solid #cce5ff;
             border-radius:8px;
             background:#eef6ff;">
-            <b>Выбрана папка назначения:</b> {folder_picker_state["selected_path"]}<br>
-            <b>Folder ID:</b> <code>{folder_picker_state["selected_id"]}</code>
+            <b>Выбрана папка назначения:</b> {escape_html(str(folder_picker_state["selected_path"]))}<br>
+            <b>Folder ID:</b> <code>{escape_html(str(folder_picker_state["selected_id"]))}</code>
         </div>
         """
     else:
@@ -7377,7 +7378,7 @@ def get_selected_drive_multi_items() -> list[dict]:
 
 
 def format_drive_multi_summary_html(items: list[dict], limit: int = 10) -> str:
-    return "<br>".join(summarize_drive_multi_selection(items, limit=limit).splitlines())
+    return "<br>".join(escape_html(line) for line in summarize_drive_multi_selection(items, limit=limit).splitlines())
 
 
 source_current_path_html = widgets.HTML()
@@ -7453,14 +7454,14 @@ def refresh_source_picker():
         background:#f8f9fa;
         color:#202124;
         font-family:monospace;">
-        <b>Текущая папка источника:</b> {current_path}
+        <b>Текущая папка источника:</b> {escape_html(str(current_path))}
     </div>
     """
 
     if source_picker_state["selected_input"]:
         selected_details = source_picker_state["selected_input"]
         if source_picker_state.get("selected_mode") == "drive_multi":
-            selected_details = format_drive_multi_summary_html(source_picker_state.get("selected_items") or [])
+            selected_details = summarize_drive_multi_selection(source_picker_state.get("selected_items") or [])
         source_selected_html.value = f"""
         <div style="
             margin-top:8px;
@@ -7469,8 +7470,8 @@ def refresh_source_picker():
             border-radius:8px;
             background:#eef6ff;
             color:#202124;">
-            <b>Выбран источник:</b> {source_picker_state['selected_label']}<br>
-            <code style="display:block; margin-top:4px; color:#202124; white-space:pre-wrap; line-height:1.4;">{selected_details}</code>
+            <b>Выбран источник:</b> {escape_html(str(source_picker_state['selected_label']))}<br>
+            <code style="display:block; margin-top:4px; color:#202124; white-space:pre-wrap; line-height:1.4;">{escape_html(str(selected_details))}</code>
         </div>
         """
     else:
@@ -8220,7 +8221,7 @@ def set_progress(current: int, total: int, label: str = ""):
     progress_bar.value = min(max(current, 0), total)
     progress_label.value = (
         f"<div style='font-family:monospace; margin-top:4px;'>"
-        f"{progress_bar.value} / {total} &nbsp;&nbsp; {label}"
+        f"{progress_bar.value} / {total} &nbsp;&nbsp; {escape_html(str(label))}"
         f"</div>"
     )
 
@@ -8336,7 +8337,7 @@ def on_user_segment_add_part_clicked(_):
     validation = validate_user_segment_builder_add_result(normalized_rows)
     if not validation["ok"]:
         user_segment_builder_rows_state = normalized_rows
-        user_segment_builder_error_by_index[validation["row_index"]] = f"<div style='color:#b3261e;'>{validation['error']}</div>"
+        user_segment_builder_error_by_index[validation["row_index"]] = f"<div style='color:#b3261e;'>{escape_html(str(validation['error']))}</div>"
     else:
         user_segment_builder_rows_state = add_user_segment_builder_row(normalized_rows)
     render_user_segment_builder_cards()
@@ -8352,7 +8353,7 @@ def on_user_segment_remove_part_clicked(_):
 
 def refresh_user_segment_ui(*_args):
     message = user_segment_mode_unavailable_message(mode_widget.value)
-    user_segment_unavailable_widget.value = f"<div style='color:#b3261e;'>{message}</div>" if message else ""
+    user_segment_unavailable_widget.value = f"<div style='color:#b3261e;'>{escape_html(str(message))}</div>" if message else ""
     user_segment_suffix_widget.disabled = bool(message) or not user_segment_enable_widget.value
     user_segment_builder_widget.layout.display = "" if user_segment_enable_widget.value and not message else "none"
     user_segment_suffix_widget.layout.display = "" if user_segment_enable_widget.value and not message else "none"

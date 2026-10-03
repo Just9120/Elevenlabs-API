@@ -114,7 +114,7 @@ forms. Additional or malformed capabilities still produce `isolation_match=no`.
 ### API proxy trust
 
 `STUDIO_TRUSTED_PROXY_IP` is one exact IP address, never a hostname, CIDR, wildcard,
-or forwarded client address. The API accepts the first `X-Forwarded-For` value only
+or forwarded client address. The API accepts the last `X-Forwarded-For` value only
 when the direct request peer equals that configured address; otherwise it uses the
 direct peer and ignores the header. The default `127.0.0.1` is fail-closed for
 local direct proxying but must not be assumed correct for a host nginx request
@@ -1150,3 +1150,53 @@ The additive migration must pass the protected migration lane before the new API
 ## Source cleanup operations note
 
 Repository Alembic history currently extends through additive `0038_trusted_devices`. The deployed production head must always be read from PostgreSQL and verified rather than inferred from repository source or live screenshots; until protected delivery proves otherwise, production remains at the separately recorded revision. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the persisted/default `reference_class` plus exact `s3_bucket` and upload protocol/session select the only permitted storage boundary, and mismatch or incomplete isolation fails closed without fallback. The allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. A cleanup claim becomes completed only after the multipart session (when applicable) and object are both confirmed absent; otherwise the exact persisted identity remains retryable. Safe diagnostics use normalized source deletion/retention/cleanup/reconciliation events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. A browser preview is not deletion evidence; bulk removal must revalidate the opaque preview snapshot under locked source/job state, requires recent authentication plus explicit confirmation, skips blocked sources by reason, and never calls Google Drive deletion. The earlier authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+
+
+## Security boundaries after Security findings remediation
+
+OAuth callback accepts only the active initiating Studio session stored in the
+single-use OAuth state, including maintenance consent. Other browsers, logout,
+revoked/expired sessions and disabled accounts fail before token exchange.
+Enabling TOTP and rotating recovery codes revoke other owner sessions and browser
+trust atomically; the current session remains available.
+
+Auth uses both per-network and independent per-account throttles. Only the exact
+configured direct peer may supply forwarding; the last observed XFF address is
+used, so caller-prepended entries cannot select the throttle identity. Canonical
+nginx overwrites XFF with its observed remote address. Do not guess a production
+proxy IP or broaden trusted proxies. Ordinary component delivery does not replace
+an installed host site: its body/forwarding settings must be verified separately.
+
+API JSON is bounded before parsing (4 MiB, auth 16 KiB, including chunked input).
+Media PUT goes directly to object storage and is unaffected; SigV4 signs exact
+Content-Length for the file or part. Browsers set that header from the Blob body;
+application code must not attempt to set a forbidden Content-Length header.
+Completion still validates actual storage bytes. Local signing tests do not prove
+external storage enforcement or browser/provider availability.
+
+API container Uvicorn uses `uvicorn-log-config.json` to remove query parameters
+from HTTP and WebSocket handshake logs. The existing protected edge lane applies
+the same allowlisted security snippet, now requiring exactly `access_log off;`
+in addition to the six security headers. Other logging destinations/directives
+remain rejected; target, backup, rollback, nginx validation and reviewer gate do
+not change. API path/status logs remain available without query credentials.
+Historical access logs are outside this remediation; no purge is implied.
+
+Yandex capabilities are consumed once with an atomic Redis SET NX/expiry before
+WebSocket acceptance and provider connection. Redis failure/replay rejects the
+handshake; reconnect obtains a fresh capability. No schema migration is required.
+
+Live encrypted drafts have owner-wide count/byte budgets, serialized on the owner
+row: `STUDIO_REALTIME_DRAFT_MAX_COUNT` (20) and
+`STUDIO_REALTIME_DRAFT_MAX_STORAGE_BYTES` (32 MiB). Full storage does not remove
+text; existing updates within the budget and explicit deletion remain available.
+Existing retention requirements drift is tracked separately as F42.
+
+Audio processing admits at most `STUDIO_AUDIO_PREPARATION_MAX_INPUT_BYTES`
+(default 1 GiB) aggregate known bytes; unknown Drive sizes are bounded while
+copying. `STUDIO_AUDIO_PREPARATION_MAX_SCRATCH_BYTES` defaults to 3 GiB and must
+fit worker tmpfs. Both available disk and configured budget reserve 64 MiB;
+FFmpeg gets a bounded output size before execution, and hitting that bound is a
+failure rather than a successful truncated export. Increase budgets only together
+with reviewed worker capacity. These operational ceilings are resource guards,
+not commercial billing quotas.

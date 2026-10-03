@@ -11,7 +11,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 import grpc
+from redis import Redis
+from redis.exceptions import RedisError
 from fastapi import WebSocket
+from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketDisconnect
 
 from .db import SessionLocal
@@ -66,6 +69,8 @@ class YandexRealtimeAuthority:
     folder_id: str
     language_code: str | None
     model: str
+    nonce: str = ""
+    expires_epoch: int = 0
 
 
 def _b64encode(value: bytes) -> str:
@@ -129,9 +134,11 @@ def decode_yandex_realtime_capability(token: str, *, settings, now_epoch: int | 
     except Exception as exc:
         raise YandexRealtimeCapabilityError("invalid_capability") from exc
     now_epoch = int(time.time()) if now_epoch is None else int(now_epoch)
+    if not isinstance(payload, dict):
+        raise YandexRealtimeCapabilityError("invalid_capability")
     if payload.get("v") != 1 or not isinstance(payload.get("iat"), int) or not isinstance(payload.get("exp"), int):
         raise YandexRealtimeCapabilityError("invalid_capability")
-    if payload["exp"] < now_epoch or payload["exp"] - payload["iat"] != CAPABILITY_TTL_SECONDS or payload["iat"] > now_epoch + 30:
+    if payload["exp"] <= now_epoch or payload["exp"] - payload["iat"] != CAPABILITY_TTL_SECONDS or payload["iat"] > now_epoch + 30:
         raise YandexRealtimeCapabilityError("expired_capability")
     required = ("sub", "project", "credential", "version", "folder", "model", "nonce")
     if any(not isinstance(payload.get(field), str) or not payload[field] for field in required):
@@ -147,7 +154,27 @@ def decode_yandex_realtime_capability(token: str, *, settings, now_epoch: int | 
         folder_id=payload["folder"],
         language_code=language,
         model=payload["model"],
+        nonce=payload["nonce"],
+        expires_epoch=payload["exp"],
     )
+
+
+def consume_yandex_realtime_capability(authority, *, settings, redis=None, now_epoch=None):
+    now_epoch = int(time.time()) if now_epoch is None else int(now_epoch)
+    remaining = authority.expires_epoch - now_epoch
+    if not authority.nonce or remaining <= 0 or remaining > CAPABILITY_TTL_SECONDS:
+        raise YandexRealtimeCapabilityError("expired_capability")
+    client = redis if redis is not None else Redis.from_url(settings.redis_url, socket_connect_timeout=2, socket_timeout=2)
+    digest = hashlib.sha256(authority.nonce.encode("utf-8")).hexdigest()
+    try:
+        consumed = client.set("yandex:realtime:used:" + digest, "1", nx=True, ex=remaining)
+    except RedisError as exc:
+        raise YandexRealtimeCapabilityError("capability_store_unavailable") from exc
+    finally:
+        if redis is None:
+            client.close()
+    if not consumed:
+        raise YandexRealtimeCapabilityError("capability_already_used")
 
 
 def _open_api_key(authority: YandexRealtimeAuthority, settings) -> str:
@@ -287,7 +314,8 @@ async def relay_yandex_realtime(websocket: WebSocket, *, capability: str, settin
     pending_final = ""
     try:
         authority = decode_yandex_realtime_capability(capability, settings=settings)
-        api_key = _open_api_key(authority, settings)
+        api_key = await run_in_threadpool(_open_api_key, authority, settings)
+        await run_in_threadpool(consume_yandex_realtime_capability, authority, settings=settings)
     except YandexRealtimeCapabilityError:
         await websocket.close(code=4403)
         return

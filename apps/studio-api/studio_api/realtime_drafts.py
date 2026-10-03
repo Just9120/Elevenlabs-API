@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, func
 from sqlalchemy.orm import Session
 
-from .models import Project, RealtimeTranscriptDraft
+from .models import Project, RealtimeTranscriptDraft, User
 from .security import decrypt, encrypt, master_key_from_b64
 
 
@@ -25,6 +25,7 @@ CLIENT_SESSION_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 class RealtimeDraftReason(str, Enum):
     scope_conflict = "realtime_draft_scope_conflict"
     revision_conflict = "realtime_draft_revision_conflict"
+    storage_limit = "realtime_draft_storage_limit"
     payload_too_large = "realtime_draft_payload_too_large"
     payload_invalid = "realtime_draft_payload_invalid"
     crypto_failed = "realtime_draft_crypto_failed"
@@ -62,6 +63,8 @@ def save_realtime_draft(
     client_session_id = _client_session_id(client_session_id)
     payload, segments, partial = _serialize_payload(committed_segments, partial)
     key = _key(settings)
+    # Serialize every draft admission for this owner, including different client IDs.
+    db.execute(select(User.id).where(User.id == owner_user_id).with_for_update()).scalar_one()
     existing = db.execute(
         select(RealtimeTranscriptDraft)
         .where(
@@ -101,6 +104,14 @@ def save_realtime_draft(
         ciphertext, nonce = encrypt(payload, key, associated)
     except Exception as exc:
         raise RealtimeDraftError(RealtimeDraftReason.crypto_failed) from exc
+    count, stored_bytes = db.execute(
+        select(func.count(RealtimeTranscriptDraft.id), func.coalesce(func.sum(func.length(RealtimeTranscriptDraft.ciphertext)), 0))
+        .where(RealtimeTranscriptDraft.owner_user_id == owner_user_id)
+    ).one()
+    max_count = getattr(settings, "realtime_draft_max_count", 20)
+    max_bytes = getattr(settings, "realtime_draft_max_storage_bytes", 32 * 1024 * 1024)
+    if (existing is None and count >= max_count) or stored_bytes - (len(existing.ciphertext) if existing else 0) + len(ciphertext) > max_bytes:
+        raise RealtimeDraftError(RealtimeDraftReason.storage_limit)
     expires_at = now + timedelta(seconds=settings.realtime_draft_ttl_seconds)
     if existing is None:
         row = RealtimeTranscriptDraft(

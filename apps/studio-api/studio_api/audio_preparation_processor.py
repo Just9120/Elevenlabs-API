@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -62,6 +63,7 @@ from .source_storage import (
 
 
 _COPY_CHUNK_SIZE = 1024 * 1024
+_SCRATCH_RESERVE_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,16 @@ def process_claimed_audio_preparation_job(
                 concat_list_path=concat_path,
                 creation_time=creation_time,
             )
+            input_bytes = sum(path.stat().st_size for path in paths)
+            output_budget = min(
+                getattr(settings, "audio_preparation_max_output_bytes", settings.source_max_upload_bytes),
+                getattr(settings, "audio_preparation_max_scratch_bytes", 3 * 1024**3) - input_bytes - _SCRATCH_RESERVE_BYTES,
+                shutil.disk_usage(root).free - _SCRATCH_RESERVE_BYTES,
+            )
+            if output_budget <= 0:
+                raise AudioPreparationError(AudioPreparationReason.output_too_large)
+            # FFmpeg limits the file while writing, rather than after exhausting tmpfs.
+            command[-1:-1] = ["-fs", str(output_budget)]
             expected_duration_seconds = max(
                 1.0,
                 (job.estimated_output_duration_ms or job.total_input_duration_ms or 1000) / 1000,
@@ -189,8 +201,10 @@ def process_claimed_audio_preparation_job(
                     progress_callback=report_processing_progress,
                 )
             _require_not_cancelled(db, job)
-            output_probe = probe_media(output_path, runner=runner) if runner else probe_media(output_path)
             output_size = output_path.stat().st_size
+            if output_size >= output_budget:
+                raise AudioPreparationError(AudioPreparationReason.output_too_large)
+            output_probe = probe_media(output_path, runner=runner) if runner else probe_media(output_path)
             if output_size <= 0:
                 raise AudioPreparationError(AudioPreparationReason.processing_failed)
             if output_size > getattr(
@@ -403,6 +417,14 @@ def _materialize_inputs(
         raise AudioPreparationServiceError(AudioPreparationServiceReason.project_unavailable)
     token_cache: dict[str, str] = {}
     paths = []
+    total_copied = 0
+    budget = min(
+        getattr(settings, "audio_preparation_max_input_bytes", 1024**3),
+        getattr(settings, "audio_preparation_max_scratch_bytes", 3 * 1024**3) - _SCRATCH_RESERVE_BYTES,
+        shutil.disk_usage(root).free - _SCRATCH_RESERVE_BYTES,
+    )
+    if sum(max(0, item.source.size_bytes or 0) for item in job.inputs if item.source) > budget:
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.input_too_large)
     for item in job.inputs:
         source = item.source
         if (
@@ -446,6 +468,9 @@ def _materialize_inputs(
                     if not chunk:
                         continue
                     copied += len(chunk)
+                    total_copied += len(chunk)
+                    if total_copied > budget or shutil.disk_usage(root).free - len(chunk) < _SCRATCH_RESERVE_BYTES:
+                        raise AudioPreparationServiceError(AudioPreparationServiceReason.input_too_large)
                     if copied > settings.source_max_upload_bytes:
                         raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
                     target.write(chunk)
