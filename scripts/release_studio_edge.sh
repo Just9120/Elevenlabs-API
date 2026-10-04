@@ -154,7 +154,12 @@ for raw_line in source.splitlines():
 blocks = [block for block in re.split(r"\r?\n\r?\n", raw_headers) if block.strip()]
 if not blocks:
     raise SystemExit(1)
-headers = HeaderParser().parsestr(blocks[-1])
+response_lines = blocks[-1].splitlines()
+if not re.fullmatch(r"HTTP/(?:1\.[01]|2|3)\s+200(?:\s+[^\r\n]*)?", response_lines[0]):
+    raise SystemExit(1)
+# curl --dump-header includes an HTTP status line. HeaderParser accepts only
+# header fields; feeding it that line silently turns every field into a body.
+headers = HeaderParser().parsestr("\n".join(response_lines[1:]) + "\n\n")
 
 for name, value in expected.items():
     observed = headers.get_all(name, [])

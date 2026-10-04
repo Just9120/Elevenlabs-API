@@ -39,6 +39,56 @@ def _run_header_validator(tmp_path: Path, content: str) -> None:
         sys.argv = previous_argv
 
 
+def _run_response_validator(tmp_path, response):
+    candidate = tmp_path / "candidate.conf"
+    candidate.write_text(HEADERS.read_text(encoding="utf-8"), encoding="utf-8")
+    observed = tmp_path / "response.headers"
+    observed.write_bytes(response.encode("iso-8859-1"))
+    program = _embedded_python_programs()[1]
+    previous_argv = sys.argv
+    try:
+        sys.argv = ["<studio-edge-response-validator>", str(candidate), str(observed)]
+        exec(compile(program, "<studio-edge-response-validator>", "exec"), {})
+    finally:
+        sys.argv = previous_argv
+
+
+def _canonical_http_response(status="HTTP/1.1 200 OK"):
+    fields = re.findall(r'^add_header ([A-Za-z-]+) "([^"\r\n]+)" always;$',
+                        HEADERS.read_text(encoding="utf-8"), re.M)
+    assert len(fields) == 6
+    return status + "\r\nServer: nginx\r\nContent-Type: text/html\r\n" + "".join(
+        f"{name}: {value}\r\n" for name, value in fields
+    ) + "\r\n"
+
+
+@pytest.mark.parametrize("status", ["HTTP/1.1 200 OK", "HTTP/1.0 200 OK", "HTTP/2 200", "HTTP/3 200"])
+def test_response_validator_accepts_real_http_envelope(tmp_path, status):
+    _run_response_validator(tmp_path, _canonical_http_response(status))
+
+
+def test_response_validator_uses_final_response_after_proxy_or_interim_blocks(tmp_path):
+    response = "HTTP/1.1 200 Connection established\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n"
+    _run_response_validator(tmp_path, response + _canonical_http_response())
+
+
+@pytest.mark.parametrize("failure", ["missing", "duplicate", "wrong", "non_200", "no_status"])
+def test_response_validator_still_rejects_security_header_or_status_mismatch(tmp_path, failure):
+    response = _canonical_http_response()
+    if failure == "missing":
+        response = response.replace("X-Frame-Options: DENY\r\n", "")
+    elif failure == "duplicate":
+        response = response.replace("X-Frame-Options: DENY\r\n", "X-Frame-Options: DENY\r\nX-Frame-Options: DENY\r\n")
+    elif failure == "wrong":
+        response = response.replace("X-Frame-Options: DENY", "X-Frame-Options: SAMEORIGIN")
+    elif failure == "non_200":
+        response = response.replace("HTTP/1.1 200 OK", "HTTP/1.1 403 Forbidden")
+    else:
+        response = response.partition("\r\n")[2]
+    with pytest.raises(SystemExit):
+        _run_response_validator(tmp_path, response)
+
+
 def test_forced_command_wrapper_accepts_only_exact_main_release() -> None:
     wrapper = WRAPPER.read_text(encoding="utf-8")
 
