@@ -56,7 +56,7 @@
 | `UXPOL-05` | Diagnostic events отображаются bounded страницами; каждая строка имеет понятный human label/summary и раскрывает technical code/metadata только по запросу пользователя. |
 | `UXPOL-06` | Diagnostic bundle UI предлагает `JSON — для анализа моделью` и `Markdown — для человека`, ясно объясняет выбор и не требует DOCX/YAML/TOML для обычного flow; backend compatibility может сохраняться. |
 | `UXPOL-07` | Связанная операция/задача выбирается из недавних операций или ищется по понятному названию/ID case-insensitively; поле остаётся optional, объясняет назначение и не требует угадать exact register/internal identifier. |
-| `UXPOL-08` | ElevenLabs account/cost panel объясняет план, использовано/осталось, overage и invoice простым русским языком; raw provider units/provenance находятся под optional disclosure. |
+| `UXPOL-08` | Eleven Labs account/cost panel объясняет план, использовано/осталось, overage и invoice простым русским языком; raw provider units/provenance находятся под optional disclosure. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
@@ -71,7 +71,7 @@
 | `UXCTL-05` | Каждый fragment может переопределить output folder; composer/preflight показывает resolved destination каждого fragment до создания jobs. |
 | `UXCTL-06` | Attention-required terminal job остаётся видимой до решения, но её подробности можно свернуть без изменения durable state. |
 | `UXCTL-07` | Пользователь может повторно проверить uncertain result, связать job с подтверждённым более поздним результатом либо явно подтвердить отсутствие результата с предупреждением о возможном расходе; только resolved job переходит в обычный history lifecycle, audit сохраняется. |
-| `UXCTL-08` | ElevenLabs account UI отдельно показывает base subscription plan и PAYG/prepaid balance и переводит raw provider values в понятные пользовательские labels. |
+| `UXCTL-08` | Eleven Labs account UI отдельно показывает base subscription plan и PAYG/prepaid balance и переводит raw provider values в понятные пользовательские labels. |
 | `UXCTL-09` | Порядок расходования subscription credits и PAYG отображается только при наличии подтверждённых provider data и не выводится из предположений Studio. |
 | `UXCTL-10` | Bulk cleanup preview показывает eligible/blocked Studio-owned files, aggregate bytes и явно сообщает, что Google Drive sources/documents не удаляются. |
 | `UXCTL-11` | Bulk cleanup apply требует explicit confirmation, удаляет только eligible Studio-owned files, безопасно пропускает blocked files и возвращает bounded summary по причинам. |
@@ -147,7 +147,7 @@
 | `PB-03` | Доступен явный английский язык. |
 | `PB-04` | Доступно auto-detection языка. |
 | `PB-05` | Job progress отображается live в процентах из server checkpoints. |
-| `PB-06` | При явно выбранном Google Docs export создаётся оформленный transcript и safe output link; сохранение распознавания в Studio имеет отдельный lifecycle (RS-04..08). |
+| `PB-06` | При выбранном Google Drive обычная транскрибация завершается только после подтверждения полного оформленного Google Doc в выбранной папке; UI показывает статус и ссылку, постоянная внутренняя копия текста не нужна. Проверка: fake Google create/write/readback, пустой/частичный ответ не становится success. Q125,Q129,Q130. |
 | `PB-07` | Transcript document разбит на читабельные абзацы. |
 | `PB-08` | В начало документа добавлен metadata header. |
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. |
@@ -173,9 +173,9 @@
 | `AP-11` | Пользователь может задать optional output name; если поле пусто, output наследует stem соответствующего исходного filename (для concat — первого source в подтверждённом порядке). User-visible Unicode/кириллическое имя сохраняется в Studio Source, Google Drive и download, а internal storage key формируется отдельно и не подменяет видимое имя. |
 | `AP-12` | Доступны bounded presets для типовых сценариев `Лекция`, `Созвон` и `Только обработать аудио`, причём пользователь видит и может изменить итоговые параметры до запуска. |
 | `AP-13` | Processing имеет durable owner-scoped queue state, server checkpoints, live progress, cancellation и безопасное восстановление после worker restart. |
-| `AP-14` | Успешный output хранится в configured S3-compatible temporary storage по owner retention policy, доступен для authenticated download и может быть выбран как новый source. |
+| `AP-14` | Готовое подготовленное аудио скачивается или сохраняется в Google Drive без отдельной сохраняемой копии результата в S3. Повторное использование использует доступный результат без обещания внутреннего постоянного хранения. Проверка: local/server success, export failure/cancel и проверка отсутствия finished S3 object. Q169. |
 | `AP-15` | Пользователь может загрузить successful output в явно выбранную Google Drive folder через owner grant с `drive.file`; persisted result содержит safe Drive link без token/object identity. |
-| `AP-16` | Ephemeral reference uploads хранятся в S3-compatible storage только до terminal state операции и имеют hard failsafe TTL 24 часа; request-scoped FFmpeg files и failed partial output удаляются после success/failure/cancel, а API/UI/logs/diagnostics не раскрывают private paths, object keys или source bytes. |
+| `AP-16` | Исходники с устройства для серверной подготовки аудио имеют выбранное хранение 3/7/30 дней; request-scoped FFmpeg и частичные результаты очищаются после success/failure/cancel, без раскрытия bytes/paths. Проверка: selected retention, active lease, cleanup retry и owner isolation. Q162,Q167,Q177,Q178. |
 | `AP-17` | Пользователь может обработать device media browser-side без передачи source bytes в API/S3/provider; результат существует только в текущей вкладке и скачивается как WAV. |
 | `AP-18` | Browser-local path имеет явные file-count/input-size/decoded-memory bounds и при неподдерживаемом codec/channel/resources выдаёт понятную ошибку с предложением server-side Studio path. |
 | `AP-19` | Для нескольких inputs пользователь явно выбирает `Обработать каждый отдельно` (default, отдельный output на source) либо `Склеить в один файл` (один ordered output). |
@@ -189,11 +189,14 @@
 | `AP-27` | Resumable transfer идёт напрямую browser → Google Drive и не отправляет source bytes в Studio API, S3, Studio Source, FFmpeg, transcription или provider; используются только существующие Google OAuth scopes без expansion. |
 | `AP-28` | UI показывает current-file и aggregate progress в bytes и процентах, текущую стадию и cancellation; automatic retry/replay отсутствует. |
 | `AP-29` | File count, per-file/aggregate size и MIME имеют явные bounds; partial failures изолированы, а manual retry использует устойчивый idempotency marker и не дублирует уже подтверждённые uploads. |
+| `AP-31` | После анализа пауз пользователь видит waveform с отмеченными интервалами тишины/сокращения, может прослушать репрезентативный результат и сравнить исходную/итоговую длительность. Проверка: known silent intervals, no-silence/empty/error/loading и keyboard controls. Q060. |
 | `AP-30` | API server-side проверяет owner destination и result metadata: file ID, parent, name, MIME, size и idempotency marker; UI показывает только safe Drive links, а token/resumable upload URL/private diagnostics не логируются и не сохраняются. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
+
+Q009,Q089..092: отложено до отдельного решения владельца; ручные имена/роли и samples сохраняются как существующая optional implementation, не обязательный current personal scope.
 
 | AC | Проверяемое требование |
 |---|---|
@@ -271,7 +274,7 @@
 | `PR-09` | Live draft синхронизируется в owner-scoped server storage с encryption at rest, bounded size и idempotent monotonic revision. |
 | `PR-10` | После refresh, browser crash или перезапуска компьютера пользователь получает явное предложение восстановить незавершённый draft. |
 | `PR-11` | Найденный draft можно восстановить, скачать как `.txt` или удалить явным действием. |
-| `PR-12` | Server Live draft имеет TTL 72 часа, исчезает из recovery после expiry и удаляется idempotent cleanup. |
+| `PR-12` | Live-текст после reload остаётся доступным до ручной очистки владельцем без автоматического срока удаления; начало следующей сессии не удаляет предыдущий текст. Проверка: local/server recovery спустя более 72 часов, restart/new session и explicit clear; чужой owner не имеет доступа. Q118,Q120. |
 | `PR-13` | Live draft не сохраняет audio и не включает transcript body в logs, diagnostics, audit events или ordinary History/Analytics. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
@@ -323,7 +326,7 @@
 | `PWASEC-16` | TOTP enrollment имеет проверяемую secret-confirmation boundary. |
 | `PWASEC-17` | TOTP recovery определён и протестирован. |
 | `PWASEC-18` | TOTP disable требует безопасной owner verification. |
-| `PWASEC-19` | После успешного подтверждения паролем и, если 2FA включена, одноразовым кодом владелец может явно выбрать «Запомнить это устройство на 30 дней»; сервер выдаёт ограниченное этим браузером доверие без раскрытия секрета в JavaScript. Вход и login 2FA не пропускаются. |
+| `PWASEC-19` | После успешного подтверждения паролем и, если 2FA включена, одноразовым кодом владелец может явно выбрать «Запомнить это устройство на 30 дней»; сервер выдаёт ограниченное этим браузером доверие без раскрытия секрета в Java Script. Вход и login 2FA не пропускаются. |
 | `PWASEC-20` | Пока доверие не истекло и не отозвано, владелец в действующей сессии выполняет разрешённые sensitive actions после обычного 10-минутного окна без нового пароля; отсутствие, чужое, истёкшее или отозванное доверие требует обычной re-authentication. |
 | `PWASEC-21` | Владелец видит срок доверия и может отозвать его для текущего или всех браузеров; сброс пароля и изменение 2FA отзывают доверие. Отзыв проверяется сервером на следующей защищённой операции. |
 
@@ -352,10 +355,10 @@
 | `STORAG-04` | Orphaned storage objects периодически reconciliate и очищаются. |
 | `STORAG-05` | Cleanup удаляет obsolete object versions при включённом storage versioning. |
 | `STORAG-06` | Original transcription sources имеют явную retention policy. |
-| `STORAG-07` | Processed audio outputs имеют явную retention policy. |
-| `STORAG-08` | Audio-processing reference files имеют явную retention policy. |
+| `STORAG-07` | Готовое подготовленное аудио не сохраняется отдельным finished object в S3; скачивание/Google Drive и request-scoped cleanup сохраняют доступный пользователю результат. Q169. |
+| `STORAG-08` | Исходники серверной подготовки аудио с устройства имеют отдельную выбираемую политику 3/7/30 дней и видимую дату удаления. Q162,Q163,Q177,Q178. |
 | `STORAG-09` | Transcription reference files имеют отдельную явную retention policy. |
-| `STORAG-10` | Internal transcript data имеет явную retention policy. |
+| `STORAG-10` | Правила для текста различаются: Live — до ручной очистки, временный обычный STT text — до успешного полного документа либо явной отмены, затем удаляется. Проверка: >72 h/>24 h, export retry/cancel/success и отсутствие тела в diagnostics. Q118,Q131,Q133,Q175. |
 | `STORAG-11` | Temporary files имеют явную retention/TTL policy. |
 | `STORAG-12` | History data имеет явную retention policy. |
 | `STORAG-13` | Analytics data имеет явную retention policy. |
@@ -366,6 +369,7 @@
 | `STORAG-18` | Transcription-reference использует отдельный S3 bucket. |
 | `STORAG-19` | Audio-reference bucket имеет независимые lifecycle rules. |
 | `STORAG-20` | Transcription-reference bucket имеет независимые lifecycle rules. |
+| `STORAG-22` | Загруженная копия исходника созвона автоматически удаляется после подтверждённого создания всех полных документов по нему; failed/partial/export-unresolved и active jobs не удаляют bytes, оригинал устройства не затрагивается. Проверка: multiple fragments/all-success/one-failure/retry/concurrency. Q168. |
 | `STORAG-21` | Два reference buckets имеют независимо ограниченные access permissions. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
@@ -391,13 +395,13 @@
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
-### Эпик `YANDEX-STT-01` — Yandex SpeechKit provider
+### Эпик `YANDEX-STT-01` — Yandex Speech Kit provider
 
 | AC | Проверяемое требование |
 |---|---|
-| `YANDEX-01` | Yandex SpeechKit поддерживает обычную batch transcription. |
-| `YANDEX-02` | Yandex SpeechKit поддерживает deferred transcription. |
-| `YANDEX-03` | Yandex SpeechKit поддерживает realtime transcription. |
+| `YANDEX-01` | Yandex Speech Kit поддерживает обычную batch transcription. |
+| `YANDEX-02` | Yandex Speech Kit поддерживает deferred transcription. |
+| `YANDEX-03` | Yandex Speech Kit поддерживает realtime transcription. |
 | `YANDEX-04` | Deferred Yandex jobs сохраняют provider operation ID. |
 | `YANDEX-05` | Deferred Yandex jobs poll и сохраняют terminal provider result. |
 
@@ -479,7 +483,7 @@
 |---|---|
 | `REALTI-01` | Capture-source loss и STT-connection loss отображаются как разные user-visible errors. |
 | `REALTI-02` | Realtime subtitles доступны через отдельный browser/OBS overlay. |
-| `REALTI-03` | Realtime subtitles могут передаваться в YouTube Live. |
+| `REALTI-03` | Realtime subtitles могут передаваться в You Tube Live. |
 | `REALTI-04` | Realtime subtitles могут передаваться другому явно поддержанному external consumer. |
 | `REALTI-05` | Failure одного external realtime consumer не останавливает primary session. |
 
@@ -489,9 +493,9 @@
 
 | AC | Проверяемое требование |
 |---|---|
-| `TRANSC-01` | Confirmed transcript экспортируется как Markdown. |
-| `TRANSC-02` | Confirmed timed transcript экспортируется как SRT. |
-| `TRANSC-03` | Confirmed timed transcript экспортируется как VTT. |
+| `TRANSC-01` | Сохранённый Live-текст скачивается как Markdown без нового STT. Проверка: Unicode, paragraphs/speakers и escaping. Q134. |
+| `TRANSC-02` | Live-текст с подтверждёнными временными данными скачивается как SRT с корректным порядком/диапазонами; без timing показано ограничение. Q135..137. |
+| `TRANSC-03` | Live-текст с подтверждёнными временными данными скачивается как VTT с корректным порядком/диапазонами; без timing показано ограничение. Q135..137. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
@@ -501,7 +505,7 @@
 |---|---|
 | `USAGEC-01` | Каждая transcription job хранит подтверждённую длительность audio, фактически отправленную provider; uncertain outcome не выдаётся за exact billed usage. |
 | `USAGEC-02` | Каждая transcription job хранит nominal attributable cost как `confirmed duration × immutable public tariff snapshot`, currency и provenance; этот расчёт явно не выдаётся за invoice debit после подписки или квоты. |
-| `USAGEC-03` | Для каждого активного ElevenLabs credential Studio server-side получает из official account API tier/status, period usage/limit, reset, usage-based billing entitlement/cap, current overage и open/next invoice без передачи API key в браузер. |
+| `USAGEC-03` | Для каждого активного Eleven Labs credential Studio server-side получает из official account API tier/status, period usage/limit, reset, usage-based billing entitlement/cap, current overage и open/next invoice без передачи API key в браузер. |
 | `USAGEC-04` | Studio получает из official workspace analytics API credit usage по продуктам за применимый billing/rolling period, сохраняет нормализованный bounded snapshot и не преобразует credits в минуты без provider Evidence. |
 | `USAGEC-05` | Owner UI раздельно показывает job-level nominal cost и provider account actuals, включая provider-reported remaining period units, overage и invoice amounts; unavailable или semantically incomparable данные не подменяются расчётной цифрой. |
 | `USAGEC-06` | Account snapshot имеет видимые `fetched_at`, period/window provenance и current/stale/unavailable state; при открытом экране выполняется bounded refresh, ручное обновление доступно, а provider error сохраняет последний успешный snapshot только как stale. |
@@ -561,3 +565,16 @@
 | `RELEAS-05` | Deployment fail-closed при отсутствии critical settings. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
+
+
+### Эпик `PERSONAL-TECHNICAL-01` — проверяемые ограничения стека
+
+| AC | Проверяемое требование |
+|---|---|
+| `TECH-01` | Frontend использует React/TypeScript/Vite и PWA manifest/service worker; сборка проходит typecheck и создаёт update-capable PWA. Q275. |
+| `TECH-02` | API — Python/FastAPI, authoritative данные PostgreSQL через SQLAlchemy и versioned Alembic; миграция isolated DB до единственного head совместима с API/worker. Q276,Q277. |
+| `TECH-03` | Redis обеспечивает shared service limits; недоступность Redis в защищённых capability/rate-limit paths не отключает соответствующую проверку незаметно. Q278. |
+| `TECH-04` | Server preparation использует bounded FFmpeg; local processing использует browser capabilities, unsupported codec/resources сообщаются до обработки. Q279. |
+| `TECH-05` | Внутренние файлы используют S3-compatible boundary, production units — Docker Compose/Nginx; configuration не смешивает внешние пользовательские диски и internal storage. Q280,Q282,Q286. |
+
+Проверка: clean CI build/API/DB/Compose с synthetic configuration, positive/negative configuration и bounded media; реальные providers не вызываются. Эти AC восстанавливают явно заданные технические требования, не вводят новый stack.

@@ -1,28 +1,28 @@
 # Реестр AC: Studio: расширение согласованных сценариев
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/extensions.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. По новым правилам владельца 2026-09-07 `READY` означает выполненный в коде AC с подходящими автоматическими проверками. Прежние 355 IMPLEMENTED перенесены в READY по сохранённому CODE и subsystem TEST Evidence; это миграция словаря, а не новый полный аудит или расширение test coverage. `ALIAS`/`SUPERSEDED` не входят в счётчик. TEST/CI показывают проверки; факты поставки и их ограничения сохранены в Evidence/primary records. Отдельные DEPLOY/LIVE колонки удалены; обязательных заданий пользователю нет.
+Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/extensions.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
 
 ### `RESULTS-STUDIO-02`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `RS-01` | BACKLOG | — | — | — | F01 |
-| `RS-02` | BACKLOG | — | — | — | F01 |
-| `RS-03` | BACKLOG | — | — | — | F01 |
-| `RS-04` | BACKLOG | — | — | — | F01 |
-| `RS-05` | BACKLOG | — | — | — | F01 |
-| `RS-06` | BACKLOG | — | — | — | F01 |
-| `RS-07` | BACKLOG | — | — | — | F01 |
-| `RS-08` | BACKLOG | — | — | — | F01 |
-| `RS-09` | BACKLOG | — | — | — | F01 |
-| `RS-10` | BACKLOG | — | — | — | F01 |
-| `RS-11` | BACKLOG | — | — | — | F01 |
-| `RS-12` | BACKLOG | — | — | — | F01 |
+| `RS-01` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; LiveTranscriptionPanel.tsx отображает текст, но canonical speaker/timed metadata и экспортируемая модель ещё не реализованы (F01/F05). |
+| `RS-02` | BACKLOG | — | — | ✅ | A20261004; F01: downloadTranscript формирует только text/plain TXT; DOCX отсутствует. |
+| `RS-03` | READY | ✅ | ✅ | ✅ | A20261004; LiveTranscriptionPanel.tsx explicit clear и generation fencing; realtime_drafts.py owner delete; realtime draft API/component regressions. |
+| `RS-04` | SUPERSEDED | — | — | — | A20261004; Q125/Q128/Q129: cloud-free текст относится к Live, обычный результат — внешний документ; ID/связи сохранены, реализация отменённого поведения не требуется. |
+| `RS-05` | READY | ✅ | ✅ | ✅ | A20261004; Durable job stages, attempt/output evidence, Google output tests; внешний реальный canary не выполнялся. |
+| `RS-06` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F01: provider_part_checkpoint_ttl_seconds=86400; expired checkpoints отклоняются и очищаются. |
+| `RS-07` | ALIAS | — | — | — | Audit quality review: Live TXT/recovered download уже PR-05/11; не считать дважды. |
+| `RS-08` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Cached-result recovery не требует cost confirmation для полного cache (F43 fixed #319); F01: cache исчезает через24h, cancel lifecycle требует расширения. |
+| `RS-09` | ALIAS | — | — | — | Audit quality review: Live TXT/recovered download уже PR-05/11; не считать дважды. |
+| `RS-10` | BACKLOG | — | — | ✅ | A20261004; F01/F05: Live storage хранит строки, SRT/VTT download отсутствует. |
+| `RS-11` | BACKLOG | — | — | ✅ | A20261004; F01: соответствующий export UI отсутствует. |
+| `RS-12` | SUPERSEDED | — | — | — | A20261004; Q146/Q150: success только полный документ, без обещания восстановления утраченного внешнего документа; ID/связи сохранены, реализация отменённого поведения не требуется. |
 | `RS-13` | BACKLOG | — | — | — | F01 |
-| `RS-14` | BACKLOG | — | — | — | F01 |
-| `RS-15` | BACKLOG | — | — | — | F01 |
-| `RS-16` | BACKLOG | — | — | — | F01 |
-| `RS-17` | BACKLOG | — | — | — | F01 |
+| `RS-14` | SUPERSEDED | — | — | — | A20261004; Q125/Q131: постоянная обычная копия в S3 исключена; Live и transient text отдельны; ID/связи сохранены, реализация отменённого поведения не требуется. |
+| `RS-15` | SUPERSEDED | — | — | — | A20261004; Q118/Q162: 3/7/30 относится к device source, Live без TTL; ID/связи сохранены, реализация отменённого поведения не требуется. |
+| `RS-16` | SUPERSEDED | — | — | — | A20261004; Q118/Q164: expiry источника не expiry Live; ID/связи сохранены, реализация отменённого поведения не требуется. |
+| `RS-17` | SUPERSEDED | — | — | — | A20261004; Q165/Q170/Q174: очистка текста/исходников разделена; ID/связи сохранены, реализация отменённого поведения не требуется. |
 
 ### `YANDEX-DISK-01`
 
@@ -33,7 +33,7 @@
 | `YD-03` | BACKLOG | — | — | — | F02 |
 | `YD-04` | BACKLOG | — | — | — | F02 |
 | `YD-05` | BACKLOG | — | — | — | F02 |
-| `YD-06` | BACKLOG | — | — | — | F02 |
+| `YD-06` | SUPERSEDED | — | — | — | A20261004; Q169: готовое подготовленное аудио скачивается либо сохраняется в Google Drive; ID/связи сохранены, реализация отменённого поведения не требуется. |
 | `YD-07` | BACKLOG | — | — | — | F02 |
 | `YD-08` | BACKLOG | — | — | — | F02 |
 | `YD-09` | BACKLOG | — | — | — | F02 |
@@ -46,19 +46,19 @@
 | `RTC-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F03 |
 | `RTC-03` | IN_PROGRESS | ◐ | ◐ | ✅ | F03 |
 | `RTC-04` | IN_PROGRESS | ◐ | ◐ | ✅ | F03 |
-| `RTC-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F03 |
-| `RTC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F03 |
-| `RTC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F03 |
+| `RTC-05` | SUPERSEDED | — | — | — | A20261004; Q117: полная аудиозапись Live не требуется; ID/связи сохранены, реализация отменённого поведения не требуется. |
+| `RTC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F05: relay pending_final не индексирован; UI append committed strings. |
+| `RTC-07` | SUPERSEDED | — | — | — | A20261004; Q118/Q120: вместо выбранного TTL — до ручной очистки; ID/связи сохранены, реализация отменённого поведения не требуется. |
 | `RTC-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-REQUIREMENTS-05`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `UXN-01` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
-| `UXN-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
+| `UXN-01` | SUPERSEDED | — | — | — | A20261004; Q015: пользовательские Projects явно исключены; ID/связи сохранены, реализация отменённого поведения не требуется. |
+| `UXN-02` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F07: optional plain name реализован, пользовательского выбора naming template/date/time нет. |
 | `UXN-03` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
-| `UXN-04` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
+| `UXN-04` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Google destination реализован; Yandex Disk отсутствует (F02). |
 | `UXN-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
 | `UXN-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
 | `UXN-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
