@@ -2,6 +2,8 @@
 
 Часть [canonical spec](../project-spec.md). Единственный владелец формулировок AC этой подсистемы. Статусы/Evidence находятся в [реестре](../delivery/commercial.md).
 
+Q004/Q005/Q010..014: commercial остаётся полным будущим scope. Технические EVC-33..48/50 применимы и к personal; их реализация не доказывает commercial rollout. Остальные commercial AC не блокируют current personal.
+
 ### Эпик `ENVIRONMENT-CAPABILITIES-01` — единый codebase и изолированные contours
 
 | AC | Проверяемое требование |
@@ -153,9 +155,9 @@
 | `CXB-03` | Foreign STT provider проверен по своим terms of use. |
 | `CXB-04` | Cross-border data transfer foreign STT provider отдельно проверен. |
 | `CXB-05` | Российский STT provider является полноценным production вариантом. |
-| `CXB-06` | Commercial production не зависит от ElevenLabs или другого foreign STT provider. |
-| `CXB-07` | ElevenLabs может быть включён только как additional provider. |
-| `CXB-08` | Использование ElevenLabs в commercial разрешено отдельным legal opinion. |
+| `CXB-06` | Commercial production не зависит от Eleven Labs или другого foreign STT provider. |
+| `CXB-07` | Eleven Labs может быть включён только как additional provider. |
+| `CXB-08` | Использование Eleven Labs в commercial разрешено отдельным legal opinion. |
 | `CXB-09` | Техническая возможность foreign provider не считается legal permission для commercial. |
 | `CXB-10` | Production не зависит полностью от одного foreign AI provider. |
 | `CXB-11` | STT architecture позволяет отключить/заменить provider без переделки всей системы. |
@@ -318,7 +320,7 @@
 | `CLEG-02` | Personal-data policy соответствует фактическому backend behavior. |
 | `CLEG-03` | Cross-border transfer через Google Drive проверен отдельно. |
 | `CLEG-04` | Cross-border transfer для каждого foreign STT provider проверен отдельно. |
-| `CLEG-05` | Допустимость ElevenLabs проверена отдельно. |
+| `CLEG-05` | Допустимость Eleven Labs проверена отдельно. |
 | `CLEG-06` | Допустимость каждой другой foreign integration проверена отдельно. |
 | `CLEG-07` | **ALIAS, вне denominator → CDG-24.** Сохранённая формулировка: Подготовлено user agreement/public offer. |
 | `CLEG-08` | **ALIAS, вне denominator → CDG-23.** Сохранённая формулировка: Подготовлена personal-data processing policy. |

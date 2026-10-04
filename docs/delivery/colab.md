@@ -1,6 +1,6 @@
 # Реестр AC: Colab
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/colab.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. По новым правилам владельца 2026-09-07 `READY` означает выполненный в коде AC с подходящими автоматическими проверками. Прежние 355 IMPLEMENTED перенесены в READY по сохранённому CODE и subsystem TEST Evidence; это миграция словаря, а не новый полный аудит или расширение test coverage. `ALIAS`/`SUPERSEDED` не входят в счётчик. TEST/CI показывают проверки; факты поставки и их ограничения сохранены в Evidence/primary records. Отдельные DEPLOY/LIVE колонки удалены; обязательных заданий пользователю нет.
+Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/colab.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
 
 ### `COLAB-BATCH-01`
 

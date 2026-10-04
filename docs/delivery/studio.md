@@ -1,6 +1,6 @@
 # Реестр AC: Studio: существующие personal-подсистемы
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-07T14:31Z для PUX-06, UXCTL-07/11, AP-13 (web deployed 3e65322, V28-DELIVERY); AP-11 — V27, прочие строки — аудит 2026-09-06 MSK на source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/studio.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. По новым правилам владельца 2026-09-07 `READY` означает выполненный в коде AC с подходящими автоматическими проверками. Прежние 355 IMPLEMENTED перенесены в READY по сохранённому CODE и subsystem TEST Evidence; это миграция словаря, а не новый полный аудит или расширение test coverage. `ALIAS`/`SUPERSEDED` не входят в счётчик. TEST/CI показывают проверки; факты поставки и их ограничения сохранены в Evidence/primary records. Отдельные DEPLOY/LIVE колонки удалены; обязательных заданий пользователю нет.
+Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/studio.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
 
 ### `PWA-CORE-01`
 
@@ -131,11 +131,11 @@
 | `PB-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F01: lifecycle Studio/export пока общий |
+| `PB-06` | READY | ✅ | ✅ | ✅ | A20261004; job_processing_orchestrator.py, job_google_docs_output.py; тесты Google output/orchestration. Яндекс Диск учитывается отдельно YD-05; не реализован. |
 | `PB-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PB-10` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F06: unknown creation metadata подставляется как placeholder; корректная дата для доступного источника есть, отсутствие даты и provenance не закрыты. |
 | `PB-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-AUDIO-PREPARATION-01`
@@ -155,9 +155,9 @@
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-13` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `AP-14` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10: audio_preparation_processor.py создаёт S3 object и Source результата с retention; browser-local path соответствует ограничению. |
 | `AP-15` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `AP-16` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10: audio references используют ephemeral hard TTL 24h вместо выбранных 3/7/30 дней; request-scoped cleanup реализован. |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -171,6 +171,7 @@
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `AP-31` | BACKLOG | — | — | — | F59; duration estimate есть, waveform/interval visualisation и compare playback отсутствуют в AudioPreparationPage.tsx. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`
@@ -191,7 +192,7 @@
 | `PM-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PM-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F01 |
+| `PM-05` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Полный Google Doc и failed export guards реализованы; общий контракт для DOCX на Яндекс Диске не реализован (F02). Восстановление текста до явной отмены нарушено TTL (F01). |
 | `PM-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-07` | READY | ✅ | ✅ | ✅ | PR #313–#316 поставлены; последний merge `3902b2a`, main CI 36285760379/36285760427 и web/API CD 36285760435 PASS. Принятый связанный catalog-result блокирует подтверждение отсутствия; private replay исходного файла не проверен. |
 
@@ -243,7 +244,7 @@
 | `PR-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PR-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PR-12` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F58: config.py realtime_draft_ttl_seconds=259200 (фиксированное 72h); realtime_drafts.py фильтрует и удаляет expired rows. Начало сессии само текст не очищает. |
 | `PR-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-OPERABILITY-01`
@@ -316,10 +317,10 @@
 | `STORAG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-05` | BACKLOG | — | — | — | F10 |
 | `STORAG-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `STORAG-07` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10; постоянный Source/output S3 path остаётся, AP-14. |
+| `STORAG-08` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10/AP-16: отдельный bucket есть, current audio reference hard TTL 24h. |
 | `STORAG-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-10` | BACKLOG | — | — | — | F10 |
+| `STORAG-10` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F01/F58: Live TTL72h и provider checkpoint TTL24h нарушают контракт. После успеха checkpoints удаляются. |
 | `STORAG-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-12` | BACKLOG | — | — | — | F10 |
 | `STORAG-13` | BACKLOG | — | — | — | F10 |
@@ -328,8 +329,9 @@
 | `STORAG-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `STORAG-19` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10: independent audio lifecycle настроен, но его 24h TTL не совпадает с Q162/Q178. |
 | `STORAG-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `STORAG-22` | BACKLOG | — | — | — | F10: orchestrator удаляет text checkpoints после полного документа, Source/S3 исходника сохраняет прежний expires_at; отдельного all-documents cleanup нет. |
 | `STORAG-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `STT-PROVIDER-ABSTRACTION-01`
@@ -435,9 +437,9 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `TRANSC-01` | BACKLOG | — | — | — | F01 |
-| `TRANSC-02` | BACKLOG | — | — | — | F01 |
-| `TRANSC-03` | BACKLOG | — | — | — | F01 |
+| `TRANSC-01` | BACKLOG | — | — | ✅ | A20261004; F01: только TXT download. |
+| `TRANSC-02` | BACKLOG | — | — | ✅ | A20261004; F01/F05: Live SRT отсутствует. |
+| `TRANSC-03` | BACKLOG | — | — | ✅ | A20261004; F01/F05: Live VTT отсутствует. |
 
 ### `USAGE-COST-ACCOUNTING-01`
 
@@ -499,3 +501,14 @@
 | `RELEAS-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `RELEAS-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `RELEAS-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+
+
+### `PERSONAL-TECHNICAL-01`
+
+| AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
+| --- | --- | --- | --- | --- | --- |
+| `TECH-01` | READY | ✅ | ✅ | ✅ | A20261004; package.json, vite.config.ts, pwaUpdate.ts; Studio build/component/browser CI; runtime claims только A20261004-RUNTIME. |
+| `TECH-02` | READY | ✅ | ✅ | ✅ | A20261004; API requirements/models, migrations 0038; CI PostgreSQL/migration tests; runtime claims только A20261004-RUNTIME. |
+| `TECH-03` | READY | ✅ | ✅ | ✅ | A20261004; rate_limit.py, realtime replay guard; API/security/Redis CI; runtime claims только A20261004-RUNTIME. |
+| `TECH-04` | READY | ✅ | ✅ | ✅ | A20261004; audio processor/browserAudioProcessing; preparation/security/resource/component tests; runtime claims только A20261004-RUNTIME. |
+| `TECH-05` | READY | ✅ | ✅ | ✅ | A20261004; source_storage.py, deploy/studio, API/Compose/edge tests; Yandex Disk feature отдельно YD; runtime claims только A20261004-RUNTIME. |

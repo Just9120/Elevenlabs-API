@@ -1,6 +1,6 @@
 # Реестр AC: Commercial и разделение контуров
 
-Часть [delivery dashboard](../delivery-plan.md), snapshot 2026-09-05T22:52:40+00:00, source `b8babc257abf7a33cda2df3c36c33570ee043108`. Формулировки — в [spec](../spec/commercial.md). SPEC PASS означает проверенную трассировку, CODE — source review, TEST PARTIAL — subsystem coverage без полного assertion dossier. По новым правилам владельца 2026-09-07 `READY` означает выполненный в коде AC с подходящими автоматическими проверками. Прежние 355 IMPLEMENTED перенесены в READY по сохранённому CODE и subsystem TEST Evidence; это миграция словаря, а не новый полный аудит или расширение test coverage. `ALIAS`/`SUPERSEDED` не входят в счётчик. TEST/CI показывают проверки; факты поставки и их ограничения сохранены в Evidence/primary records. Отдельные DEPLOY/LIVE колонки удалены; обязательных заданий пользователю нет.
+Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/commercial.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
 
 ### `ENVIRONMENT-CAPABILITIES-01`
 
@@ -38,24 +38,24 @@
 | `EVC-30` | BACKLOG | — | — | — | BACKLOG |
 | `EVC-31` | BACKLOG | — | — | — | BACKLOG |
 | `EVC-32` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-33` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-34` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-35` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-36` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-37` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-38` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-39` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-40` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-41` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-42` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-43` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-44` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-45` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-46` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-47` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-48` | BACKLOG | — | — | — | BACKLOG |
+| `EVC-33` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-34` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-35` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-36` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-37` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-38` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-39` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-40` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-41` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-42` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-43` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-44` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-45` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-46` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-47` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
+| `EVC-48` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
 | `EVC-49` | BACKLOG | — | — | — | BACKLOG |
-| `EVC-50` | BACKLOG | — | — | — | BACKLOG |
+| `EVC-50` | READY | ✅ | ✅ | ✅ | A20261004; Текущий технический scope Q276..290: provider-neutral STT/storage/notifications, owner_id, отдельные adapters и boundaries; full auth/integration/document replaceability ограничена coupling (F15). CODE audit 9be4623 + subsystem CI; commercial execution отдельно не доказан. |
 
 ### `COMMERCIAL-INFRA-DATA-01`
 
