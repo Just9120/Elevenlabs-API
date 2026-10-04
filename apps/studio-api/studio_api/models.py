@@ -770,11 +770,11 @@ class TranscriptionProviderPartCheckpoint(Base):
     key_id: Mapped[str]=mapped_column(String(80), nullable=False)
     payload_hmac: Mapped[str]=mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
-    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__=(
         UniqueConstraint("job_source_id", "part_index", name="uq_provider_part_checkpoint_source_part"),
         CheckConstraint("part_index >= 0", name="ck_provider_part_checkpoint_index_nonnegative"),
-        CheckConstraint("total_parts > 1", name="ck_provider_part_checkpoint_total_parts_multiple"),
+        CheckConstraint("total_parts >= 1", name="ck_provider_part_checkpoint_total_parts_multiple"),
         CheckConstraint("part_index < total_parts", name="ck_provider_part_checkpoint_index_bounded"),
         CheckConstraint("timeline_offset_seconds >= 0", name="ck_provider_part_checkpoint_offset_nonnegative"),
         CheckConstraint("duration_seconds > 0", name="ck_provider_part_checkpoint_duration_positive"),
@@ -801,7 +801,7 @@ class RealtimeTranscriptDraft(Base):
     partial_character_count: Mapped[int]=mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
-    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__=(
         UniqueConstraint("owner_user_id", "client_session_id", name="uq_realtime_drafts_owner_client_session"),
         CheckConstraint("revision >= 1", name="ck_realtime_drafts_revision_positive"),

@@ -146,6 +146,18 @@ def transcribe_processing_job_source_with_elevenlabs(
     **kwargs,
 ) -> Iterator[ElevenLabsTranscriptResult]:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
+    # A complete prior provider result is an export-only operation. It must
+    # never download a retired source, probe/encode media or read a provider key.
+    if part_checkpoints_enabled and requires_complete_checkpoint_restore(db, job_id=job_id, job_source_id=job_source_id):
+        from .job_cached_transcript import restore_cached_transcript
+        try:
+            with restore_cached_transcript(db, job_id=job_id, job_source_id=job_source_id,
+                lease_owner_id=lease_owner_id, lease_generation=lease_generation,
+                settings=settings, now=clock()) as restored:
+                yield restored
+            return
+        except ProviderPartCheckpointError as exc:
+            raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.retry_state_persistence_failed) from exc
     transport = elevenlabs_transport or ElevenLabsTranscriptionTransport()
     result: ElevenLabsTranscriptResult | None = None
     try:
@@ -441,7 +453,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 clock,
                             )
                             try:
-                                if part_checkpoints_enabled and len(prepared_batch.parts) > 1:
+                                if part_checkpoints_enabled:
                                     save_provider_part_checkpoint(
                                         db,
                                         job_id=job_id,

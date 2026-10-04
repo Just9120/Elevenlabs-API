@@ -67,8 +67,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0038_trusted_devices"]
-    assert script.get_current_head() == "0038_trusted_devices"
+    assert script.get_heads() == ["0039_text_lifecycle"]
+    assert script.get_current_head() == "0039_text_lifecycle"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():
@@ -406,7 +406,7 @@ def test_cached_restore_does_not_hide_cost_of_an_unstarted_source(sqlite_db, sou
     assert not compute_expired_recovery_readiness(sqlite_db, job, now=now).available
 
 
-def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
+def test_legacy_expired_partial_checkpoint_resumes_without_losing_returned_text(sqlite_db):
     from studio_api.job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 
     m, now, _user, _project, job, rels = _job_with_sources(
@@ -453,8 +453,8 @@ def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
 
     readiness = compute_explicit_retry_readiness(sqlite_db, job, now=now)
     assert readiness.available is True
-    assert readiness.reason.value == "partial_provider_restart_available"
-    assert readiness.resumable_provider_part_count == 0
+    assert readiness.reason.value == "partial_provider_resume_available"
+    assert readiness.resumable_provider_part_count == 1
     queued = queue_retry(
         sqlite_db,
         owner_user_id=job.owner_user_id,
@@ -462,7 +462,7 @@ def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
         now=now,
     )
     assert queued is not None and queued.transitioned is True
-    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 0
+    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 1
 
 
 def test_confirmed_first_part_without_checkpoint_requires_explicit_full_restart(sqlite_db):
@@ -510,7 +510,7 @@ def test_confirmed_first_part_without_checkpoint_requires_explicit_full_restart(
     assert uncertain.reason.value == "provider_outcome_uncertain"
 
 
-def test_expired_partial_checkpoint_cleanup_is_bounded(sqlite_db):
+def test_retired_checkpoint_cleanup_is_bounded_and_preserves_unfinished_text(sqlite_db):
     from studio_api.provider_part_checkpoints import (
         cleanup_expired_provider_part_checkpoints,
     )
@@ -547,6 +547,10 @@ def test_expired_partial_checkpoint_cleanup_is_bounded(sqlite_db):
         )
     sqlite_db.commit()
 
+    assert cleanup_expired_provider_part_checkpoints(sqlite_db, now=now + timedelta(days=90), limit=2) == 0
+    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 4
+    job.status = m.JobStatus.cancelled
+    sqlite_db.commit()
     assert cleanup_expired_provider_part_checkpoints(
         sqlite_db,
         now=now,
@@ -557,14 +561,14 @@ def test_expired_partial_checkpoint_cleanup_is_bounded(sqlite_db):
         sqlite_db,
         now=now,
         limit=2,
-    ) == 1
+    ) == 2
     sqlite_db.commit()
     assert cleanup_expired_provider_part_checkpoints(
         sqlite_db,
         now=now,
         limit=2,
     ) == 0
-    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 1
+    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 0
 
 
 @pytest.mark.parametrize("stage,disp,reason", [

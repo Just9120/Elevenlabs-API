@@ -2,6 +2,44 @@
 
 ## Current Goal и checkpoint
 
+### PERSONAL-COMPLETION-20261004 — ACTIVE
+
+Основание: 2026-10-04 владелец явно выбрал F01/F58,F03,F10,F12,F17,F07/F59,F11/F60,F14/F15/F18,F19 и эпики подготовки аудио, обслуживания транскриптов, Live core/recovery, lifecycle хранилища. Встроенная Goal создана и readback ACTIVE. Один основной PR; необходимые post-merge hotfix допускаются. Реализация не расширяет commercial/voice identity/Яндекс Диск и не меняет общую CI/safety policy.
+
+- Baseline/base `c7a3ef7be9ac0bae1ca34387030e9b822aff6cba`, ветка `codex/personal-completion-20261004`, основной worktree; main чистый, открытых PR нет, protections/rulesets фактически отсутствуют. Прежняя `codex/audio-upload-confirmation` и ignored материалы сохраняются.
+- Scope AC: AP-01..31, PTM-01..09, PR-01..13, RTC-01..04/06/08, STORAG-01..22, RS-01/02/03/05/06/08/10/11/13, TRANSC-01..03, REC-01..07, UXN-02/03, MC-03/04, USAGEC-02. Только active ID; baseline **64/105 READY**,41 незавершённых. Дубли ALIAS/SUPERSEDED не возвращаются. Общая аудиторская оценка проекта сохраняется без пересчёта в IMPLEMENT.
+- Required dependencies: indexed provider corrections/timing для Live/replay/timed exports, metadata provenance для naming, совместимые migrations/DB privileges и leases, подтверждённые storage targets. Исправляются только необходимые части зависимостей F05/F06, без полного отдельного Yandex workstream.
+- Non-goals: F02 optional Disk, F04 полный Yandex REST workstream, F08/F09 commercial/voice, F13 изменение GitHub policy, F48 immutable Colab launcher, F61 локальная массовая очистка, F62 paid experiments/анализ лекций, F63 общая перестройка pipeline; нет полного audio recording или нового LLM API.
+- DoD: все выбранные active AC выполнены в коде с применимыми checks; findings закрыты конкретным Evidence либо обоснованным исправлением исходного диагноза. Required текущие CI/review PASS, self-review, merge и applicable web/API/worker CD с migrations/backup/recovery gates и versioned safe smoke. Не удалять пользовательский текст/данные ради миграции; privileged restore только в проверенном изолированном synthetic target. Действующий production reviewer gate сохраняется.
+
+| Batch | Результат / критерии закрытия | Состояние |
+|---|---|---|
+| T1 F01/F58 | Live до manual clear; unfinished STT до полного документа/cancel; retry без STT; Live formats и truthful timing | IN_PROGRESS: исследование lifecycle и совместимости |
+| T2 F03 | Одна сессия, новый single-use capability, bounded audio replay, indexed corrections/dedup, явные gaps | BACKLOG |
+| T3 F10/F60 | Source retention3/7/30, no finished S3, leases/all-full-docs cleanup, versions/readback, bounded queries; recovery proof | BACKLOG |
+| T4 F17/F07/F59 | Whole-source12h/preflight4–12h; known-metadata naming; waveform/silence/listen/compare и maintenance naming | BACKLOG |
+| T5 F12/F11 | Patched совместимые dependency graphs и exact audits; truthful tariff snapshot/unknown/rounding | BACKLOG |
+| T6 F14/F15/F18/F19 | Shell discovery, выделение затронутых domain boundaries, caller/deprecation contract, актуальные canonical документы | BACKLOG |
+| T7 Integration/delivery | Affected regressions/build/lint, CI/PG/browser, self-review, один PR, merge/CD/smoke/cleanup | BACKLOG |
+
+#### Validation Plan выбранной Goal
+
+Canonical команды/каталоги — [validation runbook](runbooks/validation.md); target, очередь и recovery — [operations](runbooks/studio-platform-ops.md). Fixtures только synthetic, production secrets не становятся fixtures.
+
+| AC / риск | Проверка / ожидаемый результат | Команда/tool, environment | Этап / обязательность |
+|---|---|---|---|
+| PR-12,RS-06/08,STORAG-10 | >72h/>24h,restart,newsession,clear/save concurrency, owner isolation, полный/частичный cache, export retry без provider call | Root targeted pytest; apps/studio Vitest drafts/recovery | Local affected REQUIRED; Linux CI REQUIRED |
+| RS/TRANSC,RTC | DOCX/TXT/MD/timed formats; delayed final/correction/order/reconnect/replay/gap/cancel; unknown timing не выдумывается | Unit/protocol/component suites, synthetic fakes | Local affected REQUIRED; browser CI REQUIRED |
+| AP/STORAG/REC,F60 | Selected retention, leases, cleanup versions/readback/failed retry, all-docs success, bounded synthetic queries; isolated restore и deletion semantics | Root integration/DB/storage/backup tests; synthetic services | Local дешёвые проверки; Linux PG/Redis/migrations REQUIRED, isolated recovery REQUIRED |
+| MC-03/04,UXN,AP-31 | Whole-source границы4h/12h, clip не обходит лимит; naming missing/known data; waveform/no-silence/error/loading/playback/keyboard | Python media tests; apps/studio Vitest + browser | Local affected REQUIRED; current-revision CI REQUIRED |
+| F12,USAGEC-02 | Locked npm/Python advisory audit; compatible installed graphs; cost provenance/rounding/unknown | npm audit и isolated constrained pip-audit; focused tests | Before push REQUIRED, без blind major bump |
+| F14/F15/F18/F19 | Git Bash discovery; preserved callers/interfaces; regression/diff/docs/links; build/lint/types | Root guards/portable focused; apps/studio npm scripts | Local дешёвые checks REQUIRED; full main profile в CI |
+| Delivery | Exact artifact/schema, web/API/worker readiness и safe read-only smoke; source/text не потеряны | Primary CD records и versioned target checks | После merge REQUIRED; migration approval при применимости |
+
+Checkpoint T1 foundation: реализованы nullable expiry и data-preserving migration0039, Live без TTL с сохранением legacy drafts, encrypted checkpoints для single/multipart и export-only restore без source/provider-key/media I/O. Local119 Python lifecycle/retry/provider/preflight PASS +94 output/orchestrator/security PASS; frontend35 drafts/Live PASS; TypeScript PASS. Семь adversarial restore cases PASS (включая30days/no-I/O). Полные RS/export formats ещё не завершены; никаких прогнозных CI/CD PASS. Следующий шаг — узкий local commit, Live exports и recovery. Требуется Linux migration/PG проверка и согласованный protected rollout перед production. Audit PR #324 merged, main CI37184054595 PASS1879; ниже сохранены аудиторские records, их pre-merge checkpoint не является текущим состоянием Goal.
+
+### Последний AUDIT (завершён)
+
 Новая implementation Goal не выбрана. Владелец поручил полный AUDIT 2026-10-04: актуальные требования, проверка проекта и один docs PR для canonical spec/plan. Код, workflows и внешние настройки не изменяются. Встроенная прежняя security Goal COMPLETE; аудит не активирует новую implementation Goal.
 
 - Ветка `codex/audit-requirements-20261004`, base и проверенный `origin/main` — `9be46234b6961da076c6360adead845f382d592b`; основной worktree. Local main безопасно синхронизирован. На старте открытых PR нет; прежняя ветка `codex/audio-upload-confirmation` и ignored материалы сохранены.

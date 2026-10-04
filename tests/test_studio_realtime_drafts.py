@@ -82,7 +82,7 @@ def test_realtime_draft_schema_is_encrypted_scoped_bounded_and_additive():
     script = ScriptDirectory.from_config(Config("apps/studio-api/alembic.ini"))
     revision = script.get_revision("0023_realtime_drafts")
     assert revision.down_revision == "0022_account_operability"
-    assert script.get_heads() == ["0038_trusted_devices"]
+    assert script.get_heads() == ["0039_text_lifecycle"]
     migration = (
         ROOT
         / "apps/studio-api/alembic/versions/0023_realtime_transcript_drafts.py"
@@ -118,7 +118,7 @@ def test_realtime_draft_round_trip_is_encrypted_and_revision_monotonic(draft_db)
     assert "незавершённый".encode("utf-8") not in row.ciphertext
     assert row.committed_segment_count == 1
     assert row.committed_character_count == len("Секретный первый фрагмент")
-    assert first.expires_at == now + timedelta(hours=72)
+    assert first.expires_at is None
 
     repeated = save_realtime_draft(
         db,
@@ -186,7 +186,7 @@ def test_realtime_draft_round_trip_is_encrypted_and_revision_monotonic(draft_db)
     assert stale.value.reason == RealtimeDraftReason.revision_conflict
 
 
-def test_realtime_draft_owner_scope_tamper_and_expiry_fail_closed(draft_db):
+def test_realtime_draft_owner_scope_tamper_fail_closed_without_expiry_cleanup(draft_db):
     from studio_api.models import RealtimeTranscriptDraft
     from studio_api.realtime_drafts import (
         RealtimeDraftError,
@@ -235,46 +235,40 @@ def test_realtime_draft_owner_scope_tamper_and_expiry_fail_closed(draft_db):
 
     row.expires_at = now - timedelta(seconds=1)
     db.commit()
-    assert cleanup_expired_realtime_drafts(db, now=now) == 1
+    assert cleanup_expired_realtime_drafts(db, now=now + timedelta(days=90)) == 0
     db.commit()
-    assert db.execute(select(RealtimeTranscriptDraft)).scalar_one_or_none() is None
+    assert db.execute(select(RealtimeTranscriptDraft)).scalar_one().id == row.id
 
 
-def test_realtime_draft_cleanup_is_bounded_and_repeatable(draft_db):
+def test_legacy_expired_drafts_survive_restart_and_cleanup_until_explicit_clear(draft_db):
     from studio_api.models import RealtimeTranscriptDraft
-    from studio_api.realtime_drafts import (
-        cleanup_expired_realtime_drafts,
-        save_realtime_draft,
-    )
-
-    db, project, _ = draft_db
-    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    from studio_api.realtime_drafts import cleanup_expired_realtime_drafts, save_realtime_draft, load_latest_realtime_draft, delete_realtime_draft
+    db, project, other_project = draft_db
+    now = datetime(2026, 8, 28, 12, tzinfo=timezone.utc)
     for index in range(4):
-        save_realtime_draft(
-            db,
-            owner_user_id="owner-1",
-            project=project,
-            client_session_id=f"session_{index}_123456789",
-            revision=1,
-            committed_segments=[str(index)],
-            partial="",
-            settings=DraftSettings(),
-            now=now,
-        )
+        save_realtime_draft(db, owner_user_id=project.owner_user_id, project=project,
+            client_session_id=f"session_{index}_123456789", revision=1,
+            committed_segments=[str(index)], partial="", settings=DraftSettings(), now=now + timedelta(minutes=index))
     db.commit()
-    rows = db.execute(
-        select(RealtimeTranscriptDraft).order_by(RealtimeTranscriptDraft.id)
-    ).scalars().all()
-    for row in rows[:3]:
+    for row in db.query(RealtimeTranscriptDraft):
         row.expires_at = now - timedelta(seconds=1)
     db.commit()
-
-    assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 2
+    db.expire_all()  # Read fresh persisted ciphertext, not the response object.
+    later = now + timedelta(days=90)
+    assert cleanup_expired_realtime_drafts(db, now=later, limit=2) == 0
+    latest = load_latest_realtime_draft(db, owner_user_id=project.owner_user_id,
+        project=project, settings=DraftSettings(), now=later)
+    assert latest.committed_segments == ("3",)
+    assert not delete_realtime_draft(db, owner_user_id=other_project.owner_user_id,
+        project=other_project, client_session_id=latest.client_session_id)
+    assert delete_realtime_draft(db, owner_user_id=project.owner_user_id,
+        project=project, client_session_id=latest.client_session_id)
     db.commit()
-    assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 1
-    db.commit()
-    assert cleanup_expired_realtime_drafts(db, now=now, limit=2) == 0
-    assert db.query(RealtimeTranscriptDraft).count() == 1
+    assert db.query(RealtimeTranscriptDraft).count() == 3
+    assert load_latest_realtime_draft(db, owner_user_id=project.owner_user_id,
+        project=project, settings=DraftSettings(), now=later).committed_segments == ("2",)
+    assert not delete_realtime_draft(db, owner_user_id=project.owner_user_id,
+        project=project, client_session_id=latest.client_session_id)
 
 
 def test_owner_draft_budget_rejects_new_ids_without_losing_existing_text(draft_db):

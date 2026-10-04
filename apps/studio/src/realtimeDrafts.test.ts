@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  REALTIME_DRAFT_TTL_MS,
   makeRealtimeDraft,
   newestRealtimeDraft,
   parseLatestRealtimeDraftResponse,
@@ -9,7 +8,7 @@ import {
 
 
 describe("realtime draft contract", () => {
-  it("creates a bounded owner/project draft with an exact 72-hour TTL", () => {
+  it("creates a bounded owner/project draft retained until explicit clear", () => {
     const now = new Date("2026-08-22T12:00:00Z");
     const draft = makeRealtimeDraft({
       ownerUserId: "owner@example.test",
@@ -30,9 +29,7 @@ describe("realtime draft contract", () => {
       partial: "предварительно",
       updated_at: now.toISOString(),
     });
-    expect(Date.parse(draft.expires_at) - now.getTime()).toBe(
-      REALTIME_DRAFT_TTL_MS,
-    );
+    expect(draft.expires_at).toBeNull();
   });
 
   it("fails closed on oversized or malformed transcript payloads", () => {
@@ -58,7 +55,7 @@ describe("realtime draft contract", () => {
     ).toThrow("invalid_realtime_draft");
   });
 
-  it("accepts only the authenticated scope and a non-expired server DTO", () => {
+  it("preserves valid legacy drafts beyond former expiry and rejects unknown fields", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-22T12:00:00Z"));
     const response = {
@@ -95,7 +92,16 @@ describe("realtime draft contract", () => {
         "owner@example.test",
         "project-1",
       ),
-    ).toBeNull();
+    ).toMatchObject({ revision: 3, committed_segments: ["Восстановленный текст"] });
+    vi.setSystemTime(new Date("2027-08-22T12:00:00Z"));
+    expect(parseLatestRealtimeDraftResponse(
+      { draft: { ...response.draft, expires_at: null } },
+      "owner@example.test", "project-1",
+    )).toMatchObject({ expires_at: null, revision: 3 });
+    expect(parseLatestRealtimeDraftResponse(
+      { draft: { ...response.draft, expires_at: "invalid" } },
+      "owner@example.test", "project-1",
+    )).toBeUndefined();
     vi.useRealTimers();
   });
 

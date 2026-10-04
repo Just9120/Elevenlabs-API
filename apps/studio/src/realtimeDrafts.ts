@@ -1,7 +1,6 @@
 const DATABASE_NAME = "studio-realtime-recovery";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "drafts";
-export const REALTIME_DRAFT_TTL_MS = 72 * 60 * 60 * 1000;
 export const REALTIME_PARTIAL_CHECKPOINT_DEBOUNCE_MS = 750;
 
 const MAX_SEGMENTS = 5_000;
@@ -17,7 +16,7 @@ export type RealtimeDraft = {
   committed_segments: string[];
   partial: string;
   updated_at: string;
-  expires_at: string;
+  expires_at: string | null;
 };
 
 type StoredRealtimeDraft = RealtimeDraft & { key: string };
@@ -88,8 +87,8 @@ function isDraftShape(
     draft.partial.length > MAX_PARTIAL_CHARACTERS ||
     typeof draft.updated_at !== "string" ||
     !Number.isFinite(Date.parse(draft.updated_at)) ||
-    typeof draft.expires_at !== "string" ||
-    !Number.isFinite(Date.parse(draft.expires_at))
+    !(draft.expires_at === null ||
+      (typeof draft.expires_at === "string" && Number.isFinite(Date.parse(draft.expires_at))))
   ) {
     return false;
   }
@@ -142,7 +141,7 @@ export function makeRealtimeDraft({
     committed_segments: [...committedSegments],
     partial,
     updated_at: now.toISOString(),
-    expires_at: new Date(now.getTime() + REALTIME_DRAFT_TTL_MS).toISOString(),
+    expires_at: null,
   };
   if (!isDraftShape(draft, ownerUserId, projectId)) {
     throw new Error("invalid_realtime_draft");
@@ -202,7 +201,7 @@ export async function saveLocalRealtimeDraft(draft: RealtimeDraft) {
 export async function loadLocalRealtimeDraft(
   ownerUserId: string,
   projectId: string,
-  now = new Date(),
+  _now = new Date(),
 ): Promise<RealtimeDraft | null> {
   const database = await openDatabase();
   if (!database) return null;
@@ -213,8 +212,7 @@ export async function loadLocalRealtimeDraft(
     const store = transaction.objectStore(STORE_NAME);
     const candidate = await requestResult(store.get(key));
     if (
-      !isDraftShape(candidate, ownerUserId, projectId) ||
-      Date.parse(candidate.expires_at) <= now.getTime()
+      !isDraftShape(candidate, ownerUserId, projectId)
     ) {
       if (candidate !== undefined) store.delete(key);
       await completion;
@@ -274,7 +272,6 @@ export function parseLatestRealtimeDraftResponse(
     project_id: projectId,
   };
   if (!isDraftShape(draft, ownerUserId, projectId)) return undefined;
-  if (Date.parse(draft.expires_at) <= Date.now()) return null;
   return {
     ...draft,
     committed_segments: [...draft.committed_segments],

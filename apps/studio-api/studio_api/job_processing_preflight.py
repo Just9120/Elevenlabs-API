@@ -67,7 +67,14 @@ def build_processing_preflight(job: Any, *, now: datetime | None = None) -> Proc
     if not ordered_job_sources:
         blocking_reasons.append("job_has_no_sources")
 
-    source_summaries = [_summarize_source(job, job_source, now=now) for job_source in ordered_job_sources]
+    # Persisted complete STT text permits export even after the input expires.
+    # Pure/transient objects have no such authority. Ciphertext is validated
+    # again by the dedicated export restore boundary before any external write.
+    cached = frozenset()
+    if getattr(job, "_sa_instance_state", None) is not None:
+        from .job_cached_transcript import cached_relations
+        cached = cached_relations(job, now)
+    source_summaries = [_summarize_source(job, job_source, now=now, cached=getattr(job_source, "id", None) in cached) for job_source in ordered_job_sources]
     for source_summary in source_summaries:
         for reason in source_summary["blocking_reasons"]:
             if reason not in blocking_reasons:
@@ -85,7 +92,7 @@ def build_processing_preflight(job: Any, *, now: datetime | None = None) -> Proc
     }
 
 
-def _summarize_source(job: Any, job_source: Any, *, now: datetime | None = None) -> PreflightSourceSummary:
+def _summarize_source(job: Any, job_source: Any, *, now: datetime | None = None, cached: bool = False) -> PreflightSourceSummary:
     source = job_source.source
     blocking_reasons: list[str] = []
 
@@ -109,17 +116,17 @@ def _summarize_source(job: Any, job_source: Any, *, now: datetime | None = None)
         blocking_reasons.append("source_project_mismatch")
 
     is_deleted = source.deleted_at is not None or upload_status == DELETED_SOURCE_STATUS
-    if is_deleted:
+    if is_deleted and not cached:
         blocking_reasons.append("source_deleted")
-    if _source_expired(source, now) or upload_status == EXPIRED_SOURCE_STATUS:
+    if not cached and (_source_expired(source, now) or upload_status == EXPIRED_SOURCE_STATUS):
         blocking_reasons.append("source_expired")
 
     is_uploaded = upload_status == UPLOADED_SOURCE_STATUS
-    if not is_uploaded:
+    if not is_uploaded and not cached:
         blocking_reasons.append("source_not_uploaded")
 
     has_required_identity = _source_has_required_identity(source, source_type)
-    if not has_required_identity:
+    if not has_required_identity and not cached:
         blocking_reasons.append("source_missing_required_identity")
 
     return {

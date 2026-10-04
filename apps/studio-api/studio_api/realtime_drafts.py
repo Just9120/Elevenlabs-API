@@ -6,7 +6,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import delete, select, func
@@ -44,7 +44,7 @@ class RealtimeDraftContent:
     committed_segments: tuple[str, ...]
     partial: str
     updated_at: datetime
-    expires_at: datetime
+    expires_at: datetime | None
 
 
 def save_realtime_draft(
@@ -73,10 +73,6 @@ def save_realtime_draft(
         )
         .with_for_update()
     ).scalar_one_or_none()
-    if existing is not None and _expired(existing.expires_at, now):
-        db.delete(existing)
-        db.flush()
-        existing = None
     if existing is not None and existing.project_id != project.id:
         raise RealtimeDraftError(RealtimeDraftReason.scope_conflict)
     if existing is not None and revision < existing.revision:
@@ -112,7 +108,9 @@ def save_realtime_draft(
     max_bytes = getattr(settings, "realtime_draft_max_storage_bytes", 32 * 1024 * 1024)
     if (existing is None and count >= max_count) or stored_bytes - (len(existing.ciphertext) if existing else 0) + len(ciphertext) > max_bytes:
         raise RealtimeDraftError(RealtimeDraftReason.storage_limit)
-    expires_at = now + timedelta(seconds=settings.realtime_draft_ttl_seconds)
+    # Only an explicit owner clear retires Live text. Legacy dates are not
+    # authority to erase a draft, including one recovered after deployment.
+    expires_at = None
     if existing is None:
         row = RealtimeTranscriptDraft(
             id=row_id,
@@ -175,7 +173,6 @@ def load_latest_realtime_draft(
         .where(
             RealtimeTranscriptDraft.owner_user_id == owner_user_id,
             RealtimeTranscriptDraft.project_id == project.id,
-            RealtimeTranscriptDraft.expires_at > now,
         )
         .order_by(
             RealtimeTranscriptDraft.updated_at.desc(),
@@ -195,6 +192,7 @@ def delete_realtime_draft(
 ) -> bool:
     _require_project_scope(project, owner_user_id)
     normalized = _client_session_id(client_session_id)
+    db.execute(select(User.id).where(User.id == owner_user_id).with_for_update()).scalar_one()
     result = db.execute(
         delete(RealtimeTranscriptDraft).where(
             RealtimeTranscriptDraft.owner_user_id == owner_user_id,
@@ -217,30 +215,12 @@ def cleanup_expired_realtime_drafts(
     project_id: str | None = None,
     limit: int = DEFAULT_REALTIME_DRAFT_CLEANUP_BATCH_SIZE,
 ) -> int:
-    safe_limit = max(1, min(int(limit), MAX_REALTIME_DRAFT_CLEANUP_BATCH_SIZE))
-    expired_ids = select(RealtimeTranscriptDraft.id).where(
-        RealtimeTranscriptDraft.expires_at <= now
-    )
-    if owner_user_id is not None:
-        expired_ids = expired_ids.where(
-            RealtimeTranscriptDraft.owner_user_id == owner_user_id
-        )
-    if project_id is not None:
-        expired_ids = expired_ids.where(
-            RealtimeTranscriptDraft.project_id == project_id
-        )
-    expired_ids = expired_ids.order_by(
-        RealtimeTranscriptDraft.expires_at.asc(),
-        RealtimeTranscriptDraft.id.asc(),
-    ).limit(safe_limit)
-    return int(
-        db.execute(
-            delete(RealtimeTranscriptDraft).where(
-                RealtimeTranscriptDraft.id.in_(expired_ids)
-            )
-        ).rowcount
-        or 0
-    )
+    """Compatibility hook for worker schedules; Live has no expiry cleanup.
+
+    Deliberately preserve even legacy expired rows. Owner quotas and explicit
+    deletion, rather than elapsed time, bound this encrypted store.
+    """
+    return 0
 
 
 def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftContent:
@@ -344,11 +324,3 @@ def _draft_aad(owner, project, draft, client_session, revision) -> bytes:
         f"owner={owner};project={project};draft={draft};client_session={client_session};"
         f"revision={revision};purpose=realtime_transcript_draft_v1"
     ).encode("utf-8")
-
-
-def _expired(expires_at: datetime, now: datetime) -> bool:
-    if expires_at.tzinfo is not None and now.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=None)
-    elif expires_at.tzinfo is None and now.tzinfo is not None:
-        now = now.replace(tzinfo=None)
-    return expires_at <= now

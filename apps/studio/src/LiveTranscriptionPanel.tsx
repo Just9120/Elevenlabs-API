@@ -990,7 +990,7 @@ export function LiveTranscriptionPanel({
           <p>
             Распознаёт микрофон, звук выбранной вкладки или экрана либо оба
             источника одновременно. Незавершённый текст можно восстановить в
-            течение 72 часов; звук не сохраняется.
+            до ручной очистки; звук не сохраняется.
           </p>
         </div>
         <span className={`live-status live-status-${status}`} role="status">
@@ -1370,7 +1370,7 @@ export function LiveTranscriptionPanel({
       )}
       {draftStatus === "saved" && (
         <p className="muted" role="status">
-          Live-черновик сохранён локально и в Studio до 72 часов.
+          Live-текст сохранён локально и в Studio до ручной очистки.
         </p>
       )}
       {draftStatus === "degraded" && (

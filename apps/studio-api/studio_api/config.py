@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     worker_error_backoff_seconds: int = Field(default=5, ge=1, le=300)
     worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     worker_lease_heartbeat_interval_seconds: int = Field(default=60, ge=5)
+    # Deprecated compatibility input; unfinished text no longer expires.
     provider_part_checkpoint_ttl_seconds: int = Field(default=86400, ge=3600, le=86400)
     elevenlabs_byok_enabled: bool = True
     yandex_byok_enabled: bool = False
@@ -104,6 +105,7 @@ class Settings(BaseSettings):
     elevenlabs_pricing_source: str | None = Field(default=None, max_length=80)
     realtime_draft_max_count: int = Field(default=20, ge=1, le=100)
     realtime_draft_max_storage_bytes: int = Field(default=33554432, ge=1048576, le=134217728)
+    # Deprecated compatibility input; Live is retained until owner clear.
     realtime_draft_ttl_seconds: int = Field(default=259200, ge=259200, le=259200)
     realtime_webhook_allowed_hosts: str = Field(default="", max_length=2000)
     diagnostic_retention_days: int = Field(default=14, ge=1, le=30)

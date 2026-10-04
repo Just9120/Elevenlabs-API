@@ -2265,7 +2265,7 @@ def _realtime_draft_payload(draft, *, include_text: bool) -> dict:
         "client_session_id": draft.client_session_id,
         "revision": draft.revision,
         "updated_at": draft.updated_at.isoformat(),
-        "expires_at": draft.expires_at.isoformat(),
+        "expires_at": None,
     }
     if include_text:
         payload.update(

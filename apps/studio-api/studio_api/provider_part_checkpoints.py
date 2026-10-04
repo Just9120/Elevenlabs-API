@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import delete, select
@@ -19,6 +19,7 @@ from .models import (
     TranscriptionJobSource,
     TranscriptionJobSourceAttempt,
     TranscriptionProviderPartCheckpoint,
+    JobStatus,
 )
 from .security import decrypt, encrypt, master_key_from_b64
 from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
@@ -54,7 +55,10 @@ def save_provider_part_checkpoint(
 ) -> TranscriptionProviderPartCheckpoint:
     job, relation = _scope(db, job_id, job_source_id)
     _validate_shape(part_index, total_parts, timeline_offset_seconds, duration_seconds)
-    payload = _serialize(result)
+    serialized = json.loads(_serialize(result))
+    serialized["_checkpoint_shape"] = [job.owner_user_id, job.project_id, job.id,
+        relation.id, part_index, total_parts, float(timeline_offset_seconds), float(duration_seconds)]
+    payload = json.dumps(serialized, ensure_ascii=False, separators=(",", ":"))
     key = master_key_from_b64(settings.master_key_b64())
     payload_hmac = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
     # Checkpoints are immutable and the worker deliberately has no UPDATE
@@ -112,7 +116,7 @@ def save_provider_part_checkpoint(
         key_id=settings.credential_key_id,
         payload_hmac=payload_hmac,
         created_at=now,
-        expires_at=now + timedelta(seconds=settings.provider_part_checkpoint_ttl_seconds),
+        expires_at=None,
     )
     db.add(row)
     db.flush()
@@ -135,17 +139,12 @@ def load_provider_part_checkpoints(
         .where(TranscriptionProviderPartCheckpoint.job_source_id == relation.id)
         .order_by(TranscriptionProviderPartCheckpoint.part_index)
     ).scalars().all()
-    if require_complete and (
-        len(rows) != len(parts) or any(_expired(row.expires_at, now) for row in rows)
-    ):
+    if require_complete and len(rows) != len(parts):
         raise ProviderPartCheckpointError(ProviderPartCheckpointReason.complete_set_unavailable)
     if not rows:
         return ()
-    if any(_expired(row.expires_at, now) for row in rows):
-        delete_provider_part_checkpoints(db, job_source_id=relation.id)
-        return ()
     total_parts = len(parts)
-    if total_parts <= 1 or len(rows) > total_parts:
+    if total_parts < 1 or len(rows) > total_parts:
         raise ProviderPartCheckpointError(ProviderPartCheckpointReason.shape_conflict)
     key = master_key_from_b64(settings.master_key_b64())
     loaded: list[ElevenLabsTranscriptResult] = []
@@ -180,7 +179,13 @@ def load_provider_part_checkpoints(
             if not hmac.compare_digest(expected_hmac, row.payload_hmac):
                 raise ProviderPartCheckpointError(ProviderPartCheckpointReason.payload_invalid)
             try:
-                normalized = normalize_elevenlabs_transcript_response(json.loads(payload))
+                decoded = json.loads(payload)
+                shape = decoded.get("_checkpoint_shape")
+                if shape is not None and shape != [row.owner_user_id, row.project_id, row.job_id,
+                    row.job_source_id, row.part_index, row.total_parts,
+                    float(row.timeline_offset_seconds), float(row.duration_seconds)]:
+                    raise ProviderPartCheckpointError(ProviderPartCheckpointReason.shape_conflict)
+                normalized = normalize_elevenlabs_transcript_response(decoded)
             except Exception as exc:
                 raise ProviderPartCheckpointError(ProviderPartCheckpointReason.payload_invalid) from exc
             loaded.append(normalized)
@@ -199,7 +204,7 @@ def checkpoint_resume_count(
     completed_parts: int,
     now: datetime,
 ) -> int:
-    if total_parts is None or total_parts <= 1 or completed_parts <= 0 or completed_parts > total_parts:
+    if total_parts is None or total_parts < 1 or completed_parts <= 0 or completed_parts > total_parts:
         return 0
     rows = db.execute(
         select(TranscriptionProviderPartCheckpoint)
@@ -207,8 +212,6 @@ def checkpoint_resume_count(
         .order_by(TranscriptionProviderPartCheckpoint.part_index)
     ).scalars().all()
     if len(rows) != completed_parts:
-        return 0
-    if any(_expired(row.expires_at, now) for row in rows):
         return 0
     if [row.part_index for row in rows] != list(range(completed_parts)):
         return 0
@@ -225,7 +228,7 @@ def complete_provider_attempt(db: Session, *, job_id: str, job_source_id: str, b
         TranscriptionJobSourceAttempt.owner_user_id == job.owner_user_id,
         TranscriptionJobSourceAttempt.project_id == job.project_id,
         TranscriptionJobSourceAttempt.attempt_number <= int(job.attempt_count or 0),
-        TranscriptionJobSourceAttempt.provider_total_parts > 1,
+        TranscriptionJobSourceAttempt.provider_total_parts >= 1,
         TranscriptionJobSourceAttempt.provider_completed_parts == TranscriptionJobSourceAttempt.provider_total_parts,
     )
     if before_attempt is not None:
@@ -236,7 +239,7 @@ def complete_provider_attempt(db: Session, *, job_id: str, job_source_id: str, b
 def requires_complete_checkpoint_restore(db: Session, *, job_id: str, job_source_id: str) -> bool:
     """A fully returned earlier attempt never authorizes another provider call.
 
-    Use the durable attempt record rather than checkpoint presence: expiry or
+    Use the durable attempt record rather than checkpoint presence: loss or
     cleanup between enqueue and execution must not turn restore into paid STT.
     """
     job, _ = _scope(db, job_id, job_source_id)
@@ -272,11 +275,17 @@ def cleanup_expired_provider_part_checkpoints(
     limit: int = DEFAULT_CHECKPOINT_CLEANUP_BATCH_SIZE,
 ) -> int:
     safe_limit = max(1, min(int(limit), MAX_CHECKPOINT_CLEANUP_BATCH_SIZE))
-    expired_ids = (
+    # Keep unfinished text regardless of old expiry timestamps. Retirement is
+    # authorized only by full success or explicit cancellation/resolution.
+    retired_jobs = select(TranscriptionJob.id).where(
+        (TranscriptionJob.status.in_((JobStatus.completed, JobStatus.cancelled)))
+        | (TranscriptionJob.history_attention_resolved_at.is_not(None))
+    )
+    retired_ids = (
         select(TranscriptionProviderPartCheckpoint.id)
-        .where(TranscriptionProviderPartCheckpoint.expires_at <= now)
+        .where(TranscriptionProviderPartCheckpoint.job_id.in_(retired_jobs))
         .order_by(
-            TranscriptionProviderPartCheckpoint.expires_at.asc(),
+            TranscriptionProviderPartCheckpoint.created_at.asc(),
             TranscriptionProviderPartCheckpoint.id.asc(),
         )
         .limit(safe_limit)
@@ -284,7 +293,7 @@ def cleanup_expired_provider_part_checkpoints(
     return int(
         db.execute(
             delete(TranscriptionProviderPartCheckpoint).where(
-                TranscriptionProviderPartCheckpoint.id.in_(expired_ids)
+                TranscriptionProviderPartCheckpoint.id.in_(retired_ids)
             )
         ).rowcount
         or 0
@@ -303,7 +312,7 @@ def _validate_shape(part_index, total_parts, offset, duration):
     if (
         not isinstance(part_index, int)
         or not isinstance(total_parts, int)
-        or total_parts <= 1
+        or total_parts < 1
         or part_index < 0
         or part_index >= total_parts
         or not math.isfinite(float(offset))
@@ -353,12 +362,6 @@ def _checkpoint_aad(owner, project, job, relation, checkpoint, part_index) -> by
     ).encode("utf-8")
 
 
-def _expired(expires_at: datetime, now: datetime) -> bool:
-    if expires_at.tzinfo is not None and now.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=None)
-    elif expires_at.tzinfo is None and now.tzinfo is not None:
-        now = now.replace(tzinfo=None)
-    return expires_at <= now
 
 
 def _new_checkpoint_id() -> str:
