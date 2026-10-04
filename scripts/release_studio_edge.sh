@@ -59,6 +59,39 @@ require_root_file() {
   [[ "$(stat -c %u -- "$path")" == "0" ]] || blocked "${label}_not_root_owned"
 }
 
+resolve_active_site() {
+  # Nginx commonly enables a root-owned site through a symlink. Only the
+  # canonical enabled name may resolve to a direct file in sites-available.
+  # Neither the link nor the site is modified by this release.
+  local available_directory="${1:-/etc/nginx/sites-available}"
+  local target directory
+  if [[ ! -L "$ACTIVE_SITE" ]]; then
+    require_root_file "$ACTIVE_SITE" "active_site"
+    return
+  fi
+  [[ "$(stat -c %u -- "$ACTIVE_SITE")" == "0" ]] \
+    || blocked "active_site_link_not_root_owned"
+  target="$(readlink -f -- "$ACTIVE_SITE")" \
+    || blocked "active_site_link_broken"
+  [[ -d "$available_directory" && ! -L "$available_directory" ]] \
+    || blocked "active_site_available_directory_untrusted"
+  available_directory="$(readlink -f -- "$available_directory")" \
+    || blocked "active_site_available_directory_missing"
+  [[ "$(dirname -- "$target")" == "$available_directory" ]] \
+    || blocked "active_site_link_outside_available"
+  for directory in "$(dirname -- "$ACTIVE_SITE")" "$available_directory" "$(dirname -- "$available_directory")"; do
+    [[ -d "$directory" && ! -L "$directory" && "$(stat -c %u -- "$directory")" == "0" ]] \
+      || blocked "active_site_directory_untrusted"
+    case "$(stat -c %a -- "$directory")" in
+      700 | 750 | 755) ;;
+      *) blocked "active_site_directory_writable" ;;
+    esac
+  done
+  require_root_file "$target" "active_site_target"
+  ACTIVE_SITE="$target"
+  printf '%s site_layout=trusted_root_symlink\n' "$PREFIX"
+}
+
 validate_headers_file() {
   "$PYTHON_BIN" - "$1" <<'PY'
 from pathlib import Path
@@ -182,7 +215,7 @@ probe_headers() {
 
 PATH="$FIXED_PATH"
 export PATH
-for tool in cmp cp curl date git grep id install mkdir mktemp nginx rm runuser sleep stat systemctl "$PYTHON_BIN"; do
+for tool in cmp cp curl date dirname git grep id install mkdir mktemp nginx readlink rm runuser sleep stat systemctl "$PYTHON_BIN"; do
   command -v "$tool" >/dev/null || blocked "required_tool_missing"
 done
 id "$STUDIO_REPOSITORY_USER" >/dev/null 2>&1 \
@@ -200,7 +233,7 @@ tracked_state="$(repo_git status --porcelain --untracked-files=no 2>/dev/null)" 
 
 [[ -f "$SOURCE_HEADERS" && ! -L "$SOURCE_HEADERS" ]] \
   || blocked "source_headers_missing"
-require_root_file "$ACTIVE_SITE" "active_site"
+resolve_active_site
 require_root_file "$ACTIVE_HEADERS" "active_headers"
 case "$(stat -c %a -- "$ACTIVE_HEADERS")" in
   600 | 640 | 644) ;;
