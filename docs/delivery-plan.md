@@ -5,7 +5,7 @@
 Новая implementation Goal не выбрана. Владелец поручил полный AUDIT 2026-10-04: актуальные требования, проверка проекта и один docs PR для canonical spec/plan. Код, workflows и внешние настройки не изменяются. Встроенная прежняя security Goal COMPLETE; аудит не активирует новую implementation Goal.
 
 - Ветка `codex/audit-requirements-20261004`, base и проверенный `origin/main` — `9be46234b6961da076c6360adead845f382d592b`; основной worktree. Local main безопасно синхронизирован. На старте открытых PR нет; прежняя ветка `codex/audio-upload-confirmation` и ignored материалы сохранены.
-- Полностью прочитаны Q001..Q308, сверены spec и реестры AC. Local structural/link/diff checks и self-review PASS. PR, CI актуального test-merge и merge PENDING. Studio/CD N/A по spec/plan-only scope и фактическим path filters; metadata-only follow-up PR не нужен.
+- Полностью прочитаны Q001..Q308, сверены spec и реестры AC. Local structural/link/diff checks и self-review PASS; PR #324 открыт. Quality review исключил дублирующие Live TXT RS-07/09 как ALIAS. CI обновлённого test-merge и merge PENDING. Studio/CD N/A по spec/plan-only scope и фактическим path filters; metadata-only follow-up PR не нужен.
 - Следующий шаг AUDIT: один docs PR → применимые проверки текущей revision → merge → fresh main/readback → безопасная очистка своей ветки. Реализация findings требует выбора владельца.
 - Предыдущая SECURITY-SCAN-20261003 DONE: PR #320 и hotfix #321/#322/#323 merged; последний main — 9be4623. Web/API CD37155276752, worker drain37155896562 и worker CD37155975723 SUCCESS на a666df1; edge CD37180175635 SUCCESS на 9be4623 после owner approval. Схема 0038, F44..47/F49..54 закрыты; F48 DEFER.
 - Последние завершения: #319 F43; #318 F40/F41; #317 trusted device30 days с protected migration36299859149 и worker36300397903; #312 PWA update; #309..311 UX. Подробная завершённая история — [архив](delivery-plan-archive.md) и primary PR records. Действующие AC, findings и решения остаются в текущих документах.
@@ -14,11 +14,11 @@
 
 Основание — проверенный code `9be4623`, полный актуальный источник, анализ AC/entrypoints/configuration, существующий Linux CI и целевые локальные diagnostics. READY означает реализацию в коде с подходящими автоматическими проверками. Известные нарушения возвращены IN_PROGRESS. Ручная приёмка и отдельный её процент не используются.
 
-- **Текущий personal, включая Colab и общие технические требования: 373/446 = 83,6%.**
-- **Полный roadmap приложения, включая будущие commercial/voice AC: 378/679 = 55,7%.** Это отдельный показатель будущего scope, который не блокирует personal.
-- Сохранён 701 ID:679 active roadmap,22 ALIAS/SUPERSEDED. Добавлены 7 AC только по явным требованиям: TECH-01..05, AP-31, STORAG-22. Все 694 прежних ID сохранены;10 дополнительно SUPERSEDED по прямым изменениям источника. Девять voice AC отложены из current personal;17 общих technical EVC включены в него. Будущий commercial —224 AC, voice —9. Изменение состава scope не является новой реализацией.
+- **Текущий personal, включая Colab и общие технические требования: 371/444 = 83,6%.**
+- **Полный roadmap приложения, включая будущие commercial/voice AC: 376/677 = 55,5%.** Это отдельный показатель будущего scope, который не блокирует personal.
+- Сохранён 701 ID:677 active roadmap,24 ALIAS/SUPERSEDED. Добавлены 7 AC только по явным требованиям: TECH-01..05, AP-31, STORAG-22. Все 694 прежних ID сохранены;10 дополнительно SUPERSEDED и2 ALIAS (Live TXT дублировал PR-05/11) по прямым изменениям источника. Девять voice AC отложены из current personal;17 общих technical EVC включены в него. Будущий commercial —224 AC, voice —9. Изменение состава scope не является новой реализацией.
 - Предыдущий snapshot старого реестра на a666df1/9be4623,2026-10-04:362/682 =53,1% full;362/441 =82,1% без commercial. Это предыдущая оценка другого состава требований. Новая personal оценка выше на 1,5 п.п.; изменение меньше 10 п.п. Историю процентов не накапливаем.
-- PB-06 и существующие Live TXT/clear/export-states переоценены по коду. PB-10/AP-14/AP-16/PR-12/STORAG-07/08/19 возвращены в работу по изменённому контракту/дефектам. Четыре общих auth/integration/document interfaces EVC IN_PROGRESS: не подтверждена полная заменяемость в нынешних связанных entrypoints. READY отдельных adapters не доказывает commercial rollout.
+- PB-06 и существующие Live clear/export-states переоценены по коду. Live TXT дубли PR-05/11 не добавляют READY повторно. PB-10/AP-14/AP-16/PR-12/STORAG-07/08/19 возвращены в работу по изменённому контракту/дефектам. Четыре общих auth/integration/document interfaces EVC IN_PROGRESS: не подтверждена полная заменяемость в нынешних связанных entrypoints. READY отдельных adapters не доказывает commercial rollout.
 
 ### Эпики / features на проверенном main
 
@@ -61,7 +61,7 @@
 | `OBSERVABILITY-AUDIT-02` | 35/35 = 100.0% | текущий personal | — |
 | `RELEASE-SAFETY-02` | 4/5 = 80.0% | текущий personal | IN_PROGRESS:1 |
 | `PERSONAL-TECHNICAL-01` | 5/5 = 100.0% | текущий personal | — |
-| `RESULTS-STUDIO-02` | 4/11 = 36.4% | текущий personal | IN_PROGRESS:3, BACKLOG:4 |
+| `RESULTS-STUDIO-02` | 2/9 = 22.2% | текущий personal | IN_PROGRESS:3, BACKLOG:4 |
 | `YANDEX-DISK-01` | 0/8 = 0.0% | текущий personal | BACKLOG:8 |
 | `REALTIME-RECOVERY-03` | 1/6 = 16.7% | текущий personal | IN_PROGRESS:5 |
 | `PWA-REQUIREMENTS-05` | 0/6 = 0.0% | текущий personal | IN_PROGRESS:6 |

@@ -12,9 +12,9 @@
 | `RS-04` | SUPERSEDED | — | — | — | A20261004; Q125/Q128/Q129: cloud-free текст относится к Live, обычный результат — внешний документ; ID/связи сохранены, реализация отменённого поведения не требуется. |
 | `RS-05` | READY | ✅ | ✅ | ✅ | A20261004; Durable job stages, attempt/output evidence, Google output tests; внешний реальный canary не выполнялся. |
 | `RS-06` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F01: provider_part_checkpoint_ttl_seconds=86400; expired checkpoints отклоняются и очищаются. |
-| `RS-07` | READY | ✅ | ✅ | ✅ | A20261004; PR-05/11, LiveTranscriptionPanel.tsx TXT Blob; component tests download/recovery. |
+| `RS-07` | ALIAS | — | — | — | Audit quality review: Live TXT/recovered download уже PR-05/11; не считать дважды. |
 | `RS-08` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Cached-result recovery не требует cost confirmation для полного cache (F43 fixed #319); F01: cache исчезает через24h, cancel lifecycle требует расширения. |
-| `RS-09` | READY | ✅ | ✅ | ✅ | A20261004; PR-05/11, TXT download/component checks. |
+| `RS-09` | ALIAS | — | — | — | Audit quality review: Live TXT/recovered download уже PR-05/11; не считать дважды. |
 | `RS-10` | BACKLOG | — | — | ✅ | A20261004; F01/F05: Live storage хранит строки, SRT/VTT download отсутствует. |
 | `RS-11` | BACKLOG | — | — | ✅ | A20261004; F01: соответствующий export UI отсутствует. |
 | `RS-12` | SUPERSEDED | — | — | — | A20261004; Q146/Q150: success только полный документ, без обещания восстановления утраченного внешнего документа; ID/связи сохранены, реализация отменённого поведения не требуется. |
