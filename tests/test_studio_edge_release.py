@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -264,6 +265,64 @@ def test_existing_trust_file_is_not_overwritten(tmp_path, pinned_host):
     with pytest.raises(FileExistsError):
         _prepare_host_trust(destination, {"DEPLOY_HOST": "example.com", "DEPLOY_KNOWN_HOSTS": pinned_host})
     assert destination.read_text() == "existing operator file"
+
+
+def _run_active_site_resolver(site, available, *, owner=0):
+    release = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    helpers = release[release.index("require_root_file() {"):release.index("validate_headers_file() {")]
+    program = f'''set -eu
+PREFIX="[synthetic-edge]"
+blocked() {{ printf '%s\\n' "$1" >&2; exit 2; }}
+stat() {{ if [[ "$1" == "-c" && "$2" == "%u" ]]; then printf '%s\\n' {owner}; else command stat "$@"; fi; }}
+ACTIVE_SITE={shlex.quote(str(site))}
+{helpers}
+resolve_active_site {shlex.quote(str(available))}
+printf 'resolved=%s\\n' "$ACTIVE_SITE"
+'''
+    return subprocess.run(["bash", "-c", program], capture_output=True, text=True, timeout=10)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX nginx symlinks/modes; required Linux CI")
+@pytest.mark.parametrize("layout", ["regular", "symlink", "broken", "outside", "non_root", "writable_directory"])
+def test_active_site_resolver_preserves_narrow_root_owned_boundary(tmp_path, layout):
+    # Simulate root ownership only; filesystem links, paths and permissions are real.
+    enabled = tmp_path / "sites-enabled"
+    available = tmp_path / "sites-available"
+    enabled.mkdir(mode=0o755)
+    available.mkdir(mode=0o755)
+    tmp_path.chmod(0o755)
+    site = enabled / "studio.librechat.online"
+    target = available / "studio.librechat.online"
+    target.write_text("synthetic site config")
+    if layout == "regular":
+        site.write_text("synthetic site config")
+    elif layout == "outside":
+        outside = tmp_path / "outside"
+        outside.write_text("different config")
+        site.symlink_to(outside)
+    else:
+        site.symlink_to(target)
+    if layout == "broken":
+        target.unlink()
+    if layout == "writable_directory":
+        available.chmod(0o777)
+    result = _run_active_site_resolver(site, available, owner=1001 if layout == "non_root" else 0)
+    if layout in ("regular", "symlink"):
+        assert result.returncode == 0, result.stderr
+        assert f"resolved={target if layout == 'symlink' else site}" in result.stdout
+        assert site.read_text() == "synthetic site config"
+    else:
+        assert result.returncode == 2
+        assert "active_site" in result.stderr
+
+
+def test_active_site_resolution_does_not_change_release_targets():
+    release = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    assert "resolve_active_site\nrequire_root_file \"$ACTIVE_HEADERS\"" in release
+    assert '[[ "$(dirname -- "$target")" == "$available_directory" ]]' in release
+    assert 'local available_directory="${1:-/etc/nginx/sites-available}"' in release
+    assert "ln -s" not in release
+    assert "active_site_include_mismatch" in release
 
 
 def test_hashed_host_pin_is_supported(tmp_path, pinned_host):

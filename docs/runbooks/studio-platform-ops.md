@@ -465,6 +465,12 @@ Bootstrap is a separate root/operator action. Before enabling the workflow:
    reviewed release window. Confirm the active site contains exactly one
    include of `/etc/nginx/snippets/studio-security-headers.conf`; the lane will
    not edit the site to create or repair that include.
+   The canonical enabled site may be a regular root-owned file or a root-owned
+   symlink to a direct regular root-owned file in `/etc/nginx/sites-available`.
+   Link/target directories must be root-owned and not group/world writable.
+   Broken links and targets outside that directory remain blocked. The release
+   never creates or rewrites a site/link; an absent canonical site needs operator
+   bootstrap. Preflight reports `site_layout=trusted_root_symlink` when used.
 
 For a reviewed release, use `Studio Edge CD` manual dispatch with the full
 current `main` SHA. Approve only after repository/Studio CI for that SHA is
