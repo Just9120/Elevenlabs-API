@@ -95,6 +95,31 @@ def _run(
     )
 
 
+def test_manifest_export_is_csrf_mutation_with_no_store_owner_and_validation(monkeypatch):
+    from studio_api import transcript_manifest_export as manifest
+    client, db, routes = _client(monkeypatch)
+    calls = []
+    monkeypatch.setattr(routes, "audit", lambda *a, **k: None)
+    def export(*args, **kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "entry_count": 1, "web_view_url": "https://drive.google.com/file/d/synthetic/view"}
+    monkeypatch.setattr(manifest, "export_manifest", export)
+    response = client.post("/api/transcript-catalog/export", json={"folder_id": "chosen-folder"})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert calls[0]["user_id"] == "private-owner" and calls[0]["folder_id"] == "chosen-folder"
+    assert db.commits == 1
+    assert client.post("/api/transcript-catalog/export", json={"folder_id": "wrong'folder"}).status_code == 422
+    assert len(calls) == 1
+    # An unavailable required CSRF gate prevents reaching any upload logic.
+    from studio_api.deps import require_csrf
+    from fastapi import HTTPException
+    def rejected_csrf():
+        raise HTTPException(403, detail="csrf_failed")
+    client.app.dependency_overrides[require_csrf] = rejected_csrf
+    assert client.post("/api/transcript-catalog/export", json={"folder_id": "chosen-folder"}).status_code == 403
+    assert len(calls) == 1
+
+
 def test_legacy_combined_routes_are_fail_closed_after_split(monkeypatch):
     client, db, _routes = _client(monkeypatch)
 

@@ -320,7 +320,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0038_trusted_devices`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository head must be read from the current Alembic scripts; literal schema numbers in this historical example are not current-state evidence. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -556,7 +556,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0038_trusted_devices`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. The repository head must be read from current Alembic scripts; actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -1325,3 +1325,39 @@ nor logged. Delivery does not retry failed user audio jobs automatically.
 ### Long-source confirmation
 
 До STT worker проверяет duration всего исходника, включая запрос короткого clip. Для записи выше configured warning сохраняются измеренная whole/selected duration и nominal quote по immutable public tariff snapshot; неизвестный tariff обозначается unavailable. Retry подтверждает exact quote token, конкретный source и неизменённый clip. Повторное измерение другой duration отзывает consent до conversion/provider call; другой длинный source требует собственной оценки. Legacy warning без quote сначала повторяет проверку без long consent. Quote не invoice и не включает overlap/subscription/quota; остальные непромеренные sources не включаются в показанную сумму. Общее ограничение12h не обходится splitting. Отдельные provider limits остаются: current Yandex async adapter ограничен4h и не получает ElevenLabs tariff.
+
+## Personal history and analytics retention
+
+`STORAG-12/13`: historical job/output metadata and analytics inputs remain durable
+PostgreSQL records without an automatic TTL. Owner actions reset the visible
+history (`projects.history_reset_at`) or analytics interval
+(`projects.analytics_reset_at`); they do not physically erase job/output evidence.
+Active jobs and unresolved output outcomes remain visible after history reset.
+This preserves retries, document-based duplicate protection and operational
+integrity. No separate retained full transcript or finished audio is implied.
+Source bytes and transient text follow their separate lifecycle rules above;
+log/debug retention follows configured diagnostic limits. Any future physical
+purge needs its own agreed requirements and reconciliation of those references.
+
+## Explicit manifest snapshot export
+
+In Transcriptions → Обслуживание → Расширенные действия, the owner can save the
+manifest JSON to a selected Google Drive folder. This uses the primary
+`drive.file` grant and the existing output-folder picker; separate maintenance
+consent is not needed for this write. Folder identity, type, trash state and
+write permission are rechecked server-side. The owner/reset cutoff applies to
+accepted nonempty output records and imported catalog metadata. The snapshot
+contains source/document identities and processing metadata; it never contains
+transcript bodies, storage keys, credentials or OAuth tokens. It is metadata
+export, not an automatic restore/import or a guarantee that every external
+Google Doc still exists.
+
+Requests require owner session/CSRF, no-store and a bounded selection: at most
+5000 entries and8 MiB; exceeding either fails without a partial snapshot. The
+owner row lock serializes export/clear; a dedicated snapshot hash property and
+Drive readback before write make an unchanged export to the same folder reuse
+its result. A changed snapshot or another folder gets a separate file, with no
+overwrite of an existing owner file. Transient metadata bytes are deleted on
+success/failure. The JSON file is an owner-selected external copy and remains
+in Drive until the owner removes it; clearing Studio never deletes that copy.
+Tests use synthetic records and a fake Drive transport, not a real account.

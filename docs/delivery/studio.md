@@ -2,6 +2,8 @@
 
 Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/studio.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
 
+Checkpoint06Oct: выбранные AC ниже относятся к локальной ветке/current diff и таблице Evidence в [delivery dashboard](../delivery-plan.md). Заголовок аудита — исторический baseline origin/main. Для изменённого поведения current-revision CI PENDING; старый PASS не доказывает эту ветку.
+
 ### `PWA-CORE-01`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
@@ -155,23 +157,23 @@
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-13` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-14` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal local audio diff2026-10-06: processor сохраняет только metadata, download/Drive заново собирает bytes из originals через worker; finished S3 writer удалён, legacy reads сохранены. Synthetic worker/lifecycle tests PASS; PostgreSQL/API/Linux/browser gate PENDING. |
+| `AP-14` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `AP-15` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-16` | IN_PROGRESS | ◐ | ◐ | ✅ | b46f6f1 + Goal audio diff: выбранные3/7/30 дней и exact deadline, request-scoped scratch/partial cleanup, active regeneration source fence. Synthetic local tests PASS; PostgreSQL/Linux gate PENDING. |
+| `AP-16` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-22` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
-| `AP-23` | IN_PROGRESS | ◐ | ◐ | ✅ | Owner decision2026-10-05 заменяет finished-storage reload контракт сборкой из retained originals. Goal diff: streamed download/restart/cancel/deadline, posthoc Drive idempotency, confirmed Drive Source handoff;24 component tests PASS. PostgreSQL/API/Linux/browser gate PENDING; historical F41/PR318 Evidence относится к прежнему storage contract. |
+| `AP-23` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `AP-24` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-25` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-26` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-31` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal audio visual diff2026-10-06: bounded waveform/паузы/сокращения и длительности; local PCM playback, server preview sample до30s и regenerated result native playback.82 Python PASS (real mono/stereo decoder),37 UI PASS, TypeScript/ESLint PASS. Owner/CSRF/Sec-Fetch/range API tests добавлены; Linux/PostgreSQL/browser gate PENDING. |
+| `AP-31` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`
@@ -219,7 +221,7 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `PTM-01` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
+| `PTM-01` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `PTM-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PTM-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PTM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -244,7 +246,7 @@
 | `PR-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PR-12` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F58: config.py realtime_draft_ttl_seconds=259200 (фиксированное 72h); realtime_drafts.py фильтрует и удаляет expired rows. Начало сессии само текст не очищает. |
+| `PR-12` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `PR-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-OPERABILITY-01`
@@ -315,23 +317,23 @@
 | `STORAG-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-05` | BACKLOG | — | — | — | F10 |
+| `STORAG-05` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `STORAG-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-07` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal audio diff2026-10-06: finished audio writer удалён, result metadata + worker regeneration/transient transfer, zero storage puts regression. Legacy historical Sources не удаляются rollout. Linux/PG gate PENDING. |
-| `STORAG-08` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10/AP-16: отдельный bucket есть, current audio reference hard TTL 24h. |
+| `STORAG-07` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-08` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `STORAG-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-10` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F01/F58: Live TTL72h и provider checkpoint TTL24h нарушают контракт. После успеха checkpoints удаляются. |
+| `STORAG-10` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `STORAG-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-12` | BACKLOG | — | — | — | F10 |
-| `STORAG-13` | BACKLOG | — | — | — | F10 |
+| `STORAG-12` | IN_PROGRESS | ✅ | ◐ | PENDING | History/analytics metadata без автоматического TTL; reset задаёт границу owner view, записи сохраняются для целостности операций. Фактическая политика явно описана, reset/code tests есть; required Linux gate PENDING. |
+| `STORAG-13` | IN_PROGRESS | ✅ | ◐ | PENDING | History/analytics metadata без автоматического TTL; reset задаёт границу owner view, записи сохраняются для целостности операций. Фактическая политика явно описана, reset/code tests есть; required Linux gate PENDING. |
 | `STORAG-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-15` | BACKLOG | — | — | — | F10 |
+| `STORAG-15` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `STORAG-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-19` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10: independent audio lifecycle настроен, но его 24h TTL не совпадает с Q162/Q178. |
+| `STORAG-19` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `STORAG-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-22` | BACKLOG | — | — | — | F10: orchestrator удаляет text checkpoints после полного документа, Source/S3 исходника сохраняет прежний expires_at; отдельного all-documents cleanup нет. |
+| `STORAG-22` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `STORAG-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `STT-PROVIDER-ABSTRACTION-01`
@@ -437,16 +439,16 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `TRANSC-01` | BACKLOG | — | — | ✅ | A20261004; F01: только TXT download. |
-| `TRANSC-02` | BACKLOG | — | — | ✅ | A20261004; F01/F05: Live SRT отсутствует. |
-| `TRANSC-03` | BACKLOG | — | — | ✅ | A20261004; F01/F05: Live VTT отсутствует. |
+| `TRANSC-01` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `TRANSC-02` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `TRANSC-03` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 
 ### `USAGE-COST-ACCOUNTING-01`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `USAGEC-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `USAGEC-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F11 |
+| `USAGEC-02` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
 | `USAGEC-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `USAGEC-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `USAGEC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |

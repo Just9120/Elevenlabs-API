@@ -7318,6 +7318,7 @@ function auditLabel(type: string) {
     "transcript_maintenance.failed":
       "Операция обслуживания остановлена",
     "transcript_catalog.cleared": "Манифест Studio очищен",
+    "transcript_catalog.exported": "Манифест Studio сохранён",
     "history.cleared": "История транскрибаций очищена",
     "analytics.cleared": "Аналитика транскрибаций очищена",
   };

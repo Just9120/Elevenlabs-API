@@ -41,6 +41,23 @@ def test_resumable_upload_reuses_existing_idempotent_drive_result(tmp_path):
     assert client.puts == 0
 
 
+def test_manifest_export_has_distinct_reconciliation_namespace(tmp_path):
+    import json
+    class ManifestClient(Client):
+        def get(self, *args, **kwargs):
+            assert "key='studioManifestSnapshot'" in kwargs["params"]["q"]
+            assert "studioAudioPreparationJobId" not in kwargs["params"]["q"]
+            return super().get(*args, **kwargs)
+        def post(self, *args, **kwargs):
+            assert json.loads(kwargs["content"])["appProperties"] == {"studioManifestSnapshot": "snapshot-hash"}
+            return super().post(*args, **kwargs)
+    client = ManifestClient()
+    upload_file_resumable("token", folder_id="folder-id", path=input_file(tmp_path), filename="manifest.json",
+        mime_type="application/json", idempotency_key="snapshot-hash", app_property_key="studioManifestSnapshot",
+        client_factory=lambda **kwargs: client)
+    assert client.posts == 1
+
+
 def test_resumable_upload_creates_once_after_empty_reconciliation(tmp_path):
     client = Client()
     result = upload_file_resumable("token", folder_id="folder-id", path=input_file(tmp_path), filename="result.flac", mime_type="audio/flac", idempotency_key="job-id", client_factory=lambda **_kwargs: client)
