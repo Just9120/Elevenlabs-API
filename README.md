@@ -5,7 +5,7 @@ VoiceOps Studio — PWA для подготовки аудио, транскри
 1. **Google Colab** — batch-транскрибации в Google Docs и realtime-транскрибация в окне браузера.
 2. **VoiceOps Studio PWA** — web-приложение с отдельной подготовкой WAV/FLAC до транскрибации, batch и realtime, авторизацией, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
 
-Personal Studio PWA работает и развивается. Яндекс Диск, самостоятельное хранение полных транскрипций в Studio и расширенная realtime continuity входят в согласованные требования; их текущие gaps зафиксированы в delivery-plan. Colab не получает новые PWA/commercial возможности автоматически.
+Personal Studio PWA работает и развивается. Яндекс Диск и самостоятельное хранение полных обычных транскрипций в Studio входят в согласованные требования; их текущие gaps зафиксированы в delivery-plan. Live сохраняет текст до ручной очистки, а незавершённая обычная транскрибация — до полного документа, отмены или явного закрытия ошибки; это recovery state, не постоянная копия готового batch transcript. Готовое аудио скачивается или экспортируется через временную сборку из доступных исходников. Colab не получает новые PWA/commercial возможности автоматически.
 
 README не дублирует быстро устаревающие проценты и revision IDs. Полный scope, atomic AC, источники и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Все текущие статусы AC, Evidence, numerator/denominator, текущая и предыдущая оценки, findings, варианты Goal и checkpoint находятся только в [docs/delivery-plan.md](docs/delivery-plan.md).
 

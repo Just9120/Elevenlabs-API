@@ -8,7 +8,7 @@ unmaintained local deployments are not supported separately.
 The repository has two product contours with different maturity:
 
 - the Google Colab batch workflow is the stable operational baseline;
-- Studio PWA remains in active development. Repository migrations currently extend through `0026_runtime_component_status`; multiple bounded features have exact-main CI, component deployment and owner-controlled LIVE records, but several epic LIVE gates, multi-worker behavior and load bounds remain unverified. Current maturity and exact Evidence belong in `docs/project-spec.md` and `docs/delivery-plan.md`, not in this policy.
+- Studio PWA remains in active development. Current requirements and unresolved risks belong in [project spec](docs/project-spec.md) and [delivery dashboard](docs/delivery-plan.md). The exact schema and running component versions must be read from primary CI/CD/runtime records; this policy does not maintain a second version snapshot or assert deployment readiness.
 
 Realtime Colab is experimental. Source code, CI success, deployment success, and
 production security evidence are different states; none should be inferred from
@@ -22,7 +22,7 @@ transcripts, document identifiers, or customer data in a public issue.
 Use GitHub's private vulnerability reporting flow for this repository when it is
 available:
 
-<https://github.com/Just9120/Elevenlabs-API/security/advisories/new>
+Open the repository's Security section and choose private vulnerability reporting.
 
 If private reporting is unavailable, open only a minimal public issue asking the
 maintainer to provide a private contact channel. Do not include exploit details or

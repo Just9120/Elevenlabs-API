@@ -10,9 +10,8 @@ CI_RULES = (ROOT / "docs/ci-cd-rules.md").read_text(encoding="utf-8")
 def test_security_policy_covers_both_product_contours_and_current_status() -> None:
     assert "Google Colab batch workflow" in POLICY
     assert "Studio PWA remains in active development" in POLICY
-    assert "0026_runtime_component_status" in POLICY
-    assert "multiple bounded features" in POLICY
-    assert "multi-worker behavior and load bounds remain unverified" in POLICY
+    assert "primary CI/CD/runtime records" in POLICY
+    assert "does not maintain a second version snapshot" in POLICY
     assert "bounded browser capabilities" in POLICY
     assert "Existing bounded LIVE" in POLICY
     assert "do not generalize" in POLICY
@@ -20,7 +19,7 @@ def test_security_policy_covers_both_product_contours_and_current_status() -> No
 
 
 def test_security_policy_routes_private_reports_and_authoritative_details() -> None:
-    assert "security/advisories/new" in POLICY
+    assert "private vulnerability reporting" in POLICY
     assert "Do not publish vulnerability details" in POLICY
     for path in (
         "docs/project-spec.md",
