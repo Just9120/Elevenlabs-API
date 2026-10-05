@@ -56,7 +56,7 @@
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `UXN-01` | SUPERSEDED | — | — | — | A20261004; Q015: пользовательские Projects явно исключены; ID/связи сохранены, реализация отменённого поведения не требуется. |
-| `UXN-02` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F07: optional plain name реализован, пользовательского выбора naming template/date/time нет. |
+| `UXN-02` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal naming diff2026-10-06: title/date/dateTime choices, known UTC metadata preview/submission; missing dates остаются отсутствующими, local File.lastModified не используется.44 Python и affected component PASS; required CI/browser PENDING. |
 | `UXN-03` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
 | `UXN-04` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Google destination реализован; Yandex Disk отсутствует (F02). |
 | `UXN-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |

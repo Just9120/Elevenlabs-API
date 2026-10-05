@@ -458,3 +458,8 @@ def test_render_filename_uses_only_allowlisted_metadata_and_extension():
     assert "/" not in filename and "\\" not in filename
     assert "Проект_секрет" in filename
     assert "Созвон_ команда" in filename
+
+
+def test_missing_creation_time_keeps_title_without_inventing_today():
+    configured = options(output_format="flac", output_name_template="{date}_{time}_{title}")
+    assert render_output_filename(configured, created_at=None, project_title="Studio", title="Лекция 1. Предмет") == "Лекция 1. Предмет.flac"

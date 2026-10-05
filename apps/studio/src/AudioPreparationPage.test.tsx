@@ -183,6 +183,31 @@ describe("AudioPreparationPage", () => {
     expect(screen.getByRole("checkbox", { name: "Уменьшить длинные паузы в аудио или видео" })).not.toBeChecked();
   });
 
+  it("submits a friendly naming choice using known creation metadata without exposing template syntax", async () => {
+    const calls: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [source("lecture", "Лекция 1. Предмет.flac", "2026-10-06T12:34:56Z")] });
+      if (url.endsWith("/audio-preparations") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        calls.push(body);
+        return json(previewJob("queued", body.title, body.source_ids));
+      }
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      throw new Error(url);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(screen.getByText("Выбрать из сохранённых файлов Studio"));
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Лекция 1\. Предмет/ }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Как назвать файл" }), "dateTime");
+    expect(screen.getByText(/Пример имени: 2026-10-06_12-34-56Z_Лекция 1\. Предмет/)).toBeVisible();
+    expect(screen.queryByText("{date}_{time}_{title}")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Проверить файлы и рассчитать" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].options).toMatchObject({ output_name_template: "{date}_{time}_{title}" });
+  });
+
   it("renders consistent terminal actions and hands the exact output source to transcriptions", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

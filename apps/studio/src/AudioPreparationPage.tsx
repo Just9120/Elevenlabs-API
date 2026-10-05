@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import { AudioResultDownload } from "./AudioResultDownload";
 import { AudioWaveform } from "./AudioWaveform";
-import { audioSourceTitle } from "./audioOutputNaming";
+import { audioSourceTitle, audioNamedTitle, audioNamingTemplates, type AudioNamingStyle } from "./audioOutputNaming";
 import {
   DirectUploadAmbiguousError,
   directUploadTimeoutMs,
@@ -171,6 +171,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [manualOrder, setManualOrder] = useState(false);
   const [ephemeral, setEphemeral] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
+  const [namingStyle, setNamingStyle] = useState<AudioNamingStyle>("title");
   const [preset, setPreset] = useState("processing_only");
   const [format, setFormat] = useState("copy");
   const [mono, setMono] = useState("preserve");
@@ -225,6 +226,13 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     });
   }, [manualOrder, selected, sources]);
   const planCount = processingPath === "local" ? localFiles.length : selected.length;
+  const namingInputs = processingPath === "studio" ? orderedSelected.map((id) => sources.find((source) => source.id === id)) : [];
+  const namingDates = (operationMode === "concat" ? namingInputs : namingInputs.slice(0, 1))
+    .flatMap((source) => source?.source_created_at && Number.isFinite(Date.parse(source.source_created_at)) ? [source.source_created_at] : [])
+    .sort((left, right) => Date.parse(left) - Date.parse(right));
+  const namingSourceTitle = processingPath === "studio" ? sourceStem(namingInputs[0]) : audioSourceTitle(localFiles[0]?.name ?? "Файл");
+  const namingTitle = title.trim() ? planCount > 1 && operationMode === "separate" ? `${title.trim()} — ${namingSourceTitle}` : title.trim() : namingSourceTitle;
+  const namingPreview = audioNamedTitle(namingTitle, namingStyle, namingDates[0]);
 
   useEffect(() => () => {
     localAbort.current?.abort();
@@ -695,7 +703,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
             source_ids: group,
             ephemeral_source_ids: group.filter((id) => ephemeral.has(id)),
             manual_order: operationMode === "concat" ? manualOrder : true,
-            options: { preset, output_format: format, mono_mode: mono, silence_enabled: silenceEnabled, silence_threshold_db: values.threshold, silence_min_duration_seconds: values.minimum, silence_keep_duration_seconds: values.keep, output_name_template: "{title}" },
+            options: { preset, output_format: format, mono_mode: mono, silence_enabled: silenceEnabled, silence_threshold_db: values.threshold, silence_min_duration_seconds: values.minimum, silence_keep_duration_seconds: values.keep, output_name_template: audioNamingTemplates[namingStyle] },
             output_destination: saveToDrive ? "google_drive" : "download",
             output_drive_folder_id: saveToDrive ? driveFolder?.id : null,
           }),
@@ -883,7 +891,12 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
             />
             <small>Необязательно. Если оставить поле пустым, используется имя исходного файла.</small>
           </label>
+          <label>Как назвать файл<select value={namingStyle} onChange={(e) => setNamingStyle(e.target.value as AudioNamingStyle)}>
+            <option value="title">Только название</option><option value="date">Дата и название</option><option value="dateTime">Дата, время и название</option>
+          </select></label>
         </div>
+        {planCount > 0 && <p className="muted">Пример имени{planCount > 1 && operationMode === "separate" ? " первого результата" : ""}: {namingPreview}{processingPath === "local" ? ".wav" : format === "copy" ? " (исходное расширение)" : `.${format}`}</p>}
+        {namingStyle !== "title" && <p className="muted">Дата и время берутся только из известных данных исходника, в UTC. Если дата неизвестна, в имени останется только название. {processingPath === "local" && "Браузер не сообщает дату создания локального файла."}</p>}
         {format !== "copy" && <p className="muted">Для изменения каналов или пауз файл будет перекодирован в выбранный формат.</p>}
         <label className="audio-source-choice"><input type="checkbox" checked={silenceEnabled} onChange={(e) => applySilence(e.target.checked)} /><span>Уменьшить длинные паузы в аудио или видео</span></label>
         {silenceEnabled && <details ref={silenceDetailsRef} className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input ref={thresholdInput} type="text" inputMode="text" value={threshold} aria-invalid={silenceError?.field === "threshold"} aria-describedby={silenceError?.field === "threshold" ? "audio-threshold-error" : undefined} onChange={(e) => { setThreshold(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} /><small>Порог от −60 до −10 dB.</small>{silenceError?.field === "threshold" && <small id="audio-threshold-error" className="error" role="alert">{silenceError.message}</small>}</label><label>Минимальная пауза, сек<input ref={minimumInput} type="text" inputMode="decimal" value={minimum} aria-invalid={silenceError?.field === "minimum"} aria-describedby={silenceError?.field === "minimum" ? "audio-minimum-error" : undefined} onChange={(e) => { setMinimum(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} />{silenceError?.field === "minimum" && <small id="audio-minimum-error" className="error" role="alert">{silenceError.message}</small>}</label><label>Сколько паузы оставить, сек<input ref={keepInput} type="text" inputMode="decimal" value={keep} aria-invalid={silenceError?.field === "keep"} aria-describedby={silenceError?.field === "keep" ? "audio-keep-error" : undefined} onChange={(e) => { setKeep(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} />{silenceError?.field === "keep" && <small id="audio-keep-error" className="error" role="alert">{silenceError.message}</small>}</label></div></details>}

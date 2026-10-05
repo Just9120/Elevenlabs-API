@@ -1602,7 +1602,7 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Звук вкладки или экрана")).toBeChecked();
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
     expect(
-      screen.getByText(/Временно хранится только для восстановления/i),
+      screen.getByText(/до ручной очистки; звук не сохраняется/i),
     ).toBeInTheDocument();
 
     const navigation = screen.getByRole("navigation", {
@@ -3560,7 +3560,7 @@ describe("Studio PWA", () => {
         name: "Привести документы к текущему формату",
       }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/Транскрибации → Подготовка документов/)).toBeInTheDocument();
+    expect(screen.getByText(/Транскрибации → Обслуживание/)).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -3579,7 +3579,7 @@ describe("Studio PWA", () => {
     await openProjectsPage();
 
     await userEvent.click(
-      screen.getByRole("tab", { name: "Подготовка документов" }),
+      screen.getByRole("tab", { name: "Обслуживание" }),
     );
 
     expect(
@@ -3594,7 +3594,7 @@ describe("Studio PWA", () => {
       screen.getByRole("heading", { name: "Учесть готовые документы в Studio" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Подготовка документов" }),
+      screen.getByRole("tab", { name: "Обслуживание" }),
     ).toHaveAttribute("aria-selected", "true");
   });
 

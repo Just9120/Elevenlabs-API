@@ -6873,7 +6873,7 @@ function ProjectsPage({
                     )
                   }
                 >
-                  Подготовка документов
+                  Обслуживание
                 </button>
               </div>
               <div
