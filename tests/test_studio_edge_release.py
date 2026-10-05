@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from scripts.test_shell_environment import repository_bash
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -329,7 +330,7 @@ ACTIVE_SITE={shlex.quote(str(site))}
 resolve_active_site {shlex.quote(str(available))}
 printf 'resolved=%s\\n' "$ACTIVE_SITE"
 '''
-    return subprocess.run(["bash", "-c", program], capture_output=True, text=True, timeout=10)
+    return subprocess.run([repository_bash(), "-c", program], capture_output=True, text=True, timeout=10)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX nginx symlinks/modes; required Linux CI")

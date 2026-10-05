@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+
+from scripts.test_shell_environment import configure_test_shell
+
+# Before test modules perform shell discovery or build subprocess environments.
+# This affects only this pytest process and its children, never the user's PATH.
+configure_test_shell(os.environ)
 
 
 PORTABLE_EXCLUDED_TEST_MODULES = frozenset(

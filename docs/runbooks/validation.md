@@ -46,7 +46,7 @@ Critical scenarios: owner/CSRF/session/TOTP isolation; source multipart reconcil
 pytest -q --portable
 ```
 
-Discovery ограничен `tests/`. `--portable` исключает 9 service/shell modules, перечисленных в `conftest.py`, до их импорта. Часть shell fixtures остаётся: на Windows system bash/WSL может выбираться даже при наличии Git Bash в PATH. Поэтому это ограниченный диагностический профиль, а не обещание green cross-platform suite. Plain `pytest` с PostgreSQL/Redis/bash остаётся полным CI-профилем. Точные команды, environment и применимость — в [команды и условия](#repository-checks); результаты — в [delivery dashboard](../delivery-plan.md).
+Discovery ограничен `tests/`. `--portable` исключает 9 service/shell modules, перечисленных в `conftest.py`, до их импорта. На Windows `conftest.py` выбирает проверенную установку Git Bash и MSYS utilities перед system bash/WSL только для процесса pytest; затронутые shell fixtures передают абсолютный путь executable, поскольку Windows CreateProcess может иначе разрешать bare name. Пользовательский PATH не изменяется. POSIX права/симлинки и PostgreSQL/Redis остаются Linux CI boundary: это ограниченный диагностический профиль, а не обещание full cross-platform suite. Plain `pytest` с PostgreSQL/Redis/bash остаётся полным CI-профилем. Точные команды, environment и применимость — в [команды и условия](#repository-checks); результаты — в [delivery dashboard](../delivery-plan.md).
 
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
 
