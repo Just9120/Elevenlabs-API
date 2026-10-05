@@ -43,6 +43,8 @@ import {
   exportLiveTranscript,
   LIVE_EXPORT_FORMATS,
   timedExportUnavailable,
+  liveExportSelection,
+  liveExportSessions,
   upsertLiveSegment,
   type LiveExportFormat,
   type LiveExportInput,
@@ -182,6 +184,7 @@ export function LiveTranscriptionPanel({
   const [microphoneInputLevel, setMicrophoneInputLevel] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [exportFormat, setExportFormat] = useState<LiveExportFormat>("txt");
+  const [exportSession, setExportSession] = useState("");
   const [segmentMetadata, setSegmentMetadata] = useState<(RealtimeSegmentMetadata | null)[]>(initialSegments.map(() => null));
   const [followTranscript, setFollowTranscript] = useState(true);
   const [recoveryCandidate, setRecoveryCandidate] =
@@ -203,6 +206,7 @@ export function LiveTranscriptionPanel({
     new Map<string, AbortController>(),
   );
   const sessionStartedAtRef = useRef<number | null>(null);
+  const sessionHasRetainedTextRef = useRef(false);
   const committedRef = useRef<HTMLDivElement | null>(null);
   const segmentsRef = useRef([...initialSegments]);
   const segmentMetadataRef = useRef<(RealtimeSegmentMetadata | null)[]>(initialSegments.map(() => null));
@@ -259,6 +263,9 @@ export function LiveTranscriptionPanel({
     (credential) => credential.provider === provider,
   );
   const transcript = useMemo(() => segments.join("\n"), [segments]);
+  const exportSessions = liveExportSessions(segmentMetadata);
+  const selectedExportSession = exportSessions.includes(exportSession) ? exportSession : "";
+  const selectedExportInput = liveExportSelection({ segments, metadata: segmentMetadata, partial }, selectedExportSession);
   const actionableDraftText = useMemo(
     () => realtimeTranscriptText(segments, partial),
     [segments, partial],
@@ -696,6 +703,7 @@ export function LiveTranscriptionPanel({
     setError("");
     setExportNotice("");
     sessionStartedAtRef.current = null;
+    sessionHasRetainedTextRef.current = Boolean(realtimeTranscriptText(segmentsRef.current, partialRef.current));
     consumerSequenceRef.current = 0;
     setElapsedSeconds(0);
     setFollowTranscript(true);
@@ -820,12 +828,12 @@ export function LiveTranscriptionPanel({
   }
 
   function downloadTranscript() {
-    downloadFormattedTranscript({
+    downloadFormattedTranscript(liveExportSelection({
       segments: segmentsRef.current,
       metadata: segmentMetadataRef.current,
       partial: partialRef.current,
-      ...(sessionStartedAtRef.current !== null ? { startedAt: new Date(sessionStartedAtRef.current).toISOString() } : {}),
-    });
+      ...(sessionStartedAtRef.current !== null && !sessionHasRetainedTextRef.current ? { startedAt: new Date(sessionStartedAtRef.current).toISOString() } : {}),
+    }, selectedExportSession));
   }
 
   function downloadFormattedTranscript(input: LiveExportInput, format = exportFormat) {
@@ -1451,9 +1459,17 @@ export function LiveTranscriptionPanel({
             <label>
               Формат скачивания
               <select aria-label="Формат скачивания Live" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as LiveExportFormat)}>
-                {LIVE_EXPORT_FORMATS.map((format) => <option key={format} value={format} disabled={(format === "srt" || format === "vtt") && Boolean(timedExportUnavailable({ segments, metadata: segmentMetadata, partial }))}>{format.toUpperCase()}</option>)}
+                {LIVE_EXPORT_FORMATS.map((format) => <option key={format} value={format} disabled={(format === "srt" || format === "vtt") && Boolean(timedExportUnavailable(selectedExportInput))}>{format.toUpperCase()}</option>)}
               </select>
             </label>
+            {exportSessions.length > 0 && (exportSessions.length > 1 || segmentMetadata.some((item) => !item?.session_id)) && (
+              <label>Текст для скачивания
+                <select aria-label="Сессия скачивания Live" value={selectedExportSession} onChange={(event) => setExportSession(event.target.value)}>
+                  <option value="">Весь сохранённый текст</option>
+                  {exportSessions.map((id, index) => <option key={id} value={id}>Сессия {index + 1}: подтверждённый текст</option>)}
+                </select>
+              </label>
+            )}
             <button
               type="button"
               aria-pressed={followTranscript}
@@ -1470,7 +1486,7 @@ export function LiveTranscriptionPanel({
             </button>
             <button
               type="button"
-              disabled={!actionableDraftText || ((exportFormat === "srt" || exportFormat === "vtt") && Boolean(timedExportUnavailable({ segments, metadata: segmentMetadata, partial })))}
+              disabled={!actionableDraftText || ((exportFormat === "srt" || exportFormat === "vtt") && Boolean(timedExportUnavailable(selectedExportInput)))}
               onClick={downloadTranscript}
             >
               Скачать .{exportFormat}
@@ -1488,8 +1504,9 @@ export function LiveTranscriptionPanel({
             </button>
           </div>
         </header>
-        {timedExportUnavailable({ segments, metadata: segmentMetadata, partial }) && (
-          <p className="muted" role="status">{timedExportUnavailable({ segments, metadata: segmentMetadata, partial })}</p>
+        {selectedExportSession && <p className="muted">Скачивается подтверждённый текст выбранной сессии. Неподтверждённый фрагмент остаётся в выгрузке всего сохранённого текста.</p>}
+        {timedExportUnavailable(selectedExportInput) && (
+          <p className="muted" role="status">{timedExportUnavailable(selectedExportInput)}</p>
         )}
         <div className="live-partial" aria-live="polite">
           <span>Предварительно</span>

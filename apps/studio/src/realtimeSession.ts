@@ -523,7 +523,7 @@ export class RealtimeSessionController {
     // reported; a failed new handshake must not report that same interval again.
     attempt.confirmedSeconds = offset;
     attempt.lastSentSeconds = offset;
-    const segments = new RealtimeSegmentStream(`${attempt.namespace}.${transport}`, offset);
+    const segments = new RealtimeSegmentStream(`${attempt.namespace}.${transport}`, offset, attempt.namespace);
     attempt.sessionReady = false;
     let websocket: WebSocket;
     try {
@@ -611,7 +611,7 @@ export class RealtimeSessionController {
   private emitGap(attempt: Attempt, start: number, end: number, reason: string, identity?: string) {
     if (end <= start) return;
     this.callbacks.onCommitted(`[Разрыв аудио ${start.toFixed(1)}–${end.toFixed(1)} сек: ${reason}]`, {
-      id: `${attempt.namespace}.gap.${identity ?? attempt.gapSequence++}`, start_seconds: start, end_seconds: end, gap: true,
+      id: `${attempt.namespace}.gap.${identity ?? attempt.gapSequence++}`, session_id: attempt.namespace, start_seconds: start, end_seconds: end, gap: true,
     });
   }
 

@@ -2,6 +2,7 @@ import { strToU8, zipSync } from "fflate";
 
 export type RealtimeSegmentMetadata = {
   id: string;
+  session_id?: string;
   start_seconds?: number;
   end_seconds?: number;
   speaker?: number;
@@ -35,7 +36,8 @@ export function upsertLiveSegment(segments: string[], metadata: (RealtimeSegment
 export function validSegmentMetadata(value: unknown): value is RealtimeSegmentMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const data = value as Record<string, unknown>;
-  if (Object.keys(data).some((key) => !["id", "start_seconds", "end_seconds", "speaker", "gap"].includes(key))) return false;
+  if (Object.keys(data).some((key) => !["id", "session_id", "start_seconds", "end_seconds", "speaker", "gap"].includes(key))) return false;
+  if (data.session_id !== undefined && (typeof data.session_id !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(data.session_id))) return false;
   if (typeof data.id !== "string" || !/^[A-Za-z0-9_.:-]{1,160}$/.test(data.id)) return false;
   if (data.gap !== undefined && typeof data.gap !== "boolean") return false;
   if (data.speaker !== undefined && (!Number.isInteger(data.speaker) || (data.speaker as number) < 1 || (data.speaker as number) > 1000)) return false;
@@ -69,7 +71,28 @@ export function timedExportUnavailable(input: LiveExportInput): string | null {
     input.metadata.some((item) => !item || item.start_seconds === undefined || item.end_seconds === undefined)) {
     return "Для этого текста нет полных таймкодов. Доступны TXT, Markdown и DOCX.";
   }
+  const sessions = new Set(input.metadata.map((item) => item?.session_id ?? "legacy"));
+  if (sessions.size > 1) return "Текст относится к разным Live-сессиям. Для SRT/VTT выберите одну сессию; весь текст доступен в TXT, Markdown и DOCX.";
+  if (input.metadata.some((item, index) => index > 0 && item!.start_seconds! < input.metadata![index - 1]!.start_seconds!)) {
+    return "Порядок таймкодов не подтверждён. Доступны TXT, Markdown и DOCX.";
+  }
   return null;
+}
+
+export function liveExportSessions(metadata: (RealtimeSegmentMetadata | null)[]): string[] {
+  return [...new Set(metadata.flatMap((item) => item?.session_id ? [item.session_id] : []))];
+}
+
+export function liveExportSelection(input: LiveExportInput, sessionId: string): LiveExportInput {
+  if (!sessionId) {
+    const sessions = new Set(input.metadata?.map((item) => item?.session_id ?? "legacy"));
+    return sessions.size > 1 ? { ...input, startedAt: undefined } : input;
+  }
+  const indices = input.segments.flatMap((_, index) => input.metadata?.[index]?.session_id === sessionId ? [index] : []);
+  // Per-session selection is explicitly committed-only. Partial text remains
+  // available in the whole-text export; do not attach it to an older session.
+  return { segments: indices.map((index) => input.segments[index]),
+    metadata: indices.map((index) => input.metadata![index]), partial: "", title: input.title };
 }
 
 function speakerLabel(item: RealtimeSegmentMetadata | null | undefined) {

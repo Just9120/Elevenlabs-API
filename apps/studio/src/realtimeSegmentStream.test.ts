@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { RealtimeSegmentStream } from "./realtimeSegmentStream";
 
 describe("Live provider stream correlation", () => {
+  it("carries one capture identity through separate transports", () => {
+    const sessionId = "capture_session_123456";
+    const event = { kind: "committed" as const, text: "фрагмент", metadata: { id: "index.0", start_seconds: 0, end_seconds: 1 } };
+    for (const transport of [1, 2]) {
+      expect(new RealtimeSegmentStream(`namespace.${transport}`, transport * 10, sessionId).committed(event)?.metadata)
+        .toMatchObject({ session_id: sessionId, start_seconds: transport * 10 });
+    }
+  });
   it("adds delayed timestamps once without losing identical spoken repetitions", () => {
     const stream = new RealtimeSegmentStream("session.1", 20);
     const first = stream.committed({ kind: "committed", text: "да" });

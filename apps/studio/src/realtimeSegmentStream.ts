@@ -10,7 +10,7 @@ export class RealtimeSegmentStream {
   private timed = new Map<string, string>();
   private indexed = new Map<string, string>();
 
-  constructor(private namespace: string, private offsetSeconds: number) {}
+  constructor(private namespace: string, private offsetSeconds: number, private sessionId?: string) {}
 
   committed(event: Commit): { text: string; metadata: RealtimeSegmentMetadata; replaces: boolean } | null {
     const raw = event.metadata;
@@ -37,7 +37,7 @@ export class RealtimeSegmentStream {
       // Same bounded transcript limit as local/server drafts; no unbounded event log.
       if (this.untimed.length > 5000) this.untimed.shift();
     }
-    const metadata: RealtimeSegmentMetadata = { ...raw, id };
+    const metadata: RealtimeSegmentMetadata = { ...raw, id, ...(this.sessionId ? { session_id: this.sessionId } : {}) };
     if (raw?.start_seconds !== undefined && raw.end_seconds !== undefined) {
       metadata.start_seconds = this.offsetSeconds + raw.start_seconds;
       metadata.end_seconds = this.offsetSeconds + raw.end_seconds;

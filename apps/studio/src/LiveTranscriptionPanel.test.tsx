@@ -463,6 +463,44 @@ describe("LiveTranscriptionPanel", () => {
     );
   });
 
+  it("preserves prior sessions and downloads selected timed text without a new capture", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    click.mockClear();
+    render(<LiveTranscriptionPanel projectId="project-safe" csrf="csrf-safe" onCsrf={vi.fn()} active />);
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    act(() => controllerState.instances[0].callbacks.onCommitted("первая сессия", {
+      id: "first.0", session_id: "capture_first_123456", start_seconds: 10, end_seconds: 12,
+    }));
+    await userEvent.click(screen.getByRole("button", { name: "Остановить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Начать" }));
+    await userEvent.click(screen.getByRole("button", { name: "Скачать .txt" }));
+    const retainedBlob = vi.mocked(URL.createObjectURL).mock.calls.at(-1)![0] as Blob;
+    const retainedText = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(retainedBlob);
+    });
+    expect(retainedText).toContain("первая сессия");
+    expect(retainedText).not.toContain("Created at:");
+    click.mockClear();
+    act(() => controllerState.instances[1].callbacks.onCommitted("вторая сессия", {
+      id: "second.0", session_id: "capture_second_123456", start_seconds: 1, end_seconds: 2,
+    }));
+    expect(screen.getByText("первая сессия")).toBeInTheDocument();
+    expect(screen.getByText("вторая сессия")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "SRT" })).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText("Сессия скачивания Live"), "capture_second_123456");
+    expect(screen.getByRole("option", { name: "SRT" })).toBeEnabled();
+    await userEvent.selectOptions(screen.getByLabelText("Формат скачивания Live"), "srt");
+    await userEvent.click(screen.getByRole("button", { name: "Скачать .srt" }));
+    expect(click).toHaveBeenCalledOnce();
+    expect(controllerState.instances).toHaveLength(2);
+    expect(controllerState.instances[1].start).toHaveBeenCalledOnce();
+    expect(screen.getByText("первая сессия")).toBeInTheDocument();
+  });
+
   it("replaces indexed corrections, preserves the next partial and gates timed downloads", async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     click.mockClear();

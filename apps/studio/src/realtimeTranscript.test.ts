@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { strFromU8, unzipSync } from "fflate";
-import { exportLiveTranscript, timedExportUnavailable, validSegmentMetadataList, upsertLiveSegment } from "./realtimeTranscript";
+import { exportLiveTranscript, timedExportUnavailable, validSegmentMetadataList, upsertLiveSegment, liveExportSelection } from "./realtimeTranscript";
 
 const input = {
   segments: ["Первая строка & <текст> 🧪", "Повторная реплика"], partial: "",
@@ -10,6 +10,23 @@ const input = {
 };
 
 describe("Live exports without provider access", () => {
+  it("keeps independent capture clocks separate while exporting all text or a selected session", () => {
+    const first = "capture_first_123456", second = "capture_second_123456";
+    const mixed = { segments: ["старый текст", "новый текст"], partial: "ещё не подтверждено",
+      metadata: [{ id: "old", session_id: first, start_seconds: 10, end_seconds: 11 },
+        { id: "new", session_id: second, start_seconds: 1, end_seconds: 2 }] };
+    expect(timedExportUnavailable({ ...mixed, partial: "" })).toContain("разным Live-сессиям");
+    const whole = liveExportSelection(mixed, "");
+    expect(strFromU8(exportLiveTranscript(whole, "txt").bytes)).toContain("старый текст\nновый текст");
+    expect(whole.partial).toBe(mixed.partial);
+    const selected = liveExportSelection(mixed, second);
+    expect(strFromU8(exportLiveTranscript(selected, "srt").bytes)).toBe("1\n00:00:01,000 --> 00:00:02,000\nновый текст\n");
+    expect(strFromU8(exportLiveTranscript(liveExportSelection(mixed, first), "vtt").bytes)).toContain("00:00:10.000");
+    expect(mixed.partial).toBe("ещё не подтверждено");
+    expect(liveExportSelection({ ...mixed, startedAt: input.startedAt }, "").startedAt).toBeUndefined();
+    expect(liveExportSelection({ ...mixed, metadata: [null, mixed.metadata[1]], startedAt: input.startedAt }, "").startedAt).toBeUndefined();
+    expect(timedExportUnavailable({ ...input, metadata: [input.metadata[1], input.metadata[0]] })).toContain("Порядок");
+  });
   it("creates a self-contained safe DOCX with transcript_doc styles and known metadata", () => {
     const result = exportLiveTranscript(input, "docx");
     const files = unzipSync(result.bytes);

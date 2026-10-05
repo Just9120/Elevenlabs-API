@@ -60,7 +60,7 @@ def test_timed_live_metadata_survives_restart_encrypted_and_revision_protected(d
 
     db, project, _ = draft_db
     now = datetime(2026, 10, 4, tzinfo=timezone.utc)
-    metadata = [{"id": "capture.0", "start_seconds": 1.25, "end_seconds": 3.5, "speaker": 2}, None]
+    metadata = [{"id": "capture.0", "session_id": "session_capture_123456", "start_seconds": 1.25, "end_seconds": 3.5, "speaker": 2}, None]
     kwargs = dict(owner_user_id="owner-1", project=project, client_session_id="session_123456789",
                   revision=1, committed_segments=["Спикер", "Старый фрагмент"], partial="",
                   settings=DraftSettings(), now=now, segment_metadata=metadata)
@@ -80,6 +80,7 @@ def test_timed_live_metadata_survives_restart_encrypted_and_revision_protected(d
 @pytest.mark.parametrize("metadata", [[], [{"id": "x", "start_seconds": -1, "end_seconds": 2}],
     [{"id": "x", "start_seconds": 0, "end_seconds": float("inf")}],
     [{"id": "x", "speaker": True}], [{"id": "x", "raw_audio": "forbidden"}],
+    [{"id": "x", "session_id": "../unsafe"}],
     [{"id": "../unsafe"}], [{"id": "x"}, {"id": "x"}]])
 def test_live_metadata_rejects_invalid_shape_or_unsafe_timing(draft_db, metadata):
     from studio_api.realtime_drafts import save_realtime_draft, RealtimeDraftError

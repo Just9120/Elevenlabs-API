@@ -318,7 +318,9 @@ def _normalize_segment_metadata(value, count: int) -> tuple[dict | None, ...] | 
         if item is None:
             normalized.append(None)
             continue
-        if not isinstance(item, dict) or set(item) - {"id", "start_seconds", "end_seconds", "speaker", "gap"}:
+        if not isinstance(item, dict) or set(item) - {"id", "session_id", "start_seconds", "end_seconds", "speaker", "gap"}:
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        if "session_id" in item and (not isinstance(item["session_id"], str) or not CLIENT_SESSION_PATTERN.fullmatch(item["session_id"])):
             raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
         identity = item.get("id")
         if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", identity) or identity in seen:
