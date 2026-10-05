@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+import json
+import math
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -116,7 +118,7 @@ def render_audio_result(db, *, job, root, settings, output_root=None, paths=None
                         storage_factory=get_source_storage,
                         drive_token_resolver=refresh_user_google_drive_access_token,
                         drive_content_fetcher=fetch_drive_file_content,
-                        runner=None, check=lambda: None, progress=lambda ratio: None, clock=utcnow):
+                        runner=None, check=lambda: None, progress=lambda ratio: None, clock=utcnow, preview=False):
     """Render into the caller's temporary directory; never persist finished bytes."""
     check()
     if paths is None:
@@ -128,7 +130,24 @@ def render_audio_result(db, *, job, root, settings, output_root=None, paths=None
         for path in paths:
             check()
             probes.append(probe_media(path, runner=runner) if runner else probe_media(path))
+    # All originals remain in scratch even when the sample selects one input.
+    input_bytes = sum(path.stat().st_size for path in paths)
     options = deserialize_options(job)
+    preview_start = 0.0
+    if preview:
+        options = replace(options, output_format=AudioOutputFormat.wav)
+        position = 0
+        if job.visual_analysis_json:
+            for source in json.loads(job.visual_analysis_json).get("sources", []):
+                pauses = source.get("silences", [])
+                if pauses:
+                    position = source["position"]
+                    preview_start = max(0.0, pauses[0]["start"] - 5)
+                    break
+        if (not isinstance(position, int) or position < 0 or position >= len(paths)
+            or not math.isfinite(preview_start) or preview_start >= probes[position].duration_seconds):
+            raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
+        paths, probes = [paths[position]], [probes[position]]
     creation_time = _earliest_creation_time(job)
     extension = _output_extension(job, options, paths)
     output_root = output_root or root
@@ -148,7 +167,6 @@ def render_audio_result(db, *, job, root, settings, output_root=None, paths=None
         concat_list_path=concat_path,
         creation_time=creation_time,
     )
-    input_bytes = sum(path.stat().st_size for path in paths)
     output_budget = min(
         getattr(settings, "audio_preparation_max_output_bytes", settings.source_max_upload_bytes),
         getattr(settings, "audio_preparation_max_scratch_bytes", 3 * 1024**3) - input_bytes - _SCRATCH_RESERVE_BYTES,
@@ -159,10 +177,15 @@ def render_audio_result(db, *, job, root, settings, output_root=None, paths=None
     # FFmpeg limits the file while writing, rather than after exhausting tmpfs.
     command[1:1] = ["-filter_threads", "2", "-filter_complex_threads", "2"]
     command[-1:-1] = ["-threads", "2", "-fs", str(output_budget)]
+    if preview:
+        command[command.index("-i"):command.index("-i")] = ["-ss", str(preview_start), "-t", "60"]
+        command[-1:-1] = ["-t", "30"]
     expected_duration_seconds = max(
         1.0,
         (job.estimated_output_duration_ms or job.total_input_duration_ms or 1000) / 1000,
     )
+    if preview:
+        expected_duration_seconds = min(30.0, expected_duration_seconds)
     if runner:
         run_processing(command, runner=runner)
     else:
@@ -176,6 +199,8 @@ def render_audio_result(db, *, job, root, settings, output_root=None, paths=None
     if output_size >= output_budget:
         raise AudioPreparationError(AudioPreparationReason.output_too_large)
     output_probe = probe_media(output_path, runner=runner) if runner else probe_media(output_path)
+    if preview and output_probe.duration_seconds > 31:
+        raise AudioPreparationError(AudioPreparationReason.processing_failed)
     if output_size <= 0:
         raise AudioPreparationError(AudioPreparationReason.processing_failed)
     if output_size > getattr(
@@ -194,7 +219,8 @@ def render_audio_result(db, *, job, root, settings, output_root=None, paths=None
     if options.output_format is AudioOutputFormat.copy:
         output_filename = f"{Path(output_filename).stem}.{extension}"
     mime_type = _output_mime(options, job)
-    return RenderedAudio(output_path, job.output_filename or output_filename, job.output_mime_type or mime_type, output_size, round(output_probe.duration_seconds * 1000))
+    return RenderedAudio(output_path, "Фрагмент.wav" if preview else job.output_filename or output_filename,
+        "audio/wav" if preview else job.output_mime_type or mime_type, output_size, round(output_probe.duration_seconds * 1000))
 
 def _earliest_creation_time(job) -> datetime | None:
     values = [item.source.source_created_at for item in job.inputs if item.source and item.source.source_created_at]

@@ -230,10 +230,75 @@ def test_regeneration_admission_is_owner_scoped_and_source_checked(state, failur
 def test_cache_and_delivery_cannot_be_read_by_another_owner(state):
     prepare(state)
     render(state)
-    for operation in [state.manager.status, state.manager.take]:
+    for operation in [state.manager.status, state.manager.take, state.manager.listen]:
         with pytest.raises(AudioPreparationServiceError, match="not_found"):
             operation(owner="stranger", job_id=state.job.id)
     assert artifact(state).exists()
+
+
+def test_native_playback_uses_ranges_without_extending_retention_or_consuming_download(state):
+    from fastapi import FastAPI
+    from fastapi.responses import FileResponse
+    from fastapi.testclient import TestClient
+    prepare(state)
+    render(state)
+    state.db.refresh(state.job)
+    expires_at = state.job.download_expires_at
+    app = FastAPI()
+    @app.get("/listen")
+    def listen():
+        result = state.manager.listen(owner="owner", job_id=state.job.id)
+        return FileResponse(result.path, media_type=result.mime_type, headers={"Cache-Control": "private, no-store"})
+    client = TestClient(app)
+    first = client.get("/listen", headers={"range": "bytes=0-3"})
+    assert first.status_code == 206 and first.content == b"proc"
+    assert first.headers["content-range"] == "bytes 0-3/15"
+    second = client.get("/listen", headers={"range": "bytes=4-7"})
+    assert second.status_code == 206 and second.content == b"esse"
+    state.db.refresh(state.job)
+    assert state.job.download_expires_at == expires_at and state.job.download_slot == 1
+    assert send_response(stream_audio_download(state.manager, owner="owner", job_id=state.job.id)) == b"processed-audio"
+
+
+def test_preview_sample_does_not_become_full_result_or_start_transcription(state):
+    import json
+    from studio_api.audio_preparation_service import start_audio_preparation_job
+    state.job.status = AudioPreparationStatus.preview_ready
+    state.job.current_stage = "preview_ready"
+    state.job.output_filename = state.job.output_mime_type = state.job.output_size_bytes = state.job.output_duration_ms = None
+    state.job.total_input_duration_ms = state.job.estimated_output_duration_ms = 60000
+    state.job.visual_analysis_json = json.dumps({"sources": [{"position": 0, "silences": [{"start": 25, "end": 30}]}]})
+    state.db.commit()
+    assert state.manager.prepare(state.db, owner="owner", job_id=state.job.id, preview=True)["state"] == "preparing"
+    commands = []
+    def preview_runner(command, **kwargs):
+        commands.append(command)
+        result = runner(command, **kwargs)
+        if command[0] == "ffprobe" and str(command[-1]).endswith("processed-output.wav"):
+            payload = json.loads(result.stdout)
+            payload["streams"][0]["duration"] = payload["format"]["duration"] = "30"
+            return SimpleNamespace(stdout=json.dumps(payload), stderr="")
+        return result
+    render(state, media_runner=preview_runner)
+    state.db.refresh(state.job)
+    assert state.job.status is AudioPreparationStatus.preview_ready and state.job.output_filename is None
+    assert state.job.output_source_id is None and state.job.output_size_bytes is None and state.storage.puts == []
+    command = next(command for command in commands if command[0] == "ffmpeg")
+    assert command[command.index("-t") + 1] == "60" and command[-1].endswith(".wav")
+    assert command[command.index("-t", command.index("-i")) + 1] == "30"
+    assert command[command.index("-ss") + 1] == "20" and command.index("-ss") < command.index("-i")
+    sample = state.manager.listen(owner="owner", job_id=state.job.id)
+    assert sample.filename == "Фрагмент.wav" and sample.mime_type == "audio/wav"
+    with pytest.raises(AudioDownloadError, match="download_not_ready"):
+        state.manager.take(owner="owner", job_id=state.job.id)
+    with pytest.raises(AudioPreparationServiceError, match="invalid_state"):
+        start_audio_preparation_job(state.db, owner_user_id="owner", job_id=state.job.id)
+    state.db.rollback()
+    state.manager.cancel(state.db, owner="owner", job_id=state.job.id)
+    state.db.refresh(state.job)
+    assert state.job.status is AudioPreparationStatus.preview_ready and state.job.current_stage == "preview_ready"
+    assert state.job.download_slot is None and not sample.path.exists()
+    assert start_audio_preparation_job(state.db, owner_user_id="owner", job_id=state.job.id).status is AudioPreparationStatus.queued
 
 
 def test_drive_export_cannot_steal_queued_download(state):

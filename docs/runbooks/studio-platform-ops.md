@@ -1227,6 +1227,14 @@ ready/transfer deadline15min. API janitor каждые30s выбирает до1
 завершение stream также освобождают slot. Нельзя очищать volume вслепую при
 активной операции или заменять его persistent S3 хранения результата.
 
+Preview sample также занимает этот slot: отдельный worker обрабатывает60s окно
+возле первой обнаруженной паузы или начала записи и отдаёт не более30s WAV.
+Sample сохраняет статус preview_ready, не публикует полный результат и не
+запускает транскрибацию. Native playback поддерживает byte ranges, не продлевает
+TTL; закрытие примера обязательно перед full start. Анализ хранит только bounded
+waveform/silence metadata512 points/intervals; raw PCM и decoder output не
+попадают в DB/logs. Integrity/visual analysis совмещены в один полный decode.
+
 Migration0040 добавляет nullable result/download metadata и unique slot без
 удаления historical output Sources. Она одновременно сохраняет Live/unfinished
 provider text до явной retirement, добавляет source lifecycle поля и index.

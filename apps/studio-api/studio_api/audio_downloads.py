@@ -99,7 +99,9 @@ def mark_worker_download_ready(db, *, job, result, root: Path, now: datetime, ow
         raise AudioDownloadError("download_unavailable")
     result.path.rename(directory / "output")
     result.path.parent.rmdir()
-    job.output_size_bytes = result.size_bytes
+    job.download_size_bytes = result.size_bytes
+    if not job.download_preview:
+        job.output_size_bytes = result.size_bytes
     job.current_stage = "audio_download_ready"
     job.download_expires_at = _naive(now + timedelta(seconds=READY_TTL_SECONDS))
     job.progress_percent = 100
@@ -195,7 +197,7 @@ class AudioDownloadManager:
         state = "ready" if job.current_stage == "audio_download_ready" else "preparing"
         return {"state": state, "percent": job.progress_percent, "reason": None}
 
-    def prepare(self, db, *, owner: str, job_id: str):
+    def prepare(self, db, *, owner: str, job_id: str, preview: bool = False):
         if not self.cache_root.is_dir() or self.cache_root.is_symlink():
             raise AudioDownloadError("download_unavailable")
         job = load_owned_audio_preparation_job(db, owner_user_id=owner, job_id=job_id)
@@ -203,11 +205,13 @@ class AudioDownloadManager:
         if not project or project.owner_user_id != owner or project.archived_at:
             raise AudioPreparationServiceError(AudioPreparationServiceReason.project_unavailable)
         if job.download_slot == 1 and job.download_expires_at and _naive(job.download_expires_at) > _naive(self.clock()):
+            if job.download_preview != preview:
+                raise AudioDownloadError("download_busy")
             if job.current_stage == "audio_download_transferring":
                 raise AudioDownloadError("download_busy")
             if job.current_stage == "audio_download_ready":
                 path = download_directory(self.cache_root, job.download_request_id) / "output"
-                if path.is_symlink() or not path.is_file() or path.stat().st_size != job.output_size_bytes:
+                if path.is_symlink() or not path.is_file() or path.stat().st_size != job.download_size_bytes:
                     job.download_expires_at = _naive(self.clock())
                     db.flush()
                     expire_audio_downloads(db, root=self.cache_root, now=self.clock())
@@ -223,11 +227,14 @@ class AudioDownloadManager:
         job = db.execute(select(AudioPreparationJob).where(AudioPreparationJob.id == job_id,
             AudioPreparationJob.owner_user_id == owner).with_for_update()
             .execution_options(populate_existing=True)).scalar_one()
-        if job.status is not AudioPreparationStatus.completed or not job.output_filename or job.output_source_id:
+        if (preview and job.status is not AudioPreparationStatus.preview_ready) or (not preview and (
+            job.status is not AudioPreparationStatus.completed or not job.output_filename or job.output_source_id)):
             raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
         if job.current_stage == "audio_download_transferring":
             raise AudioDownloadError("download_busy")
         if job.download_slot == 1 and job.current_stage in DOWNLOAD_ACTIVE_STAGES:
+            if job.download_preview != preview:
+                raise AudioDownloadError("download_busy")
             db.commit()
             return self._payload(job)
         if job.current_stage in AUDIO_DRIVE_EXPORT_STAGES or (job.lease_owner_id and job.lease_expires_at
@@ -239,6 +246,8 @@ class AudioDownloadManager:
         job.download_previous_stage = job.current_stage
         job.download_request_id = str(uuid.uuid4())
         job.download_slot = 1
+        job.download_preview = preview
+        job.download_size_bytes = None
         job.download_expires_at = _naive(self.clock() + DOWNLOAD_WORK_TTL)
         job.download_error_code = None
         job.current_stage = "audio_download_queued"
@@ -289,17 +298,32 @@ class AudioDownloadManager:
                 raise AudioPreparationServiceError(AudioPreparationServiceReason.not_found)
             if not job.download_request_id or not job.download_expires_at or _naive(job.download_expires_at) <= _naive(self.clock()):
                 raise AudioDownloadError("download_expired")
-            if job.current_stage != "audio_download_ready" or job.download_slot != 1:
+            if job.current_stage != "audio_download_ready" or job.download_slot != 1 or job.download_preview:
                 raise AudioDownloadError("download_not_ready")
             path = download_directory(self.cache_root, job.download_request_id) / "output"
-            if path.is_symlink() or not path.is_file() or path.stat().st_size != job.output_size_bytes:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != job.download_size_bytes:
                 raise AudioDownloadError("download_expired")
             result = DownloadTransfer(owner, job.id, job.download_request_id, path,
-                job.output_filename, job.output_mime_type, job.output_size_bytes)
+                "Фрагмент.wav" if job.download_preview else job.output_filename, "audio/wav" if job.download_preview else job.output_mime_type, job.download_size_bytes)
             job.current_stage = "audio_download_transferring"
             job.download_expires_at = _naive(self.clock() + timedelta(seconds=READY_TTL_SECONDS))
             db.commit()
             return result
+
+    def listen(self, *, owner, job_id):
+        with self.session_factory() as db:
+            job = load_owned_audio_preparation_job(db, owner_user_id=owner, job_id=job_id)
+            project = db.get(Project, job.project_id)
+            if not project or project.owner_user_id != owner or project.archived_at:
+                raise AudioPreparationServiceError(AudioPreparationServiceReason.project_unavailable)
+            if (job.current_stage != "audio_download_ready" or job.download_slot != 1
+                or not job.download_expires_at or _naive(job.download_expires_at) <= _naive(self.clock())):
+                raise AudioDownloadError("download_expired")
+            path = download_directory(self.cache_root, job.download_request_id) / "output"
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != job.download_size_bytes:
+                raise AudioDownloadError("download_expired")
+            return DownloadTransfer(owner, job.id, job.download_request_id, path,
+                "Фрагмент.wav" if job.download_preview else job.output_filename, "audio/wav" if job.download_preview else job.output_mime_type, job.download_size_bytes)
 
     def discard(self, entry: DownloadTransfer):
         with self.session_factory() as db:

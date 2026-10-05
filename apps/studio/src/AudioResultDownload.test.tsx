@@ -76,4 +76,19 @@ describe("transient audio download", () => {
     expect(onActiveChange.mock.calls).toEqual([["audio", true], ["audio", false]]);
     expect(screen.getByRole("button", { name: "Подготовить файл для скачивания" })).toBeEnabled();
   });
+
+  it("explicitly prepares a bounded listening sample before full processing", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("/api/audio-preparations/audio/preview-audio");
+      return json({ state: "ready", percent: 100 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AudioResultDownload jobId="audio" csrf="csrf" onCsrf={vi.fn()} preview />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Прослушать пример обработки" })); });
+    expect(screen.getByLabelText("Прослушать пример обработки")).toHaveAttribute("preload", "none");
+    expect(screen.getByText(/Фрагмент до 30 секунд/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Скачать файл" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Закрыть пример" })).toBeEnabled();
+  });
 });

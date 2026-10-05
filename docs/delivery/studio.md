@@ -171,7 +171,7 @@
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-31` | BACKLOG | — | — | — | F59; duration estimate есть, waveform/interval visualisation и compare playback отсутствуют в AudioPreparationPage.tsx. |
+| `AP-31` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal audio visual diff2026-10-06: bounded waveform/паузы/сокращения и длительности; local PCM playback, server preview sample до30s и regenerated result native playback.82 Python PASS (real mono/stereo decoder),37 UI PASS, TypeScript/ESLint PASS. Owner/CSRF/Sec-Fetch/range API tests добавлены; Linux/PostgreSQL/browser gate PENDING. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -12,10 +13,8 @@ from .audio_preparation import (
     AudioPreparationError,
     AudioPreparationReason,
     AudioProbe,
-    analyze_silence,
     build_preview,
     probe_media,
-    verify_media_integrity,
 )
 from .audio_preparation_service import (
     AudioPreparationServiceError,
@@ -27,6 +26,7 @@ from .audio_preparation_service import (
     finalize_cancelled_audio_preparation_job,
 )
 from .audio_result_rendering import materialize_audio_inputs as _materialize_inputs, render_audio_result
+from .audio_analysis import analyze_audio_visual, visual_payload, MAX_WAVEFORM_POINTS
 from .google_connection_access import refresh_user_google_drive_access_token
 from .google_drive import fetch_drive_file_content
 from .google_drive_upload import upload_file_resumable
@@ -82,7 +82,7 @@ def process_claimed_audio_preparation_job(
     try:
         with temp_directory_factory(prefix="studio-audio-preparation-") as temp_dir:
             root = Path(temp_dir)
-            if job.status is AudioPreparationStatus.completed:
+            if job.status in {AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready}:
                 if job.current_stage == "audio_download_rendering":
                     from .audio_downloads import create_worker_download_directory, mark_worker_download_ready
                     delivery_root = Path(settings.audio_delivery_directory)
@@ -101,13 +101,13 @@ def process_claimed_audio_preparation_job(
                     result = render_audio_result(db, job=job, root=root, output_root=output_root,
                         settings=settings, storage_factory=storage_factory,
                         drive_token_resolver=drive_token_resolver, drive_content_fetcher=drive_content_fetcher,
-                        runner=runner, check=check_download, clock=utcnow,
+                        runner=runner, check=check_download, clock=utcnow, preview=job.download_preview,
                         progress=lambda ratio: _checkpoint(db, job, "audio_download_rendering", max(job.progress_percent, min(99, 10 + round(max(0, min(1, ratio)) * 89)))))
                     check_download()
                     mark_worker_download_ready(db, job=job, result=result, root=delivery_root, now=utcnow(),
                         owner=lease_owner_id, generation=lease_generation, request_id=request_id)
                     db.commit()
-                    return AudioProcessingResult(job.id, "completed", "audio_download_ready", False)
+                    return AudioProcessingResult(job.id, job.status.value, "audio_download_ready", False)
                 return _export_existing_output(db, job=job, root=root, settings=settings, storage_factory=storage_factory, drive_token_resolver=drive_token_resolver, drive_uploader=drive_uploader, lease_owner_id=lease_owner_id, lease_generation=lease_generation, runner=runner, drive_content_fetcher=drive_content_fetcher)
             paths = _materialize_inputs(
                 db,
@@ -120,34 +120,32 @@ def process_claimed_audio_preparation_job(
             )
             options = deserialize_options(job)
             probes: list[AudioProbe] = []
-            silence_durations: list[float] = []
+            analyses = []
             is_preview = job.status is AudioPreparationStatus.analyzing
             if is_preview:
                 _checkpoint(db, job, "analyzing", 10)
             else:
                 _checkpoint(db, job, "materializing", 10)
-            for index, path in enumerate(paths):
+            for path in paths:
+                _require_not_cancelled(db, job)
                 probes.append(probe_media(path, runner=runner) if runner else probe_media(path))
-                if is_preview and options.silence_enabled:
-                    silence_durations.extend(
-                        analyze_silence(
-                            path,
-                            threshold_db=options.silence_threshold_db,
-                            minimum_seconds=options.silence_min_duration_seconds,
-                            runner=runner,
-                        )
-                        if runner
-                        else analyze_silence(
-                            path,
-                            threshold_db=options.silence_threshold_db,
-                            minimum_seconds=options.silence_min_duration_seconds,
-                        )
-                    )
-                elif is_preview:
-                    verify_media_integrity(path, runner=runner) if runner else verify_media_integrity(path)
+            preview = build_preview(probes, (), options)
+            remaining_points, remaining_duration = MAX_WAVEFORM_POINTS, preview.input_duration_seconds
+            for index, path in enumerate(paths):
+                if is_preview:
+                    points = max(1, min(remaining_points - (len(paths) - index - 1),
+                        math.floor(remaining_points * probes[index].duration_seconds / remaining_duration)))
+                    analysis = analyze_audio_visual(path, duration=probes[index].duration_seconds, channels=probes[index].channels, sample_rate=probes[index].sample_rate, options=options,
+                        points=points,
+                        runner=runner, check=lambda: _require_not_cancelled(db, job))
+                    analyses.append(analysis)
+                    remaining_points -= points
+                    remaining_duration = max(0.001, remaining_duration - probes[index].duration_seconds)
                 if is_preview:
                     _checkpoint(db, job, "analyzing", 10 + round(((index + 1) / len(paths)) * 80))
-            preview = build_preview(probes, silence_durations, options)
+            if is_preview:
+                preview = replace(preview, estimated_output_duration_seconds=max(0.0,
+                    preview.input_duration_seconds - sum(item.removed_seconds for item in analyses)))
             if job.status is AudioPreparationStatus.analyzing:
                 complete_audio_preview(
                     db,
@@ -157,6 +155,7 @@ def process_claimed_audio_preparation_job(
                     total_input_duration_ms=round(preview.input_duration_seconds * 1000),
                     estimated_output_duration_ms=round(preview.estimated_output_duration_seconds * 1000),
                     copy_compatible=preview.copy_compatible,
+                    visual_analysis=visual_payload(analyses, [probe.duration_seconds for probe in probes], options.silence_keep_duration_seconds),
                 )
                 db.commit()
                 return AudioProcessingResult(job.id, "preview_ready", "preview_ready", False)
@@ -279,7 +278,7 @@ def _load_claimed_job(db, job_id, owner, generation) -> AudioPreparationJob:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.not_found)
     if job.lease_owner_id != owner or job.lease_generation != generation:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
-    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not (job.status is AudioPreparationStatus.completed and job.current_stage in ("google_drive_upload", "audio_download_rendering")):
+    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not ((job.status is AudioPreparationStatus.completed and job.current_stage == "google_drive_upload") or (job.status in {AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready} and job.current_stage == "audio_download_rendering")):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
     job._processing_lease = (owner, generation)
     return job

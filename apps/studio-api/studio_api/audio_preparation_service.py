@@ -165,7 +165,7 @@ def start_audio_preparation_job(
     db: Session, *, owner_user_id: str, job_id: str
 ) -> AudioPreparationJob:
     job = _locked_owned_job(db, owner_user_id, job_id)
-    if job.status is not AudioPreparationStatus.preview_ready:
+    if job.status is not AudioPreparationStatus.preview_ready or job.download_slot == 1:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
     job.status = AudioPreparationStatus.queued
     job.current_stage = "queued"
@@ -237,7 +237,7 @@ def cancel_audio_preparation_job(
 ) -> AudioPreparationJob:
     job = _locked_owned_job(db, owner_user_id, job_id)
     _recover_legacy_stored_output(db, job, now=now)
-    if job.status is AudioPreparationStatus.completed and job.current_stage in AUDIO_DOWNLOAD_WORK_STAGES:
+    if job.status in {AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready} and job.current_stage in AUDIO_DOWNLOAD_WORK_STAGES:
         job.cancel_requested_at = _naive_utc(now)
         if job.current_stage == "audio_download_queued":
             job.current_stage = job.download_previous_stage or "completed"
@@ -284,8 +284,8 @@ def claim_next_audio_preparation_job(
     claimable = tuple(CLAIMABLE_AUDIO_PREPARATION_STATUSES)
     export_queued = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "google_drive_export_queued")
     export_running = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "google_drive_upload")
-    download_queued = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "audio_download_queued", AudioPreparationJob.download_expires_at > _naive_utc(now))
-    download_running = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "audio_download_rendering", AudioPreparationJob.download_expires_at > _naive_utc(now))
+    download_queued = and_(AudioPreparationJob.status.in_((AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready)), AudioPreparationJob.current_stage == "audio_download_queued", AudioPreparationJob.download_expires_at > _naive_utc(now))
+    download_running = and_(AudioPreparationJob.status.in_((AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready)), AudioPreparationJob.current_stage == "audio_download_rendering", AudioPreparationJob.download_expires_at > _naive_utc(now))
     active = or_(AudioPreparationJob.status.in_((AudioPreparationStatus.analyzing, AudioPreparationStatus.processing)), export_running, download_running)
     job = db.execute(
         select(AudioPreparationJob)
@@ -315,7 +315,7 @@ def claim_next_audio_preparation_job(
     job.lease_owner_id = owner
     job.claimed_at = _naive_utc(now)
     job.lease_expires_at = _naive_utc(now + lease_ttl)
-    if job.status is AudioPreparationStatus.completed:
+    if job.status in {AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready}:
         job.current_stage = "audio_download_rendering" if job.current_stage in AUDIO_DOWNLOAD_WORK_STAGES else "google_drive_upload"
         job.progress_percent = 5
     elif job.status in {AudioPreparationStatus.preview_queued, AudioPreparationStatus.analyzing}:
@@ -381,6 +381,7 @@ def complete_audio_preview(
     total_input_duration_ms: int,
     estimated_output_duration_ms: int,
     copy_compatible: bool,
+    visual_analysis: dict | None = None,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
     if job.status is not AudioPreparationStatus.analyzing:
@@ -388,6 +389,7 @@ def complete_audio_preview(
     job.total_input_duration_ms = total_input_duration_ms
     job.estimated_output_duration_ms = estimated_output_duration_ms
     job.copy_compatible = copy_compatible
+    job.visual_analysis_json = json.dumps(visual_analysis, separators=(",", ":")) if visual_analysis is not None else None
     job.status = AudioPreparationStatus.preview_ready
     job.current_stage = "preview_ready"
     job.progress_percent = 100
@@ -407,7 +409,7 @@ def fail_audio_preparation_job(
     now: datetime,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
-    if job.status is AudioPreparationStatus.completed and job.current_stage == "audio_download_rendering":
+    if job.current_stage == "audio_download_rendering":
         job.current_stage = job.download_previous_stage or "completed"
         job.progress_percent = 100
         job.download_error_code = (error_code or "processing_failed")[:80]
@@ -438,7 +440,7 @@ def finalize_cancelled_audio_preparation_job(
     now: datetime,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
-    if job.status is AudioPreparationStatus.completed and job.current_stage == "audio_download_rendering":
+    if job.current_stage == "audio_download_rendering":
         return fail_audio_preparation_job(db, job_id=job_id, lease_owner_id=lease_owner_id,
             lease_generation=lease_generation, error_code="cancellation_requested", now=now)
     if job.cancel_requested_at is None:
@@ -466,7 +468,9 @@ def renew_audio_preparation_lease(
     lease_ttl: timedelta,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
-    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not (job.status is AudioPreparationStatus.completed and job.current_stage in ("google_drive_upload", "audio_download_rendering")):
+    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not (
+        (job.status in {AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready} and job.current_stage == "audio_download_rendering")
+        or (job.status is AudioPreparationStatus.completed and job.current_stage == "google_drive_upload")):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
     if job.lease_expires_at is None or _naive_utc(job.lease_expires_at) <= _naive_utc(now):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
@@ -509,6 +513,7 @@ def audio_preparation_payload(job: AudioPreparationJob, *, now: datetime | None 
                 "input_duration_seconds": job.total_input_duration_ms / 1000,
                 "estimated_output_duration_seconds": job.estimated_output_duration_ms / 1000,
                 "copy_compatible": bool(job.copy_compatible),
+                "visual": json.loads(job.visual_analysis_json) if job.visual_analysis_json else None,
             }
             if job.total_input_duration_ms is not None
             and job.estimated_output_duration_ms is not None

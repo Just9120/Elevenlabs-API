@@ -8905,7 +8905,8 @@ def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
     assert client.post(route, headers=headers, json={"folder_id": "folder"}).json()["id"] == job_id
 
 
-def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path, monkeypatch):
+@pytest.mark.parametrize("sample", [False, True])
+def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path, monkeypatch, sample):
     from studio_api.audio_downloads import AudioDownloadManager
     from studio_api.models import AudioPreparationJob, AudioPreparationJobInput, AudioPreparationStatus
     from studio_api import main as api_main
@@ -8926,14 +8927,18 @@ def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path,
         db.add(source)
         db.flush()
         job = AudioPreparationJob(project_id=project_id, owner_user_id=owner.id, title="Лекция",
-            options_json='{"output_format":"flac"}', status=AudioPreparationStatus.completed,
-            current_stage="completed", output_filename="Лекция.flac", output_mime_type="audio/flac", output_size_bytes=14)
+            options_json='{"output_format":"flac"}',
+            status=AudioPreparationStatus.preview_ready if sample else AudioPreparationStatus.completed,
+            current_stage="preview_ready" if sample else "completed",
+            output_filename=None if sample else "Лекция.flac", output_mime_type="audio/flac", output_size_bytes=14)
         db.add(job)
         db.flush()
         db.add(AudioPreparationJobInput(job_id=job.id, source_id=source.id, position=0, ephemeral_reference=True))
         db.commit()
         job_id = job.id
-    route = f"/api/audio-preparations/{job_id}/download"
+    route = f"/api/audio-preparations/{job_id}/{'preview-audio' if sample else 'download'}"
+    download_route = f"/api/audio-preparations/{job_id}/download"
+    listen_route = f"/api/audio-preparations/{job_id}/listen"
     assert TestClient(app).post(route, headers=headers).status_code == 401
     assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403
     assert client.post(route, headers={**headers, "origin": "https://foreign.test"}).status_code == 403
@@ -8949,17 +8954,22 @@ def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path,
         request_id = persisted.download_request_id
         assert persisted.current_stage == "audio_download_queued" and persisted.download_slot == 1
         assert persisted.output_source_id is None and persisted.lease_owner_id is None
+        assert persisted.download_preview is sample
         assert db.execute(select(func.count(Source.id)).where(Source.project_id == project_id)).scalar_one() == 1
     assert client.post(route, headers=headers).json()["state"] == "preparing"
     with SessionLocal() as db:
         assert db.get(AudioPreparationJob, job_id).download_request_id == request_id
     for site in ("cross-site", "same-site"):
-        assert client.get(route, headers={"sec-fetch-site": site}).status_code == 403
-    assert client.get(route).status_code == 409
-    assert other.get(route + "/status").status_code == 404
-    assert other.post(route + "/cancel", headers=other_headers).status_code == 404
-    assert client.post(route + "/cancel", headers=headers).status_code == 200
-    assert client.get(route + "/status").json()["reason"] == "cancellation_requested"
+        assert client.get(download_route, headers={"sec-fetch-site": site}).status_code == 403
+        assert client.get(listen_route, headers={"sec-fetch-site": site}).status_code == 403
+    assert TestClient(app).get(listen_route).status_code == 401
+    assert other.get(listen_route).status_code == 404
+    assert client.get(listen_route).status_code == 409
+    assert client.get(download_route).status_code == 409
+    assert other.get(download_route + "/status").status_code == 404
+    assert other.post(download_route + "/cancel", headers=other_headers).status_code == 404
+    assert client.post(download_route + "/cancel", headers=headers).status_code == 200
+    assert client.get(download_route + "/status").json()["reason"] == "cancellation_requested"
 
 
 def test_audio_reuse_imports_only_verified_drive_copy_and_is_idempotent(monkeypatch):

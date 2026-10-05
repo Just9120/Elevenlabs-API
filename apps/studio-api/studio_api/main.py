@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
 from sqlalchemy import and_, text, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -3369,6 +3369,20 @@ def reuse_prepared_audio(job_id: str, pair=Depends(require_csrf), db: Session=De
     return source_payload(source)
 
 
+@app.post("/api/audio-preparations/{job_id}/preview-audio")
+def prepare_audio_sample(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:download:" + user.id, 30, 3600)
+    try:
+        return audio_downloads.prepare(db, owner=user.id, job_id=job_id, preview=True)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    except AudioDownloadError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+
+
 @app.post("/api/audio-preparations/{job_id}/download")
 def prepare_audio_download(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
     _, user = pair
@@ -3407,6 +3421,24 @@ def cancel_audio_download(job_id: str, pair=Depends(require_csrf), db: Session=D
     except AudioDownloadError as exc:
         db.rollback()
         raise HTTPException(409, detail={"reason": exc.reason}) from None
+
+
+@app.get("/api/audio-preparations/{job_id}/listen")
+def listen_audio_result(job_id: str, request: Request, pair=Depends(current_session), db: Session=Depends(get_db)):
+    if request.headers.get("sec-fetch-site", "none") not in {"same-origin", "none"}:
+        raise HTTPException(403, detail={"reason": "same_origin_required"})
+    _, user = pair
+    owner_id = user.id
+    db.rollback()
+    try:
+        result = audio_downloads.listen(owner=owner_id, job_id=job_id)
+    except AudioDownloadError as exc:
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+    # Native media controls use byte ranges; reads never extend the fixed TTL.
+    return FileResponse(result.path, media_type=result.mime_type, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/audio-preparations/{job_id}/download")

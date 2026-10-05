@@ -254,12 +254,12 @@ def queue_runtime_status(db, *, now: datetime | None = None) -> dict[str, object
     transcription_processing = db.query(TranscriptionJob).filter(TranscriptionJob.status == JobStatus.processing).count()
     audio_queued_expression = or_(
         AudioPreparationJob.status.in_((AudioPreparationStatus.preview_queued, AudioPreparationStatus.queued)),
-        and_(AudioPreparationJob.status == AudioPreparationStatus.completed,
+        and_(AudioPreparationJob.status.in_((AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready)),
             AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "audio_download_queued"))),
     )
     audio_processing_expression = or_(
         AudioPreparationJob.status.in_((AudioPreparationStatus.analyzing, AudioPreparationStatus.processing)),
-        and_(AudioPreparationJob.status == AudioPreparationStatus.completed,
+        and_(AudioPreparationJob.status.in_((AudioPreparationStatus.completed, AudioPreparationStatus.preview_ready)),
             AudioPreparationJob.current_stage.in_(("google_drive_upload", "audio_download_rendering"))),
     )
     audio_queued = db.query(AudioPreparationJob).filter(audio_queued_expression).count()

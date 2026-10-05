@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 
 type DownloadState = { state: "idle" | "preparing" | "ready" | "failed"; percent: number; reason?: string | null };
-type Props = { jobId: string; csrf: string; onCsrf: (value: string) => void; initialActive?: boolean; onActiveChange?: (jobId: string, active: boolean) => void };
+type Props = { jobId: string; csrf: string; onCsrf: (value: string) => void; preview?: boolean; initialActive?: boolean; onActiveChange?: (jobId: string, active: boolean) => void };
 
 function parseDownload(value: unknown): DownloadState {
   const status = value as DownloadState | null;
@@ -31,9 +31,10 @@ function message(reason?: string | null) {
   } as Record<string, string>)[reason ?? ""] ?? "Не удалось подготовить скачивание. Параметры сохранены; повторите позже.";
 }
 
-export function AudioResultDownload({ jobId, csrf, onCsrf, initialActive = false, onActiveChange }: Props) {
+export function AudioResultDownload({ jobId, csrf, onCsrf, preview = false, initialActive = false, onActiveChange }: Props) {
   const [download, setDownload] = useState<DownloadState>({ state: initialActive ? "preparing" : "idle", percent: 0 });
   const [cancelling, setCancelling] = useState(false);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const reportedActive = useRef(false);
 
   useEffect(() => {
@@ -59,10 +60,11 @@ export function AudioResultDownload({ jobId, csrf, onCsrf, initialActive = false
   }, [download.state, jobId]);
 
   async function prepare() {
+    setPlaybackFailed(false);
     setCancelling(false);
     setDownload({ state: "preparing", percent: 0 });
     try {
-      setDownload(parseDownload(await mutateWithCsrfRetry(`/audio-preparations/${jobId}/download`, csrf, onCsrf, { method: "POST" })));
+      setDownload(parseDownload(await mutateWithCsrfRetry(`/audio-preparations/${jobId}/${preview ? "preview-audio" : "download"}`, csrf, onCsrf, { method: "POST" })));
     } catch (error) {
       setDownload({ state: "failed", percent: 0, reason: failureReason(error) });
     }
@@ -81,18 +83,23 @@ export function AudioResultDownload({ jobId, csrf, onCsrf, initialActive = false
   }
 
   return <div className="audio-download-action">
-    {download.state === "ready"
+    {download.state === "ready" && !preview
       ? <a className="button-like primary" href={`/api/audio-preparations/${jobId}/download`}
           onClick={() => setDownload({ state: "idle", percent: 0 })}>Скачать файл</a>
-      : <button className="primary" type="button" disabled={download.state === "preparing"} onClick={() => void prepare()}>
-          {download.state === "preparing" ? "Готовим скачивание…" : "Подготовить файл для скачивания"}
+      : download.state !== "ready" && <button className="primary" type="button" disabled={download.state === "preparing"} onClick={() => void prepare()}>
+          {download.state === "preparing" ? preview ? "Готовим фрагмент…" : "Готовим скачивание…" : preview ? "Прослушать пример обработки" : "Подготовить файл для скачивания"}
         </button>}
     {download.state === "preparing" && <>
       <p role="status">{cancelling ? "Отменяем подготовку…" : `Собираем файл из исходников · ${download.percent}%`}</p>
-      <progress aria-label="Подготовка скачивания" max="100" value={download.percent} />
-      <button type="button" disabled={cancelling} onClick={() => void cancel()}>Отменить скачивание</button>
+      <progress aria-label={preview ? "Подготовка примера" : "Подготовка скачивания"} max="100" value={download.percent} />
+      <button type="button" disabled={cancelling} onClick={() => void cancel()}>{preview ? "Отменить подготовку примера" : "Отменить скачивание"}</button>
     </>}
-    {download.state === "ready" && <button type="button" disabled={cancelling} onClick={() => void cancel()}>Закрыть скачивание</button>}
+    {download.state === "ready" && <button type="button" disabled={cancelling} onClick={() => void cancel()}>{preview ? "Закрыть пример" : "Закрыть скачивание"}</button>}
+    {download.state === "ready" && <div>
+      <audio controls preload="none" aria-label={preview ? "Прослушать пример обработки" : "Прослушать обработанный результат"} src={`/api/audio-preparations/${jobId}/listen`} onError={() => setPlaybackFailed(true)} />
+      <p className="muted">{preview ? "Фрагмент до 30 секунд с выбранными настройками: участок возле первой найденной паузы или начало записи. Это пример, не готовый полный файл. Закройте пример перед запуском полной обработки." : "Можно прослушать результат перед скачиванием."} Временный файл доступен 15 минут; затем его можно собрать заново.</p>
+      {playbackFailed && <p role="alert" className="error">{preview ? "Не удалось воспроизвести пример. Закройте его и подготовьте заново." : "Не удалось воспроизвести файл. Он мог быть очищен либо формат не поддерживается браузером. Закройте скачивание и подготовьте его заново или скачайте файл для внешнего плеера."}</p>}
+    </div>}
     {download.state === "failed" && <p role="alert" className="error">{message(download.reason)}</p>}
   </div>;
 }
