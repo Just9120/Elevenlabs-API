@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from .audit import audit
 from .diagnostics import write_diagnostic_event
-from .security import utcnow
 from .job_retry_recovery import compute_explicit_retry_readiness
 from .models import (
     AudioPreparationJob,
@@ -147,7 +146,7 @@ def _referencing_jobs(db: Session, source_id: str, *, lock: bool) -> list[Transc
     return list(db.execute(stmt).scalars().all())
 
 
-def _active_audio_reference_predicate(source_id):
+def _active_audio_reference_predicate(source_id, now):
     input_reference = exists(select(AudioPreparationJobInput.job_id).where(
         AudioPreparationJobInput.job_id == AudioPreparationJob.id,
         AudioPreparationJobInput.source_id == source_id,
@@ -161,15 +160,17 @@ def _active_audio_reference_predicate(source_id):
             or_(AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload")),
                 and_(AudioPreparationJob.current_stage.in_(("audio_download_queued", "audio_download_rendering")),
                     AudioPreparationJob.download_slot == 1,
-                    AudioPreparationJob.download_expires_at > _aware(utcnow()).replace(tzinfo=None)))),
+                    or_(AudioPreparationJob.download_expires_at > _aware(now).replace(tzinfo=None),
+                        and_(AudioPreparationJob.lease_owner_id.is_not(None),
+                             AudioPreparationJob.lease_expires_at > _aware(now).replace(tzinfo=None)))))),
         and_(AudioPreparationJob.output_source_id == source_id,
             AudioPreparationJob.status == AudioPreparationStatus.completed,
             AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload"))),
     )
 
 
-def _active_audio_preparation_references(db: Session, source_id: str, *, lock: bool) -> list[AudioPreparationJob]:
-    stmt = select(AudioPreparationJob).where(_active_audio_reference_predicate(source_id)).order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
+def _active_audio_preparation_references(db: Session, source_id: str, *, lock: bool, now: datetime) -> list[AudioPreparationJob]:
+    stmt = select(AudioPreparationJob).where(_active_audio_reference_predicate(source_id, now)).order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
     if lock:
         stmt = stmt.with_for_update()
     return list(db.execute(stmt).scalars().all())
@@ -193,8 +194,8 @@ def _project_owner_id(db: Session, project_id: str) -> str | None:
     return project.owner_user_id if project is not None else None
 
 
-def _no_active_audio_reference_predicate():
-    return ~exists(select(AudioPreparationJob.id).where(_active_audio_reference_predicate(Source.id)))
+def _no_active_audio_reference_predicate(now):
+    return ~exists(select(AudioPreparationJob.id).where(_active_audio_reference_predicate(Source.id, now)))
 
 
 def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_jobs: list[TranscriptionJob] | None = None, discard_failed_retry: bool = False) -> SourceDeletionReason:
@@ -209,7 +210,7 @@ def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_job
             return SourceDeletionReason.processing_job_uses_source
         if not discard_failed_retry and job.status == JobStatus.failed and compute_explicit_retry_readiness(db, job, now=now).available:
             return SourceDeletionReason.retryable_failed_job_uses_source
-    if _active_audio_preparation_references(db, source.id, lock=False):
+    if _active_audio_preparation_references(db, source.id, lock=False, now=now):
         return SourceDeletionReason.audio_preparation_uses_source
     return SourceDeletionReason.available
 
@@ -303,7 +304,7 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     if project is None or project.owner_user_id != owner_user_id or project.archived_at is not None:
         return None
     jobs = _referencing_jobs(db, source.id, lock=True)
-    _active_audio_preparation_references(db, source.id, lock=True)
+    _active_audio_preparation_references(db, source.id, lock=True, now=now)
     already_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
     reason = deletion_readiness(db, source, now=now, locked_jobs=jobs, discard_failed_retry=discard_failed_retry)
     if reason not in {SourceDeletionReason.available, SourceDeletionReason.source_already_deleted}:
@@ -349,7 +350,7 @@ def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime) -> bool:
             Source.expires_at <= now,
             Source.upload_status != SourceUploadStatus.expired,
             _no_processing_reference_predicate(),
-            _no_active_audio_reference_predicate(),
+            _no_active_audio_reference_predicate(now),
         )
         .order_by(Source.expires_at.asc(), Source.id.asc())
         .limit(1)
@@ -399,13 +400,13 @@ def mark_one_fully_exported_source_for_cleanup(db: Session, *, now: datetime) ->
         Source.upload_status == SourceUploadStatus.uploaded,
         Source.deleted_at.is_(None),
         exists(relations), ~exists(unmet),
-        _no_active_audio_reference_predicate(),
+        _no_active_audio_reference_predicate(now),
     ).order_by(Source.created_at, Source.id).limit(1).with_for_update(skip_locked=True)).scalar_one_or_none()
     if src is None:
         return False
     # Both query and readback are conservative: failed/cancelled/queued jobs and
     # active audio leases preserve the source, even if another output exists.
-    if _active_audio_preparation_references(db, src.id, lock=False):
+    if _active_audio_preparation_references(db, src.id, lock=False, now=now):
         return False
     if db.execute(unmet.where(TranscriptionJobSource.source_id == src.id).correlate(None).limit(1)).first() is not None:
         return False
@@ -438,7 +439,7 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
             stale,
             or_(Source.deleted_at.is_not(None), Source.expires_at <= now),
             _no_processing_reference_predicate(),
-            _no_active_audio_reference_predicate(),
+            _no_active_audio_reference_predicate(now),
         )
         .order_by(Source.storage_cleanup_not_before_at.asc(), Source.created_at.asc(), Source.id.asc())
         .limit(1)

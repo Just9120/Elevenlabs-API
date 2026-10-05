@@ -95,6 +95,41 @@ def _settings(rate: Decimal | None = Decimal("0.22")):
     )
 
 
+def test_yandex_uses_its_own_immutable_nominal_tariff_without_elevenlabs_fallback(db):
+    from studio_api.provider_usage_accounting import begin_provider_part_usage, confirm_provider_part_usage, job_usage_cost_payload, resolve_pricing_snapshot
+    from studio_api.job_stt_transcription import _yandex_usage_available
+    from studio_api.job_retry_recovery import mark_attempt_provider_part_completed
+    _, now, job, relation, attempt = _context(db, parts=1)
+    job.provider = "yandex"
+    settings = _settings()
+    assert not _yandex_usage_available(job, settings)  # Existing ElevenLabs setting must not price Yandex.
+    settings.yandex_async_rate_per_hour_usd = Decimal("0.36")  # Synthetic fixture tariff, not a product default.
+    settings.yandex_pricing_effective_date = date(2026, 10, 6)
+    settings.yandex_pricing_source = "yandex_public_api_pricing"
+    assert _yandex_usage_available(job, settings)
+    begin_provider_part_usage(db, job_id=job.id, job_source_id=relation.id, lease_owner_id="worker",
+        lease_generation=7, part_index=0, duration_seconds=3600, settings=settings, now=now)
+    confirm_provider_part_usage(db, job_id=job.id, job_source_id=relation.id, lease_owner_id="worker",
+        lease_generation=7, part_index=0, now=now)
+    mark_attempt_provider_part_completed(db, job_id=job.id, job_source_id=relation.id, lease_owner_id="worker",
+        lease_generation=7, completed_parts=1, now=now)
+    db.flush()
+    payload = job_usage_cost_payload(job)
+    assert payload["confirmed_provider_cost"] == "0.36000000"
+    assert payload["rate_snapshot"]["source"] == "yandex_public_api_pricing"
+    assert resolve_pricing_snapshot(job, _settings()).rate_per_hour == Decimal("0.360000")
+
+
+def test_optional_yandex_tariff_accepts_empty_env_but_rejects_partial_config(monkeypatch):
+    from studio_api.config import Settings
+    for field in ("ASYNC_RATE_PER_HOUR_USD", "PRICING_EFFECTIVE_DATE", "PRICING_SOURCE"):
+        monkeypatch.setenv("STUDIO_YANDEX_" + field, "")
+    assert Settings(_env_file=None).yandex_async_rate_per_hour_usd is None
+    monkeypatch.setenv("STUDIO_YANDEX_ASYNC_RATE_PER_HOUR_USD", "0.36")
+    with pytest.raises(ValueError, match="snapshot must be complete"):
+        Settings(_env_file=None)
+
+
 def test_confirmed_parts_are_counted_once_with_locked_rate_snapshot(db):
     from studio_api.job_retry_recovery import mark_attempt_provider_part_completed
     from studio_api.provider_usage_accounting import (

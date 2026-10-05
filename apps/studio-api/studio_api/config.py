@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     elevenlabs_scribe_v2_rate_per_hour_usd: Decimal | None = Field(default=None, gt=0, le=100)
     elevenlabs_pricing_effective_date: date | None = None
     elevenlabs_pricing_source: str | None = Field(default=None, max_length=80)
+    yandex_async_rate_per_hour_usd: Decimal | None = Field(default=None, gt=0, le=100)
+    yandex_pricing_effective_date: date | None = None
+    yandex_pricing_source: str | None = Field(default=None, max_length=80)
     realtime_draft_max_count: int = Field(default=20, ge=1, le=100)
     audio_delivery_directory: str = Field(default="/run/studio-audio-delivery", min_length=1, max_length=1024)
     realtime_draft_max_storage_bytes: int = Field(default=33554432, ge=1048576, le=134217728)
@@ -155,6 +158,11 @@ class Settings(BaseSettings):
     job_telegram_chat_id_file: str | None = None
     job_telegram_timeout_seconds: int = Field(default=5, ge=1, le=15)
 
+    @field_validator("yandex_async_rate_per_hour_usd", "yandex_pricing_effective_date", "yandex_pricing_source", mode="before")
+    @classmethod
+    def empty_optional_yandex_tariff(cls, value):
+        return None if value == "" else value
+
     @field_validator("trusted_proxy_ip")
     @classmethod
     def validate_trusted_proxy_ip(cls, value: IPvAnyAddress):
@@ -191,6 +199,11 @@ class Settings(BaseSettings):
             raise ValueError("ElevenLabs pricing snapshot must be complete")
         if self.elevenlabs_pricing_source not in {None, "elevenlabs_public_api_pricing"}:
             raise ValueError("unsupported ElevenLabs pricing source")
+        yandex_pricing = (self.yandex_async_rate_per_hour_usd, self.yandex_pricing_effective_date, self.yandex_pricing_source)
+        if any(item is not None for item in yandex_pricing) and not all(item is not None for item in yandex_pricing):
+            raise ValueError("Yandex pricing snapshot must be complete")
+        if self.yandex_pricing_source not in {None, "yandex_public_api_pricing"}:
+            raise ValueError("unsupported Yandex pricing source")
         if self.source_multipart_part_size_bytes > self.source_multipart_threshold_bytes:
             raise ValueError("multipart part size must not exceed multipart threshold")
         if self.storage_reconciliation_apply_limit > self.storage_reconciliation_scan_limit:

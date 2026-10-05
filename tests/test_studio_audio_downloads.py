@@ -33,7 +33,6 @@ def state(tmp_path, monkeypatch):
     roots = []
     root = tmp_path / "artifacts"
     root.mkdir()
-    monkeypatch.setattr("studio_api.source_deletion.utcnow", lambda: clock[0])
     monkeypatch.setattr("studio_api.audio_preparation_processor.utcnow", lambda: clock[0])
     storage = Storage(b"original-audio")
     settings = isolated_storage_settings()

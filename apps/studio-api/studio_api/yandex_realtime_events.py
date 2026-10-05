@@ -30,6 +30,14 @@ class YandexRealtimeEvents:
             return None
         if kind == "partial":
             return {"message_type": "partial_transcript", "text": text}
+        # An absent message decodes to final_index=0 in proto3. Do not invent
+        # an identity that would replace unrelated finals in the browser.
+        if kind == "final" and not response.HasField("audio_cursors"):
+            payload = {"message_type": "committed_transcript", "text": text}
+            start, end = alternative.start_time_ms, alternative.end_time_ms
+            if 0 <= start < end <= 604800000:
+                payload.update(start_seconds=start / 1000, end_seconds=end / 1000)
+            return payload
         # A refinement refers to the provider's final_index, not the most recent
         # final or partial. Delayed corrections may arrive in a different order.
         index = (response.final_refinement.final_index if kind == "final_refinement"

@@ -1,7 +1,7 @@
 export type LongMediaPreflight = {
   source_duration_seconds: number; selected_duration_seconds: number;
   nominal_cost: string | null; currency: "USD" | null; rate_per_hour: string | null;
-  effective_date: string | null; source: "elevenlabs_public_api_pricing" | null;
+  effective_date: string | null; source: "elevenlabs_public_api_pricing" | "yandex_public_api_pricing" | null;
   provider: "elevenlabs" | "yandex"; additional_source_count: number; maximum_seconds_per_source: number;
   basis: "measured_duration_x_immutable_public_tariff"; invoice_debit: false; confirmation_token: string;
 };
@@ -18,7 +18,7 @@ export function parseLongMediaPreflight(value: unknown): LongMediaPreflight | nu
   const priced = p.nominal_cost !== null;
   const decimal = (value: unknown) => typeof value === "string" && /^\d{1,9}(?:\.\d{1,8})?$/.test(value);
   if (priced ? (!decimal(p.nominal_cost) || !decimal(p.rate_per_hour) || Number(p.rate_per_hour) <= 0
-    || p.currency !== "USD" || p.provider !== "elevenlabs" || p.source !== "elevenlabs_public_api_pricing"
+    || p.currency !== "USD" || p.source !== (p.provider === "elevenlabs" ? "elevenlabs_public_api_pricing" : "yandex_public_api_pricing")
     || typeof p.effective_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(p.effective_date))
     : [p.currency, p.rate_per_hour, p.effective_date, p.source].some((value) => value !== null)) return null;
   return p;

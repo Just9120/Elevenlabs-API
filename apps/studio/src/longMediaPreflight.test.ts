@@ -3,6 +3,10 @@ import { parseLongMediaPreflight, longMediaEstimate } from "./longMediaPreflight
 
 const known = { source_duration_seconds: 18000, selected_duration_seconds: 3600, nominal_cost: "0.22000000", currency: "USD", rate_per_hour: "0.220000", effective_date: "2026-10-06", source: "elevenlabs_public_api_pricing", provider: "elevenlabs", additional_source_count: 0, maximum_seconds_per_source: 43200, basis: "measured_duration_x_immutable_public_tariff", invoice_debit: false, confirmation_token: "a".repeat(64) };
 describe("measured long-recording estimate", () => {
+  it("uses the selected provider provenance and rejects a cross-provider tariff", () => {
+    expect(parseLongMediaPreflight({ ...known, provider: "yandex", source: "yandex_public_api_pricing" })).not.toBeNull();
+    expect(parseLongMediaPreflight({ ...known, provider: "yandex" })).toBeNull();
+  });
   it("shows source versus requested duration and never calls the estimate a debit", () => {
     const quote = parseLongMediaPreflight(known)!;
     expect(longMediaEstimate(quote)).toContain("исходника: 300 мин; выбранная часть: 60 мин");

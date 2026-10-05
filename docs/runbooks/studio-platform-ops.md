@@ -387,6 +387,24 @@ API; the caller must establish every value above from the same reviewed
 candidate. These commands must not print secret values. Do not use the manual
 fallback to bypass the protected lane or to retry a partially applied release.
 
+## Nominal provider tariff configuration
+
+Each job's confirmed duration and immutable public tariff produce a nominal
+cost; this is not an invoice, quota/subscription allocation, currency conversion
+or proof of a debit. Existing job provenance wins over later configuration.
+ElevenLabs keeps its existing required worker rate/date/source settings.
+Yandex asynchronous recognition can use the optional complete triple
+`STUDIO_YANDEX_ASYNC_RATE_PER_HOUR_USD`, `STUDIO_YANDEX_PRICING_EFFECTIVE_DATE`,
+`STUDIO_YANDEX_PRICING_SOURCE=yandex_public_api_pricing`. Configure only a verified
+applicable public USD tariff and its effective date. No default is invented
+and RUB/KZT prices must not be passed as USD. All three empty means explicitly
+unavailable accounting and no new transcription blocker; a partial/invalid
+triple fails configuration validation. A preserved valid Yandex snapshot stays
+usable if the later optional configuration is removed. Normal and long-media
+cost presentations preserve the selected provider's provenance. This narrow
+accounting support does not claim completion of the separate Yandex REST
+response/parsing workstream.
+
 ## Backup and restore rehearsal
 
 Backup/restore rehearsal is manual and isolated:

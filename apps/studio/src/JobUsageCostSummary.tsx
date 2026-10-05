@@ -72,7 +72,7 @@ export function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost })
             ).toLocaleDateString("ru-RU")}
           </p>
           <p className="muted">
-            Источник: официальные публичные тарифы ElevenLabs. Для уже созданной
+            Источник: официальные публичные тарифы {usageCost.rate_snapshot.source === "yandex_public_api_pricing" ? "Yandex SpeechKit" : "ElevenLabs"}. Для уже созданной
             задачи snapshot не заменяется новым тарифом.
           </p>
         </details>
@@ -80,4 +80,3 @@ export function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost })
     </article>
   );
 }
-

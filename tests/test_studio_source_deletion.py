@@ -178,6 +178,27 @@ def test_audio_lease_protects_only_its_source_and_does_not_starve_other_cleanup(
     assert protected.delete_reason == "all_transcripts_exported"
 
 
+def test_download_rendering_keeps_input_until_its_active_lease_expires(sqlite_db):
+    from studio_api.source_deletion import mark_one_expired_source_for_cleanup
+    db = sqlite_db
+    m, user, project = _owner_project(db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    source = _local_source(db, m, project, now, expires_delta=timedelta(seconds=-1))
+    audio = m.AudioPreparationJob(project_id=project.id, owner_user_id=user.id, title="Synthetic",
+        status=m.AudioPreparationStatus.completed, options_json="{}", output_destination="download",
+        current_stage="audio_download_rendering", download_slot=1,
+        download_expires_at=now - timedelta(seconds=1), lease_owner_id="worker",
+        lease_expires_at=now + timedelta(seconds=30))
+    db.add(audio)
+    db.flush()
+    db.add(m.AudioPreparationJobInput(job_id=audio.id, source_id=source.id, position=0, ephemeral_reference=False))
+    db.commit()
+    assert not mark_one_expired_source_for_cleanup(db, now=now)
+    assert source.upload_status == m.SourceUploadStatus.uploaded
+    assert mark_one_expired_source_for_cleanup(db, now=now + timedelta(seconds=31))
+    assert source.upload_status == m.SourceUploadStatus.expired
+
+
 def test_google_drive_source_deletion_is_logical_and_not_applicable(sqlite_db):
     from studio_api.source_deletion import request_source_deletion
 

@@ -427,6 +427,15 @@ def test_realtime_events_keep_delayed_refinement_identity_and_real_timing():
     assert events.event(final(3, "некорректный таймкод", -1, 20)) == {"message_type": "committed_transcript", "text": "некорректный таймкод", "final_index": 3}
 
 
+def test_realtime_finals_without_cursor_do_not_share_an_invented_zero_identity():
+    events = YandexRealtimeEvents()
+    for text in ("первый фрагмент", "другой фрагмент"):
+        message = StreamingResponse(final=AlternativeUpdate(alternatives=[Alternative(text=text)]))
+        decoded = StreamingResponse.FromString(message.SerializeToString())
+        assert events.event(decoded) == {"message_type": "committed_transcript", "text": text}
+    assert not events.finals
+
+
 def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resumes_without_resubmit():
     db = _YandexDb()
     client = _YandexClient(db)

@@ -57,6 +57,25 @@ def test_stale_worker_cannot_replace_quote(db):
     assert long_media_preflight_payload(job) == previous
 
 
+def test_yandex_warning_uses_only_its_nominal_public_rate(db):
+    from datetime import date
+    _, now, job, relation, _ = _context(db)
+    job.provider = "yandex"
+    settings = _settings()
+    settings.media_max_duration_seconds = 43200
+    record_long_media_preflight(db, job_id=job.id, relation_id=relation.id, duration=18000,
+        settings=settings, owner="worker", generation=7, now=now)
+    assert long_media_preflight_payload(job)["nominal_cost"] is None
+    settings.yandex_async_rate_per_hour_usd = Decimal("0.36")
+    settings.yandex_pricing_effective_date = date(2026, 10, 6)
+    settings.yandex_pricing_source = "yandex_public_api_pricing"
+    record_long_media_preflight(db, job_id=job.id, relation_id=relation.id, duration=18000,
+        settings=settings, owner="worker", generation=7, now=now)
+    quote = long_media_preflight_payload(job)
+    assert quote["nominal_cost"] == "1.80000000" and quote["source"] == "yandex_public_api_pricing"
+    assert quote["invoice_debit"] is False
+
+
 def test_consent_is_bound_to_source_and_clip_and_new_quote_revokes_it(db):
     from studio_api.long_media_preflight import confirmed_source_duration
     job, relation, now, settings = record(db)

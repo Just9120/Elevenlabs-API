@@ -35,6 +35,7 @@ def test_real_postgres_custom_dump_restore_remains_inactive_after_later_deletion
     result = drill.rehearse()
     assert result["result"] == "PASS"
     assert result["encrypted_drafts_restored"] == 2
+    assert result["post_snapshot_metadata_updates_missing_from_restore"] == 1
     assert result["deleted_after_backup_reactivated"] == 0
     assert result["automatic_activation"] is False
     assert result["production_rpo_rto_verified"] is False

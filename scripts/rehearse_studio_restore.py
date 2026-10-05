@@ -189,12 +189,17 @@ def rehearse():
         source.sql(("DELETE FROM realtime_transcript_drafts WHERE client_session_id=" + _literal(CLEARED_SESSION_ID) + ";").encode())
         if source.sql(b"SELECT count(*) FROM realtime_transcript_drafts;").decode().strip() != "1":
             raise DrillFailure("post_backup_deletion_not_applied")
+        source.sql(b"UPDATE projects SET title='Synthetic changed after snapshot';")
+        if source.sql(b"SELECT count(*) FROM projects WHERE title='Synthetic changed after snapshot';").decode().strip() != "1":
+            raise DrillFailure("post_backup_update_not_applied")
         incident = time.monotonic()
         target.start()
         target.exec(["pg_restore", "-U", "studio_drill", "-d", "studio_drill", "--no-owner", "--exit-on-error"], input=dump)
         restored = target.sql(b"SELECT encode(ciphertext,'hex') FROM realtime_transcript_drafts ORDER BY encode(ciphertext,'hex');").decode().splitlines()
         if restored != expected_ciphertexts:
             raise DrillFailure("restored_encrypted_text_mismatch")
+        if target.sql(b"SELECT count(*) FROM projects WHERE title='Synthetic restore';").decode().strip() != "1":
+            raise DrillFailure("restored_metadata_snapshot_mismatch")
         now = datetime.now(timezone.utc)
         quarantine = "BEGIN;\n" + "\n".join(str(statement.compile(dialect=dialect,
             compile_kwargs={"literal_binds": True})) + ";" for statement in quarantine_statements(now)) + "\nCOMMIT;"
@@ -204,6 +209,7 @@ def rehearse():
             raise DrillFailure("restored_copy_not_quarantined")
         return {"result": "PASS", "image_id": image_id, "fixture": "synthetic_current_model_schema",
             "encrypted_drafts_restored": len(restored), "deleted_after_backup_reactivated": 0,
+            "post_snapshot_metadata_updates_missing_from_restore": 1,
             "restore_to_quarantine_seconds": round(time.monotonic() - incident, 3),
             "snapshot_age_seconds": round((now - captured).total_seconds(), 3),
             "automatic_activation": False, "production_rpo_rto_verified": False,

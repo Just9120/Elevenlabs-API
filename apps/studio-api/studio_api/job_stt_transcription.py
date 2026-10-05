@@ -16,6 +16,7 @@ from .security import utcnow
 from .stt_provider import SttCapabilityError, resolve_capability
 from .stt_provider_health import provider_health, record_provider_failure, record_provider_success
 from .yandex_transcription import YandexTranscriptionTransport
+from .provider_usage_accounting import ProviderUsageAccountingError, resolve_pricing_snapshot
 
 
 def _credential_config(credential: ProviderCredential | None) -> dict:
@@ -24,6 +25,16 @@ def _credential_config(credential: ProviderCredential | None) -> dict:
     except (TypeError, ValueError):
         payload = {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _yandex_usage_available(job, settings):
+    try:
+        resolve_pricing_snapshot(job, settings)
+        return True
+    except ProviderUsageAccountingError as exc:
+        if exc.reason.value == "provider_pricing_unavailable":
+            return False  # Missing optional tariff is explicit unavailable, never free or a new STT blocker.
+        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_pricing_unavailable) from exc
 
 
 @contextmanager
@@ -85,7 +96,7 @@ def transcribe_processing_job_source(
                 folder_id=folder_id,
                 clock=clock,
             ),
-            usage_accounting_enabled=False,
+            usage_accounting_enabled=_yandex_usage_available(job, settings),
             part_checkpoints_enabled=False,
         )
     else:

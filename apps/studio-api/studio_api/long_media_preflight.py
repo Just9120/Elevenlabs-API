@@ -37,7 +37,7 @@ def record_long_media_preflight(db, *, job_id, relation_id, duration, settings, 
     end = min(duration, clip.end_seconds) if clip.end_seconds is not None else duration
     selected_duration = max(0.0, end - start)
     rate = currency = effective = source = amount = None
-    if job.provider == "elevenlabs":
+    if job.provider in {"elevenlabs", "yandex"}:
         try:
             snapshot = preserve_pricing_snapshot(job, settings)
             rate, currency, effective, source = (format(snapshot.rate_per_hour, "f"), snapshot.currency,
@@ -89,8 +89,8 @@ def long_media_preflight_payload(job):
             return None
         pricing = tuple(payload.get(key) for key in ("nominal_cost", "currency", "rate_per_hour", "effective_date", "source"))
         if any(value is not None for value in pricing):
-            if (not all(value is not None for value in pricing) or payload["provider"] != "elevenlabs"
-                or pricing[1] != "USD" or pricing[4] != "elevenlabs_public_api_pricing"
+            if (not all(value is not None for value in pricing)
+                or pricing[1] != "USD" or pricing[4] != {"elevenlabs": "elevenlabs_public_api_pricing", "yandex": "yandex_public_api_pricing"}.get(payload["provider"])
                 or any(not isinstance(pricing[index], str) or not re.fullmatch(r"\d{1,9}(?:\.\d{1,8})?", pricing[index]) for index in (0, 2))
                 or Decimal(pricing[2]) <= 0):
                 return None
