@@ -76,7 +76,9 @@ def _owner_prefixes(owner_user_id: str) -> tuple[tuple[str, str], ...]:
     )
 
 
-def _known_owner_objects(db: Session, owner_user_id: str) -> set[tuple[str, str, str]]:
+def _known_owner_objects(db: Session, owner_user_id: str, *, reference_class: str, bucket: str, keys: tuple[str, ...]) -> set[tuple[str, str, str]]:
+    if not keys:
+        return set()
     rows = db.execute(
         select(Source.reference_class, Source.s3_bucket, Source.s3_object_key)
         .join(Project, Project.id == Source.project_id)
@@ -87,7 +89,11 @@ def _known_owner_objects(db: Session, owner_user_id: str) -> set[tuple[str, str,
             Source.s3_bucket != "",
             Source.s3_object_key.is_not(None),
             Source.s3_object_key != "",
+            Source.reference_class == reference_class,
+            Source.s3_bucket == bucket,
+            Source.s3_object_key.in_(keys),
         )
+        .distinct()
     ).all()
     return {(str(reference_class), str(bucket), str(key)) for reference_class, bucket, key in rows}
 
@@ -127,7 +133,6 @@ def scan_owner_storage(
 ) -> StorageReconciliationScan:
     if not reference_storage_isolation_configured(settings):
         raise StorageReconciliationError(StorageReconciliationReason.unavailable)
-    known = _known_owner_objects(db, owner_user_id)
     db.rollback()
     minimum_modified_at = _as_utc(now) - timedelta(seconds=settings.storage_orphan_min_age_seconds)
     scanned = 0
@@ -145,16 +150,24 @@ def scan_owner_storage(
             raise StorageReconciliationError(StorageReconciliationReason.unavailable)
         storage = storage_factory(reference_storage_settings(settings, reference_class))
         token = None
+        seen_tokens: set[str] = set()
         while True:
             remaining = settings.storage_reconciliation_scan_limit - scanned
             if remaining <= 0:
                 truncated = True
                 break
+            page_limit = min(settings.storage_reconciliation_page_size, remaining)
             page = storage.list_objects_page(
                 prefix,
                 continuation_token=token,
-                max_keys=min(settings.storage_reconciliation_page_size, remaining),
+                max_keys=page_limit,
             )
+            if len(page.objects) > page_limit or any(not item.key.startswith(prefix) for item in page.objects):
+                raise StorageReconciliationError(StorageReconciliationReason.unavailable)
+            # Query only this bounded page, including logically deleted rows that
+            # still own physical bytes. Never load the owner's complete inventory.
+            known = _known_owner_objects(db, owner_user_id, reference_class=reference_class, bucket=bucket, keys=tuple(item.key for item in page.objects))
+            db.rollback()
             for stored in page.objects:
                 if not stored.key.startswith(prefix):
                     raise StorageReconciliationError(StorageReconciliationReason.unavailable)
@@ -172,6 +185,9 @@ def scan_owner_storage(
             token = page.next_token
             if token is None:
                 break
+            if token in seen_tokens:
+                raise StorageReconciliationError(StorageReconciliationReason.unavailable)
+            seen_tokens.add(token)
             if scanned >= settings.storage_reconciliation_scan_limit:
                 truncated = True
                 break

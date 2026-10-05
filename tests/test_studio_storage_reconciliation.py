@@ -315,3 +315,51 @@ def test_lifecycle_payload_is_user_facing_and_contains_no_storage_identity(sqlit
     assert "bucket" not in serialized
     assert "access_key" not in serialized
     assert "object_key" not in serialized
+
+
+def test_storage_scan_stops_a_repeated_provider_cursor(sqlite_db):
+    from studio_api.source_storage import StoredObjectPage
+    from studio_api.storage_reconciliation import scan_owner_storage, StorageReconciliationError
+    _, user, _ = _owner(sqlite_db)
+    sqlite_db.commit()
+    calls = []
+    class LoopingStorage:
+        def list_objects_page(self, prefix, **kwargs):
+            calls.append(kwargs)
+            return StoredObjectPage((), "unchanged-cursor")
+    with pytest.raises(StorageReconciliationError, match="unavailable"):
+        scan_owner_storage(sqlite_db, owner_user_id=user.id, settings=_settings(), now=datetime.now(timezone.utc), storage_factory=lambda _: LoopingStorage())
+    assert len(calls) == 2
+
+
+def test_storage_scan_looks_up_only_each_page_and_protects_pending_deletions(sqlite_db):
+    from sqlalchemy import event
+    from studio_api.storage_reconciliation import scan_owner_storage
+    m, user, project = _owner(sqlite_db)
+    known_key = f"transcription/users/{user.id}/known/source"
+    sqlite_db.add(m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="known.mp3", reference_class="transcription",
+                          s3_bucket="transcription-private", s3_object_key=known_key, deleted_at=datetime.now(timezone.utc)))
+    # The owner can have a large history, unrelated to this small provider page.
+    sqlite_db.add_all([m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="synthetic.mp3", reference_class="transcription",
+                               s3_bucket="transcription-private", s3_object_key=f"transcription/users/{user.id}/outside/{index}") for index in range(1001)])
+    sqlite_db.commit()
+    queries = []
+    plans = []
+    def capture(connection, _cursor, statement, parameters, _context, _many):
+        if statement.startswith("SELECT DISTINCT sources.reference_class"):
+            queries.append((statement, parameters))
+            plans.extend(row[3] for row in connection.exec_driver_sql("EXPLAIN QUERY PLAN " + statement, parameters))
+    engine = sqlite_db.get_bind()
+    event.listen(engine, "before_cursor_execute", capture)
+    now = datetime.now(timezone.utc)
+    storages = _inventory(user.id, now)
+    try:
+        scan = scan_owner_storage(sqlite_db, owner_user_id=user.id, settings=_settings(storage_reconciliation_page_size=2), now=now,
+                                  storage_factory=lambda selected: storages[selected.source_s3_bucket])
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert known_key not in [item.object.key for item in scan.candidates]
+    assert len(scan.candidates) == 2
+    assert queries
+    assert all("sources.s3_object_key IN" in statement and len(parameters) <= 8 for statement, parameters in queries)
+    assert any("ix_sources_storage_identity" in plan for plan in plans)

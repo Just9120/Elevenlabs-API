@@ -1,4 +1,4 @@
-"""Preserve Live and unfinished STT text until explicit retirement.
+"""Preserve text until explicit retirement and bound storage identity lookup.
 
 No ciphertext is removed or re-encrypted. Null expiry also prevents the old
 worker expiry selection from collecting existing rows during rollout. Existing
@@ -23,6 +23,7 @@ def upgrade():
         op.execute(sa.text(f"UPDATE {table} SET expires_at = NULL WHERE expires_at IS NOT NULL"))
     op.drop_constraint("ck_provider_part_checkpoint_total_parts_multiple", "transcription_provider_part_checkpoints", type_="check")
     op.create_check_constraint("ck_provider_part_checkpoint_total_parts_multiple", "transcription_provider_part_checkpoints", "total_parts >= 1")
+    op.create_index("ix_sources_storage_identity", "sources", ["reference_class", "s3_bucket", "s3_object_key"])
 
 
 def downgrade():
