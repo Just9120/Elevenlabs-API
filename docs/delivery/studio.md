@@ -155,16 +155,16 @@
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-13` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-14` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10: audio_preparation_processor.py создаёт S3 object и Source результата с retention; browser-local path соответствует ограничению. |
+| `AP-14` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal local audio diff2026-10-06: processor сохраняет только metadata, download/Drive заново собирает bytes из originals через worker; finished S3 writer удалён, legacy reads сохранены. Synthetic worker/lifecycle tests PASS; PostgreSQL/API/Linux/browser gate PENDING. |
 | `AP-15` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-16` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10: audio references используют ephemeral hard TTL 24h вместо выбранных 3/7/30 дней; request-scoped cleanup реализован. |
+| `AP-16` | IN_PROGRESS | ◐ | ◐ | ✅ | b46f6f1 + Goal audio diff: выбранные3/7/30 дней и exact deadline, request-scoped scratch/partial cleanup, active regeneration source fence. Synthetic local tests PASS; PostgreSQL/Linux gate PENDING. |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-22` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
-| `AP-23` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
+| `AP-23` | IN_PROGRESS | ◐ | ◐ | ✅ | Owner decision2026-10-05 заменяет finished-storage reload контракт сборкой из retained originals. Goal diff: streamed download/restart/cancel/deadline, posthoc Drive idempotency, confirmed Drive Source handoff;24 component tests PASS. PostgreSQL/API/Linux/browser gate PENDING; historical F41/PR318 Evidence относится к прежнему storage contract. |
 | `AP-24` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-25` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-26` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -317,7 +317,7 @@
 | `STORAG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-05` | BACKLOG | — | — | — | F10 |
 | `STORAG-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-07` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10; постоянный Source/output S3 path остаётся, AP-14. |
+| `STORAG-07` | IN_PROGRESS | ◐ | ◐ | ✅ | Goal audio diff2026-10-06: finished audio writer удалён, result metadata + worker regeneration/transient transfer, zero storage puts regression. Legacy historical Sources не удаляются rollout. Linux/PG gate PENDING. |
 | `STORAG-08` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F10/AP-16: отдельный bucket есть, current audio reference hard TTL 24h. |
 | `STORAG-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-10` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F01/F58: Live TTL72h и provider checkpoint TTL24h нарушают контракт. После успеха checkpoints удаляются. |

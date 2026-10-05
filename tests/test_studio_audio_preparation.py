@@ -349,12 +349,31 @@ def test_processing_reports_bounded_ffmpeg_progress(monkeypatch, output_format):
         progress_callback=progress.append,
     )
 
-    assert progress == [0.1, 0.99, 1.0]
+    assert progress == [0.1, 0.1, 0.99, 1.0]
     assert captured["command"][1:8] == ["-nostdin", "-nostats", "-stats_period", "5", "-progress", "pipe:1", "-v"]
     assert captured["command"][7:] == original[1:]
     assert captured["command"][captured["command"].index("-fs") + 1] == "1048576"
     assert command == original
     assert captured["kwargs"]["stderr"] == -1
+
+
+def test_processing_cancellation_before_first_timestamp_kills_subprocess(monkeypatch):
+    class Cancelled(RuntimeError):
+        pass
+    class Process:
+        stdout = StringIO("out_time=N/A\nprogress=continue\n")
+        stderr = StringIO("")
+        killed = False
+        def poll(self): return 0 if self.killed else None
+        def kill(self): self.killed = True
+        def wait(self): return -9
+    process = Process()
+    monkeypatch.setattr("studio_api.audio_preparation.subprocess.Popen", lambda *args, **kwargs: process)
+    def check(_ratio):
+        raise Cancelled()
+    with pytest.raises(Cancelled):
+        run_processing(["ffmpeg", "-y", "output.wav"], expected_duration_seconds=100, progress_callback=check)
+    assert process.killed
 
 
 @pytest.mark.parametrize("stderr,category", [

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
+import { AudioResultDownload } from "./AudioResultDownload";
 import { audioSourceTitle } from "./audioOutputNaming";
 import {
   DirectUploadAmbiguousError,
@@ -35,8 +36,9 @@ type AudioJob = {
   inputs: { position: number; filename: string; source_type: string; ephemeral_reference: boolean }[];
   preview: { input_duration_seconds: number; estimated_output_duration_seconds: number; copy_compatible: boolean } | null;
   progress: { percent: number; stage: string };
-  output: { download_ready: boolean; source_id: string; google_drive_url: string | null; duration_seconds: number | null } | null;
+  output: { download_ready: boolean; export_ready?: boolean; source_id: string | null; regeneration_required?: boolean; filename?: string | null; google_drive_url: string | null; duration_seconds: number | null } | null;
   recoverable_output?: boolean;
+  download_active?: boolean;
   output_folder?: { id: string; name: string } | null;
   error_code: string | null;
 };
@@ -46,7 +48,7 @@ type Props = { csrf: string; onCsrf: (value: string) => void };
 const terminal = new Set(["cancelled", "failed", "completed"]);
 const pollingStopped = new Set([...terminal, "preview_ready"]);
 const driveExportActive = (job: AudioJob) => job.status === "completed" && ["google_drive_export_queued", "google_drive_upload"].includes(job.progress.stage);
-const needsPolling = (job: AudioJob) => !pollingStopped.has(job.status) || driveExportActive(job);
+const needsPolling = (job: AudioJob) => !pollingStopped.has(job.status) || driveExportActive(job) || job.download_active === true;
 const presetDefaults = {
   processing_only: { format: "copy", mono: "preserve", silence: false, threshold: -45, minimum: 1, keep: 0.3 },
   lecture: { format: "flac", mono: "mixdown", silence: true, threshold: -45, minimum: 1.2, keep: 0.35 },
@@ -113,6 +115,10 @@ function stageLabel(stage: string) {
     materializing: "Подготавливаем файлы",
     processing: "Обрабатываем аудио",
     storing: "Сохраняем результат",
+    audio_download_queued: "Готово · ожидает подготовки скачивания",
+    audio_download_rendering: "Готовим скачивание",
+    audio_download_ready: "Файл готов для скачивания",
+    audio_download_transferring: "Передаём файл",
     google_drive_upload: "Сохраняем копию в Google Drive",
     completed: "Готово",
     google_drive_export_queued: "Готово · ожидает сохранения в Google Drive",
@@ -175,6 +181,18 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const [saveToDrive, setSaveToDrive] = useState(false);
   const [driveFolder, setDriveFolder] = useState<{ id: string; name: string } | null>(null);
   const [jobs, setJobs] = useState<AudioJob[]>([]);
+  const [activeDownloads, setActiveDownloads] = useState<Set<string>>(new Set());
+  const onDownloadActiveChange = useCallback((jobId: string, active: boolean) => {
+    setActiveDownloads((current) => {
+      const next = new Set(current);
+      if (active) next.add(jobId); else next.delete(jobId);
+      return next;
+    });
+    if (!active) void api(`/audio-preparations/${jobId}`, { cache: "no-store" })
+      .then((value) => { const updated = parseJob(value); setJobs((current) => current.map((item) => item.id === jobId ? updated : item)); })
+      .catch(() => { /* Existing job polling remains the recovery path. */ });
+  }, []);
+  const [pendingHandoff, setPendingHandoff] = useState<{ jobId: string; action: "transcribe" | "reuse" } | null>(null);
   const [busy, setBusy] = useState(false);
   const [errorState, setErrorState] = useState({ message: "", googleRecovery: false });
   const error = errorState.message;
@@ -236,7 +254,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
           : [];
         if (active && jobs.length > 0) {
           const restored = jobs.map(parseJob);
-          setJobs(restored.filter((job, index) => index === 0 || !terminal.has(job.status) || driveExportActive(job)));
+          setJobs(restored.filter((job, index) => index === 0 || !terminal.has(job.status) || driveExportActive(job) || job.download_active));
         }
       })
       .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Не удалось открыть обработку аудио."))
@@ -334,26 +352,59 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
     if (enabled && format === "copy") setFormat("flac");
   }
 
-  async function reuseOutput(job: AudioJob) {
-    if (!project || !job.output?.source_id) return;
-    await reloadSources(project.id);
-    setSelected([job.output.source_id]);
+  const applyOutputSource = useCallback(async (sourceId: string, action: "transcribe" | "reuse") => {
+    if (action === "transcribe") {
+      window.dispatchEvent(new CustomEvent("studio:transcribe-source", { detail: { sourceId } }));
+      return;
+    }
+    if (!project) return;
+    const response = await api(`/projects/${project.id}/sources`, { cache: "no-store" });
+    setSources(parseSources(response));
+    setSelected([sourceId]);
     setProcessingPath("studio");
     setLocalFiles([]);
     setEphemeral(new Set());
     setJobs([]);
     setSourceMode("studio");
+  }, [project]);
+
+  async function useOutput(job: AudioJob, action: "transcribe" | "reuse") {
+    if (busy || pendingHandoff) return;
+    if (job.output?.source_id) {
+      await applyOutputSource(job.output.source_id, action);
+      return;
+    }
+    if (!job.output?.google_drive_url) {
+      const queued = await saveResultToDrive(job);
+      if (queued) setPendingHandoff({ jobId: job.id, action });
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const source = await mutate<Source>(`/audio-preparations/${job.id}/reuse-source`, { method: "POST" });
+      await applyOutputSource(source.id, action);
+    } catch (reason) {
+      reportDriveFailure(reason, "Не удалось передать копию из Google Drive. Проверьте подключение и доступ к файлу.");
+    } finally { setBusy(false); }
   }
 
-  function transcribeOutput(job: AudioJob) {
-    const sourceId = job.output?.source_id;
-    if (!sourceId) return;
-    window.dispatchEvent(
-      new CustomEvent("studio:transcribe-source", {
-        detail: { sourceId },
-      }),
-    );
-  }
+  useEffect(() => {
+    if (!pendingHandoff) return;
+    const job = jobs.find((item) => item.id === pendingHandoff.jobId);
+    if (!job || driveExportActive(job)) return;
+    if (!job.output?.google_drive_url) {
+      setPendingHandoff(null);
+      setError("Копия в Google Drive не сохранена. Повторите передачу результата; скачивание остаётся отдельным действием.");
+      return;
+    }
+    setPendingHandoff(null);
+    setBusy(true);
+    void mutateWithCsrfRetry<Source>(`/audio-preparations/${job.id}/reuse-source`, csrf, onCsrf, { method: "POST" })
+      .then((source) => applyOutputSource(source.id, pendingHandoff.action))
+      .catch(() => setError("Не удалось передать копию из Google Drive. Проверьте подключение и повторите передачу результата."))
+      .finally(() => setBusy(false));
+  }, [jobs, pendingHandoff, csrf, onCsrf, applyOutputSource, setError]);
 
   async function pickerSession() {
     return mutate<googlePicker.PickerSession>("/google/picker/session", { method: "POST" });
@@ -611,6 +662,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         method: "POST", body: JSON.stringify({ folder_id: folderId }),
       }));
       setJobs((current) => current.map((item) => item.id === updated.id ? updated : item));
+      return updated;
     } catch (reason) {
       reportDriveFailure(reason, "Не удалось начать сохранение в Google Drive. Проверьте подключение, доступ к папке и срок хранения файла, затем повторите.");
     } finally {
@@ -839,7 +891,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         <button className="primary" type="button" disabled={busy || planCount === 0 || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
       </section>}
       {sourceMode !== "direct-drive" && localResults.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Локальные результаты</h2>{localResults.map((result, index) => <article className="audio-job-result" key={result.url}><h3>{localResults.length > 1 ? `Результат ${index + 1}: ${result.filename}` : result.filename}</h3><p>Исходно: {duration(result.inputDurationSeconds)} · результат: {duration(result.outputDurationSeconds)}</p><div className="actions"><a className="button-like primary" href={result.url} download={result.filename}>Скачать файл</a><button type="button" onClick={() => void uploadLocalResult(result)} disabled={busy}>Загрузить в Studio для Drive или транскрибации</button></div></article>)}</section>}
-      {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{(!terminal.has(job.status) || driveExportActive(job)) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.recoverable_output && <button type="button" onClick={() => void recoverOutput(job)} disabled={busy}>Восстановить готовый файл</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>}{job.output?.source_id && <button className="primary" type="button" onClick={() => transcribeOutput(job)}>Использовать для транскрибации</button>}{job.output?.source_id && <button type="button" onClick={() => void reuseOutput(job)}>Использовать в новой обработке</button>}{job.output?.download_ready && !job.output.google_drive_url && <button type="button" onClick={() => void saveResultToDrive(job)} disabled={busy || driveExportActive(job)}>{driveExportActive(job) ? "Сохраняем в Google Drive…" : job.output_folder ? "Повторить сохранение в Google Drive" : "Сохранить в Google Drive"}</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.progress.stage === "google_drive_export_failed" && <p className="error">{job.error_code === "source_unavailable" ? "Готовый файл недоступен для сохранения. Проверьте срок хранения файла или повторите позже." : "Сохранение не подтверждено. Проверьте подключение Google Drive и повторите: Studio проверит существующую копию перед загрузкой. Готовый файл можно скачать."}</p>}{job.output_folder && job.output && <p className="muted">Папка копии: {job.output_folder.name}</p>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
+      {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{(!terminal.has(job.status) || driveExportActive(job)) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.recoverable_output && <button type="button" onClick={() => void recoverOutput(job)} disabled={busy}>Восстановить готовый файл</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && (job.output.regeneration_required ? <AudioResultDownload jobId={job.id} csrf={csrf} onCsrf={onCsrf} initialActive={job.download_active} onActiveChange={onDownloadActiveChange} /> : <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>)}{job.output && ((job.output.export_ready ?? job.output.download_ready) || job.output.google_drive_url) && <button className="primary" type="button" disabled={busy || pendingHandoff !== null || ((driveExportActive(job) || job.download_active || activeDownloads.has(job.id)) && !job.output?.source_id && !job.output?.google_drive_url)} onClick={() => void useOutput(job, "transcribe")}>Использовать для транскрибации</button>}{job.output && ((job.output.export_ready ?? job.output.download_ready) || job.output.google_drive_url) && <button type="button" disabled={busy || pendingHandoff !== null || ((driveExportActive(job) || job.download_active || activeDownloads.has(job.id)) && !job.output?.source_id && !job.output?.google_drive_url)} onClick={() => void useOutput(job, "reuse")}>Использовать в новой обработке</button>}{job.output && (job.output.export_ready ?? job.output.download_ready) && !job.output.google_drive_url && <button type="button" onClick={() => void saveResultToDrive(job)} disabled={busy || driveExportActive(job) || job.download_active || activeDownloads.has(job.id)}>{driveExportActive(job) ? "Сохраняем в Google Drive…" : job.output_folder ? "Повторить сохранение в Google Drive" : "Сохранить в Google Drive"}</button>}{job.output?.google_drive_url && <a className="button-like secondary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}</div>}{job.progress.stage === "google_drive_export_failed" && <p className="error">{job.error_code === "source_unavailable" ? "Готовый файл недоступен для сохранения. Проверьте срок хранения файла или повторите позже." : "Сохранение не подтверждено. Проверьте подключение Google Drive и повторите: Studio проверит существующую копию перед загрузкой. Готовый файл можно скачать."}</p>}{(job.download_active || activeDownloads.has(job.id)) && <p className="muted">Скачайте файл или закройте скачивание, чтобы начать сохранение в Google Drive.</p>}{job.output_folder && job.output && <p className="muted">Папка копии: {job.output_folder.name}</p>}{job.output?.regeneration_required && <p className="muted">Для скачивания и сохранения файл собирается из исходников по сохранённым параметрам. Доступен, пока исходники хранятся в Studio или доступны в Google Drive. Повторное использование передаёт копию из Google Drive; если её нет, выберите папку для сохранения.</p>}{pendingHandoff?.jobId === job.id && <p role="status">Сохраняем копию в Google Drive для передачи результата…</p>}{job.output && !job.output.download_ready && <p className="error">Исходники больше недоступны. Используйте сохранённую копию в Google Drive или добавьте файлы заново.</p>}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
     </div>
   );
 }

@@ -119,23 +119,24 @@ def test_preview_processing_storage_and_selected_source_retention_are_durable(tm
             return
         assert result.output_created is True
         assert persisted.status is AudioPreparationStatus.completed
-        assert persisted.output_source_id is not None
-        assert storage.puts[0][1] == b"processed-audio"
-        output_source = db.get(Source, persisted.output_source_id)
-        assert output_source.reference_class == "audio_processing"
-        assert output_source.s3_bucket == "audio-private"
+        assert persisted.output_source_id is None
+        assert storage.puts == []
+        assert persisted.output_filename == f"{result_title}.flac"
+        assert persisted.output_mime_type == "audio/flac"
+        assert persisted.output_size_bytes == len(b"processed-audio")
         assert persisted.title == result_title
-        assert output_source.original_filename == f"{result_title}.flac"
+        assert db.query(Source).count() == 1
         db.refresh(source)
         assert source.upload_status is SourceUploadStatus.uploaded
         assert source.expires_at == datetime(2026, 8, 30)
         assert source.storage_cleanup_status.value == "not_requested"
 
 
-def test_processing_reuses_preview_validation_instead_of_decoding_inputs_again(tmp_path):
+def test_processing_reuses_preview_validation_instead_of_decoding_inputs_again(tmp_path, monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     now = datetime(2026, 8, 25, 18, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("studio_api.audio_preparation_processor.utcnow", lambda: now)
     payload = b"reference-audio"
     storage = Storage(payload)
     settings = isolated_storage_settings()
@@ -262,7 +263,7 @@ def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, 
             with Session(engine) as observer:
                 persisted = observer.get(AudioPreparationJob, job.id)
                 assert persisted.status is AudioPreparationStatus.completed
-                assert persisted.output_source_id is not None and persisted.output_duration_ms == 60_000
+                assert persisted.output_source_id is None and persisted.output_filename and persisted.output_duration_ms == 60_000
                 assert observer.get(Source, source.id).upload_status is SourceUploadStatus.uploaded
                 assert observer.get(Source, source.id).expires_at == datetime(2099, 1, 1)
             if outcome == "failure":
@@ -282,8 +283,8 @@ def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, 
             with pytest.raises(Exception):
                 call()
             assert job.current_stage == ("google_drive_export_failed" if outcome == "failure" else "google_drive_export_cancelled")
-        assert job.status is AudioPreparationStatus.completed and job.output_source_id is not None
-        assert job.lease_owner_id is None and len(storage.puts) == 1
+        assert job.status is AudioPreparationStatus.completed and job.output_source_id is None and job.output_filename
+        assert job.lease_owner_id is None and storage.puts == []
     engine.dispose()
 
 

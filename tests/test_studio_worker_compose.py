@@ -92,6 +92,25 @@ def test_worker_has_explicit_resource_and_process_isolation():
     assert "/tmp:rw,nosuid,nodev,noexec,mode=1770,uid=10001,gid=10001,size=${STUDIO_WORKER_TMPFS_SIZE:-3g}" in worker
 
 
+def test_audio_transfer_is_shared_volatile_bounded_storage_without_exposing_it_to_web():
+    config = yaml.safe_load(COMPOSE.read_text())
+    volume = config["volumes"]["studio-audio-delivery"]
+    assert volume["driver"] == "local"
+    assert volume["driver_opts"]["type"] == "tmpfs"
+    assert volume["driver_opts"]["device"] == "tmpfs"
+    options = dict(item.split("=", 1) if "=" in item else (item, True) for item in volume["driver_opts"]["o"].split(","))
+    assert int(options["size"]) == 2 * 1024**3
+    assert options["uid"] == options["gid"] == "10001" and options["mode"] == "0700"
+    assert all(options[flag] for flag in ("nosuid", "nodev", "noexec"))
+    for name, service in config["services"].items():
+        mounts = service.get("volumes", [])
+        if name in {"studio-api", "studio-worker"}:
+            assert "studio-audio-delivery:/run/studio-audio-delivery" in mounts
+            assert service["environment"]["STUDIO_AUDIO_DELIVERY_DIRECTORY"] == "/run/studio-audio-delivery"
+        else:
+            assert all("studio-audio-delivery" not in str(mount) for mount in mounts)
+
+
 def test_worker_networks_are_disjoint_from_web_api_and_redis():
     text = COMPOSE.read_text()
     worker = service_block("studio-worker")

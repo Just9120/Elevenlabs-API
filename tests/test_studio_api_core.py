@@ -30,7 +30,7 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError, ProgrammingError
 from studio_api.config import Settings
@@ -8903,6 +8903,104 @@ def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
     assert first.json()["output"]["download_ready"] is True
     assert "s3_object_key" not in first.text and "synthetic" not in first.text
     assert client.post(route, headers=headers, json={"folder_id": "folder"}).json()["id"] == job_id
+
+
+def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path, monkeypatch):
+    from studio_api.audio_downloads import AudioDownloadManager
+    from studio_api.models import AudioPreparationJob, AudioPreparationJobInput, AudioPreparationStatus
+    from studio_api import main as api_main
+    email = "audio-regeneration-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]["id"]
+    root = tmp_path / "transfer"
+    root.mkdir()
+    monkeypatch.setattr(api_main, "audio_downloads", AudioDownloadManager(SessionLocal, api_main.settings, cache_root=root))
+    with SessionLocal() as db:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        source = Source(project_id=project_id, source_type=SourceType.local_upload,
+            original_filename="Лекция.flac", mime_type="audio/flac", size_bytes=14,
+            s3_bucket="private", s3_object_key="original", upload_status=SourceUploadStatus.uploaded,
+            expires_at=utcnow() + timedelta(days=7))
+        db.add(source)
+        db.flush()
+        job = AudioPreparationJob(project_id=project_id, owner_user_id=owner.id, title="Лекция",
+            options_json='{"output_format":"flac"}', status=AudioPreparationStatus.completed,
+            current_stage="completed", output_filename="Лекция.flac", output_mime_type="audio/flac", output_size_bytes=14)
+        db.add(job)
+        db.flush()
+        db.add(AudioPreparationJobInput(job_id=job.id, source_id=source.id, position=0, ephemeral_reference=True))
+        db.commit()
+        job_id = job.id
+    route = f"/api/audio-preparations/{job_id}/download"
+    assert TestClient(app).post(route, headers=headers).status_code == 401
+    assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403
+    assert client.post(route, headers={**headers, "origin": "https://foreign.test"}).status_code == 403
+    other = TestClient(app)
+    other_email = "audio-regeneration-other@example.com"
+    other_csrf = login(other, admin(other_email), other_email)
+    other_headers = {**headers, "x-csrf-token": other_csrf}
+    assert other.post(route, headers=other_headers).status_code == 404
+    first = client.post(route, headers=headers)
+    assert first.status_code == 200 and first.json()["state"] == "preparing"
+    with SessionLocal() as db:
+        persisted = db.get(AudioPreparationJob, job_id)
+        request_id = persisted.download_request_id
+        assert persisted.current_stage == "audio_download_queued" and persisted.download_slot == 1
+        assert persisted.output_source_id is None and persisted.lease_owner_id is None
+        assert db.execute(select(func.count(Source.id)).where(Source.project_id == project_id)).scalar_one() == 1
+    assert client.post(route, headers=headers).json()["state"] == "preparing"
+    with SessionLocal() as db:
+        assert db.get(AudioPreparationJob, job_id).download_request_id == request_id
+    for site in ("cross-site", "same-site"):
+        assert client.get(route, headers={"sec-fetch-site": site}).status_code == 403
+    assert client.get(route).status_code == 409
+    assert other.get(route + "/status").status_code == 404
+    assert other.post(route + "/cancel", headers=other_headers).status_code == 404
+    assert client.post(route + "/cancel", headers=headers).status_code == 200
+    assert client.get(route + "/status").json()["reason"] == "cancellation_requested"
+
+
+def test_audio_reuse_imports_only_verified_drive_copy_and_is_idempotent(monkeypatch):
+    from types import SimpleNamespace
+    from studio_api import main as api_main
+    from studio_api.models import AudioPreparationJob, AudioPreparationStatus
+    email = "audio-reuse-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]["id"]
+    with SessionLocal() as db:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        job = AudioPreparationJob(project_id=project_id, owner_user_id=owner.id, title="Лекция",
+            options_json="{}", status=AudioPreparationStatus.completed, current_stage="completed",
+            output_filename="Лекция.flac", output_mime_type="audio/flac", output_size_bytes=14,
+            output_drive_file_id="prepared-audio-file", output_drive_web_view_url="https://drive.google.com/file/d/prepared-audio-file/view")
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    calls = []
+    monkeypatch.setattr(api_main, "refreshed_google_drive_access_token", lambda *args: "synthetic-token")
+    def metadata(db, user, file_id, **kwargs):
+        assert not db.in_transaction()
+        calls.append(file_id)
+        return SimpleNamespace(id=file_id, name="Лекция.flac", size_bytes=14, is_folder=False,
+            created_time="2026-10-05T21:00:00Z", web_view_link="https://drive.google.com/file/d/prepared-audio-file/view"), "audio/flac"
+    monkeypatch.setattr(api_main, "_validated_google_drive_source_metadata", metadata)
+    route = f"/api/audio-preparations/{job_id}/reuse-source"
+    assert TestClient(app).post(route, headers=headers).status_code == 401
+    assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403
+    first = client.post(route, headers=headers)
+    assert first.status_code == 200 and first.json()["source_type"] == "google_drive"
+    assert first.json()["original_filename"] == "Лекция.flac"
+    assert "synthetic-token" not in first.text
+    assert client.post(route, headers=headers).json()["id"] == first.json()["id"]
+    with SessionLocal() as db:
+        assert db.execute(select(func.count(Source.id)).where(Source.project_id == project_id)).scalar_one() == 1
+        source = db.get(Source, first.json()["id"])
+        assert source.s3_object_key is None and source.s3_bucket is None
+    assert calls == ["prepared-audio-file", "prepared-audio-file"]
 
 
 def test_audio_legacy_recovery_api_is_owner_csrf_scoped_and_never_calls_google(monkeypatch):

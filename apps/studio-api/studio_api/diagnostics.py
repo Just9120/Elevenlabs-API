@@ -110,7 +110,7 @@ AUDIO_PREPARATION_ERROR_CODES = frozenset({
     "invalid_options", "invalid_input", "probe_unavailable", "probe_failed", "media_integrity_failed",
     "copy_incompatible", "channel_unavailable", "processing_failed", "processing_timeout", "output_too_large",
 })
-AUDIO_PREPARATION_STAGES = frozenset({"analyzing", "materializing", "processing", "storing", "google_drive_upload", "failed"})
+AUDIO_PREPARATION_STAGES = frozenset({"analyzing", "materializing", "processing", "storing", "google_drive_upload", "audio_download_rendering", "failed"})
 AUDIO_FFMPEG_FAILURE_CATEGORIES = frozenset({"invalid_arguments", "invalid_media", "encoder_unavailable", "output_io_failed", "unknown"})
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:

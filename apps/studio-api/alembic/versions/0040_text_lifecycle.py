@@ -28,6 +28,17 @@ def upgrade():
     op.create_check_constraint("ck_sources_audio_retention_days", "sources", "audio_retention_days IS NULL OR audio_retention_days IN (3,7,30)")
     # No historical source is enrolled into the new automatic retirement policy.
     op.add_column("sources", sa.Column("delete_after_transcripts", sa.Boolean(), nullable=False, server_default=sa.text("false")))
+    op.add_column("audio_preparation_jobs", sa.Column("output_filename", sa.String(255), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("output_mime_type", sa.String(255), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("output_size_bytes", sa.Integer(), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("download_slot", sa.Integer(), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("download_request_id", sa.String(36), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("download_expires_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("download_previous_stage", sa.String(40), nullable=True))
+    op.add_column("audio_preparation_jobs", sa.Column("download_error_code", sa.String(80), nullable=True))
+    op.create_check_constraint("ck_audio_download_slot", "audio_preparation_jobs", "download_slot IS NULL OR download_slot = 1")
+    op.create_index("uq_audio_download_slot", "audio_preparation_jobs", ["download_slot"], unique=True)
+    op.create_index("ix_audio_download_expiry", "audio_preparation_jobs", ["download_expires_at"])
 
 
 def downgrade():

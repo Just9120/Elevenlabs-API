@@ -246,17 +246,24 @@ def load_worker_runtime_status(
 
 
 def queue_runtime_status(db, *, now: datetime | None = None) -> dict[str, object]:
+    from sqlalchemy import and_, or_
     from .models import AudioPreparationJob, AudioPreparationStatus, JobStatus, TranscriptionJob
 
     now = now or utcnow()
     transcription_queued = db.query(TranscriptionJob).filter(TranscriptionJob.status == JobStatus.queued).count()
     transcription_processing = db.query(TranscriptionJob).filter(TranscriptionJob.status == JobStatus.processing).count()
-    audio_queued = db.query(AudioPreparationJob).filter(
-        AudioPreparationJob.status.in_((AudioPreparationStatus.preview_queued, AudioPreparationStatus.queued))
-    ).count()
-    audio_processing = db.query(AudioPreparationJob).filter(
-        AudioPreparationJob.status.in_((AudioPreparationStatus.analyzing, AudioPreparationStatus.processing))
-    ).count()
+    audio_queued_expression = or_(
+        AudioPreparationJob.status.in_((AudioPreparationStatus.preview_queued, AudioPreparationStatus.queued)),
+        and_(AudioPreparationJob.status == AudioPreparationStatus.completed,
+            AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "audio_download_queued"))),
+    )
+    audio_processing_expression = or_(
+        AudioPreparationJob.status.in_((AudioPreparationStatus.analyzing, AudioPreparationStatus.processing)),
+        and_(AudioPreparationJob.status == AudioPreparationStatus.completed,
+            AudioPreparationJob.current_stage.in_(("google_drive_upload", "audio_download_rendering"))),
+    )
+    audio_queued = db.query(AudioPreparationJob).filter(audio_queued_expression).count()
+    audio_processing = db.query(AudioPreparationJob).filter(audio_processing_expression).count()
     oldest_candidates = [
         db.query(TranscriptionJob.created_at)
         .filter(TranscriptionJob.status == JobStatus.queued)
@@ -264,7 +271,7 @@ def queue_runtime_status(db, *, now: datetime | None = None) -> dict[str, object
         .limit(1)
         .scalar(),
         db.query(AudioPreparationJob.created_at)
-        .filter(AudioPreparationJob.status.in_((AudioPreparationStatus.preview_queued, AudioPreparationStatus.queued)))
+        .filter(audio_queued_expression)
         .order_by(AudioPreparationJob.created_at.asc())
         .limit(1)
         .scalar(),

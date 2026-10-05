@@ -24,6 +24,7 @@ from .source_storage import AUDIO_PROCESSING_REFERENCE_CLASS, normalize_source_d
 
 
 AUDIO_DRIVE_EXPORT_STAGES = ("google_drive_export_queued", "google_drive_upload")
+AUDIO_DOWNLOAD_WORK_STAGES = ("audio_download_queued", "audio_download_rendering")
 OUTPUT_SOURCE_NAMESPACE = uuid.UUID("b87bbd61-e1e5-4e0b-8c5a-1a6bc043bbce")
 
 TERMINAL_AUDIO_PREPARATION_STATUSES = {
@@ -177,19 +178,30 @@ def start_audio_preparation_job(
 
 
 def queue_audio_drive_export(db: Session, *, owner_user_id: str, job_id: str, folder: object, now: datetime) -> AudioPreparationJob:
+    job = load_owned_audio_preparation_job(db, owner_user_id=owner_user_id, job_id=job_id)
+    if job.output_drive_file_id:
+        job = _locked_owned_job(db, owner_user_id, job_id)
+        _owned_project(db, owner_user_id, job.project_id)
+        _, snapshot = _destination_snapshot("google_drive", folder)
+        if job.status is not AudioPreparationStatus.completed:
+            raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
+        if job.output_drive_folder_id != snapshot[0]:
+            raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_destination)
+        # Returning the confirmed copy does not require the original bytes.
+        return job
+    require_audio_result_sources(db, job, now=now)
     job = _locked_owned_job(db, owner_user_id, job_id)
     _owned_project(db, owner_user_id, job.project_id)
     destination, snapshot = _destination_snapshot("google_drive", folder)
-    if job.status is not AudioPreparationStatus.completed or not job.output_source_id:
+    if job.status is not AudioPreparationStatus.completed or not (job.output_source_id or job.output_filename):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
     # Keep the target stable across retries with an uncertain remote outcome.
     if job.output_drive_folder_id and job.output_drive_folder_id != snapshot[0]:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_destination)
     if job.output_drive_file_id or job.current_stage in AUDIO_DRIVE_EXPORT_STAGES:
         return job
-    source = db.execute(select(Source).where(Source.id == job.output_source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
-    if source is None or not _source_available(source, project_id=job.project_id, now=now):
-        raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
+    if job.download_slot == 1:
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
     job.output_destination = destination
     job.output_drive_folder_id, job.output_drive_folder_url, job.output_drive_folder_name = snapshot
     # Old workers ignore this completed row until a compatible worker is deployed.
@@ -225,6 +237,15 @@ def cancel_audio_preparation_job(
 ) -> AudioPreparationJob:
     job = _locked_owned_job(db, owner_user_id, job_id)
     _recover_legacy_stored_output(db, job, now=now)
+    if job.status is AudioPreparationStatus.completed and job.current_stage in AUDIO_DOWNLOAD_WORK_STAGES:
+        job.cancel_requested_at = _naive_utc(now)
+        if job.current_stage == "audio_download_queued":
+            job.current_stage = job.download_previous_stage or "completed"
+            job.progress_percent = 100
+            job.download_slot = None
+            job.download_error_code = "cancellation_requested"
+        db.flush()
+        return job
     if job.status is AudioPreparationStatus.completed and job.current_stage in AUDIO_DRIVE_EXPORT_STAGES:
         job.cancel_requested_at = _naive_utc(now)
         if job.current_stage == "google_drive_export_queued":
@@ -263,12 +284,14 @@ def claim_next_audio_preparation_job(
     claimable = tuple(CLAIMABLE_AUDIO_PREPARATION_STATUSES)
     export_queued = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "google_drive_export_queued")
     export_running = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "google_drive_upload")
-    active = or_(AudioPreparationJob.status.in_((AudioPreparationStatus.analyzing, AudioPreparationStatus.processing)), export_running)
+    download_queued = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "audio_download_queued", AudioPreparationJob.download_expires_at > _naive_utc(now))
+    download_running = and_(AudioPreparationJob.status == AudioPreparationStatus.completed, AudioPreparationJob.current_stage == "audio_download_rendering", AudioPreparationJob.download_expires_at > _naive_utc(now))
+    active = or_(AudioPreparationJob.status.in_((AudioPreparationStatus.analyzing, AudioPreparationStatus.processing)), export_running, download_running)
     job = db.execute(
         select(AudioPreparationJob)
         .options(selectinload(AudioPreparationJob.inputs).selectinload(AudioPreparationJobInput.source))
         .where(
-            or_(AudioPreparationJob.status.in_(claimable), export_queued, export_running),
+            or_(AudioPreparationJob.status.in_(claimable), export_queued, export_running, download_queued, download_running),
             or_(
                 ~active,
                 and_(
@@ -293,7 +316,7 @@ def claim_next_audio_preparation_job(
     job.claimed_at = _naive_utc(now)
     job.lease_expires_at = _naive_utc(now + lease_ttl)
     if job.status is AudioPreparationStatus.completed:
-        job.current_stage = "google_drive_upload"
+        job.current_stage = "audio_download_rendering" if job.current_stage in AUDIO_DOWNLOAD_WORK_STAGES else "google_drive_upload"
         job.progress_percent = 5
     elif job.status in {AudioPreparationStatus.preview_queued, AudioPreparationStatus.analyzing}:
         job.status = AudioPreparationStatus.analyzing
@@ -384,6 +407,15 @@ def fail_audio_preparation_job(
     now: datetime,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
+    if job.status is AudioPreparationStatus.completed and job.current_stage == "audio_download_rendering":
+        job.current_stage = job.download_previous_stage or "completed"
+        job.progress_percent = 100
+        job.download_error_code = (error_code or "processing_failed")[:80]
+        job.download_slot = None
+        job.lease_owner_id = None
+        job.lease_expires_at = None
+        db.flush()
+        return job
     exporting = job.status is AudioPreparationStatus.completed and job.current_stage in AUDIO_DRIVE_EXPORT_STAGES
     job.status = AudioPreparationStatus.completed if exporting else AudioPreparationStatus.failed
     job.current_stage = "google_drive_export_failed" if exporting else "failed"
@@ -406,6 +438,9 @@ def finalize_cancelled_audio_preparation_job(
     now: datetime,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
+    if job.status is AudioPreparationStatus.completed and job.current_stage == "audio_download_rendering":
+        return fail_audio_preparation_job(db, job_id=job_id, lease_owner_id=lease_owner_id,
+            lease_generation=lease_generation, error_code="cancellation_requested", now=now)
     if job.cancel_requested_at is None:
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
     exporting = job.status is AudioPreparationStatus.completed and job.current_stage in AUDIO_DRIVE_EXPORT_STAGES
@@ -431,7 +466,7 @@ def renew_audio_preparation_lease(
     lease_ttl: timedelta,
 ) -> AudioPreparationJob:
     job = _locked_leased_job(db, job_id, lease_owner_id, lease_generation)
-    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not (job.status is AudioPreparationStatus.completed and job.current_stage == "google_drive_upload"):
+    if job.status not in {AudioPreparationStatus.analyzing, AudioPreparationStatus.processing} and not (job.status is AudioPreparationStatus.completed and job.current_stage in ("google_drive_upload", "audio_download_rendering")):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
     if job.lease_expires_at is None or _naive_utc(job.lease_expires_at) <= _naive_utc(now):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.lease_unavailable)
@@ -440,7 +475,8 @@ def renew_audio_preparation_lease(
     return job
 
 
-def audio_preparation_payload(job: AudioPreparationJob) -> dict[str, object]:
+def audio_preparation_payload(job: AudioPreparationJob, *, now: datetime | None = None) -> dict[str, object]:
+    now = now or datetime.now(timezone.utc)
     status = _value(job.status)
     return {
         "id": job.id,
@@ -485,15 +521,23 @@ def audio_preparation_payload(job: AudioPreparationJob) -> dict[str, object]:
         },
         "output": (
             {
-                "download_ready": job.output_source_id is not None,
+                "download_ready": audio_result_sources_available(job, now=now) or bool(
+                    job.download_slot == 1 and job.current_stage in ("audio_download_ready", "audio_download_rendering", "audio_download_queued")
+                    and job.download_expires_at and _naive_utc(job.download_expires_at) > _naive_utc(now)),
+                "export_ready": audio_result_sources_available(job, now=now),
                 "source_id": job.output_source_id,
+                "filename": job.output_filename,
+                "mime_type": job.output_mime_type,
+                "size_bytes": job.output_size_bytes,
+                "regeneration_required": job.output_source_id is None,
                 "google_drive_url": job.output_drive_web_view_url,
                 "duration_seconds": job.output_duration_ms / 1000 if job.output_duration_ms else None,
             }
-            if job.output_source_id is not None
+            if job.output_source_id is not None or job.output_filename is not None
             else None
         ),
-        "recoverable_output": object_session(job) is not None and _legacy_stored_output(object_session(job), job, now=datetime.now(timezone.utc)) is not None,
+        "recoverable_output": object_session(job) is not None and _legacy_stored_output(object_session(job), job, now=now) is not None,
+        "download_active": job.download_slot == 1,
         "error_code": job.error_code,
         "cancel_requested": job.cancel_requested_at is not None,
         "created_at": _iso(job.created_at),
@@ -554,6 +598,30 @@ def _source_available(source: Source, *, project_id: str, now: datetime) -> bool
         and not is_source_expired(source.expires_at, now)
         and is_supported_source_mime_type(source.mime_type)
     )
+
+
+def audio_result_sources_available(job: AudioPreparationJob, *, now: datetime) -> bool:
+    session = object_session(job)
+    if job.output_source_id:
+        source = session.get(Source, job.output_source_id) if session else None
+        return bool(source and _source_available(source, project_id=job.project_id, now=now))
+    return bool(job.output_filename and job.inputs and all(
+        item.source and _source_available(item.source, project_id=job.project_id, now=now)
+        for item in job.inputs
+    ))
+
+
+def require_audio_result_sources(db: Session, job: AudioPreparationJob, *, now: datetime) -> None:
+    _owned_project(db, job.owner_user_id, job.project_id)
+    # Lock source rows in stable order, matching cleanup/admission, then read fresh
+    # state. A render/export lease must be committed before external I/O.
+    ids = [job.output_source_id] if job.output_source_id else [item.source_id for item in job.inputs]
+    sources = list(db.execute(select(Source).where(Source.id.in_(ids)).order_by(Source.id)
+        .with_for_update().execution_options(populate_existing=True)).scalars())
+    if not ids or len(sources) != len(set(ids)) or not all(
+        _source_available(source, project_id=job.project_id, now=now) for source in sources
+    ):
+        raise AudioPreparationServiceError(AudioPreparationServiceReason.source_unavailable)
 
 
 def _destination_snapshot(destination: str, folder: object | None) -> tuple[str, tuple[str | None, str | None, str | None]]:

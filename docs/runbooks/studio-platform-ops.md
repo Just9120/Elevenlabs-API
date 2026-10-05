@@ -1214,6 +1214,29 @@ failure rather than a successful truncated export. Increase budgets only togethe
 with reviewed worker capacity. These operational ceilings are resource guards,
 not commercial billing quotas.
 
+Повторное скачивание готового аудио не использует S3 archive. API ставит задачу
+отдельному worker, который собирает файл из доступных исходников и сохранённых
+параметров. Общий `studio-audio-delivery` volume — volatile tmpfs2GiB,
+uid/gid10001, mode0700, nosuid/nodev/noexec; он смонтирован в API и worker по
+`STUDIO_AUDIO_DELIVERY_DIRECTORY=/run/studio-audio-delivery`. Это отдельный
+лимит сверх worker scratch3GiB: перед rollout проверь доступный RAM/cgroup budget
+обоих контейнеров и mount options, не увеличивай его автоматически. Один unique
+DB slot ограничивает сервис одной задачей/готовым файлом. Work deadline3h,
+ready/transfer deadline15min. API janitor каждые30s выбирает до10 истёкших rows
+по индексу и очищает только UUID/marker-проверенные каталоги; disconnect и
+завершение stream также освобождают slot. Нельзя очищать volume вслепую при
+активной операции или заменять его persistent S3 хранения результата.
+
+Migration0040 добавляет nullable result/download metadata и unique slot без
+удаления historical output Sources. Она одновременно сохраняет Live/unfinished
+provider text до явной retirement, добавляет source lifecycle поля и index.
+Применять через protected backup/migration lane0039→0040 с approval точной
+revision; затем подтвердить schema/API и поставить совместимый worker с тем же
+transfer mount. Перед recreate обоих компонентов дождись drain/отсутствия
+active work. Старые S3 outputs остаются на прежнем compatibility path, без
+автоматического массового удаления. Rollout не повторяет пользовательские jobs
+и не вызывает платный provider для smoke.
+
 The audio-processing hotfix adds `0039_audio_diagnostics`, a direct additive
 successor of `0038_trusted_devices`. Diagnostics retain the transcription-job
 foreign key and gain a separate nullable audio-job foreign key, a mutually

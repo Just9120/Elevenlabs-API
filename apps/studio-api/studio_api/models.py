@@ -513,6 +513,14 @@ class AudioPreparationJob(Base):
     output_drive_folder_url: Mapped[str|None]=mapped_column(Text)
     output_drive_folder_name: Mapped[str|None]=mapped_column(String(512))
     output_source_id: Mapped[str|None]=mapped_column(ForeignKey("sources.id"), unique=True)
+    output_filename: Mapped[str|None]=mapped_column(String(255))
+    output_mime_type: Mapped[str|None]=mapped_column(String(255))
+    output_size_bytes: Mapped[int|None]=mapped_column(Integer)
+    download_slot: Mapped[int|None]=mapped_column(Integer)
+    download_request_id: Mapped[str|None]=mapped_column(String(36))
+    download_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    download_previous_stage: Mapped[str|None]=mapped_column(String(40))
+    download_error_code: Mapped[str|None]=mapped_column(String(80))
     output_drive_file_id: Mapped[str|None]=mapped_column(String(256), unique=True)
     output_drive_web_view_url: Mapped[str|None]=mapped_column(Text)
     total_input_duration_ms: Mapped[int|None]=mapped_column(Integer)
@@ -535,6 +543,9 @@ class AudioPreparationJob(Base):
     inputs: Mapped[list["AudioPreparationJobInput"]]=relationship("AudioPreparationJobInput", back_populates="job", order_by="AudioPreparationJobInput.position")
     __table_args__=(
         CheckConstraint("output_destination IN ('download','google_drive')", name="ck_audio_preparation_jobs_destination"),
+        CheckConstraint("download_slot IS NULL OR download_slot = 1", name="ck_audio_download_slot"),
+        Index("uq_audio_download_slot", "download_slot", unique=True),
+        Index("ix_audio_download_expiry", "download_expires_at"),
         CheckConstraint("progress_percent >= 0 AND progress_percent <= 100", name="ck_audio_preparation_jobs_progress"),
         CheckConstraint("total_input_duration_ms IS NULL OR total_input_duration_ms > 0", name="ck_audio_preparation_jobs_input_duration"),
         CheckConstraint("estimated_output_duration_ms IS NULL OR estimated_output_duration_ms >= 0", name="ck_audio_preparation_jobs_estimated_duration"),

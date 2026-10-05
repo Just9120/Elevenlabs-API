@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     elevenlabs_pricing_effective_date: date | None = None
     elevenlabs_pricing_source: str | None = Field(default=None, max_length=80)
     realtime_draft_max_count: int = Field(default=20, ge=1, le=100)
+    audio_delivery_directory: str = Field(default="/run/studio-audio-delivery", min_length=1, max_length=1024)
     realtime_draft_max_storage_bytes: int = Field(default=33554432, ge=1048576, le=134217728)
     # Deprecated compatibility input; Live is retained until owner clear.
     realtime_draft_ttl_seconds: int = Field(default=259200, ge=259200, le=259200)

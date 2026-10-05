@@ -98,6 +98,7 @@ services:
       STUDIO_REALTIME_DRAFT_MAX_COUNT: ${STUDIO_REALTIME_DRAFT_MAX_COUNT:-20}
       STUDIO_REALTIME_DRAFT_MAX_STORAGE_BYTES: ${STUDIO_REALTIME_DRAFT_MAX_STORAGE_BYTES:-33554432}
       STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES: ${STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES:-2147483647}
+      STUDIO_AUDIO_DELIVERY_DIRECTORY: /run/studio-audio-delivery
       STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
       STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
@@ -159,6 +160,8 @@ services:
       - studio_job_smtp_password
       - studio_job_telegram_bot_token
       - studio_job_telegram_chat_id
+    volumes:
+      - studio-audio-delivery:/run/studio-audio-delivery
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:
@@ -240,6 +243,7 @@ services:
       STUDIO_REALTIME_DRAFT_MAX_COUNT: ${STUDIO_REALTIME_DRAFT_MAX_COUNT:-20}
       STUDIO_REALTIME_DRAFT_MAX_STORAGE_BYTES: ${STUDIO_REALTIME_DRAFT_MAX_STORAGE_BYTES:-33554432}
       STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES: ${STUDIO_AUDIO_PREPARATION_MAX_OUTPUT_BYTES:-2147483647}
+      STUDIO_AUDIO_DELIVERY_DIRECTORY: /run/studio-audio-delivery
       STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
       STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
@@ -307,6 +311,8 @@ services:
       - studio_job_smtp_password
       - studio_job_telegram_bot_token
       - studio_job_telegram_chat_id
+    volumes:
+      - studio-audio-delivery:/run/studio-audio-delivery
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
       - /tmp:rw,nosuid,nodev,noexec,mode=1770,uid=10001,gid=10001,size=${STUDIO_WORKER_TMPFS_SIZE:-3g}
@@ -403,6 +409,12 @@ secrets:
     file: ${STUDIO_JOB_TELEGRAM_CHAT_ID_FILE:-./optional-empty-secret}
 volumes:
   studio-postgres-data:
+  studio-audio-delivery:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=2147483648,uid=10001,gid=10001,mode=0700,nosuid,nodev,noexec"
 networks:
   studio-web-ingress:
     driver: bridge

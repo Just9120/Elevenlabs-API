@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .audit import audit
 from .diagnostics import write_diagnostic_event
+from .security import utcnow
 from .job_retry_recovery import compute_explicit_retry_readiness
 from .models import (
     AudioPreparationJob,
@@ -156,6 +157,11 @@ def _active_audio_reference_predicate(source_id):
             AudioPreparationStatus.preview_queued, AudioPreparationStatus.analyzing,
             AudioPreparationStatus.preview_ready, AudioPreparationStatus.queued, AudioPreparationStatus.processing,
         ))),
+        and_(input_reference, AudioPreparationJob.status == AudioPreparationStatus.completed,
+            or_(AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload")),
+                and_(AudioPreparationJob.current_stage.in_(("audio_download_queued", "audio_download_rendering")),
+                    AudioPreparationJob.download_slot == 1,
+                    AudioPreparationJob.download_expires_at > _aware(utcnow()).replace(tzinfo=None)))),
         and_(AudioPreparationJob.output_source_id == source_id,
             AudioPreparationJob.status == AudioPreparationStatus.completed,
             AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload"))),

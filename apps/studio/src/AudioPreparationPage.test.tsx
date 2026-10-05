@@ -525,4 +525,35 @@ describe("audio UX regression", () => {
     expect(posts).toEqual([{ folder_id: "original" }]);
     expect(picker).toHaveBeenCalledTimes(1);
   });
+  it("hands a regenerated result through a confirmed Drive copy without an S3 output Source", async () => {
+    const ready = { ...previewJob("ready", "Готовая лекция", []), status: "completed", progress: { percent: 100, stage: "completed" },
+      output: { download_ready: true, export_ready: true, regeneration_required: true, source_id: null, google_drive_url: null } };
+    const queued = { ...ready, progress: { percent: 0, stage: "google_drive_export_queued" }, output_folder: { id: "folder", name: "Материалы" } };
+    const saved = { ...queued, progress: { percent: 100, stage: "completed" }, output: { ...ready.output, google_drive_url: "https://drive.google.com/file/d/prepared/view" } };
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({ action: "picked", docs: [{ id: "folder", name: "Материалы", mimeType: "application/vnd.google-apps.folder" }] });
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [ready] });
+      if (url.endsWith("/picker/session")) return json({ access_token: "synthetic", api_key: "test", app_id: "test", scope_ready: true });
+      if (url.endsWith("/save-to-drive")) { posts.push(url); return json(queued); }
+      if (url.endsWith("/reuse-source")) { posts.push(url); return json(source("drive-input", "Готовая лекция.flac", null)); }
+      if (url.endsWith("/audio-preparations/ready")) return json(saved);
+      throw new Error(`Unexpected call: ${url}`);
+    }));
+    const handoff = vi.fn();
+    window.addEventListener("studio:transcribe-source", handoff);
+    try {
+      render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+      await userEvent.click(await screen.findByRole("button", { name: "Использовать для транскрибации" }));
+      expect(screen.getByRole("status")).toHaveTextContent("Сохраняем копию в Google Drive для передачи");
+      await waitFor(() => expect(handoff).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      expect(handoff.mock.calls[0][0].detail).toEqual({ sourceId: "drive-input" });
+      expect(posts).toEqual(["/api/audio-preparations/ready/save-to-drive", "/api/audio-preparations/ready/reuse-source"]);
+      expect(screen.getByRole("button", { name: "Подготовить файл для скачивания" })).toBeEnabled();
+    } finally { window.removeEventListener("studio:transcribe-source", handoff); }
+  });
+
 });
