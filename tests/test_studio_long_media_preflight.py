@@ -31,6 +31,8 @@ def test_quote_uses_measured_duration_and_locks_tariff_for_actual_usage(db):
     record_long_media_preflight(db, job_id=job.id, relation_id=relation.id, duration=18000,
         settings=settings, owner="worker", generation=7, now=now)
     assert long_media_preflight_payload(job) == quote
+    from studio_api.provider_usage_accounting import resolve_pricing_snapshot
+    assert resolve_pricing_snapshot(job, _settings(None)).rate_per_hour == Decimal("0.220000")
     job.media_clip_start_seconds, job.media_clip_end_seconds = 3600, 7200
     record_long_media_preflight(db, job_id=job.id, relation_id=relation.id, duration=18000,
         settings=settings, owner="worker", generation=7, now=now)

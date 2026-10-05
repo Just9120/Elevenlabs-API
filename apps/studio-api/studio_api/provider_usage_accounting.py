@@ -81,9 +81,14 @@ def pricing_snapshot(settings) -> ProviderPricingSnapshot:
     )
 
 
+def resolve_pricing_snapshot(job, settings) -> ProviderPricingSnapshot:
+    """Existing job provenance is independent of later configured pricing."""
+    return _stored_pricing_snapshot(job) or pricing_snapshot(settings)
+
+
 def preserve_pricing_snapshot(job, settings) -> ProviderPricingSnapshot:
     """Freeze a tariff while the caller holds the job's authorized row lock."""
-    snapshot = _stored_pricing_snapshot(job) or pricing_snapshot(settings)
+    snapshot = resolve_pricing_snapshot(job, settings)
     _apply_snapshot(job, snapshot)
     return snapshot
 

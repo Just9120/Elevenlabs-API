@@ -397,6 +397,49 @@ Backup/restore rehearsal is manual and isolated:
 - destroy only the temporary target after verification;
 - never delete, overwrite, prune, or reset live production data from the rehearsal path.
 
+Personal backup schedule is defined by
+[studio-postgres-backup.timer](../../deploy/studio/systemd/studio-postgres-backup.timer):
+every 10 hours after the previous activation. The
+[backup script](../../scripts/backup_studio_postgres_r2.sh) keeps scheduled
+snapshots within 7 days, 30 daily and 12 monthly snapshots; pre-migration
+snapshots are kept within 90 days. These retention rules are not a fixed expiry
+for every snapshot. Repository configuration alone does not prove that the
+host timer is enabled or that a scheduled backup succeeded. Confirm those
+conditions and the latest snapshot age from host/backup records before recovery.
+Owner-approved RPO and RTO remain UNSET until the owner selects them; the
+10-hour interval is not itself a verified RPO.
+
+The bounded automated rehearsal is
+[rehearse_studio_restore.py](../../scripts/rehearse_studio_restore.py), run from
+the repository root with the normal Python test dependencies and a running
+Docker engine with the existing `postgres:17` CI image cached. It accepts no
+production URL, existing dump, credentials or target. It creates two
+network-isolated, read-only-root, tmpfs-only containers with exact image/name/
+nonce verification; performs a real custom-format PostgreSQL dump and restore
+of current-model synthetic data with encrypted Live drafts; and removes only
+its verified containers. Its report includes snapshot age and elapsed time
+to a quarantined restored state. The Linux suite requires this rehearsal;
+unavailable local Docker remains an explicit local limitation, not PASS.
+
+The quarantine statements in
+[recovery_quarantine.py](../../apps/studio-api/studio_api/recovery_quarantine.py)
+disable restored users, archive workspaces, revoke sessions/trusted devices/
+Google grants/provider credentials, suppress unsent notifications, and stop
+restored work and download slots with fenced leases. Text is retained encrypted
+for reconciliation. Apply them in one transaction **on the isolated restored
+copy before starting any runtime or allowing access**. The module is not an
+ordinary application endpoint and does not grant permission for production
+restore or reactivation.
+
+A synthetic deletion after backup is deliberately absent from the restored
+snapshot. The rehearsal verifies that the stale content cannot become active.
+Do not reactivate identities, workspaces, tasks or exports until owner-approved
+reconciliation establishes current deletion evidence from a separately trusted
+source. This repository has no independent deletion ledger; if that evidence
+is unavailable, retain quarantine and stop. The measured time is restoration
+**to quarantine**, not proof of full service recovery, production RPO/RTO,
+R2 snapshot validity, Alembic role/grant compatibility or restored source bytes.
+
 ## Reference storage isolation
 
 Studio persists every local reference with an exact class: `transcription` or `audio_processing`. Existing rows and objects remain `transcription`; migration `0029_source_reference_class` adds the class with that safe default and does not move or delete objects. New transcription uploads use the transcription-reference boundary. New Audio uploads and reusable Audio outputs use the audio-reference boundary. Transcript outputs remain in Google Drive/Docs, not in either reference bucket.

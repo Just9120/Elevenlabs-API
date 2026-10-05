@@ -14,7 +14,8 @@ describe("realtime draft contract", () => {
       revision: 1, committedSegments: ["Реплика"], segmentMetadata: metadata, partial: "" });
     metadata[0].end_seconds = 9;
     expect(draft.segment_metadata?.[0]?.end_seconds).toBe(4);
-    const { owner_user_id: _owner, project_id: _project, ...payload } = draft;
+    const { owner_user_id, project_id, ...payload } = draft;
+    expect([owner_user_id, project_id]).toEqual(["owner", "project"]);
     expect(parseLatestRealtimeDraftResponse({ draft: payload }, "owner", "project")?.segment_metadata).toEqual(draft.segment_metadata);
     expect(parseLatestRealtimeDraftResponse({ draft: { ...payload, segment_metadata: [{ id: "capture.0", end_seconds: 4 }] } }, "owner", "project")).toBeUndefined();
   });

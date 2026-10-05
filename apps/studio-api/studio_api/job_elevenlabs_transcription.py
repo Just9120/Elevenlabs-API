@@ -49,7 +49,7 @@ from .provider_usage_accounting import (
     begin_provider_part_usage,
     confirm_provider_part_usage,
     mark_pending_provider_usage_uncertain,
-    pricing_snapshot,
+    resolve_pricing_snapshot,
 )
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_part_completed, mark_attempt_provider_returned, mark_attempt_provider_started
@@ -308,7 +308,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                             ) from exc
                     if usage_accounting_enabled:
                         try:
-                            pricing_snapshot(settings)
+                            resolve_pricing_snapshot(db.get(TranscriptionJob, job_id), settings)
                         except ProviderUsageAccountingError as exc:
                             _best_effort_classify(
                                 db,
