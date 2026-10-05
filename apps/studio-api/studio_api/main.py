@@ -631,6 +631,7 @@ class JobRetryIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm_remaining_provider_cost: StrictBool=False
     confirm_long_duration_cost: StrictBool=False
+    long_duration_confirmation_token: str | None = Field(default=None, min_length=64, max_length=64, pattern="^[a-f0-9]{64}$")
 
 class RealtimeCapabilityIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -3753,16 +3754,25 @@ def post_job_retry(job_id: str, request: Request, data: JobRetryIn | None = None
             },
         )
     if job.error_code == "media_duration_confirmation_required":
-        if not (data and data.confirm_long_duration_cost):
+        from .long_media_preflight import long_media_preflight_payload
+        duration_preflight = long_media_preflight_payload(job)
+        if duration_preflight is None:
+            # Old failures have no measured quote. The duration guard still
+            # requires explicit confirmation for a long source before STT.
+            job.long_duration_cost_confirmed=False
+        elif not (data and data.confirm_long_duration_cost and
+                  data.long_duration_confirmation_token == duration_preflight["confirmation_token"]):
             raise HTTPException(
                 409,
                 detail={
                     "reason": "long_duration_confirmation_required",
                     "warning_seconds": settings.media_duration_warning_seconds,
                     "max_seconds": settings.media_max_duration_seconds,
+                    "preflight": duration_preflight,
                 },
             )
-        job.long_duration_cost_confirmed=True
+        else:
+            job.long_duration_cost_confirmed=True
         db.flush()
     if requires_provider_cost_confirmation(initial_readiness) and not (data and data.confirm_remaining_provider_cost):
         raise HTTPException(409, "Требуется подтверждение стоимости оставшихся частей")

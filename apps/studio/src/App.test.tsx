@@ -10524,7 +10524,7 @@ describe("Studio PWA", () => {
       retry_safe_source_count: 1,
       resumable_provider_part_count: 0,
       provider_total_part_count: 0,
-      provider_failure_code: null,
+      provider_failure_code: null, long_duration_preflight: { source_duration_seconds: 18000, selected_duration_seconds: 18000, nominal_cost: "1.10000000", currency: "USD", rate_per_hour: "0.220000", effective_date: "2026-10-06", source: "elevenlabs_public_api_pricing", provider: "elevenlabs", additional_source_count: 0, maximum_seconds_per_source: 21600, basis: "measured_duration_x_immutable_public_tariff", invoice_debit: false, confirmation_token: "a".repeat(64) },
     };
     installFocusedOutputFixture({
       jobStatus: "failed",
@@ -10562,7 +10562,7 @@ describe("Studio PWA", () => {
     );
 
     expect(window.confirm).toHaveBeenCalledWith(
-      "Запись длится больше 2 ч. Обработка может заметно увеличить расход ElevenLabs. Продолжить? Максимально допустимая длительность — 6 ч.",
+      expect.stringContaining("Номинальная оценка: 1,1 USD"),
     );
     await waitFor(() =>
       expect(
@@ -10570,7 +10570,7 @@ describe("Studio PWA", () => {
           ([url, init]) =>
             url === "/api/jobs/job-focused/retry" &&
             init?.method === "POST" &&
-            JSON.parse(String(init.body)).confirm_long_duration_cost === true,
+            JSON.parse(String(init.body)).confirm_long_duration_cost === true && JSON.parse(String(init.body)).long_duration_confirmation_token === "a".repeat(64),
         ),
       ).toBe(true),
     );

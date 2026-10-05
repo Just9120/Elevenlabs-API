@@ -47,8 +47,9 @@ class MediaPreparationReason(str, Enum):
 
 
 class MediaPreparationError(RuntimeError):
-    def __init__(self, reason: MediaPreparationReason):
+    def __init__(self, reason: MediaPreparationReason, *, duration_seconds: float | None = None):
         self.reason = reason
+        self.duration_seconds = duration_seconds
         super().__init__(reason.value)
 
 
@@ -188,6 +189,7 @@ def prepare_elevenlabs_media_parts(
     duration_warning_seconds: int = 14400,
     max_duration_seconds: int = 43200,
     long_duration_confirmed: bool = False,
+    confirmed_source_duration_seconds: float | None = None,
 ) -> Iterator[PreparedMediaBatch]:
     with prepare_elevenlabs_media_input(
         stream=stream,
@@ -210,7 +212,9 @@ def prepare_elevenlabs_media_parts(
                 _copy_input(prepared.stream, prepared_path)
                 prepared_size = _validated_output_size(prepared_path, max_output_bytes)
                 duration = _probe_duration_seconds(runner, prepared_path)
-                _validate_whole_source_duration(duration, max_duration_seconds, duration_warning_seconds, long_duration_confirmed)
+                _validate_whole_source_duration(duration, max_duration_seconds, duration_warning_seconds,
+                    long_duration_confirmed and (confirmed_source_duration_seconds is None
+                        or round(duration, 3) == confirmed_source_duration_seconds))
                 clip_requested = (
                     media_clip_start_seconds is not None
                     or media_clip_end_seconds is not None
@@ -325,6 +329,7 @@ def prepare_yandex_media_file(
     duration_warning_seconds: int = 14400,
     max_duration_seconds: int = 43200,
     long_duration_confirmed: bool = False,
+    confirmed_source_duration_seconds: float | None = None,
 ) -> Iterator[PreparedMediaBatch]:
     """Normalize one source to the Yandex v3 OGG/Opus async-file contract."""
     del mime_type, byte_count
@@ -339,7 +344,9 @@ def prepare_yandex_media_file(
             else None
         )
         source_duration = _probe_duration_seconds(runner, source_path)
-        _validate_whole_source_duration(source_duration, max_duration_seconds, duration_warning_seconds, long_duration_confirmed)
+        _validate_whole_source_duration(source_duration, max_duration_seconds, duration_warning_seconds,
+            long_duration_confirmed and (confirmed_source_duration_seconds is None
+                or round(source_duration, 3) == confirmed_source_duration_seconds))
         clip_requested = media_clip_start_seconds is not None or media_clip_end_seconds is not None
         start, end = (0.0, source_duration)
         if clip_requested:
@@ -402,7 +409,7 @@ def _validate_whole_source_duration(duration: float, maximum: int, warning: int,
     if duration > maximum:
         raise MediaPreparationError(MediaPreparationReason.media_duration_too_long)
     if duration > warning and not confirmed:
-        raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required)
+        raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required, duration_seconds=duration)
 
 
 def _validated_manual_clip_bounds(

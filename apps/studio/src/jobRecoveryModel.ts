@@ -1,4 +1,5 @@
 import type { JobСтатус } from "./jobModel";
+import { parseLongMediaPreflight, type LongMediaPreflight } from "./longMediaPreflight";
 
 export type JobAttentionCandidate = { id: string; title: string | null; created_at: string };
 
@@ -18,6 +19,7 @@ export type OutputReconciliationResponse = {
 };
 
 export type JobRetryResponse = {
+  long_duration_preflight?: LongMediaPreflight | null;
   job_id: string;
   job_status: JobСтатус;
   available: boolean;
@@ -97,6 +99,8 @@ export function parseJobRetryResponse(
   jobId: string,
 ): JobRetryResponse | null {
   if (!isRecord(candidate)) return null;
+  const durationPreflight = parseLongMediaPreflight(candidate.long_duration_preflight);
+  if (candidate.long_duration_preflight !== undefined && candidate.long_duration_preflight !== null && !durationPreflight) return null;
   const reason = candidate.reason;
   const resumableParts = optionalNonNegativeInteger(
     candidate.resumable_provider_part_count,
@@ -153,6 +157,7 @@ export function parseJobRetryResponse(
     return null;
   }
   return {
+    ...(candidate.long_duration_preflight !== undefined ? { long_duration_preflight: durationPreflight } : {}),
     job_id: jobId,
     job_status: candidate.job_status as JobRetryResponse["job_status"],
     available: candidate.available,

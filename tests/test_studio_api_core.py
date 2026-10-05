@@ -8972,6 +8972,49 @@ def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path,
     assert client.get(download_route + "/status").json()["reason"] == "cancellation_requested"
 
 
+def test_long_recording_confirmation_rejects_stale_quote_and_requires_owner_csrf(monkeypatch):
+    from studio_api import main as api_main
+    from studio_api.job_retry_recovery import RetryReadiness, RetryReason, RetryQueueResult
+    from studio_api.long_media_preflight import long_media_preflight_payload
+    email = "long-estimate-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    with SessionLocal() as db:
+        owner = db.query(User).filter_by(email=email).one()
+        project = Project(owner_user_id=owner.id, title="Synthetic estimate")
+        db.add(project); db.flush()
+        job = TranscriptionJob(project_id=project.id, owner_user_id=owner.id, provider="elevenlabs",
+            status=JobStatus.failed, error_code="media_duration_confirmation_required", attempt_count=1,
+            long_duration_preflight_json=json.dumps({"source_duration_seconds": 18000, "selected_duration_seconds": 18000,
+                "nominal_cost": "1.10000000", "currency": "USD", "rate_per_hour": "0.220000",
+                "effective_date": "2026-10-06", "source": "elevenlabs_public_api_pricing", "provider": "elevenlabs",
+                "additional_source_count": 0, "maximum_seconds_per_source": 43200,
+                "basis": "measured_duration_x_immutable_public_tariff", "invoice_debit": False}))
+        db.add(job); db.commit()
+        job_id, quote = job.id, long_media_preflight_payload(job)
+    ready = RetryReadiness(True, RetryReason.available, 1, 3, 1, 1)
+    monkeypatch.setattr(api_main, "compute_explicit_retry_readiness", lambda *a, **k: ready)
+    queued = []
+    def queue(db, **kwargs):
+        job = db.get(TranscriptionJob, kwargs["job_id"])
+        queued.append(job.long_duration_cost_confirmed)
+        job.status = JobStatus.queued
+        return RetryQueueResult(job, ready, True)
+    monkeypatch.setattr(api_main, "queue_retry", queue)
+    route = f"/api/jobs/{job_id}/retry"
+    data = {"confirm_long_duration_cost": True, "long_duration_confirmation_token": quote["confirmation_token"]}
+    assert TestClient(app).post(route, headers=headers, json=data).status_code == 401
+    assert client.post(route, json=data).status_code == 403
+    for rejected in ({}, {"confirm_long_duration_cost": True}, {**data, "long_duration_confirmation_token": "f" * 64}):
+        response = client.post(route, headers=headers, json=rejected)
+        assert response.status_code == 409
+        assert response.json()["detail"]["preflight"]["nominal_cost"] == "1.10000000"
+    assert queued == []
+    assert client.post(route, headers=headers, json=data).status_code == 200
+    assert queued == [True]
+
+
 def test_audio_reuse_imports_only_verified_drive_copy_and_is_idempotent(monkeypatch):
     from types import SimpleNamespace
     from studio_api import main as api_main

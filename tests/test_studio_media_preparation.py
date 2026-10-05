@@ -567,6 +567,24 @@ def test_short_clip_cannot_bypass_whole_source_policy(tmp_path, provider, durati
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.parametrize("provider", ["elevenlabs", "yandex"])
+def test_changed_source_duration_revokes_previous_quote_consent(tmp_path, provider):
+    from studio_api.media_preparation import MediaPreparationError, prepare_elevenlabs_media_parts, prepare_yandex_media_file
+    preparer = prepare_elevenlabs_media_parts if provider == "elevenlabs" else prepare_yandex_media_file
+    calls = []
+    def runner(command, **kwargs):
+        calls.append(command)
+        assert command[0] == "ffprobe"
+        return subprocess.CompletedProcess(command, 0, stdout="19000")
+    with pytest.raises(MediaPreparationError, match="media_duration_confirmation_required") as failure:
+        with preparer(stream=BytesIO(b"audio"), original_filename="synthetic.mp3", mime_type="audio/mpeg", byte_count=5,
+            max_output_bytes=100, long_duration_confirmed=True, confirmed_source_duration_seconds=18000,
+            runner=runner, temporary_directory=str(tmp_path)):
+            pass
+    assert failure.value.duration_seconds == 19000
+    assert len(calls) == 1 and not list(tmp_path.iterdir())
+
+
 @pytest.mark.parametrize(
     "probe_result, expected_reason",
     [

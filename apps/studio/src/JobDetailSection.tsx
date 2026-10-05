@@ -1,4 +1,5 @@
 import { formatBytes } from "./formatters";
+import { longMediaEstimate } from "./longMediaPreflight";
 import {
   jobSourceProcessingСтатусLabel,
   safeJobSources,
@@ -66,7 +67,7 @@ function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost }) {
         : null;
 
   return (
-    <article className="source-card" aria-label="Расход ElevenLabs по задаче">
+    <article className="source-card" aria-label="Расход сервиса распознавания по задаче">
       <span>
         Подтверждённая длительность: <strong>{formatConfirmedDuration(duration)}</strong>
       </span>
@@ -128,7 +129,7 @@ export function JobDetailSection({
       <p>
         Разделение спикеров: {job.diarization_enabled ? "Включено" : "Выключено"}
       </p>
-      <h5>Расход ElevenLabs</h5>
+      <h5>Расход сервиса распознавания</h5>
       <JobUsageCostSummary usageCost={job.usage_cost} />
       <h5>Папка результата</h5>
       {job.output_folder ? (
@@ -152,6 +153,9 @@ export function JobDetailSection({
           role="region"
           aria-label="Действия после ошибки"
         >
+          {job.error_code === "media_duration_confirmation_required" && <p className="notice">{retry?.data?.long_duration_preflight
+            ? longMediaEstimate(retry.data.long_duration_preflight)
+            : "Для старой задачи измеренная оценка не сохранена. Повтор сначала проверит длительность; для длинной записи потребуется отдельное подтверждение."}</p>}
           {retry?.data?.available ? (
             <>
               {ordinaryProviderFailure && (

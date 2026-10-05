@@ -81,6 +81,13 @@ def pricing_snapshot(settings) -> ProviderPricingSnapshot:
     )
 
 
+def preserve_pricing_snapshot(job, settings) -> ProviderPricingSnapshot:
+    """Freeze a tariff while the caller holds the job's authorized row lock."""
+    snapshot = _stored_pricing_snapshot(job) or pricing_snapshot(settings)
+    _apply_snapshot(job, snapshot)
+    return snapshot
+
+
 def begin_provider_part_usage(
     db: Session,
     *,

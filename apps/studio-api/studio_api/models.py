@@ -357,6 +357,7 @@ class TranscriptionJob(Base):
     media_clip_start_seconds: Mapped[int|None]=mapped_column(Integer)
     media_clip_end_seconds: Mapped[int|None]=mapped_column(Integer)
     long_duration_cost_confirmed: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    long_duration_preflight_json: Mapped[str|None]=mapped_column(Text)
     terminal_dismissed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     history_attention_resolved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     history_attention_resolution: Mapped[str|None]=mapped_column(String(40))

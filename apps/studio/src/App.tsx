@@ -158,6 +158,7 @@ import {
   type OutputReconciliationResponse,
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
+import { longMediaEstimate } from "./longMediaPreflight";
 import {
   cancellationIsConfirmed,
   dismissalIsConfirmed,
@@ -4014,14 +4015,15 @@ function PreparationPanel({
   async function retryJob(jobId: string) {
     const selectedJob=jobs.items.find((item) => item.id === jobId) ?? null;
     const longDurationMode=selectedJob?.error_code === "media_duration_confirmation_required";
+    const longDurationQuote = retries[jobId]?.data?.long_duration_preflight ?? null;
     const durationWarningSeconds=
       sourceUploadPolicy?.media_duration_warning_seconds ?? 14400;
     const durationMaxSeconds=
       sourceUploadPolicy?.media_max_duration_seconds ?? 43200;
     if (
-      longDurationMode &&
+      longDurationMode && longDurationQuote &&
       !safeConfirm(
-        `Запись длится больше ${formatDurationLimit(durationWarningSeconds)}. Обработка может заметно увеличить расход ElevenLabs. Продолжить? Максимально допустимая длительность — ${formatDurationLimit(durationMaxSeconds)}.`,
+        `${longMediaEstimate(longDurationQuote)} Запись длится больше ${formatDurationLimit(durationWarningSeconds)}. Продолжить? Максимально допустимая длительность — ${formatDurationLimit(durationMaxSeconds)}.`,
       )
     ) return;
     if (!beginJobMutation("retry", jobId)) return;
@@ -4058,7 +4060,8 @@ function PreparationPanel({
               partialMode || longDurationMode
                 ? JSON.stringify({
                     confirm_remaining_provider_cost: partialMode,
-                    confirm_long_duration_cost: longDurationMode,
+                    confirm_long_duration_cost: longDurationMode && longDurationQuote !== null,
+                    ...(longDurationMode && longDurationQuote ? { long_duration_confirmation_token: longDurationQuote.confirmation_token } : {}),
                   })
                 : undefined,
           },

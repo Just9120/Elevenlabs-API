@@ -1260,3 +1260,7 @@ the output `-fs` budget. Stderr is drained with a bounded16KiB memory tail;
 only an allowlisted failure category and bounded numeric exit code can reach
 diagnostics. Raw stderr, private paths and source contents are neither stored
 nor logged. Delivery does not retry failed user audio jobs automatically.
+
+### Long-source confirmation
+
+До STT worker проверяет duration всего исходника, включая запрос короткого clip. Для записи выше configured warning сохраняются измеренная whole/selected duration и nominal quote по immutable public tariff snapshot; неизвестный tariff обозначается unavailable. Retry подтверждает exact quote token, конкретный source и неизменённый clip. Повторное измерение другой duration отзывает consent до conversion/provider call; другой длинный source требует собственной оценки. Legacy warning без quote сначала повторяет проверку без long consent. Quote не invoice и не включает overlap/subscription/quota; остальные непромеренные sources не включаются в показанную сумму. Общее ограничение12h не обходится splitting. Отдельные provider limits остаются: current Yandex async adapter ограничен4h и не получает ElevenLabs tariff.

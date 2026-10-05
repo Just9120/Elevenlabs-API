@@ -17,6 +17,7 @@ release_safety = "additive"
 
 
 def upgrade():
+    op.add_column("transcription_jobs", sa.Column("long_duration_preflight_json", sa.Text(), nullable=True))
     for table in ("realtime_transcript_drafts", "transcription_provider_part_checkpoints"):
         op.alter_column(table, "expires_at", existing_type=sa.DateTime(timezone=True), nullable=True)
         # Data-preserving metadata change; payload HMAC/AAD do not use expiry.

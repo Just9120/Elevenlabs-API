@@ -959,6 +959,23 @@ def test_immutable_media_clip_reaches_preparation_boundary(db, models):
     assert len(transport.calls) == 1
 
 
+def test_long_recording_warning_persists_quote_before_any_provider_call(db, models):
+    from studio_api.media_preparation import MediaPreparationError, MediaPreparationReason
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    from studio_api.long_media_preflight import long_media_preflight_payload
+    *_, job, rel, now = make_job(db, models)
+    transport = CaptureTransport()
+    def prepare(**kwargs):
+        raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required, duration_seconds=18000)
+    with pytest.raises(JobElevenLabsTranscriptionError, match="media_duration_confirmation_required"):
+        with run_boundary(db, models, job, rel, transport, now, media_preparer=prepare):
+            pytest.fail("Long unconfirmed source must not reach the provider")
+    db.refresh(job)
+    quote = long_media_preflight_payload(job)
+    assert quote["nominal_cost"] == "1.10000000" and quote["source_duration_seconds"] == 18000
+    assert transport.calls == [] and "private" not in str(quote)
+
+
 def test_media_preparation_failure_blocks_provider_with_safe_reason(db, models):
     from studio_api.job_elevenlabs_transcription import (
         JobElevenLabsTranscriptionError,

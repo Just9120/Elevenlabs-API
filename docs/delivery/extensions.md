@@ -69,8 +69,8 @@
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `MC-01` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
-| `MC-03` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
-| `MC-04` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
+| `MC-03` | IN_PROGRESS | ◐ | ◐ | ✅ | F17; measured whole/selected duration и immutable tariff quote до STT, explicit exact token confirmation, unknown/legacy без fake0.173 Python/23 UI и App confirmation PASS; PG/CI/browser PENDING. |
+| `MC-04` | IN_PROGRESS | ◐ | ◐ | ✅ | F17; a8bd66d whole-source limits4h/12h до provider clip/split;58 boundary/media tests PASS, required CI PENDING. |
 | `MC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `MC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
 | `MC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
