@@ -296,7 +296,7 @@ def process_claimed_audio_preparation_job(
             if failed_job is not None:
                 _request_ephemeral_cleanup(db, failed_job, operation_now)
             db.commit()
-            _record_failure_diagnostic(failed_job, reason, failure_stage)
+            _record_failure_diagnostic(failed_job, reason, failure_stage, exc)
         except Exception:
             db.rollback()
         raise
@@ -575,20 +575,26 @@ def _checkpoint(db, job, stage, percent):
     db.commit()
 
 
-def _record_failure_diagnostic(job, reason, stage):
+def _record_failure_diagnostic(job, reason, stage, error=None):
     if job is None:
         return
+    metadata = {
+        "error_code": reason if reason in {item.value for item in AudioPreparationReason} else "processing_failed",
+        "stage": stage if stage in {"analyzing", "materializing", "processing", "storing", "google_drive_upload", "failed"} else "failed",
+        "input_count": len(job.inputs),
+    }
+    if isinstance(error, AudioPreparationError):
+        if error.ffmpeg_exit_code is not None:
+            metadata["ffmpeg_exit_code"] = error.ffmpeg_exit_code
+        if error.ffmpeg_failure_category is not None:
+            metadata["ffmpeg_failure_category"] = error.ffmpeg_failure_category
     write_diagnostic_event(
         owner_user_id=job.owner_user_id,
         component="worker",
         event_code="AUDIO_PREPARATION_FAILED",
         project_id=job.project_id,
         job_id=job.id,
-        metadata={
-            "error_code": reason if reason in {item.value for item in AudioPreparationReason} else "processing_failed",
-            "stage": stage if stage in {"analyzing", "materializing", "processing", "storing", "google_drive_upload", "failed"} else "failed",
-            "input_count": len(job.inputs),
-        },
+        metadata=metadata,
     )
 
 

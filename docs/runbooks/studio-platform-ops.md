@@ -1213,3 +1213,19 @@ FFmpeg gets a bounded output size before execution, and hitting that bound is a
 failure rather than a successful truncated export. Increase budgets only together
 with reviewed worker capacity. These operational ceilings are resource guards,
 not commercial billing quotas.
+
+The audio-processing hotfix adds `0039_audio_diagnostics`, a direct additive
+successor of `0038_trusted_devices`. Diagnostics retain the transcription-job
+foreign key and gain a separate nullable audio-job foreign key, a mutually
+exclusive job-reference constraint and an owner/audio/time index. The public
+diagnostic `job_id` continues to identify the operation in either contour;
+filters and exports preserve owner isolation. Apply through the protected
+migration/backup lane before the new API/worker. Drain the old worker first,
+then deploy its new image only after schema0039 and API health are confirmed.
+Preserve old events; downgrade refuses to discard audio-event references.
+
+FFmpeg progress flags are global and do not split option/value pairs, including
+the output `-fs` budget. Stderr is drained with a bounded16KiB memory tail;
+only an allowlisted failure category and bounded numeric exit code can reach
+diagnostics. Raw stderr, private paths and source contents are neither stored
+nor logged. Delivery does not retry failed user audio jobs automatically.
