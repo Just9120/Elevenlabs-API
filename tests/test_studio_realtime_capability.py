@@ -67,6 +67,7 @@ def test_capability_uses_main_key_only_server_side_and_returns_bounded_config():
         "language_code": ["ru"],
         "model_id": ["scribe_v2_realtime"],
         "token": ["sutkn_short_lived"],
+        "include_timestamps": ["true"],
     }
     assert payload["expires_in_seconds"] == 900
     assert "sk_main_secret" not in repr(capability)

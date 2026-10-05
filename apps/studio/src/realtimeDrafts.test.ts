@@ -8,6 +8,16 @@ import {
 
 
 describe("realtime draft contract", () => {
+  it("preserves validated timing and speaker metadata in local/server recovery contracts", () => {
+    const metadata = [{ id: "capture.0", start_seconds: 2, end_seconds: 4, speaker: 3 }];
+    const draft = makeRealtimeDraft({ ownerUserId: "owner", projectId: "project", clientSessionId: "session_123456789",
+      revision: 1, committedSegments: ["Реплика"], segmentMetadata: metadata, partial: "" });
+    metadata[0].end_seconds = 9;
+    expect(draft.segment_metadata?.[0]?.end_seconds).toBe(4);
+    const { owner_user_id: _owner, project_id: _project, ...payload } = draft;
+    expect(parseLatestRealtimeDraftResponse({ draft: payload }, "owner", "project")?.segment_metadata).toEqual(draft.segment_metadata);
+    expect(parseLatestRealtimeDraftResponse({ draft: { ...payload, segment_metadata: [{ id: "capture.0", end_seconds: 4 }] } }, "owner", "project")).toBeUndefined();
+  });
   it("creates a bounded owner/project draft retained until explicit clear", () => {
     const now = new Date("2026-08-22T12:00:00Z");
     const draft = makeRealtimeDraft({

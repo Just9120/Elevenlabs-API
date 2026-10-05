@@ -54,6 +54,42 @@ def draft_db():
     engine.dispose()
 
 
+def test_timed_live_metadata_survives_restart_encrypted_and_revision_protected(draft_db):
+    from studio_api.models import RealtimeTranscriptDraft
+    from studio_api.realtime_drafts import save_realtime_draft, load_latest_realtime_draft, RealtimeDraftError
+
+    db, project, _ = draft_db
+    now = datetime(2026, 10, 4, tzinfo=timezone.utc)
+    metadata = [{"id": "capture.0", "start_seconds": 1.25, "end_seconds": 3.5, "speaker": 2}, None]
+    kwargs = dict(owner_user_id="owner-1", project=project, client_session_id="session_123456789",
+                  revision=1, committed_segments=["Спикер", "Старый фрагмент"], partial="",
+                  settings=DraftSettings(), now=now, segment_metadata=metadata)
+    saved = save_realtime_draft(db, **kwargs)
+    db.commit()
+    assert saved.segment_metadata == tuple(metadata)
+    row = db.execute(select(RealtimeTranscriptDraft)).scalar_one()
+    assert b"capture.0" not in row.ciphertext
+    db.expire_all()
+    restored = load_latest_realtime_draft(db, owner_user_id="owner-1", project=project,
+                                         settings=DraftSettings(), now=now + timedelta(days=90))
+    assert restored.segment_metadata == tuple(metadata)
+    with pytest.raises(RealtimeDraftError):
+        save_realtime_draft(db, **{**kwargs, "segment_metadata": [{**metadata[0], "end_seconds": 4}, None]})
+
+
+@pytest.mark.parametrize("metadata", [[], [{"id": "x", "start_seconds": -1, "end_seconds": 2}],
+    [{"id": "x", "start_seconds": 0, "end_seconds": float("inf")}],
+    [{"id": "x", "speaker": True}], [{"id": "x", "raw_audio": "forbidden"}],
+    [{"id": "../unsafe"}], [{"id": "x"}, {"id": "x"}]])
+def test_live_metadata_rejects_invalid_shape_or_unsafe_timing(draft_db, metadata):
+    from studio_api.realtime_drafts import save_realtime_draft, RealtimeDraftError
+    db, project, _ = draft_db
+    with pytest.raises(RealtimeDraftError):
+        save_realtime_draft(db, owner_user_id="owner-1", project=project, client_session_id="session_123456789",
+                            revision=1, committed_segments=["Фрагмент"] * max(1, len(metadata)), partial="",
+                            settings=DraftSettings(), now=datetime.now(timezone.utc), segment_metadata=metadata)
+
+
 def test_realtime_draft_schema_is_encrypted_scoped_bounded_and_additive():
     from studio_api.models import RealtimeTranscriptDraft
 

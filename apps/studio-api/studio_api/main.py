@@ -625,6 +625,7 @@ class RealtimeDraftIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: StrictInt=Field(ge=1, le=2147483647)
     committed_segments: list[str]=Field(max_length=5000)
+    segment_metadata: list[dict | None] | None=Field(default=None, max_length=5000)
     partial: str=Field(default="", max_length=20000)
 
 class TranscriptionJobBatchCreateIn(BaseModel):
@@ -2271,6 +2272,7 @@ def _realtime_draft_payload(draft, *, include_text: bool) -> dict:
         payload.update(
             {
                 "committed_segments": list(draft.committed_segments),
+                **({"segment_metadata": list(draft.segment_metadata)} if draft.segment_metadata is not None else {}),
                 "partial": draft.partial,
             }
         )
@@ -2303,6 +2305,7 @@ def put_project_realtime_draft(
             client_session_id=client_session_id,
             revision=data.revision,
             committed_segments=data.committed_segments,
+            segment_metadata=data.segment_metadata,
             partial=data.partial,
             settings=settings,
             now=utcnow(),

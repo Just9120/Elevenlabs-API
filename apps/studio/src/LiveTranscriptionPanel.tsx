@@ -39,6 +39,15 @@ import {
   requestSttProviderCatalog,
   type SttProviderCapability,
 } from "./sttContracts";
+import {
+  exportLiveTranscript,
+  LIVE_EXPORT_FORMATS,
+  timedExportUnavailable,
+  upsertLiveSegment,
+  type LiveExportFormat,
+  type LiveExportInput,
+  type RealtimeSegmentMetadata,
+} from "./realtimeTranscript";
 
 type Props = {
   ownerUserId: string;
@@ -53,6 +62,7 @@ type Props = {
 const STATUS_LABELS: Omit<Record<RealtimeSessionStatus, string>, "connecting"> = {
   ready: "Готово к запуску",
   requesting_permission: "Ожидаем разрешение браузера",
+  reconnecting: "Восстанавливаем соединение · Live-сессия продолжается",
   connected: "Соединение установлено",
   transcribing: "Распознаём речь",
   stopping: "Завершаем сессию",
@@ -117,12 +127,12 @@ function segmentsArePrefix(prefix: string[], candidate: string[]) {
   );
 }
 
-function transcriptFilename(now = new Date()) {
+function transcriptFilename(format: LiveExportFormat = "txt", now = new Date()) {
   const timestamp = now
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z")
     .replace(/[:T]/g, "-");
-  return `studio-live-transcript-${timestamp}.txt`;
+  return `studio-live-transcript-${timestamp}.${format}`;
 }
 
 export function LiveTranscriptionPanel({
@@ -171,6 +181,8 @@ export function LiveTranscriptionPanel({
   const [displayInputLevel, setDisplayInputLevel] = useState(0);
   const [microphoneInputLevel, setMicrophoneInputLevel] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [exportFormat, setExportFormat] = useState<LiveExportFormat>("txt");
+  const [segmentMetadata, setSegmentMetadata] = useState<(RealtimeSegmentMetadata | null)[]>(initialSegments.map(() => null));
   const [followTranscript, setFollowTranscript] = useState(true);
   const [recoveryCandidate, setRecoveryCandidate] =
     useState<RealtimeDraft | null>(null);
@@ -193,6 +205,7 @@ export function LiveTranscriptionPanel({
   const sessionStartedAtRef = useRef<number | null>(null);
   const committedRef = useRef<HTMLDivElement | null>(null);
   const segmentsRef = useRef([...initialSegments]);
+  const segmentMetadataRef = useRef<(RealtimeSegmentMetadata | null)[]>(initialSegments.map(() => null));
   const partialRef = useRef("");
   const draftRef = useRef<RealtimeDraft | null>(null);
   const localSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -216,6 +229,7 @@ export function LiveTranscriptionPanel({
   const running = [
     "requesting_permission",
     "connecting",
+    "reconnecting",
     "connected",
     "transcribing",
     "stopping",
@@ -348,6 +362,7 @@ export function LiveTranscriptionPanel({
                   body: JSON.stringify({
                     revision: nextDraft.revision,
                     committed_segments: nextDraft.committed_segments,
+                    segment_metadata: nextDraft.segment_metadata,
                     partial: nextDraft.partial,
                   }),
                 },
@@ -420,6 +435,7 @@ export function LiveTranscriptionPanel({
           draftRef.current?.client_session_id ?? newRealtimeClientSessionId(),
         revision: nextRevision,
         committedSegments,
+        segmentMetadata: segmentMetadataRef.current,
         partial: latestPartial,
       });
     } catch {
@@ -714,20 +730,25 @@ export function LiveTranscriptionPanel({
           publishCaption(segmentsRef.current, text);
           schedulePartialCheckpoint(text);
         },
-        onCommitted: (text) => {
+        onCommitted: (text, metadata) => {
           if (partialCheckpointTimerRef.current !== null) {
             window.clearTimeout(partialCheckpointTimerRef.current);
             partialCheckpointTimerRef.current = null;
           }
-          const next = [...segmentsRef.current, text];
+          const update = upsertLiveSegment(segmentsRef.current, segmentMetadataRef.current, text, metadata);
+          const next = update.segments;
+          const nextMetadata = update.metadata;
           segmentsRef.current = next;
-          partialRef.current = "";
-          checkpointDraft(next, "");
-          setPartial("");
+          segmentMetadataRef.current = nextMetadata;
+          setSegmentMetadata(nextMetadata);
+          // A transport gap does not confirm or discard the provider's partial text.
+          if (update.inserted && !metadata?.gap) partialRef.current = "";
+          checkpointDraft(next, partialRef.current);
+          setPartial(partialRef.current);
           setSegments(next);
           onSegmentsChange?.(next);
-          publishCaption(next, "");
-          deliverCommittedCaption(text);
+          publishCaption(next, partialRef.current);
+          if (update.inserted && !metadata?.gap) deliverCommittedCaption(text);
         },
         onError: setError,
         onInputLevel: setInputLevel,
@@ -799,7 +820,27 @@ export function LiveTranscriptionPanel({
   }
 
   function downloadTranscript() {
-    downloadTextFile(actionableDraftText);
+    downloadFormattedTranscript({
+      segments: segmentsRef.current,
+      metadata: segmentMetadataRef.current,
+      partial: partialRef.current,
+      ...(sessionStartedAtRef.current !== null ? { startedAt: new Date(sessionStartedAtRef.current).toISOString() } : {}),
+    });
+  }
+
+  function downloadFormattedTranscript(input: LiveExportInput, format = exportFormat) {
+    try {
+      const result = exportLiveTranscript(input, format);
+      const url = URL.createObjectURL(new Blob([result.bytes], { type: result.mime }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = transcriptFilename(format);
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setExportNotice(`Текст сохранён в файл .${format}.`);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Не удалось сохранить файл. Текст остаётся доступен.");
+    }
   }
 
   async function deleteDraft(draft: RealtimeDraft) {
@@ -910,6 +951,7 @@ export function LiveTranscriptionPanel({
           clientSessionId: candidate.client_session_id,
           revision: candidate.revision + 1,
           committedSegments: retainedSegments,
+          segmentMetadata: segmentMetadataRef.current,
           partial: partialRef.current,
         });
       } catch {
@@ -929,6 +971,8 @@ export function LiveTranscriptionPanel({
     }
     draftRef.current = candidate;
     segmentsRef.current = candidateSegments;
+    segmentMetadataRef.current = candidate.segment_metadata ?? candidateSegments.map(() => null);
+    setSegmentMetadata(segmentMetadataRef.current);
     partialRef.current = candidate.partial;
     setSegments(candidateSegments);
     setPartial(candidate.partial);
@@ -961,6 +1005,8 @@ export function LiveTranscriptionPanel({
     if (currentDraft && !(await deleteDraft(currentDraft))) return;
     setRecoveryCandidate(null);
     segmentsRef.current = [];
+    segmentMetadataRef.current = [];
+    setSegmentMetadata([]);
     partialRef.current = "";
     setSegments([]);
     onSegmentsChange?.([]);
@@ -1035,6 +1081,14 @@ export function LiveTranscriptionPanel({
             >
               Скачать .txt
             </button>
+            {(["docx", "md", "srt", "vtt"] as const).map((format) => (
+              <button type="button" key={format}
+                disabled={(format === "srt" || format === "vtt") && Boolean(timedExportUnavailable({ segments: recoveryCandidate.committed_segments, metadata: recoveryCandidate.segment_metadata, partial: recoveryCandidate.partial }))}
+                onClick={() => downloadFormattedTranscript({ segments: recoveryCandidate.committed_segments, metadata: recoveryCandidate.segment_metadata, partial: recoveryCandidate.partial }, format)}>
+                Скачать .{format}
+              </button>
+            ))}
+            {timedExportUnavailable({ segments: recoveryCandidate.committed_segments, metadata: recoveryCandidate.segment_metadata, partial: recoveryCandidate.partial }) && <p className="muted">{timedExportUnavailable({ segments: recoveryCandidate.committed_segments, metadata: recoveryCandidate.segment_metadata, partial: recoveryCandidate.partial })}</p>}
             <button
               type="button"
               className="danger"
@@ -1385,7 +1439,7 @@ export function LiveTranscriptionPanel({
           <div>
             <h3>Текст Live-транскрибации</h3>
             <p className="muted">
-              Временно хранится только для восстановления. Не попадает в
+              Хранится до вашей ручной очистки. Не попадает в
               Google Docs, каталог, историю, аналитику или диагностику.
             </p>
             <p className="muted" aria-label="Статистика live-сессии">
@@ -1394,6 +1448,12 @@ export function LiveTranscriptionPanel({
             </p>
           </div>
           <div className="actions">
+            <label>
+              Формат скачивания
+              <select aria-label="Формат скачивания Live" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as LiveExportFormat)}>
+                {LIVE_EXPORT_FORMATS.map((format) => <option key={format} value={format} disabled={(format === "srt" || format === "vtt") && Boolean(timedExportUnavailable({ segments, metadata: segmentMetadata, partial }))}>{format.toUpperCase()}</option>)}
+              </select>
+            </label>
             <button
               type="button"
               aria-pressed={followTranscript}
@@ -1410,10 +1470,10 @@ export function LiveTranscriptionPanel({
             </button>
             <button
               type="button"
-              disabled={!actionableDraftText}
+              disabled={!actionableDraftText || ((exportFormat === "srt" || exportFormat === "vtt") && Boolean(timedExportUnavailable({ segments, metadata: segmentMetadata, partial })))}
               onClick={downloadTranscript}
             >
-              Скачать .txt
+              Скачать .{exportFormat}
             </button>
             <button
               type="button"
@@ -1428,6 +1488,9 @@ export function LiveTranscriptionPanel({
             </button>
           </div>
         </header>
+        {timedExportUnavailable({ segments, metadata: segmentMetadata, partial }) && (
+          <p className="muted" role="status">{timedExportUnavailable({ segments, metadata: segmentMetadata, partial })}</p>
+        )}
         <div className="live-partial" aria-live="polite">
           <span>Предварительно</span>
           <p>{partial || "Речь появится здесь до подтверждения фрагмента."}</p>
@@ -1450,7 +1513,10 @@ export function LiveTranscriptionPanel({
             </p>
           ) : (
             segments.map((segment, index) => (
-              <p key={`${index}-${segment.slice(0, 24)}`}>{segment}</p>
+              <p key={segmentMetadata[index]?.id ?? `${index}-${segment.slice(0, 24)}`}>
+                {segmentMetadata[index]?.speaker !== undefined && <strong>Спикер {segmentMetadata[index]!.speaker}: </strong>}
+                {segment}
+              </p>
             ))
           )}
         </div>

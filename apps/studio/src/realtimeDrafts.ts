@@ -1,3 +1,5 @@
+import { validSegmentMetadataList, type RealtimeSegmentMetadata } from "./realtimeTranscript";
+
 const DATABASE_NAME = "studio-realtime-recovery";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "drafts";
@@ -14,6 +16,7 @@ export type RealtimeDraft = {
   client_session_id: string;
   revision: number;
   committed_segments: string[];
+  segment_metadata?: (RealtimeSegmentMetadata | null)[];
   partial: string;
   updated_at: string;
   expires_at: string | null;
@@ -104,7 +107,7 @@ function isDraftShape(
     characterCount += segment.length;
     if (characterCount > MAX_COMMITTED_CHARACTERS) return false;
   }
-  return true;
+  return draft.segment_metadata === undefined || validSegmentMetadataList(draft.segment_metadata, draft.committed_segments.length);
 }
 
 export function newRealtimeClientSessionId(): string {
@@ -122,6 +125,7 @@ export function makeRealtimeDraft({
   clientSessionId,
   revision,
   committedSegments,
+  segmentMetadata,
   partial,
   now = new Date(),
 }: {
@@ -130,6 +134,7 @@ export function makeRealtimeDraft({
   clientSessionId: string;
   revision: number;
   committedSegments: string[];
+  segmentMetadata?: (RealtimeSegmentMetadata | null)[];
   partial: string;
   now?: Date;
 }): RealtimeDraft {
@@ -139,6 +144,7 @@ export function makeRealtimeDraft({
     client_session_id: clientSessionId,
     revision,
     committed_segments: [...committedSegments],
+    ...(segmentMetadata ? { segment_metadata: segmentMetadata.map((item) => item && { ...item }) } : {}),
     partial,
     updated_at: now.toISOString(),
     expires_at: null,
@@ -175,6 +181,7 @@ export async function saveLocalRealtimeDraft(draft: RealtimeDraft) {
       if (
         existing.client_session_id !== draft.client_session_id ||
         existing.partial !== draft.partial ||
+        JSON.stringify(existing.segment_metadata ?? null) !== JSON.stringify(draft.segment_metadata ?? null) ||
         existing.committed_segments.length !== draft.committed_segments.length ||
         existing.committed_segments.some(
           (segment, index) => segment !== draft.committed_segments[index],
@@ -203,6 +210,8 @@ export async function loadLocalRealtimeDraft(
   projectId: string,
   _now = new Date(),
 ): Promise<RealtimeDraft | null> {
+  // Keep the former TTL clock argument compatible; expiry no longer deletes Live.
+  void _now;
   const database = await openDatabase();
   if (!database) return null;
   try {
@@ -259,6 +268,7 @@ export function parseLatestRealtimeDraftResponse(
     "client_session_id",
     "revision",
     "committed_segments",
+    "segment_metadata",
     "partial",
     "updated_at",
     "expires_at",

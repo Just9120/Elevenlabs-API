@@ -91,7 +91,18 @@ message FinalRefinement {
   oneof Type { AlternativeUpdate normalized_text = 2; }
 }
 
+// Wire-compatible subset of speechkit.stt.v3.AudioCursors.
+message AudioCursors {
+  int64 received_data_ms = 1;
+  int64 reset_time_ms = 2;
+  int64 partial_time_ms = 3;
+  int64 final_time_ms = 4;
+  int64 final_index = 5;
+  int64 eou_time_ms = 6;
+}
+
 message StreamingResponse {
+  AudioCursors audio_cursors = 2;
   oneof Event {
     AlternativeUpdate partial = 4;
     AlternativeUpdate final = 5;

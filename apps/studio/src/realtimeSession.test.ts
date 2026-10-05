@@ -132,6 +132,82 @@ describe("RealtimeSessionController", () => {
     vi.stubGlobal("WebSocket", { CONNECTING: 0, OPEN: 1 });
   });
 
+  it("uses a fresh capability, replays only unsent audio and keeps absolute timing across transports", async () => {
+    vi.useFakeTimers();
+    const microphone = mediaFixture(), audio = audioFixture();
+    const sockets = [websocketFixture(), websocketFixture(), websocketFixture()];
+    const requestCapability = vi.fn().mockResolvedValue(capability);
+    const commits = vi.fn();
+    let connection = 0;
+    const controller = new RealtimeSessionController(
+      { onStatus: vi.fn(), onPartial: vi.fn(), onCommitted: commits, onError: vi.fn() },
+      { requestCapability, mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(microphone.stream) }, createAudioContext: () => audio.context, createWebSocket: () => sockets[connection++] },
+    );
+    const open = (socket: WebSocket) => {
+      (socket as unknown as { readyState: number }).readyState = 1;
+      socket.onopen?.(new Event("open"));
+      socket.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ message_type: "session_started" }) }));
+    };
+    const frame = () => audio.processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(48000) } } as AudioProcessingEvent);
+    try {
+      await controller.start({ displayAudio: false, microphone: true });
+      open(sockets[0]);
+      frame(); frame();
+      sockets[0].onmessage?.(new MessageEvent("message", { data: JSON.stringify({ message_type: "committed_transcript_with_timestamps", text: "до обрыва", start_seconds: 0, end_seconds: 1 }) }));
+      sockets[0].onerror?.(new Event("error"));
+      frame();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(requestCapability).toHaveBeenCalledTimes(2);
+      expect(sockets[1].send).not.toHaveBeenCalled();
+      open(sockets[1]);
+      expect(sockets[1].send).toHaveBeenCalledTimes(1);
+      sockets[1].onmessage?.(new MessageEvent("message", { data: JSON.stringify({ message_type: "committed_transcript_with_timestamps", text: "после обрыва", start_seconds: 0, end_seconds: 1 }) }));
+      expect(commits).toHaveBeenCalledWith("после обрыва", expect.objectContaining({ start_seconds: 2, end_seconds: 3 }));
+      frame();
+      sockets[1].onerror?.(new Event("error"));
+      const gaps = commits.mock.calls.filter(([, metadata]) => metadata.gap);
+      expect(gaps.map(([, metadata]) => [metadata.start_seconds, metadata.end_seconds])).toEqual([[1, 2], [3, 4]]);
+      expect(gaps[0][1].id).not.toBe(gaps[1][1].id);
+      expect(microphone.stop).not.toHaveBeenCalled();
+      controller.dispose();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(requestCapability).toHaveBeenCalledTimes(2);
+      expect(microphone.stop).toHaveBeenCalledOnce();
+    } finally { controller.dispose(); vi.useRealTimers(); }
+  });
+
+  it("buffers capture during planned rotation and reports an unconfirmed tail instead of silently losing it", async () => {
+    vi.useFakeTimers();
+    const microphone = mediaFixture(), audio = audioFixture();
+    const sockets = [websocketFixture(), websocketFixture()];
+    let connection = 0;
+    const commits = vi.fn(), requestCapability = vi.fn().mockResolvedValue({ ...capability, provider: "yandex", websocket_url: "ws://localhost:3000/api/realtime/yandex?capability=header.signature", model_id: "general" });
+    const controller = new RealtimeSessionController(
+      { onStatus: vi.fn(), onPartial: vi.fn(), onCommitted: commits, onError: vi.fn() },
+      { requestCapability, mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(microphone.stream) }, createAudioContext: () => audio.context, createWebSocket: () => sockets[connection++] },
+    );
+    const open = (socket: WebSocket) => {
+      (socket as unknown as { readyState: number }).readyState = 1;
+      socket.onopen?.(new Event("open"));
+      socket.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ message_type: "session_started" }) }));
+    };
+    const frame = () => audio.processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(48000) } } as AudioProcessingEvent);
+    try {
+      await controller.start({ displayAudio: false, microphone: true });
+      open(sockets[0]); frame();
+      await vi.advanceTimersByTimeAsync(295000);
+      expect(sockets[0].send).toHaveBeenCalledTimes(2); // audio, then commit
+      frame();
+      expect(sockets[0].send).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2001);
+      expect(requestCapability).toHaveBeenCalledTimes(2);
+      open(sockets[1]);
+      expect(sockets[1].send).toHaveBeenCalledTimes(1);
+      expect(commits).toHaveBeenCalledWith(expect.stringContaining("не полностью подтверждено"), expect.objectContaining({ start_seconds: 0, end_seconds: 1, gap: true }));
+      expect(microphone.stop).not.toHaveBeenCalled();
+    } finally { controller.dispose(); vi.useRealTimers(); }
+  });
+
   it("maps safe provider codes to distinct operator actions", () => {
     expect(realtimeProviderErrorMessage("session_time_limit_exceeded")).toContain(
       "максимальная длительность",
@@ -156,7 +232,7 @@ describe("RealtimeSessionController", () => {
     );
   });
 
-  it("commits and stops Yandex before the five-minute provider limit", async () => {
+  it("commits and rotates Yandex transport before the limit without releasing capture", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
@@ -213,10 +289,15 @@ describe("RealtimeSessionController", () => {
     duration?.callback();
 
     expect(errors.at(-1)).toContain("пятью минутами");
-    expect(statuses.at(-1)).toBe("stopping");
+    expect(statuses.at(-1)).toBe("transcribing");
     expect(JSON.parse(String(vi.mocked(socket.send).mock.calls.at(-1)?.[0]))).toMatchObject({
       commit: true,
     });
+    expect(microphone.stop).not.toHaveBeenCalled();
+    [...timers.values()].find((timer) => timer.milliseconds === 2000)?.callback();
+    expect(statuses.at(-1)).toBe("reconnecting");
+    expect(microphone.stop).not.toHaveBeenCalled();
+    controller.dispose();
   });
 
   it("requests browser permission before consuming a capability", async () => {
@@ -518,7 +599,7 @@ describe("RealtimeSessionController", () => {
       "",
     ]);
     expect(committed).toEqual(["готовый фрагмент"]);
-    expect(errors).toEqual([""]);
+    expect(errors.every((message) => message === "")).toBe(true);
 
     audio.processor.onaudioprocess?.({
       inputBuffer: {
@@ -674,7 +755,7 @@ describe("RealtimeSessionController", () => {
     expect(statuses.filter((status) => status === "stopped")).toHaveLength(2);
   });
 
-  it("closes media when the realtime socket does not connect in time", async () => {
+  it("keeps capture while retrying a socket connection timeout", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
@@ -708,14 +789,15 @@ describe("RealtimeSessionController", () => {
     expect(statuses.at(-1)).toBe("connecting");
     connectTimeout?.();
 
-    expect(socket.close).toHaveBeenCalledWith(1000, "Тайм-аут подключения");
+    expect(socket.close).toHaveBeenCalledWith(1000, "Переподключение");
+    expect(microphone.stop).not.toHaveBeenCalled();
+    expect(statuses.at(-1)).toBe("reconnecting");
+    expect(controller.active).toBe(true);
+    controller.dispose();
     expect(microphone.stop).toHaveBeenCalledOnce();
-    expect(errors.at(-1)).toContain("10 секунд");
-    expect(statuses.at(-1)).toBe("closed");
-    expect(controller.active).toBe(false);
   });
 
-  it("closes media when the provider never starts the realtime session", async () => {
+  it("keeps capture while retrying a provider session handshake timeout", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
@@ -752,11 +834,11 @@ describe("RealtimeSessionController", () => {
 
     tenSecondTimers[1]();
 
-    expect(errors.at(-1)).toContain("не подтвердил realtime-сессию");
-    expect(socket.close).toHaveBeenCalledWith(1000, "Тайм-аут запуска сессии");
-    expect(microphone.stop).toHaveBeenCalled();
-    expect(statuses.at(-1)).toBe("closed");
-    expect(controller.active).toBe(false);
+    expect(socket.close).toHaveBeenCalledWith(1000, "Переподключение");
+    expect(microphone.stop).not.toHaveBeenCalled();
+    expect(statuses.at(-1)).toBe("reconnecting");
+    expect(controller.active).toBe(true);
+    controller.dispose();
   });
 
   it("never exposes a capability URL from a WebSocket constructor failure", async () => {
@@ -848,7 +930,7 @@ describe("RealtimeSessionController", () => {
     expect(controller.active).toBe(false);
   });
 
-  it("fails closed when websocket audio backpressure becomes unsafe", async () => {
+  it("reconnects with a bounded replay queue when websocket backpressure becomes unsafe", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
@@ -877,6 +959,7 @@ describe("RealtimeSessionController", () => {
     (socket as unknown as { readyState: number; bufferedAmount: number }).readyState = 1;
     (socket as unknown as { bufferedAmount: number }).bufferedAmount = 600_000;
     socket.onopen?.(new Event("open"));
+    socket.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ message_type: "session_started" }) }));
     audio.processor.onaudioprocess?.({
       inputBuffer: {
         getChannelData: () => new Float32Array(48).fill(0.2),
@@ -884,14 +967,14 @@ describe("RealtimeSessionController", () => {
     } as AudioProcessingEvent);
 
     expect(socket.send).not.toHaveBeenCalled();
-    expect(socket.close).toHaveBeenCalledWith(1000, "Переполнение очереди аудио");
-    expect(errors.at(-1)).toContain("не накапливать задержку");
-    expect(statuses.at(-1)).toBe("closed");
-    expect(microphone.stop).toHaveBeenCalled();
-    expect(controller.active).toBe(false);
+    expect(socket.close).toHaveBeenCalledWith(1000, "Переподключение");
+    expect(statuses.at(-1)).toBe("reconnecting");
+    expect(microphone.stop).not.toHaveBeenCalled();
+    expect(controller.active).toBe(true);
+    controller.dispose();
   });
 
-  it("releases capture when websocket send races with a closed connection", async () => {
+  it("retains an unsent frame when websocket send races with a closed connection", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
@@ -919,6 +1002,7 @@ describe("RealtimeSessionController", () => {
     await controller.start({ displayAudio: false, microphone: true });
     (socket as unknown as { readyState: number }).readyState = 1;
     socket.onopen?.(new Event("open"));
+    socket.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ message_type: "session_started" }) }));
     vi.mocked(socket.send).mockImplementationOnce(() => {
       throw new DOMException("Socket already closed", "InvalidStateError");
     });
@@ -931,9 +1015,10 @@ describe("RealtimeSessionController", () => {
       } as AudioProcessingEvent),
     ).not.toThrow();
 
-    expect(errors.at(-1)).toContain("прервалось при отправке аудио");
-    expect(socket.close).toHaveBeenCalledWith(1000, "Ошибка отправки аудио");
-    expect(statuses.at(-1)).toBe("closed");
+    expect(socket.close).toHaveBeenCalledWith(1000, "Переподключение");
+    expect(statuses.at(-1)).toBe("reconnecting");
+    expect(microphone.stop).not.toHaveBeenCalled();
+    controller.dispose();
     expect(microphone.stop).toHaveBeenCalledOnce();
     expect(audio.context.close).toHaveBeenCalledOnce();
     expect(controller.active).toBe(false);

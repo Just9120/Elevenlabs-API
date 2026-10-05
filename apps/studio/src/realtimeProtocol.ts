@@ -1,3 +1,5 @@
+import { validSegmentMetadata, type RealtimeSegmentMetadata } from "./realtimeTranscript";
+
 export type RealtimeCapability = {
   provider?: "elevenlabs" | "yandex";
   websocket_url: string;
@@ -10,7 +12,7 @@ export type RealtimeCapability = {
 export type RealtimeTranscriptEvent =
   | { kind: "session_started" }
   | { kind: "partial"; text: string }
-  | { kind: "committed"; text: string }
+  | { kind: "committed"; text: string; metadata?: RealtimeSegmentMetadata; timestampUpdate?: boolean }
   | { kind: "error"; code: string }
   | { kind: "ignored" };
 
@@ -19,6 +21,7 @@ const REALTIME_PATH = "/v1/speech-to-text/realtime";
 const REALTIME_QUERY_KEYS = new Set([
   "audio_format",
   "commit_strategy",
+  "include_timestamps",
   "language_code",
   "model_id",
   "token",
@@ -116,6 +119,8 @@ export function parseRealtimeCapability(value: unknown): RealtimeCapability {
     url.searchParams.getAll("commit_strategy").length !== 1 ||
     url.searchParams.get("commit_strategy") !== candidate.commit_strategy ||
     languageValues.length > 1 ||
+    url.searchParams.getAll("include_timestamps").length > 1 ||
+    (url.searchParams.has("include_timestamps") && url.searchParams.get("include_timestamps") !== "true") ||
     (languageValues.length === 1 &&
       !/^[a-z]{2,3}$/i.test(languageValues[0]))
   ) {
@@ -161,8 +166,9 @@ export function parseRealtimeEvent(value: unknown): RealtimeTranscriptEvent {
       data.final_transcript,
   );
   if (!text) return { kind: "ignored" };
+  const metadata = transcriptEventMetadata(data);
   if (eventType.includes("commit")) {
-    return { kind: "committed", text };
+    return { kind: "committed", text, ...(metadata ? { metadata } : {}), ...(eventType === "committed_transcript_with_timestamps" ? { timestampUpdate: true } : {}) };
   }
   if (eventType === "final_transcript") {
     return { kind: "partial", text };
@@ -171,9 +177,27 @@ export function parseRealtimeEvent(value: unknown): RealtimeTranscriptEvent {
     return { kind: "partial", text };
   }
   if (data.is_final === true) {
-    return { kind: "committed", text };
+    return { kind: "committed", text, ...(metadata ? { metadata } : {}) };
   }
   return { kind: "partial", text };
+}
+
+function transcriptEventMetadata(data: Record<string, unknown>): RealtimeSegmentMetadata | undefined {
+  const index = data.final_index;
+  const identity = typeof data.segment_id === "string" ? data.segment_id : Number.isInteger(index) && (index as number) >= 0 ? `index.${index}` : "timed";
+  const metadata: RealtimeSegmentMetadata = { id: identity };
+  let start = data.start_seconds, end = data.end_seconds;
+  if (Array.isArray(data.words) && data.words.length > 0 && data.words.length <= 20000) {
+    const words = data.words.filter((word) => word && typeof word === "object" && word.type !== "spacing");
+    if (words.length) { start ??= words[0].start; end ??= words[words.length - 1].end; }
+  }
+  if (typeof start === "number" && typeof end === "number") {
+    metadata.start_seconds = start;
+    metadata.end_seconds = end;
+  }
+  if (Number.isInteger(data.speaker) && (data.speaker as number) >= 1) metadata.speaker = data.speaker as number;
+  if (!validSegmentMetadata(metadata)) return undefined;
+  return identity !== "timed" || metadata.start_seconds !== undefined ? metadata : undefined;
 }
 
 export function downsampleMono(

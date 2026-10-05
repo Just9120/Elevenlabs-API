@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import re
 import uuid
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ class RealtimeDraftContent:
     partial: str
     updated_at: datetime
     expires_at: datetime | None
+    segment_metadata: tuple[dict | None, ...] | None = None
 
 
 def save_realtime_draft(
@@ -58,10 +60,11 @@ def save_realtime_draft(
     partial: str,
     settings,
     now: datetime,
+    segment_metadata: list[dict | None] | None = None,
 ) -> RealtimeDraftContent:
     _require_project_scope(project, owner_user_id)
     client_session_id = _client_session_id(client_session_id)
-    payload, segments, partial = _serialize_payload(committed_segments, partial)
+    payload, segments, partial, metadata = _serialize_payload(committed_segments, partial, segment_metadata)
     key = _key(settings)
     # Serialize every draft admission for this owner, including different client IDs.
     db.execute(select(User.id).where(User.id == owner_user_id).with_for_update()).scalar_one()
@@ -150,6 +153,7 @@ def save_realtime_draft(
         partial=partial,
         updated_at=row.updated_at,
         expires_at=row.expires_at,
+        segment_metadata=metadata,
     )
 
 
@@ -249,12 +253,13 @@ def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftCont
         candidate = json.loads(payload)
     except Exception as exc:
         raise RealtimeDraftError(RealtimeDraftReason.payload_invalid) from exc
-    if not isinstance(candidate, dict) or set(candidate) != {"segments", "partial"}:
+    if not isinstance(candidate, dict) or set(candidate) not in ({"segments", "partial"}, {"segments", "partial", "segment_metadata"}):
         raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
     try:
-        _serialized, segments, partial = _serialize_payload(
+        _serialized, segments, partial, metadata = _serialize_payload(
             candidate["segments"],
             candidate["partial"],
+            candidate.get("segment_metadata"),
         )
     except RealtimeDraftError as exc:
         raise RealtimeDraftError(RealtimeDraftReason.payload_invalid) from exc
@@ -271,10 +276,11 @@ def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftCont
         partial=partial,
         updated_at=row.updated_at,
         expires_at=row.expires_at,
+        segment_metadata=metadata,
     )
 
 
-def _serialize_payload(segments, partial) -> tuple[str, tuple[str, ...], str]:
+def _serialize_payload(segments, partial, metadata=None) -> tuple[str, tuple[str, ...], str, tuple[dict | None, ...] | None]:
     if not isinstance(segments, (list, tuple)) or len(segments) > MAX_COMMITTED_SEGMENTS:
         raise RealtimeDraftError(RealtimeDraftReason.payload_too_large)
     if not isinstance(partial, str):
@@ -292,12 +298,43 @@ def _serialize_payload(segments, partial) -> tuple[str, tuple[str, ...], str]:
         normalized.append(segment)
     if len(partial) > MAX_PARTIAL_CHARACTERS:
         raise RealtimeDraftError(RealtimeDraftReason.payload_too_large)
+    normalized_metadata = _normalize_segment_metadata(metadata, len(normalized))
     payload = json.dumps(
-        {"segments": normalized, "partial": partial},
+        {"segments": normalized, "partial": partial, **({"segment_metadata": normalized_metadata} if normalized_metadata is not None else {})},
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return payload, tuple(normalized), partial
+    return payload, tuple(normalized), partial, normalized_metadata
+
+
+def _normalize_segment_metadata(value, count: int) -> tuple[dict | None, ...] | None:
+    if value is None:
+        return None  # Legacy text carries no invented timing/speaker data.
+    if not isinstance(value, (list, tuple)) or len(value) != count:
+        raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+    seen = set()
+    normalized = []
+    for item in value:
+        if item is None:
+            normalized.append(None)
+            continue
+        if not isinstance(item, dict) or set(item) - {"id", "start_seconds", "end_seconds", "speaker", "gap"}:
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        identity = item.get("id")
+        if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", identity) or identity in seen:
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        seen.add(identity)
+        if "gap" in item and not isinstance(item["gap"], bool):
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        if "speaker" in item and (type(item["speaker"]) is not int or not 1 <= item["speaker"] <= 1000):
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        if "start_seconds" in item or "end_seconds" in item:
+            start, end = item.get("start_seconds"), item.get("end_seconds")
+            if (type(start) not in (int, float) or type(end) not in (int, float)
+                    or not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end <= 604800):
+                raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        normalized.append(dict(item))
+    return tuple(normalized)
 
 
 def _client_session_id(value: str) -> str:

@@ -92,6 +92,7 @@ def build_realtime_websocket_url(
         "token": normalized_token,
         "audio_format": REALTIME_AUDIO_FORMAT,
         "commit_strategy": REALTIME_COMMIT_STRATEGY,
+        "include_timestamps": "true",
     }
     if language_code:
         query["language_code"] = language_code
