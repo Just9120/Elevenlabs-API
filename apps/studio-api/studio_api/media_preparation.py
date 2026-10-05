@@ -210,6 +210,7 @@ def prepare_elevenlabs_media_parts(
                 _copy_input(prepared.stream, prepared_path)
                 prepared_size = _validated_output_size(prepared_path, max_output_bytes)
                 duration = _probe_duration_seconds(runner, prepared_path)
+                _validate_whole_source_duration(duration, max_duration_seconds, duration_warning_seconds, long_duration_confirmed)
                 clip_requested = (
                     media_clip_start_seconds is not None
                     or media_clip_end_seconds is not None
@@ -231,14 +232,6 @@ def prepare_elevenlabs_media_parts(
                     )
                     prepared_path = clip_path
                     duration = _probe_duration_seconds(runner, prepared_path)
-                if duration > max_duration_seconds:
-                    raise MediaPreparationError(
-                        MediaPreparationReason.media_duration_too_long,
-                    )
-                if duration > duration_warning_seconds and not long_duration_confirmed:
-                    raise MediaPreparationError(
-                        MediaPreparationReason.media_duration_confirmation_required,
-                    )
                 split_reason = _split_reason(prepared_size, duration)
                 if split_reason is None:
                     if clip_requested:
@@ -346,6 +339,7 @@ def prepare_yandex_media_file(
             else None
         )
         source_duration = _probe_duration_seconds(runner, source_path)
+        _validate_whole_source_duration(source_duration, max_duration_seconds, duration_warning_seconds, long_duration_confirmed)
         clip_requested = media_clip_start_seconds is not None or media_clip_end_seconds is not None
         start, end = (0.0, source_duration)
         if clip_requested:
@@ -358,8 +352,6 @@ def prepare_yandex_media_file(
         hard_limit = min(int(max_duration_seconds), YANDEX_MAX_DURATION_SECONDS)
         if duration > hard_limit:
             raise MediaPreparationError(MediaPreparationReason.media_duration_too_long)
-        if duration > duration_warning_seconds and not long_duration_confirmed:
-            raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required)
         command = [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
             "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(source_path),
@@ -402,6 +394,15 @@ def _copy_input(stream: BinaryIO, destination: Path) -> None:
         raise MediaPreparationError(
             MediaPreparationReason.media_preparation_failed,
         ) from exc
+
+
+def _validate_whole_source_duration(duration: float, maximum: int, warning: int, confirmed: bool) -> None:
+    # Product limits apply to the original source, before clipping or internal
+    # provider splitting. A short clip cannot disguise an oversized source.
+    if duration > maximum:
+        raise MediaPreparationError(MediaPreparationReason.media_duration_too_long)
+    if duration > warning and not confirmed:
+        raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required)
 
 
 def _validated_manual_clip_bounds(

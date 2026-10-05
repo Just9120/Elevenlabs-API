@@ -18,7 +18,7 @@
 | T1 F01/F58 | Live до manual clear; unfinished STT до полного документа/cancel; retry без STT; Live formats и truthful timing | IN_PROGRESS: nullable lifecycle0040 и encrypted export recovery; Live TXT/MD/DOCX/SRT/VTT, metadata и partial/correction regressions локально PASS; полный Linux/PG/browser gate PENDING |
 | T2 F03 | Одна сессия, новый single-use capability, bounded audio replay, indexed corrections/dedup, явные gaps | IN_PROGRESS: новый capability, bounded unsent replay, transport timeline/gaps и indexed final corrections реализованы; синтетические client/relay tests PASS, Linux/browser gate PENDING |
 | T3 F10/F60 | Source retention3/7/30, no finished S3, leases/all-full-docs cleanup, versions/readback, bounded queries; recovery proof | BACKLOG |
-| T4 F17/F07/F59 | Whole-source12h/preflight4–12h; known-metadata naming; waveform/silence/listen/compare и maintenance naming | BACKLOG |
+| T4 F17/F07/F59 | Whole-source12h/preflight4–12h; known-metadata naming; waveform/silence/listen/compare и maintenance naming | IN_PROGRESS: whole-source warning/max проверяются до clip/split в обоих adapters; local58 media/Yandex tests PASS (включая clip bypass), остальные cost/naming/waveform сценарии PENDING |
 | T5 F12/F11 | Patched совместимые dependency graphs и exact audits; truthful tariff snapshot/unknown/rounding | BACKLOG |
 | T6 F14/F15/F18/F19 | Shell discovery, выделение затронутых domain boundaries, caller/deprecation contract, актуальные canonical документы | BACKLOG |
 | T7 Integration/delivery | Affected regressions/build/lint, CI/PG/browser, self-review, один PR, merge/CD/smoke/cleanup | BACKLOG |

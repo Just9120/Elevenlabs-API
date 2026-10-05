@@ -545,6 +545,28 @@ def test_hard_duration_limit_stops_before_part_creation_even_if_confirmed(tmp_pa
     assert [command[0] for command in calls] == ["ffprobe"]
 
 
+@pytest.mark.parametrize("provider", ["elevenlabs", "yandex"])
+@pytest.mark.parametrize("duration,confirmed,reason", [
+    (43201, True, "media_duration_too_long"),
+    (14401, False, "media_duration_confirmation_required"),
+])
+def test_short_clip_cannot_bypass_whole_source_policy(tmp_path, provider, duration, confirmed, reason):
+    from studio_api.media_preparation import prepare_elevenlabs_media_parts, prepare_yandex_media_file, MediaPreparationError
+    calls = []
+    def runner(command, **kwargs):
+        calls.append(command)
+        assert command[0] == "ffprobe", "No clip, conversion or provider part may be created before admission"
+        return subprocess.CompletedProcess(command, 0, stdout=str(duration))
+    preparer = prepare_elevenlabs_media_parts if provider == "elevenlabs" else prepare_yandex_media_file
+    with pytest.raises(MediaPreparationError, match=reason):
+        with preparer(stream=BytesIO(b"audio"), original_filename="synthetic.mp3", mime_type="audio/mpeg", byte_count=5,
+                      max_output_bytes=100, media_clip_start_seconds=0, media_clip_end_seconds=30,
+                      long_duration_confirmed=confirmed, runner=runner, temporary_directory=str(tmp_path)):
+            pass
+    assert len(calls) == 1
+    assert not list(tmp_path.iterdir())
+
+
 @pytest.mark.parametrize(
     "probe_result, expected_reason",
     [
