@@ -317,7 +317,8 @@ def test_conversion_command_composes_channel_silence_concat_and_exact_codec(mono
     assert "shell" not in command
 
 
-def test_processing_reports_bounded_ffmpeg_progress(monkeypatch):
+@pytest.mark.parametrize("output_format", ["wav", "flac", "copy"])
+def test_processing_reports_bounded_ffmpeg_progress(monkeypatch, output_format):
     class Process:
         def __init__(self):
             self.stdout = StringIO(
@@ -337,17 +338,84 @@ def test_processing_reports_bounded_ffmpeg_progress(monkeypatch):
 
     monkeypatch.setattr("studio_api.audio_preparation.subprocess.Popen", popen)
     progress = []
+    command = build_ffmpeg_command([Path("input.wav")], Path(f"output.{output_format}"),
+                                   options(output_format=output_format), [probe()],
+                                   concat_list_path=Path("inputs.txt") if output_format == "copy" else None)
+    command[-1:-1] = ["-fs", "1048576"]
+    original = list(command)
     run_processing(
-        ["ffmpeg", "-v", "error", "-i", "input.wav", "-y", "output.flac"],
+        command,
         expected_duration_seconds=100,
         progress_callback=progress.append,
     )
 
     assert progress == [0.1, 0.99, 1.0]
-    assert captured["command"][-8:] == [
-        "-nostdin", "-nostats", "-stats_period", "5", "-progress", "pipe:1", "-y", "output.flac"
-    ]
-    assert captured["kwargs"]["stderr"] == -3
+    assert captured["command"][1:8] == ["-nostdin", "-nostats", "-stats_period", "5", "-progress", "pipe:1", "-v"]
+    assert captured["command"][7:] == original[1:]
+    assert captured["command"][captured["command"].index("-fs") + 1] == "1048576"
+    assert command == original
+    assert captured["kwargs"]["stderr"] == -1
+
+
+@pytest.mark.parametrize("stderr,category", [
+    ("Error parsing options: Invalid argument", "invalid_arguments"),
+    ("Invalid data found when processing input", "invalid_media"),
+    ("Unknown encoder 'private'", "encoder_unavailable"),
+    ("No space left on device", "output_io_failed"),
+    ("Bearer private-token https://private.test/audio.wav", "unknown"),
+])
+def test_processing_drains_large_stderr_but_exposes_only_safe_category(monkeypatch, caplog, stderr, category):
+    diagnostic_stream = StringIO("private-output\n" * 10000 + stderr)
+    class Process:
+        stdout = StringIO("")
+        stderr = diagnostic_stream
+        def wait(self): return 1
+        def poll(self): return 1
+    monkeypatch.setattr("studio_api.audio_preparation.subprocess.Popen", lambda *a, **kw: Process())
+    with pytest.raises(AudioPreparationError) as caught:
+        run_processing(["ffmpeg", "-y", "output.wav"], expected_duration_seconds=1, progress_callback=lambda _: None)
+    assert caught.value.reason is AudioPreparationReason.processing_failed
+    assert caught.value.ffmpeg_exit_code == 1
+    assert caught.value.ffmpeg_failure_category == category
+    assert str(caught.value) == "processing_failed"
+    assert "private" not in caplog.text
+
+
+@pytest.mark.parametrize("output_format", ["wav", "flac", "copy"])
+def test_real_ffmpeg_processing_with_size_budget_and_progress(tmp_path, output_format):
+    import shutil
+    import wave
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("real FFmpeg smoke requires installed ffmpeg and ffprobe")
+    source = tmp_path / "synthetic.wav"
+    with wave.open(str(source), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(48000)
+        audio.writeframes(b"\0\0" * 4800)
+    output = tmp_path / ("processed.wav" if output_format == "copy" else f"processed.{output_format}")
+    concat = tmp_path / "inputs.txt"
+    concat.write_text("file 'synthetic.wav'\n", encoding="utf-8")
+    command = build_ffmpeg_command([source], output, options(output_format=output_format),
+                                   [probe_media(source)], concat_list_path=concat)
+    command[-1:-1] = ["-fs", "1048576"]
+    progress = []
+    run_processing(command, expected_duration_seconds=0.1, progress_callback=progress.append)
+    assert 0 < output.stat().st_size < 1048576
+    assert probe_media(output).duration_seconds == pytest.approx(0.1, abs=0.01)
+    assert progress[-1] == 1.0
+
+
+def test_processing_drains_real_pipe_above_os_buffer_capacity(monkeypatch):
+    import subprocess
+    popen = subprocess.Popen
+    script = "import sys; sys.stderr.write('x' * 1048576 + 'No space left on device'); sys.stderr.flush(); sys.exit(1)"
+    monkeypatch.setattr("studio_api.audio_preparation.subprocess.Popen",
+                        lambda _command, **kwargs: popen([sys.executable, "-c", script], **kwargs))
+    with pytest.raises(AudioPreparationError) as caught:
+        run_processing(["ffmpeg", "-y", "output.wav"], expected_duration_seconds=1, progress_callback=lambda _: None)
+    assert caught.value.ffmpeg_failure_category == "output_io_failed"
+    assert caught.value.ffmpeg_exit_code == 1
 
 
 @pytest.mark.parametrize("output_format", ["wav", "flac", "copy"])

@@ -111,6 +111,7 @@ AUDIO_PREPARATION_ERROR_CODES = frozenset({
     "copy_incompatible", "channel_unavailable", "processing_failed", "processing_timeout", "output_too_large",
 })
 AUDIO_PREPARATION_STAGES = frozenset({"analyzing", "materializing", "processing", "storing", "google_drive_upload", "failed"})
+AUDIO_FFMPEG_FAILURE_CATEGORIES = frozenset({"invalid_arguments", "invalid_media", "encoder_unavailable", "output_io_failed", "unknown"})
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:
     return MetaRule(kind, min, max, choices, required)
@@ -162,7 +163,7 @@ REGISTRY: dict[str, EventDef] = {
     "GOOGLE_PICKER_SESSION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=GOOGLE_PICKER_SESSION_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "REALTIME_CAPABILITY_ISSUED": EventDef(frozenset({"api"}), "INFO", {"model": R("enum", choices=frozenset({"scribe_v2_realtime"}), required=True), "expires_in_seconds": R("int", min=1, max=900, required=True)}),
     "REALTIME_CAPABILITY_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=REALTIME_CAPABILITY_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
-    "AUDIO_PREPARATION_FAILED": EventDef(frozenset({"worker"}), "ERROR", {"error_code": R("enum", choices=AUDIO_PREPARATION_ERROR_CODES, required=True), "stage": R("enum", choices=AUDIO_PREPARATION_STAGES, required=True), "input_count": R("int", min=1, max=50, required=True)}),
+    "AUDIO_PREPARATION_FAILED": EventDef(frozenset({"worker"}), "ERROR", {"error_code": R("enum", choices=AUDIO_PREPARATION_ERROR_CODES, required=True), "stage": R("enum", choices=AUDIO_PREPARATION_STAGES, required=True), "input_count": R("int", min=1, max=50, required=True), "ffmpeg_exit_code": R("int", min=-255, max=255), "ffmpeg_failure_category": R("enum", choices=AUDIO_FFMPEG_FAILURE_CATEGORIES)}),
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_UNHANDLED_EXCEPTION": EventDef(frozenset({"api"}), "ERROR", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=frozenset({"5xx"}), required=True)}),
     "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
@@ -344,11 +345,20 @@ def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: st
         db = session_factory()
         if not _scope_valid(db, owner_user_id, project_id, job_id):
             _rollback(db); return DiagnosticWriteResult(False, reason="invalid_scope")
-        if resolved_trace_id is None and job_id is not None:
-            job = db.get(TranscriptionJob, job_id) or db.get(AudioPreparationJob, job_id)
+        job = None
+        if job_id is not None:
+            job = (db.get(AudioPreparationJob, job_id) if event_code == "AUDIO_PREPARATION_FAILED"
+                   else db.get(TranscriptionJob, job_id) or db.get(AudioPreparationJob, job_id))
+            if job is None or job.owner_user_id != owner_user_id or (project_id is not None and job.project_id != project_id):
+                _rollback(db); return DiagnosticWriteResult(False, reason="invalid_scope")
+        audio_job_id = job_id if isinstance(job, AudioPreparationJob) else None
+        if resolved_trace_id is None and job is not None:
             candidate = getattr(job, "trace_id", None) if job is not None else None
             resolved_trace_id = candidate if valid_trace_id(candidate) else None
         row_values = dict(id=secrets.token_hex(16), owner_user_id=owner_user_id, project_id=project_id, job_id=job_id, level=DiagnosticLevel[level], component=DiagnosticComponent(component), event_code=event_code, trace_id=resolved_trace_id, correlation_id=correlation_id, request_id=request_id, metadata_json=json.dumps(safe, sort_keys=True), first_occurred_at=now_dt, last_occurred_at=now_dt, occurrence_count=1, dedup_fingerprint=fp, dedup_bucket=bucket, expires_at=expiry_for(level, now_dt, settings))
+        row_values["audio_preparation_job_id"] = audio_job_id
+        if audio_job_id is not None:
+            row_values["job_id"] = None
         event_id = _upsert_event(db, row_values, fp)
         db.commit()
         try:

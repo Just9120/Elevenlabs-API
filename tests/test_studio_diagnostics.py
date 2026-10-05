@@ -153,8 +153,12 @@ def test_audio_preparation_failure_event_accepts_owned_audio_job_only(db):
         progress_percent=45,
     )
     db.add(audio_job); db.commit()
+    from sqlalchemy import text
+    db.execute(text("PRAGMA foreign_keys = ON"))
+    assert db.execute(text("PRAGMA foreign_keys")).scalar() == 1
     Session = sessionmaker(bind=db.bind, expire_on_commit=False)
-    metadata = {"error_code": "output_too_large", "stage": "processing", "input_count": 3}
+    metadata = {"error_code": "processing_failed", "stage": "processing", "input_count": 3,
+                "ffmpeg_exit_code": 1, "ffmpeg_failure_category": "invalid_arguments"}
 
     result = write_diagnostic_event(
         owner_user_id=u.id,
@@ -168,7 +172,30 @@ def test_audio_preparation_failure_event_accepts_owned_audio_job_only(db):
 
     assert result.persisted
     row = db.query(m.DiagnosticEvent).filter_by(event_code="AUDIO_PREPARATION_FAILED").one()
+    assert row.job_id is None
+    assert row.audio_preparation_job_id == audio_job.id
+    assert row.operation_job_id == audio_job.id
     assert json.loads(row.metadata_json) == metadata
+    assert write_diagnostic_event(owner_user_id=u.id, component="worker", event_code="AUDIO_PREPARATION_FAILED",
+        project_id=p.id, job_id=audio_job.id, metadata=metadata, session_factory=Session).persisted
+    db.expire_all()
+    assert db.query(m.DiagnosticEvent).count() == 1
+    assert db.query(m.DiagnosticEvent).one().occurrence_count == 2
+    stranger = m.User(email="stranger@example.test")
+    db.add(stranger); db.commit()
+    assert not write_diagnostic_event(owner_user_id=stranger.id, component="worker", event_code="AUDIO_PREPARATION_FAILED",
+        job_id=audio_job.id, metadata=metadata, session_factory=Session).accepted
+    transcript = db.query(m.TranscriptionJob).filter_by(owner_user_id=u.id).one()
+    assert not write_diagnostic_event(owner_user_id=u.id, component="worker", event_code="AUDIO_PREPARATION_FAILED",
+        project_id=p.id, job_id=transcript.id, metadata=metadata, session_factory=Session).accepted
+    from studio_api import main
+    from fastapi import HTTPException
+    query, _, _ = main._diag_filters(db, u, job_id=audio_job.id)
+    assert [event.operation_job_id for event in query.all()] == [audio_job.id]
+    assert main._diag_payload(query.one())["job_id"] == audio_job.id
+    with pytest.raises(HTTPException) as forbidden:
+        main._diag_filters(db, stranger, job_id=audio_job.id)
+    assert forbidden.value.status_code == 404
     rejected = write_diagnostic_event(
         owner_user_id=u.id,
         component="worker",

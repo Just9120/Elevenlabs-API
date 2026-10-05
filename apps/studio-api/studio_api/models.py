@@ -886,6 +886,7 @@ class DiagnosticEvent(Base):
     owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     project_id: Mapped[str|None]=mapped_column(ForeignKey("projects.id"), nullable=True)
     job_id: Mapped[str|None]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=True)
+    audio_preparation_job_id: Mapped[str|None]=mapped_column(ForeignKey("audio_preparation_jobs.id"), nullable=True)
     level: Mapped[DiagnosticLevel]=mapped_column(Enum(DiagnosticLevel), nullable=False)
     component: Mapped[DiagnosticComponent]=mapped_column(Enum(DiagnosticComponent), nullable=False)
     event_code: Mapped[str]=mapped_column(String(80), nullable=False)
@@ -903,12 +904,18 @@ class DiagnosticEvent(Base):
         CheckConstraint("level IN ('ERROR','WARNING','INFO','DEBUG')", name="ck_diagnostic_events_level"),
         CheckConstraint("component IN ('web','api','worker')", name="ck_diagnostic_events_component"),
         CheckConstraint("occurrence_count >= 1", name="ck_diagnostic_events_occurrence_count"),
+        CheckConstraint("job_id IS NULL OR audio_preparation_job_id IS NULL", name="ck_diagnostic_events_one_job"),
         Index("ix_diagnostic_events_owner_time", "owner_user_id", "first_occurred_at"),
         Index("ix_diagnostic_events_owner_project_time", "owner_user_id", "project_id", "first_occurred_at"),
         Index("ix_diagnostic_events_owner_job_time", "owner_user_id", "job_id", "first_occurred_at"),
+        Index("ix_diagnostic_events_owner_audio_job_time", "owner_user_id", "audio_preparation_job_id", "first_occurred_at"),
         Index("ix_diagnostic_events_owner_component_level_time", "owner_user_id", "component", "level", "first_occurred_at"),
         Index("ix_diagnostic_events_expires_at", "expires_at"),
     )
+
+    @property
+    def operation_job_id(self) -> str | None:
+        return self.audio_preparation_job_id or self.job_id
 
 
 class OperationalIncident(Base):
