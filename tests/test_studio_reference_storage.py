@@ -185,6 +185,9 @@ def test_s3_storage_multipart_and_verified_delete_are_bounded():
         def delete_object(self, **kwargs):
             self.deleted.append(kwargs)
 
+        def get_bucket_versioning(self, **kwargs):
+            return {}
+
         def head_object(self, **kwargs):
             raise ClientError(
                 {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
@@ -243,3 +246,96 @@ def test_s3_inventory_requires_typed_owner_scoped_metadata():
     assert [(item.key, item.size_bytes, item.last_modified) for item in page.objects] == [
         ("transcription/users/owner/file", 7, modified)
     ]
+
+
+@pytest.mark.parametrize("status", ["Enabled", "Suspended"])
+def test_verified_deletion_removes_all_exact_key_versions_and_markers(status):
+    from botocore.exceptions import ClientError
+    from studio_api.source_storage import S3SourceStorage
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+            self.remaining = True
+
+        def get_bucket_versioning(self, **kwargs):
+            return {"Status": status}
+
+        def delete_object(self, **kwargs):
+            self.calls.append(kwargs)
+
+        def list_object_versions(self, **kwargs):
+            assert kwargs["Bucket"] == "private"
+            assert kwargs["Prefix"] == "owner/key"
+            if not self.remaining:
+                return {"IsTruncated": False}
+            if "KeyMarker" not in kwargs:
+                return {"Versions": [{"Key": "owner/key", "VersionId": "old"}],
+                        "IsTruncated": True, "NextKeyMarker": "owner/key", "NextVersionIdMarker": "old"}
+            return {"DeleteMarkers": [{"Key": "owner/key", "VersionId": "marker"}],
+                    "Versions": [{"Key": "owner/key-other", "VersionId": "neighbor"}], "IsTruncated": False}
+
+        def delete_objects(self, **kwargs):
+            self.calls.append(kwargs)
+            self.remaining = False
+            return {}
+
+        def head_object(self, **kwargs):
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+
+    storage = object.__new__(S3SourceStorage)
+    storage.bucket, storage.client = "private", Client()
+    assert storage.delete_object_verified("owner/key") is True
+    assert storage.client.calls == [
+        {"Bucket": "private", "Key": "owner/key"},
+        {"Bucket": "private", "Delete": {"Objects": [
+            {"Key": "owner/key", "VersionId": "old"},
+            {"Key": "owner/key", "VersionId": "marker"}], "Quiet": True}},
+    ]
+
+
+@pytest.mark.parametrize("mode", ["unknown", "denied", "repeated_cursor", "partial_delete", "new_version"])
+def test_version_cleanup_never_reports_success_for_unconfirmed_storage(mode):
+    from botocore.exceptions import ClientError
+    from studio_api.source_storage import S3SourceStorage, SourceStorageError
+
+    class Client:
+        def get_bucket_versioning(self, **kwargs):
+            if mode == "denied":
+                raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetBucketVersioning")
+            return {"Status": "invalid" if mode == "unknown" else "Enabled"}
+
+        def delete_object(self, **kwargs):
+            pass
+
+        def list_object_versions(self, **kwargs):
+            return {"Versions": [{"Key": "owner/key", "VersionId": "old"}],
+                    "IsTruncated": mode == "repeated_cursor", "NextKeyMarker": "owner/key", "NextVersionIdMarker": "old"}
+
+        def delete_objects(self, **kwargs):
+            return {"Errors": [{"Code": "AccessDenied"}]} if mode == "partial_delete" else {}
+
+    storage = object.__new__(S3SourceStorage)
+    storage.bucket, storage.client = "private", Client()
+    if mode == "new_version":
+        assert storage.delete_object_verified("owner/key") is False
+    else:
+        with pytest.raises((SourceStorageError, ClientError)):
+            storage.delete_object_verified("owner/key")
+
+
+def test_documented_r2_endpoint_does_not_call_unsupported_versioning():
+    from botocore.exceptions import ClientError
+    from studio_api.source_storage import S3SourceStorage
+
+    class Client:
+        def delete_object(self, **kwargs):
+            pass
+
+        def head_object(self, **kwargs):
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+
+    storage = object.__new__(S3SourceStorage)
+    storage.settings = SimpleNamespace(source_s3_endpoint_url="https://synthetic.r2.cloudflarestorage.com")
+    storage.bucket, storage.client = "private", Client()
+    assert storage.delete_object_verified("owner/key") is True

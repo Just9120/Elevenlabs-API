@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from botocore.exceptions import ClientError
 
@@ -402,7 +402,30 @@ class S3SourceStorage:
 
     def delete_object_verified(self, key: str, *, bucket: str | None = None) -> bool:
         selected_bucket = bucket or self.bucket
+        # R2 does not implement object versioning. Only the provider's exact
+        # documented endpoint is exempt; errors from generic S3 fail closed.
+        endpoint = getattr(getattr(self, "settings", None), "source_s3_endpoint_url", "") or ""
+        host = urlparse(endpoint).hostname or ""
+        r2 = host.endswith(".r2.cloudflarestorage.com")
+        versioned = False
+        if not r2:
+            status = self.client.get_bucket_versioning(Bucket=selected_bucket).get("Status")
+            if status not in (None, "Enabled", "Suspended"):
+                raise SourceStorageError("Object storage вернул неизвестный versioning state")
+            # Suspended buckets can still retain historical versions.
+            versioned = status in ("Enabled", "Suspended")
         self.delete_object(key, bucket=selected_bucket)
+        if versioned:
+            versions = self._object_versions(key, selected_bucket)
+            for offset in range(0, len(versions), 1000):
+                result = self.client.delete_objects(Bucket=selected_bucket, Delete={
+                    "Objects": [{"Key": key, "VersionId": value} for value in versions[offset:offset + 1000]],
+                    "Quiet": True,
+                })
+                if result.get("Errors"):
+                    raise SourceStorageError("Object storage не подтвердил удаление всех версий")
+            if self._object_versions(key, selected_bucket):
+                return False
         try:
             self.client.head_object(Bucket=selected_bucket, Key=key)
         except ClientError as exc:
@@ -411,6 +434,40 @@ class S3SourceStorage:
                 return True
             raise
         return False
+
+    def _object_versions(self, key: str, bucket: str) -> tuple[str, ...]:
+        """Bounded exact-key enumeration, including delete markers."""
+        params = {"Bucket": bucket, "Prefix": key, "MaxKeys": 1000}
+        seen: set[tuple[str, str]] = set()
+        versions: list[str] = []
+        for _ in range(10):
+            result = self.client.list_object_versions(**params)
+            raw_entries = [*(result.get("Versions") or ()), *(result.get("DeleteMarkers") or ())]
+            if len(raw_entries) > 1000:
+                raise SourceStorageError("Object storage превысил version listing limit")
+            for raw in raw_entries:
+                entry_key, version_id = raw.get("Key"), raw.get("VersionId")
+                if not isinstance(entry_key, str) or not entry_key.startswith(key):
+                    raise SourceStorageError("Object storage нарушил version listing scope")
+                if entry_key != key:
+                    continue  # Prefix siblings never belong to this deletion.
+                if not isinstance(version_id, str) or not version_id or len(version_id) > 2048:
+                    raise SourceStorageError("Object storage вернул некорректную version identity")
+                versions.append(version_id)
+            if not result.get("IsTruncated"):
+                return tuple(dict.fromkeys(versions))
+            marker = (result.get("NextKeyMarker"), result.get("NextVersionIdMarker"))
+            if (not isinstance(marker[0], str) or not marker[0]
+                or marker[1] is not None and not isinstance(marker[1], str)
+                or marker in seen):
+                raise SourceStorageError("Object storage не продолжил version listing")
+            seen.add(marker)
+            params["KeyMarker"] = marker[0]
+            if marker[1]:
+                params["VersionIdMarker"] = marker[1]
+            else:
+                params.pop("VersionIdMarker", None)
+        raise SourceStorageError("Object storage version listing превышает безопасный предел")
 
 
 def get_source_storage(settings: Settings) -> S3SourceStorage:

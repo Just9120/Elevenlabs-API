@@ -71,7 +71,7 @@ def runner(command, **_kwargs):
 
 @pytest.mark.parametrize("result_title", ["Готовая запись", "Лекция 1. Предмет, задачи и методы социальной психологии", "Версия 2.1. Обсуждение"])
 @pytest.mark.parametrize("output_limit", [None, 14])
-def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch, result_title, output_limit):
+def test_preview_processing_storage_and_selected_source_retention_are_durable(tmp_path, monkeypatch, result_title, output_limit):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -127,8 +127,9 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
         assert persisted.title == result_title
         assert output_source.original_filename == f"{result_title}.flac"
         db.refresh(source)
-        assert source.upload_status is SourceUploadStatus.deleted
-        assert source.storage_cleanup_status.value == "pending"
+        assert source.upload_status is SourceUploadStatus.uploaded
+        assert source.expires_at == datetime(2026, 8, 30)
+        assert source.storage_cleanup_status.value == "not_requested"
 
 
 def test_processing_reuses_preview_validation_instead_of_decoding_inputs_again(tmp_path):
@@ -190,7 +191,7 @@ def test_expired_active_lease_is_reclaimed():
         assert reclaimed.lease_generation == first_generation + 1
 
 
-def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference(tmp_path, monkeypatch):
+def test_processing_cancellation_preserves_selected_source_retention(tmp_path, monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     payload = b"reference-audio"
@@ -228,7 +229,8 @@ def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_referen
         persisted = db.get(AudioPreparationJob, job.id)
         db.refresh(source)
         assert persisted.status is AudioPreparationStatus.cancelled
-        assert source.upload_status is SourceUploadStatus.deleted
+        assert source.upload_status is SourceUploadStatus.uploaded
+        assert source.expires_at == datetime(2026, 8, 30)
         assert storage.puts == []
 
 
@@ -261,7 +263,8 @@ def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, 
                 persisted = observer.get(AudioPreparationJob, job.id)
                 assert persisted.status is AudioPreparationStatus.completed
                 assert persisted.output_source_id is not None and persisted.output_duration_ms == 60_000
-                assert observer.get(Source, source.id).upload_status is SourceUploadStatus.deleted
+                assert observer.get(Source, source.id).upload_status is SourceUploadStatus.uploaded
+                assert observer.get(Source, source.id).expires_at == datetime(2099, 1, 1)
             if outcome == "failure":
                 raise RuntimeError("synthetic transport failure")
             cancel_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id, now=now); db.commit()

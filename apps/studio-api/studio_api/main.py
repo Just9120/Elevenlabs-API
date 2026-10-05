@@ -369,6 +369,19 @@ class LocalUploadInitiateIn(BaseModel):
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
     reference_class: SourceReferenceClass
+    audio_retention_days: StrictInt|None=None
+    delete_after_transcripts: StrictBool=False
+
+    @model_validator(mode="after")
+    def audio_retention_is_valid(self):
+        if self.delete_after_transcripts and self.reference_class != SourceReferenceClass.transcription:
+            raise ValueError("Автоудаление после документов применяется только к исходнику транскрибации")
+        if self.audio_retention_days is not None and (
+            self.reference_class != SourceReferenceClass.audio_processing
+            or self.audio_retention_days not in (3, 7, 30)
+        ):
+            raise ValueError("Срок хранения исходников аудио: 3, 7 или 30 дней")
+        return self
 
 
 class StorageReconciliationApplyIn(BaseModel):
@@ -1222,6 +1235,14 @@ def project_payload(p: Project):
 
 def source_payload(s: Source):
     return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "source_created_at": s.source_created_at.isoformat() if s.source_created_at else None, "source_created_at_provenance": s.source_created_at_provenance, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
+
+def _completed_source_retention_seconds(source: Source, user: User) -> int:
+    if source_reference_class(source) == SourceReferenceClass.audio_processing.value:
+        days = source.audio_retention_days or 7
+        if days not in (3, 7, 30):
+            raise HTTPException(409, "Срок хранения исходника аудио не подтверждён")
+        return days * 86400
+    return user.source_retention_ttl_seconds
 
 def output_folder_favorite_payload(row: OutputFolderFavorite):
     return {"id": row.id, "drive_folder_id": row.drive_folder_id, "name": row.name, "web_view_url": row.web_view_url, "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat()}
@@ -2766,6 +2787,9 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response
     # provider has actually created the multipart session, then persist the
     # complete multipart authority atomically with the response.
     now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, reference_class=reference_class, upload_protocol=SourceUploadProtocol.single_put.value, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
+    if reference_class == SourceReferenceClass.audio_processing.value:
+        src.audio_retention_days = data.audio_retention_days or 7
+    src.delete_after_transcripts = data.delete_after_transcripts
     db.add(src); db.flush(); src.s3_bucket=bucket; src.s3_object_key=f"{reference_class}/users/{user.id}/projects/{p.id}/sources/{src.id}/source"
     storage=get_reference_storage(settings, reference_class)
     upload_id=None
@@ -2933,7 +2957,7 @@ def complete_local_multipart_upload(source_id: str, response: Response, pair=Dep
     ):
         raise HTTPException(404,"Не найдено")
     source.upload_status=SourceUploadStatus.uploaded; source.uploaded_at=now; source.multipart_completed_at=now
-    source.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds); source.updated_at=now
+    source.expires_at=now+timedelta(seconds=_completed_source_retention_seconds(source,user)); source.updated_at=now
     audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id,upload_protocol=SourceUploadProtocol.multipart.value)
     db.commit(); return source_payload(source)
 
@@ -3023,7 +3047,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         raise HTTPException(404,"Не найдено")
     src.upload_status=SourceUploadStatus.uploaded
     src.uploaded_at=now
-    src.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds)
+    src.expires_at=now+timedelta(seconds=_completed_source_retention_seconds(src,user))
     src.updated_at=now
     audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()

@@ -48,7 +48,6 @@ from .models import (
     User,
 )
 from .security import utcnow
-from .source_deletion import request_source_deletion
 from .source_policy import is_source_expired, is_supported_source_mime_type
 from .source_storage import (
     AUDIO_PROCESSING_REFERENCE_CLASS,
@@ -246,7 +245,6 @@ def process_claimed_audio_preparation_job(
             job.progress_percent = 92 if job.output_destination == "google_drive" else 100
             job.finished_at = _naive_utc(operation_now)
             db.flush()
-            _request_ephemeral_cleanup(db, job, operation_now)
             db.commit()
             if job.output_destination == "google_drive":
                 token = drive_token_resolver(db, user_id=job.owner_user_id, settings=settings)
@@ -263,11 +261,9 @@ def process_claimed_audio_preparation_job(
             job.finished_at = _naive_utc(operation_now)
             job.lease_owner_id = None
             job.lease_expires_at = None
-            # SessionLocal disables autoflush. Persist the terminal job state before
-            # deletion readiness checks so the job does not block its own ephemeral
-            # input cleanup as an apparently active processing reference.
+            # Device sources retain their separately selected 3/7/30-day deadline;
+            # the request-scoped directory removes FFmpeg files and partial bytes.
             db.flush()
-            _request_ephemeral_cleanup(db, job, operation_now)
             db.commit()
             return AudioProcessingResult(job.id, "completed", "completed", True)
     except (AudioPreparationError, AudioPreparationServiceError) as exc:
@@ -293,8 +289,6 @@ def process_claimed_audio_preparation_job(
                     now=utcnow(),
                 )
             failed_job = db.get(AudioPreparationJob, job_id)
-            if failed_job is not None:
-                _request_ephemeral_cleanup(db, failed_job, operation_now)
             db.commit()
             _record_failure_diagnostic(failed_job, reason, failure_stage, exc)
         except Exception:
@@ -313,8 +307,6 @@ def process_claimed_audio_preparation_job(
                 now=operation_now,
             )
             failed_job = db.get(AudioPreparationJob, job_id)
-            if failed_job is not None:
-                _request_ephemeral_cleanup(db, failed_job, operation_now)
             db.commit()
             _record_failure_diagnostic(failed_job, "processing_failed", failure_stage)
         except Exception:
@@ -544,18 +536,6 @@ def _store_output_source(
     ):
         raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_state)
     return source
-
-
-def _request_ephemeral_cleanup(db, job, now):
-    for item in job.inputs:
-        if not item.ephemeral_reference:
-            continue
-        request_source_deletion(
-            db,
-            owner_user_id=job.owner_user_id,
-            source_id=item.source_id,
-            now=_naive_utc(now),
-        )
 
 
 def _require_not_cancelled(db, job):

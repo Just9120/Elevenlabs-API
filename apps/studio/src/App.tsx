@@ -2926,6 +2926,7 @@ function PreparationPanel({
               mime_type: mimeType,
               size_bytes: sizeBytes,
               reference_class: "transcription",
+              delete_after_transcripts: true,
             }),
             signal,
           },
@@ -4920,6 +4921,9 @@ function PreparationPanel({
           <p className="muted">
             Можно загрузить аудио или видео размером до{" "}
             {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.
+            {" "}Загруженная копия для разовой транскрибации удалится после
+            создания всех полных документов. Ошибки и незавершённые задачи
+            сохраняют копию до срока хранения; оригинал на устройстве не меняется.
           </p>
         ) : sourceUploadPolicy ? (
           <p className="notice">Локальная загрузка временно недоступна.</p>

@@ -26,7 +26,6 @@ from .source_storage import AUDIO_PROCESSING_REFERENCE_CLASS, normalize_source_d
 AUDIO_DRIVE_EXPORT_STAGES = ("google_drive_export_queued", "google_drive_upload")
 OUTPUT_SOURCE_NAMESPACE = uuid.UUID("b87bbd61-e1e5-4e0b-8c5a-1a6bc043bbce")
 
-EPHEMERAL_REFERENCE_TTL = timedelta(hours=24)
 TERMINAL_AUDIO_PREPARATION_STATUSES = {
     AudioPreparationStatus.completed,
     AudioPreparationStatus.failed,
@@ -96,9 +95,8 @@ def create_audio_preparation_job(
         if source.id in ephemeral_source_ids:
             if source.source_type is not SourceType.local_upload:
                 raise AudioPreparationServiceError(AudioPreparationServiceReason.invalid_sources)
-            hard_expiry = _naive_utc(now) + EPHEMERAL_REFERENCE_TTL
-            if source.expires_at is None or _naive_utc(source.expires_at) > hard_expiry:
-                source.expires_at = hard_expiry
+            # Upload admission already captures the owner's selected retention.
+            # Audio preparation must neither shorten nor extend that deadline.
     if not manual_order:
         ordered.sort(key=lambda source: (_creation_sort_key(source), source.original_filename.casefold(), source.id))
     options = normalize_options(options_payload)

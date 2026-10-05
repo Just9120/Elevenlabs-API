@@ -127,7 +127,7 @@ describe("AudioPreparationPage", () => {
     expect(screen.queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
   });
 
-  it("loads the owner workspace, explains ephemeral retention and enables preview after selection", async () => {
+  it("loads the owner workspace, displays the actual source deadline and enables preview after selection", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
@@ -148,7 +148,8 @@ describe("AudioPreparationPage", () => {
       screen.getByText("Выбрать из сохранённых файлов Studio"),
     );
     const source = await screen.findByRole("checkbox", { name: /meeting\.wav/i });
-    expect(screen.getByText(/максимум через 24 часа/i)).toBeInTheDocument();
+    expect(screen.getByText(/хранится до.*2027/i)).toBeInTheDocument();
+    expect(screen.queryByText(/максимум через 24 часа/i)).not.toBeInTheDocument();
     const preview = screen.getByRole("button", { name: "Проверить файлы и рассчитать" });
     expect(screen.getByRole("textbox", { name: /Название результата/ })).toHaveValue("");
     expect(screen.getByPlaceholderText("Имя исходного файла")).toBeInTheDocument();
@@ -350,6 +351,31 @@ describe("AudioPreparationPage", () => {
     expect(
       screen.getByText(/FLAC создаётся в 16-bit PCM без lossy-сжатия/i),
     ).toBeInTheDocument();
+  });
+
+  it("sends separately selected audio retention and retains it after an upload admission error", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init;
+      const url = String(input);
+      if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      if (url.endsWith("/local-upload/initiate")) return new Response(JSON.stringify({ detail: "Хранилище временно недоступно" }), { status: 503, headers: { "content-type": "application/json" } });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Подготовка аудио" });
+    await userEvent.click(screen.getByRole("tab", { name: "Загрузить в Studio" }));
+    const retention = screen.getByRole("combobox", { name: "Хранить исходники аудио" });
+    expect(retention).toHaveValue("7");
+    expect(within(retention).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["3", "7", "30"]);
+    await userEvent.selectOptions(retention, "30");
+    await userEvent.upload(screen.getByLabelText("Выбрать файлы для загрузки в Studio"), new File(["synthetic"], "safe.wav", { type: "audio/wav" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Не удалось загрузить файлы: safe.wav:/);
+    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/local-upload/initiate"));
+    expect(JSON.parse((call?.[1] as RequestInit).body as string)).toMatchObject({ reference_class: "audio_processing", audio_retention_days: 30 });
+    expect(retention).toHaveValue("30");
   });
 
   it("exposes keyboard-accessible source tabs and isolates direct Drive upload from processing controls", async () => {

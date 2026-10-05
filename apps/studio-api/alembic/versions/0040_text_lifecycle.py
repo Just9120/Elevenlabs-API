@@ -24,6 +24,10 @@ def upgrade():
     op.drop_constraint("ck_provider_part_checkpoint_total_parts_multiple", "transcription_provider_part_checkpoints", type_="check")
     op.create_check_constraint("ck_provider_part_checkpoint_total_parts_multiple", "transcription_provider_part_checkpoints", "total_parts >= 1")
     op.create_index("ix_sources_storage_identity", "sources", ["reference_class", "s3_bucket", "s3_object_key"])
+    op.add_column("sources", sa.Column("audio_retention_days", sa.Integer(), nullable=True))
+    op.create_check_constraint("ck_sources_audio_retention_days", "sources", "audio_retention_days IS NULL OR audio_retention_days IN (3,7,30)")
+    # No historical source is enrolled into the new automatic retirement policy.
+    op.add_column("sources", sa.Column("delete_after_transcripts", sa.Boolean(), nullable=False, server_default=sa.text("false")))
 
 
 def downgrade():
