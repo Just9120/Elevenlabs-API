@@ -49,8 +49,11 @@ class AudioPreparationReason(str, Enum):
 
 
 class AudioPreparationError(RuntimeError):
-    def __init__(self, reason: AudioPreparationReason):
+    def __init__(self, reason: AudioPreparationReason, *, ffmpeg_exit_code: int | None = None,
+                 ffmpeg_failure_category: str | None = None):
         self.reason = reason
+        self.ffmpeg_exit_code = ffmpeg_exit_code
+        self.ffmpeg_failure_category = ffmpeg_failure_category
         super().__init__(reason.value)
 
 
@@ -437,6 +440,12 @@ def run_processing(
         raise AudioPreparationError(AudioPreparationReason.probe_unavailable) from exc
     except subprocess.TimeoutExpired as exc:
         raise AudioPreparationError(AudioPreparationReason.processing_timeout) from exc
+    except subprocess.CalledProcessError as exc:
+        raise AudioPreparationError(
+            AudioPreparationReason.processing_failed,
+            ffmpeg_exit_code=_safe_ffmpeg_exit_code(exc.returncode),
+            ffmpeg_failure_category=_ffmpeg_failure_category(exc.stderr),
+        ) from exc
     except subprocess.SubprocessError as exc:
         raise AudioPreparationError(AudioPreparationReason.processing_failed) from exc
 
@@ -447,16 +456,28 @@ def _run_processing_with_progress(
     expected_duration_seconds: float,
     progress_callback: Callable[[float], None],
 ) -> None:
-    progress_command = list(command[:-2]) + [
+    # Global options must never split an output option/value pair such as -fs/size.
+    progress_command = [command[0]] + [
         "-nostdin",
         "-nostats",
         "-stats_period",
         "5",
         "-progress",
         "pipe:1",
-    ] + list(command[-2:])
+    ] + list(command[1:])
     timed_out = threading.Event()
     process = None
+    stderr_reader = None
+    stderr_tail = ""
+
+    def drain_stderr(stream) -> None:
+        nonlocal stderr_tail
+        try:
+            while chunk := stream.read(4096):
+                # Drain the pipe continuously without retaining raw logs or growing memory.
+                stderr_tail = (stderr_tail + chunk)[-16384:]
+        except (OSError, ValueError):
+            pass
 
     def terminate_on_timeout() -> None:
         timed_out.set()
@@ -468,13 +489,16 @@ def _run_processing_with_progress(
         process = subprocess.Popen(
             progress_command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
             bufsize=1,
         )
         timer.start()
+        if getattr(process, "stderr", None) is not None:
+            stderr_reader = threading.Thread(target=drain_stderr, args=(process.stderr,), daemon=True)
+            stderr_reader.start()
         assert process.stdout is not None
         for raw_line in process.stdout:
             line = raw_line.strip()
@@ -499,12 +523,37 @@ def _run_processing_with_progress(
         raise
     finally:
         timer.cancel()
+        if stderr_reader is not None:
+            stderr_reader.join(timeout=2)
+            if not stderr_reader.is_alive():
+                process.stderr.close()
         if process is not None and process.stdout is not None:
             process.stdout.close()
     if timed_out.is_set():
         raise AudioPreparationError(AudioPreparationReason.processing_timeout)
     if return_code != 0:
-        raise AudioPreparationError(AudioPreparationReason.processing_failed)
+        raise AudioPreparationError(
+            AudioPreparationReason.processing_failed,
+            ffmpeg_exit_code=_safe_ffmpeg_exit_code(return_code),
+            ffmpeg_failure_category=_ffmpeg_failure_category(stderr_tail),
+        )
+
+
+def _safe_ffmpeg_exit_code(value: object) -> int | None:
+    return value if type(value) is int and -255 <= value <= 255 else None
+
+
+def _ffmpeg_failure_category(stderr: object) -> str:
+    if isinstance(stderr, bytes):
+        stderr = stderr[-16384:].decode("utf-8", errors="replace")
+    value = stderr[-16384:].lower() if isinstance(stderr, str) else ""
+    categories = {
+        "invalid_arguments": ("error parsing options", "unrecognized option", "unable to parse option value"),
+        "invalid_media": ("invalid data found when processing input", "could not find codec parameters"),
+        "encoder_unavailable": ("unknown encoder", "encoder not found"),
+        "output_io_failed": ("no space left on device", "permission denied"),
+    }
+    return next((category for category, markers in categories.items() if any(marker in value for marker in markers)), "unknown")
 
 
 def render_output_filename(

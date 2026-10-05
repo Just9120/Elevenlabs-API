@@ -3772,7 +3772,7 @@ def _diag_filters(db: Session, user: User, *, start=None, end=None, level=None, 
         p=db.get(Project, project_id)
         if not p or p.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
     if job_id:
-        j=db.get(TranscriptionJob, job_id)
+        j=db.get(TranscriptionJob, job_id) or db.get(AudioPreparationJob, job_id)
         if not j or j.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
         if project_id and j.project_id != project_id: raise HTTPException(404, "Не найдено")
     q=db.query(DiagnosticEvent).filter(DiagnosticEvent.owner_user_id==user.id, DiagnosticEvent.first_occurred_at>=start_dt, DiagnosticEvent.first_occurred_at<=end_dt, DiagnosticEvent.expires_at>now_dt)
@@ -3780,11 +3780,11 @@ def _diag_filters(db: Session, user: User, *, start=None, end=None, level=None, 
     if component: q=q.filter(DiagnosticEvent.component==DiagnosticComponent(component))
     if event_code: q=q.filter(DiagnosticEvent.event_code==event_code)
     if project_id: q=q.filter(DiagnosticEvent.project_id==project_id)
-    if job_id: q=q.filter(DiagnosticEvent.job_id==job_id)
+    if job_id: q=q.filter(or_(DiagnosticEvent.job_id==job_id, DiagnosticEvent.audio_preparation_job_id==job_id))
     return q, start_dt, end_dt
 
 def _diag_payload(e: DiagnosticEvent):
-    return {"id": e.id, "occurred_at": e.first_occurred_at.isoformat(), "last_occurred_at": e.last_occurred_at.isoformat(), "level": e.level.value, "component": e.component.value, "event_code": e.event_code, "trace_id": e.trace_id, "correlation_id": e.correlation_id, "request_id": e.request_id, "project_id": e.project_id, "job_id": e.job_id, "metadata": json.loads(e.metadata_json or "{}"), "occurrence_count": e.occurrence_count}
+    return {"id": e.id, "occurred_at": e.first_occurred_at.isoformat(), "last_occurred_at": e.last_occurred_at.isoformat(), "level": e.level.value, "component": e.component.value, "event_code": e.event_code, "trace_id": e.trace_id, "correlation_id": e.correlation_id, "request_id": e.request_id, "project_id": e.project_id, "job_id": e.operation_job_id, "metadata": json.loads(e.metadata_json or "{}"), "occurrence_count": e.occurrence_count}
 
 def _owner_incident_summary(db: Session, user: User):
     rows=(
@@ -4088,7 +4088,7 @@ def _diagnostics_report_response(data: DiagnosticReportIn, pair, db: Session, re
             "component": r.component.value,
             "event_code": r.event_code,
             "project_id": r.project_id,
-            "job_id": r.job_id,
+            "job_id": r.operation_job_id,
             "trace_id": r.trace_id,
             "correlation_id": r.correlation_id,
             "request_id": r.request_id,

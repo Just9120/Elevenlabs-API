@@ -9,8 +9,8 @@ checkpoint actually exists; missing historical text is never fabricated.
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0039_text_lifecycle"
-down_revision = "0038_trusted_devices"
+revision = "0040_text_lifecycle"
+down_revision = "0039_audio_diagnostics"
 branch_labels = None
 depends_on = None
 release_safety = "additive"
