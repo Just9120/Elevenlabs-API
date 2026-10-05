@@ -886,7 +886,7 @@ class DiagnosticEvent(Base):
     owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     project_id: Mapped[str|None]=mapped_column(ForeignKey("projects.id"), nullable=True)
     job_id: Mapped[str|None]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=True)
-    audio_preparation_job_id: Mapped[str|None]=mapped_column(ForeignKey("audio_preparation_jobs.id"), nullable=True)
+    audio_preparation_job_id: Mapped[str|None]=mapped_column(ForeignKey("audio_preparation_jobs.id", name="fk_diagnostic_events_audio_job"), nullable=True)
     level: Mapped[DiagnosticLevel]=mapped_column(Enum(DiagnosticLevel), nullable=False)
     component: Mapped[DiagnosticComponent]=mapped_column(Enum(DiagnosticComponent), nullable=False)
     event_code: Mapped[str]=mapped_column(String(80), nullable=False)

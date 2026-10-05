@@ -15,6 +15,32 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
 
 
+def test_audio_diagnostics_migration_accepts_initial_metadata_bootstrap(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    cfg = Config(str(ROOT / "apps/studio-api/alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "apps/studio-api/alembic"))
+    scripts = ScriptDirectory.from_config(cfg)
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        with Operations.context(MigrationContext.configure(connection)):
+            # The actual first migration creates tables from current ORM metadata.
+            scripts.get_revision("0001_platform_core").module.upgrade()
+            revision = scripts.get_revision("0039_audio_diagnostics")
+            revision.module.upgrade()
+            revision.module.upgrade()
+            fks = inspect(connection).get_foreign_keys("diagnostic_events")
+            assert any(fk["name"] == revision.module.FOREIGN_KEY
+                       and fk["constrained_columns"] == [revision.module.COLUMN]
+                       and fk["referred_table"] == "audio_preparation_jobs"
+                       and fk["referred_columns"] == ["id"] for fk in fks)
+            # An incomplete bootstrap must still fail rather than bypass safety checks.
+            connection.execute(text(f"DROP INDEX {revision.module.INDEX}"))
+            with pytest.raises(RuntimeError, match="partial audio-diagnostic schema"):
+                revision.module.upgrade()
+    engine.dispose()
+
+
 def test_additive_audio_diagnostics_migration_preserves_legacy_events(monkeypatch):
     monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
     from studio_api.db import Base
