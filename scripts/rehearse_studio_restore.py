@@ -7,8 +7,10 @@ postgres:17 image. The restored copy is quarantined, never activated.
 from __future__ import annotations
 
 import base64
+import argparse
 import enum
 import json
+import math
 import re
 import subprocess
 import sys
@@ -171,6 +173,28 @@ class OwnedPostgres:
             self.container_id = None
 
 
+def compare_recovery_targets(report, *, rpo_seconds, rto_seconds):
+    """Compare measured loss window; quarantine is only a lower bound for RTO."""
+    for value in (rpo_seconds, rto_seconds):
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise DrillFailure("recovery_target_invalid")
+    age = report.get("incident_snapshot_age_seconds")
+    elapsed = report.get("restore_to_quarantine_seconds")
+    for value in (age, elapsed):
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise DrillFailure("recovery_measurement_invalid")
+    rpo_pass = age <= rpo_seconds
+    # A restore already over budget fails it; a fast quarantine cannot prove
+    # successful full reactivation, deletion reconciliation or service health.
+    rto_overrun = elapsed > rto_seconds
+    return {"result": "FAIL" if not rpo_pass or rto_overrun else "PARTIAL",
+        "rpo_target_seconds": rpo_seconds, "rto_target_seconds": rto_seconds,
+        "synthetic_loss_window_result": "PASS" if rpo_pass else "FAIL",
+        "full_recovery_time_result": "FAIL" if rto_overrun else "PENDING",
+        "full_recovery_time_reason": "quarantine_only_no_service_reactivation",
+        "production_rpo_rto_verified": False}
+
+
 def rehearse():
     image_id = _run(["docker", "image", "inspect", "postgres:17", "--format", "{{.Id}}"] ).decode().strip()
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
@@ -193,6 +217,7 @@ def rehearse():
         if source.sql(b"SELECT count(*) FROM projects WHERE title='Synthetic changed after snapshot';").decode().strip() != "1":
             raise DrillFailure("post_backup_update_not_applied")
         incident = time.monotonic()
+        incident_snapshot_age = (datetime.now(timezone.utc) - captured).total_seconds()
         target.start()
         target.exec(["pg_restore", "-U", "studio_drill", "-d", "studio_drill", "--no-owner", "--exit-on-error"], input=dump)
         restored = target.sql(b"SELECT encode(ciphertext,'hex') FROM realtime_transcript_drafts ORDER BY encode(ciphertext,'hex');").decode().splitlines()
@@ -212,6 +237,7 @@ def rehearse():
             "post_snapshot_metadata_updates_missing_from_restore": 1,
             "restore_to_quarantine_seconds": round(time.monotonic() - incident, 3),
             "snapshot_age_seconds": round((now - captured).total_seconds(), 3),
+            "incident_snapshot_age_seconds": round(incident_snapshot_age, 3),
             "automatic_activation": False, "production_rpo_rto_verified": False,
             "limits": "No production snapshot/storage/Google/provider call; activation needs current deletion evidence."}
     finally:
@@ -227,8 +253,24 @@ def rehearse():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--rpo-seconds", type=float)
+    parser.add_argument("--rto-seconds", type=float)
+    args = parser.parse_args()
+    if (args.rpo_seconds is None) != (args.rto_seconds is None):
+        parser.error("Both owner-selected RPO and RTO must be supplied together")
     try:
-        print(json.dumps(rehearse(), ensure_ascii=False))
+        if args.rpo_seconds is not None:
+            # Reject invalid targets before starting any owned container.
+            compare_recovery_targets({"incident_snapshot_age_seconds": 0,
+                "restore_to_quarantine_seconds": 0}, rpo_seconds=args.rpo_seconds, rto_seconds=args.rto_seconds)
+        report = rehearse()
+        if args.rpo_seconds is not None:
+            report["target_comparison"] = compare_recovery_targets(report,
+                rpo_seconds=args.rpo_seconds, rto_seconds=args.rto_seconds)
+        print(json.dumps(report, ensure_ascii=False))
+        if report.get("target_comparison", {}).get("result") == "FAIL":
+            raise SystemExit(1)
     except DrillFailure as exc:
         print(json.dumps({"result": "FAIL", "reason": str(exc)}))
         raise SystemExit(1)

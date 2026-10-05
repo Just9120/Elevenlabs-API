@@ -27,6 +27,33 @@ def test_restore_fixture_is_encrypted_and_current_quarantine_sql_compiles():
     assert "studio_drill" not in quarantine  # Target comes only from the owned container boundary.
 
 
+@pytest.mark.parametrize("age,elapsed,expected,rpo,rto", [
+    (12, 8, "PARTIAL", "PASS", "PENDING"),
+    (13, 8, "FAIL", "FAIL", "PENDING"),
+    (12, 9, "FAIL", "PASS", "FAIL"),
+])
+def test_restore_target_comparison_has_inclusive_bounds_without_false_full_rto(age, elapsed, expected, rpo, rto):
+    result = drill.compare_recovery_targets({"incident_snapshot_age_seconds": age,
+        "restore_to_quarantine_seconds": elapsed, "snapshot_age_seconds": age + elapsed},
+        rpo_seconds=12, rto_seconds=8)
+    assert result["result"] == expected
+    assert result["synthetic_loss_window_result"] == rpo
+    assert result["full_recovery_time_result"] == rto
+    assert not result["production_rpo_rto_verified"]
+
+
+@pytest.mark.parametrize("value", [0, -1, True, float("nan"), float("inf"), "12"])
+def test_invalid_recovery_target_cannot_be_claimed_pass(value):
+    with pytest.raises(drill.DrillFailure, match="target_invalid"):
+        drill.compare_recovery_targets({"incident_snapshot_age_seconds": 1,
+            "restore_to_quarantine_seconds": 1}, rpo_seconds=value, rto_seconds=10)
+
+
+def test_missing_actual_measurement_does_not_default_to_zero():
+    with pytest.raises(drill.DrillFailure, match="measurement_invalid"):
+        drill.compare_recovery_targets({}, rpo_seconds=12, rto_seconds=8)
+
+
 def test_real_postgres_custom_dump_restore_remains_inactive_after_later_deletion():
     if not shutil.which("docker"):
         if os.getenv("CI") == "true":

@@ -435,9 +435,9 @@ production URL, existing dump, credentials or target. It creates two
 network-isolated, read-only-root, tmpfs-only containers with exact image/name/
 nonce verification; performs a real custom-format PostgreSQL dump and restore
 of current-model synthetic data with encrypted Live drafts; and removes only
-its verified containers. Its report includes snapshot age and elapsed time
+its verified containers. Its report includes snapshot age at the synthetic incident, one measured post-snapshot metadata loss, and elapsed time
 to a quarantined restored state. The Linux suite requires this rehearsal;
-unavailable local Docker remains an explicit local limitation, not PASS.
+unavailable local Docker remains an explicit local limitation, not PASS. After owner targets are selected, supply both `--rpo-seconds` and `--rto-seconds` to compare them. Invalid or one-sided targets fail before container creation. The loss window is measured at the incident, excluding subsequent restore time; an exceeded RPO or already-over-budget quarantine fails. An in-budget quarantine reports full RTO as PENDING, never PASS, because service reactivation is outside that measurement.
 
 The quarantine statements in
 [recovery_quarantine.py](../../apps/studio-api/studio_api/recovery_quarantine.py)
