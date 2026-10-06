@@ -1374,3 +1374,12 @@ overwrite of an existing owner file. Transient metadata bytes are deleted on
 success/failure. The JSON file is an owner-selected external copy and remains
 in Drive until the owner removes it; clearing Studio never deletes that copy.
 Tests use synthetic records and a fake Drive transport, not a real account.
+
+
+## CI gate для component и edge delivery
+
+06Oct2026 F13/F63: automatic Studio Platform CD запускается после completed `CI` push main, не параллельно независимым push-trigger. `scripts/ci_validation.py deploy-gate` проверяет фиксированный repository, current main SHA, trusted same-repository push run и successful `ci-required`; failed/pending/fork/stale/unknown evidence блокирует jobs до deployment credentials. Проверка повторяется в каждом component job, в protected migration job после approval и в edge validation. Manual component/edge dispatch допустим только от exact current main с таким же successful push CI. Manual CI сам по себе не является release qualification.
+
+Detection checkout и четыре component checkout привязаны к validated revision. Automatic selection сравнивает candidate с первым родителем: web — apps/studio; API — apps/studio-api; Alembic — только существующий защищённый migration lane; worker остаётся manual-only. Stateful concurrency без cancellation, текущие forced-command identities, backup/restore gates, schema/image compatibility, remote main freshness и health/readiness guards не изменяются. После merge с API dependencies worker сначала штатно drain, затем отдельный validated-main worker dispatch и identity/readiness/status checks. Миграция/edge требуют существующего `studio-production-migration` reviewer gate; code-review gate не добавляется.
+
+CI reuse относится к проверенному исходному tree, не к production binary. Deployment по-прежнему строит exact-main bundle/image на VPS, сохраняет persistent state и подтверждает фактическую revision/image/schema/health. Branch feature/fix после merge не нужна поставке. Для trusted CI identity/selection/cost см. [validation](validation.md).

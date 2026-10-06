@@ -9,13 +9,41 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  selection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      root: ${{ steps.plan.outputs.root }}
+      studio: ${{ steps.plan.outputs.studio }}
+      mode: ${{ steps.plan.outputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py plan
+      - name: Lightweight checks for every change
+        run: python scripts/ci_checks.py
+
+  studio-validation:
+    needs: selection
+    if: needs.selection.outputs.studio == 'true'
+    uses: ./.github/workflows/studio-ci.yml
+
   checks:
+    needs: selection
+    if: needs.selection.outputs.root == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -91,3 +119,50 @@ jobs:
 
       - name: Mark CI success
         run: echo "CI_OK"
+
+  ci-required:
+    name: ci-required
+    if: always()
+    needs: [selection, checks, studio-validation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all selected checks
+        env:
+          SELECTION: ${{ needs.selection.result }}
+          ROOT_REQUIRED: ${{ needs.selection.outputs.root }}
+          ROOT_RESULT: ${{ needs.checks.result }}
+          STUDIO_REQUIRED: ${{ needs.selection.outputs.studio }}
+          STUDIO_RESULT: ${{ needs.studio-validation.result }}
+        run: |
+          test "$SELECTION" = success
+          case "$ROOT_REQUIRED:$STUDIO_REQUIRED" in true:true|true:false|false:false) ;; *) exit 1 ;; esac
+          if [ "$ROOT_REQUIRED" = true ]; then test "$ROOT_RESULT" = success; else test "$ROOT_RESULT" = skipped; fi
+          if [ "$STUDIO_REQUIRED" = true ]; then test "$STUDIO_RESULT" = success; else test "$STUDIO_RESULT" = skipped; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Record tested source identity
+        env:
+          VALIDATION_MODE: ${{ needs.selection.outputs.mode }}
+        run: python scripts/ci_validation.py proof --mode "$VALIDATION_MODE"
+      - name: Retain bounded non-executable validation identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-validation-identity
+          path: ${{ runner.temp }}/identity.json
+          retention-days: 7
+          if-no-files-found: error
+
+  cost-report:
+    if: always()
+    needs: [ci-required]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py metrics

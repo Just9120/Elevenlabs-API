@@ -727,7 +727,8 @@ def test_cd_migration_lane_is_disabled_by_default_and_environment_gated() -> Non
     )[0]
 
     assert "migration_release=false" in detection
-    assert 'vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" == "true"' in detection
+    assert '"$MIGRATION_ENABLED" == "true"' in detection
+    assert "MIGRATION_ENABLED: ${{ vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" in detection
     assert "migration_release=true" in detection
     assert "source_changed_approval_required" in detection
     assert "manual_selection_approval_required" in detection
@@ -780,7 +781,8 @@ def test_studio_ci_watches_migration_release_contract_files() -> None:
         "tests/test_studio_worker_db_role.py",
         "tests/test_studio_worker_db_role_integration.py",
     ):
-        assert workflow.count(f"- '{path}'") == 2
+        from test_ci_validation import ci
+        assert ci.select([path]) == (True, True)
     assert "echo STUDIO_RUNNING_CONTAINER_METADATA_OK" in workflow
     assert "--user 10001:10001" in workflow
     assert "--env PYTHONDONTWRITEBYTECODE=1" in workflow

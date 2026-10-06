@@ -227,7 +227,8 @@ def test_studio_ci_watches_edge_release_contract_files() -> None:
         "scripts/prepare_studio_edge_known_hosts.py",
         "tests/test_studio_edge_release.py",
     ):
-        assert workflow.count(f"- '{path}'") == 2
+        from test_ci_validation import ci
+        assert ci.select([path]) == (True, True)
 
 
 @pytest.mark.parametrize("directive", ["access_log /tmp/leak.log;", "access_log on;", "proxy_pass http://evil;", "access_log off;"])

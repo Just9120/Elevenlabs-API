@@ -32,7 +32,9 @@ def test_browser_e2e_uses_real_browser_api_and_isolated_service_state() -> None:
     assert "STUDIO_COOKIE_NAME: studio_e2e_session" in workflow
     assert "alembic -c apps/studio-api/alembic.ini upgrade head" in workflow
     assert "python tests/support/studio_browser_e2e_seed.py" in workflow
-    assert "'tests/test_studio_browser_e2e_contract.py'" in workflow
+    assert "workflow_call:" in workflow
+    from test_ci_validation import ci
+    assert ci.select(["tests/test_studio_browser_e2e_contract.py"]) == (True, True)
     assert "id: playwright-cache" in workflow
     assert "if: steps.playwright-cache.outputs.cache-hit != 'true'" in workflow
     assert "npx playwright install --with-deps chromium" in workflow
