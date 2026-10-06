@@ -99,8 +99,8 @@ def test_studio_uses_the_supported_eslint_runtime_contract():
     assert packages["node_modules/eslint"]["version"] == "10.8.0"
     assert packages["node_modules/@eslint/js"]["version"] == "10.0.1"
     assert packages["node_modules/minimatch"]["version"] == "10.2.5"
-    assert package["overrides"]["brace-expansion"] == "5.0.9"
-    assert packages["node_modules/brace-expansion"]["version"] == "5.0.9"
+    assert package["overrides"]["brace-expansion"] == "5.0.12"
+    assert packages["node_modules/brace-expansion"]["version"] == "5.0.12"
     assert "node_modules/@eslint/eslintrc" not in packages
 
 

@@ -287,8 +287,10 @@ def test_legacy_expired_drafts_survive_restart_and_cleanup_until_explicit_clear(
             client_session_id=f"session_{index}_123456789", revision=1,
             committed_segments=[str(index)], partial="", settings=DraftSettings(), now=now + timedelta(minutes=index))
     db.commit()
-    for row in db.query(RealtimeTranscriptDraft):
-        row.expires_at = now - timedelta(seconds=1)
+    from sqlalchemy import update
+    # Legacy expiry metadata must not rewrite the user's last edit timestamp.
+    db.execute(update(RealtimeTranscriptDraft).values(
+        expires_at=now - timedelta(seconds=1), updated_at=RealtimeTranscriptDraft.updated_at))
     db.commit()
     db.expire_all()  # Read fresh persisted ciphertext, not the response object.
     later = now + timedelta(days=90)

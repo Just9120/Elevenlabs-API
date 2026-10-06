@@ -31,8 +31,10 @@ def _migration_connection(dialect):
             pytest.skip("isolated PostgreSQL schema requires the configured synthetic CI services")
         from studio_api.config import Settings
 
-        url = sa.engine.make_url(Settings().sqlalchemy_url())
-        if url.host != "127.0.0.1" or url.database != "studio_test" or url.username != "studio_test":
+        # Unit modules set a SQLite fallback at collection time. The configured
+        # CI service fields, not that fallback, select this isolated schema test.
+        url = sa.engine.make_url(Settings(database_url=None).sqlalchemy_url())
+        if url.get_backend_name() != "postgresql" or url.host != "127.0.0.1" or url.database != "studio_test" or url.username != "studio_test":
             raise RuntimeError("migration regression requires the exact synthetic CI database")
         engine = sa.create_engine(url)
     else:

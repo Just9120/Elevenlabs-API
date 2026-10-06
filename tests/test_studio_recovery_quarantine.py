@@ -3,7 +3,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+import pytest
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session as DbSession
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps/studio-api"))
@@ -13,10 +15,11 @@ from studio_api.models import (
     JobStatus, Project, RealtimeTranscriptDraft, Session, TranscriptionJob, TrustedDevice, User, UserStatus,
     JobNotificationDelivery,
 )
-from studio_api.recovery_quarantine import quarantine_restored_database
+from studio_api.recovery_quarantine import quarantine_restored_database, quarantine_statements
 
 
-def test_restore_quarantines_work_and_auth_without_erasing_recovery_content():
+@pytest.mark.parametrize("execution", ["orm", "literal_sql"])
+def test_restore_quarantines_work_and_auth_without_erasing_recovery_content(execution):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     now = datetime(2026, 10, 6, tzinfo=timezone.utc)
@@ -44,7 +47,14 @@ def test_restore_quarantines_work_and_auth_without_erasing_recovery_content():
             state="claimed", claim_token="old-claim", claim_expires_at=now + timedelta(minutes=1))
         db.add(notification)
         db.commit()
-        result = quarantine_restored_database(db, now=now)
+        if execution == "literal_sql":
+            # This is the same serialization used by the offline psql drill.
+            for statement in quarantine_statements(now):
+                sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+                db.execute(text(sql))
+            result = {"automatic_activation": False}
+        else:
+            result = quarantine_restored_database(db, now=now)
         db.commit()
         db.expire_all()
         assert result["automatic_activation"] is False
