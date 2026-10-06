@@ -424,8 +424,10 @@ snapshots are kept within 90 days. These retention rules are not a fixed expiry
 for every snapshot. Repository configuration alone does not prove that the
 host timer is enabled or that a scheduled backup succeeded. Confirm those
 conditions and the latest snapshot age from host/backup records before recovery.
-Owner-approved RPO and RTO remain UNSET until the owner selects them; the
-10-hour interval is not itself a verified RPO.
+The owner selected a 12-hour personal RPO (43200 seconds) and a 4-hour RTO
+(14400 seconds) on 2026-10-06. The existing R2 backup remains in use. The
+10-hour interval is not itself a verified RPO; actual snapshot age and recovery
+measurements must be checked against the selected targets.
 
 The bounded automated rehearsal is
 [rehearse_studio_restore.py](../../scripts/rehearse_studio_restore.py), run from
