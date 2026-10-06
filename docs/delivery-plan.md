@@ -2,7 +2,43 @@
 
 ## Current Goal и checkpoint
 
-### PERSONAL-COMPLETION-20261004 — ACTIVE
+### DELIVERY-METADATA-CLEANUP-20261006 — ACTIVE
+
+Основание: 06Oct2026 владелец явно выбрал F13,F63,F61,F06 после обсуждения общего CI→merge→CD flow и стоимости повторов. Встроенная Goal активирована и readback ACTIVE. Один основной PR; необходимые post-merge hotfix допускаются.
+
+- Branch `codex/delivery-metadata-cleanup-20261006`, base/origin/main `1937658d4f396017e1d4e6d6752f86798a7c6836`, основной worktree; tracked state чистый, open PR отсутствуют. GitHub public repo/admin доступен; main protection disabled, rulesets пусты. Сохраняются прежняя `codex/audio-upload-confirmation`, stash a2169cd и unknown/active ignored материалы.
+- Scope: закрыть F13/F63/F61/F06 по критериям ниже; product AC PB-10,PO-14,UXN-06/07 и provider/metadata часть MC-08. Numeric REST contract MC-08/F04 остаётся вне scope. До изменения кода статусы product AC не повышаются; проценты проекта/эпиков в IMPLEMENT не пересчитываются.
+- Non-goals: полный F04/SpeechKit, Яндекс Диск, commercial, voiceprints, новое обязательное человеческое PR review, изменение migration approvals, production purge/restore/paid canary, broad clean/prune и удаление активных env/cache/node_modules.
+- Delivery baseline: PR326 merged/main1937658; web/API CD37430070252, worker37431465267 и read-only status37432061023 SUCCESS; schema0040, exact worker identity/isolation/health PASS. Temporary migration flag возвращён false. Новая Goal не повторяет эту поставку ради статуса.
+- Dependencies: GitHub source-bound checks/strict freshness, trusted exact-main CD и очередь без отмены stateful jobs; metadata ownership/leases/idempotency и existing provider snapshots. Не переиспользовать произвольные PR artifacts в privileged CD.
+- DoD: G01..G08 выполнены с подходящими regressions, применимый CI текущей revision/review/self-review PASS, один PR merged, безопасные GitHub settings readback и applicable API/worker/web CD на expected merge SHA, schema/health/safe read-only smoke; safe branch cleanup. Missing access/required check остаётся blocker, не N/A.
+
+| Критерий закрытия / задача | Проверяемый результат | Baseline |
+|---|---|---|
+| G01 / F13 | main требует PR и успешный итоговый required gate из GitHub Actions, актуальную base; force/delete отключены, admin enforcement; новый человеческий review не добавляется | BACKLOG |
+| G02 / F13 | Automatic/manual CD допускает только trusted main exact revision с successful applicable validation; stale/fork/failed/pending/unknown candidate не получает deploy secrets и не меняет target | BACKLOG |
+| G03 / F63 | Одна основная pre-merge suite; main reuse только по verified equivalent source/validation context, иначе полный безопасный прогон; docs selection/required aggregate не скрывают applicable failure | BACKLOG |
+| G04 / F63 | Измерены CI elapsed и sum runner seconds до/после, причины selection/reuse сохраняются в primary summaries; отменяются только superseded PR runs | BACKLOG |
+| G05 / F06 | Document provider/model соответствуют выбранному job/immutable usage; неизвестная authoritative recording date пропускается без замены job/mtime/current time | BACKLOG |
+| G06 / F06 | Fragment/prepared source provenance сохраняет источник и преобразования с owner boundary; metadata lifecycle change блокирует side effect | BACKLOG |
+| G07 / F06 | Analytics/UI показывают поддержанные фактические provider/model, unknown отдельно; historical ElevenLabs/legacy payload compatibility и cost semantics сохранены | BACKLOG |
+| G08 / F61 | Удалены только доказанно завершённые owned test/report материалы; absolute containment/reparse/tracked/active checks до удаления, readback/count/bytes; unknown и active сохранены | BACKLOG |
+
+Validation Plan: canonical commands — [validation](runbooks/validation.md), настройка — [CI/CD rules](ci-cd-rules.md), target/recovery — [operations](runbooks/studio-platform-ops.md).
+
+| Риск / критерии | Проверка / команда и environment | Этап / обязательность |
+|---|---|---|
+| G01..04 | Unit fixtures для trusted repo/ref/SHA/tree/base/run/job/source/failure/pagination/selection + static workflow guards; Python focused tests, synthetic records; official GitHub API schema | Local focused REQUIRED; actual PR/main CI и settings readback REQUIRED |
+| G05..07 | Document/analytics/source snapshot tests с ElevenLabs/Yandex/legacy/unknown/date/clip/prepared/foreign owner/lifecycle changes, fake Google transport; focused pytest в isolated SQLite graph | Local focused REQUIRED; full applicable Linux PG/root CI REQUIRED |
+| G07 UI | Analytics model/render compatibility tests, lint/type/build из apps/studio; synthetic fixtures | Local affected REQUIRED; Studio/browser CI REQUIRED |
+| G08 | PowerShell owned inventory без раскрытия user content; проверка resolved workspace paths, tracked/reparse/active users, bounded deletion и readback | До удаления REQUIRED; broad cleanup N/A, scope ограничен завершёнными owned outputs |
+| Delivery | Primary CI/CD revision, health/schema/image, safe authorized browser/read-only API smoke; production provider/Google writes не выполняются | После merge REQUIRED; migration gate только при фактической применимости |
+
+Checkpoint06Oct: discovery выполнен, branch/base подтверждены; implementation/PR/settings mutation/cleanup ещё не начаты. Следующий шаг — metadata regressions и CI proof/selection design; затем узкие local commits, self-review, initial push, один PR, protections/readback, CI/merge/CD. Included GitHub minutes UNSET; bounded required runs входят в Goal, длительный monitoring/speculative reruns не выполняются.
+
+### Предыдущая Goal PERSONAL-COMPLETION-20261004 — DONE
+
+Итог восстановлен из primary records06Oct: PR326 merged1937658, 105/105 выбранных AC READY, CI37430070244/Studio37430070238 SUCCESS, web/API/migration37430070252 и worker37431465267 SUCCESS, status37432061023 identity/isolation/health PASS. Своя ветка удалена, main синхронизирован. Ниже сохранён checkpoint до merge, не текущее состояние поставки.
 
 Основание: 2026-10-04 владелец явно выбрал F01/F58,F03,F10,F12,F17,F07/F59,F11/F60,F14/F15/F18,F19 и эпики подготовки аудио, обслуживания транскриптов, Live core/recovery, lifecycle хранилища. Встроенная Goal создана и readback ACTIVE. Один основной PR; необходимые post-merge hotfix допускаются. Реализация не расширяет commercial/voice identity/Яндекс Диск и не меняет общую CI/safety policy.
 
