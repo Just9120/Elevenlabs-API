@@ -29,7 +29,7 @@ class API:
         self.pr = dict(merged_at="2026-10-06", merge_commit_sha=TARGET,
                        base={"ref": "main"}, head={"sha": HEAD, "repo": {"full_name": ci.REPOSITORY}})
         self.proof = dict(schema=1, mode="full", run_id=42, repository=ci.REPOSITORY,
-                          head=HEAD, base=BASE, tree=TREE, context=ci.validation_context(), runner=ci.runner_context(), checkout=CHECKOUT)
+                          head=HEAD, base=BASE, tree=TREE, context=ci.validation_context(), runner=ci.runner_context(), suite_runners=[ci.runner_context()], checkout=CHECKOUT)
         self.checked = dict(tree={"sha": TREE}, parents=[{"sha": BASE}, {"sha": HEAD}])
 
     def pages(self, suffix, key=None):
@@ -60,6 +60,13 @@ def test_changed_or_unknown_runner_image_requires_full_suite(monkeypatch):
     monkeypatch.setenv("ImageVersion", "20261007.1")
     assert ci.verify_reuse(api, TARGET) is None
     monkeypatch.delenv("ImageVersion")
+    assert ci.verify_reuse(api, TARGET) is None
+
+
+def test_aggregate_host_cannot_substitute_for_actual_suite_hosts():
+    api = API(); api.proof["suite_runners"][0] = {**ci.runner_context(), "ImageVersion": "previous-image"}
+    assert ci.verify_reuse(api, TARGET) is None
+    api.proof["suite_runners"] = []
     assert ci.verify_reuse(api, TARGET) is None
 
 

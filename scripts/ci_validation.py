@@ -139,6 +139,9 @@ def verify_reuse(api: GitHub, target: str) -> int | None:
                     and proof.get("repository") == REPOSITORY and proof.get("head") == head
                     and proof.get("base") == base and proof.get("tree") == tree
                     and proof.get("runner") == runner_context()
+                    and isinstance(proof.get("suite_runners"), list)
+                    and proof["suite_runners"]
+                    and all(value == runner_context() for value in proof["suite_runners"])
                     and proof.get("context") == validation_context()
                     and SHA.fullmatch(str(proof.get("checkout", "")))):
                 continue
@@ -194,10 +197,12 @@ def plan(api: GitHub, event: dict) -> None:
 
 def proof(event: dict, mode: str) -> None:
     pr = event.get("pull_request", {})
+    runners = [json.loads(os.environ[key]) for key in ("ROOT_RUNNER_JSON", "STUDIO_RUNNER_JSON", "BROWSER_RUNNER_JSON") if os.environ.get(key)]
     data = dict(schema=1, mode=mode, repository=REPOSITORY,
                 run_id=int(os.environ["GITHUB_RUN_ID"]), checkout=git("rev-parse", "HEAD"),
                 tree=git("rev-parse", "HEAD^{tree}"), context=validation_context(),
                 runner=runner_context(),
+                suite_runners=runners,
                 head=pr.get("head", {}).get("sha"), base=pr.get("base", {}).get("sha"))
     Path(os.environ["RUNNER_TEMP"], "identity.json").write_text(json.dumps(data), encoding="utf-8")
 
@@ -238,11 +243,13 @@ def metrics(api: GitHub) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("plan", "proof", "deploy-gate", "metrics"))
+    parser.add_argument("command", choices=("plan", "proof", "deploy-gate", "metrics", "runner-context"))
     parser.add_argument("--mode", default="full")
     args = parser.parse_args()
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-    if args.command == "proof":
+    if args.command == "runner-context":
+        output(runner=json.dumps(runner_context(), sort_keys=True, separators=(",", ":")))
+    elif args.command == "proof":
         proof(event, args.mode)
     elif args.command == "plan":
         plan(GitHub(), event)

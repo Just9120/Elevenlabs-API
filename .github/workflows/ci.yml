@@ -44,6 +44,8 @@ jobs:
   checks:
     needs: selection
     if: needs.selection.outputs.root == 'true'
+    outputs:
+      runner: ${{ steps.runner.outputs.runner }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -81,6 +83,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: runner
+        run: python scripts/ci_validation.py runner-context
 
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -145,6 +150,9 @@ jobs:
       - name: Record tested source identity
         env:
           VALIDATION_MODE: ${{ needs.selection.outputs.mode }}
+          ROOT_RUNNER_JSON: ${{ needs.checks.outputs.runner }}
+          STUDIO_RUNNER_JSON: ${{ needs.studio-validation.outputs.studio_runner }}
+          BROWSER_RUNNER_JSON: ${{ needs.studio-validation.outputs.browser_runner }}
         run: python scripts/ci_validation.py proof --mode "$VALIDATION_MODE"
       - name: Retain bounded non-executable validation identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

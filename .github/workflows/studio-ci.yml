@@ -2,6 +2,11 @@ name: Studio PWA CI
 
 on:
   workflow_call:
+    outputs:
+      studio_runner:
+        value: ${{ jobs.studio.outputs.runner }}
+      browser_runner:
+        value: ${{ jobs.browser-e2e.outputs.runner }}
   workflow_dispatch:
 
 permissions:
@@ -13,12 +18,16 @@ concurrency:
 
 jobs:
   studio:
+    outputs:
+      runner: ${{ steps.runner.outputs.runner }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: runner
+        run: python scripts/ci_validation.py runner-context
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
@@ -180,6 +189,8 @@ jobs:
       - run: echo "STUDIO_CI_OK"
 
   browser-e2e:
+    outputs:
+      runner: ${{ steps.runner.outputs.runner }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -225,6 +236,8 @@ jobs:
           cache-dependency-path: |
             apps/studio-api/requirements.txt
             apps/studio-api/constraints.txt
+      - id: runner
+        run: python scripts/ci_validation.py runner-context
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'

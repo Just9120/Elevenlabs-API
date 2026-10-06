@@ -74,6 +74,11 @@ jobs:
           ref: ${{ needs.validate-selection.outputs.release_sha }}
           persist-credentials: false
 
+      - name: Recheck current main and CI after environment approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
+
       - name: Validate dedicated edge deployment secrets
         shell: bash
         env:
