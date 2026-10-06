@@ -62,8 +62,8 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `UXN-03` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Authoritative known UTC metadata naming без fabricated date; fragment bounds по measured whole source; parser/API/worker/UI checks PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `UXN-04` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Google destination реализован; Yandex Disk отсутствует (F02). |
 | `UXN-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
-| `UXN-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
-| `UXN-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F07 |
+| `UXN-06` | READY | ✅ | ✅ | ✅ | PR327: unknown recording date omitted, no job/export/current-time fallback; focused document regressions PASS. Linux CI/delivery PENDING. |
+| `UXN-07` | READY | ✅ | ✅ | ✅ | PR327: owned original sources/ordered preparation recipe/source clip provenance retained through document standardization; foreign-owner/lifecycle regressions PASS. Linux CI/delivery PENDING. |
 | `UXN-09` | ALIAS | — | — | — | Вне denominator; актуальные AC: UXPOL-07 |
 
 ### `MEDIA-CONTRACT-03`
@@ -76,7 +76,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `MC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `MC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
 | `MC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F06 |
-| `MC-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F04/F06 |
+| `MC-08` | IN_PROGRESS | ◐ | ◐ | ✅ | PR327 закрывает provider/model provenance F06; numeric REST/timing F04 вне этой Goal и остаётся незавершённым. |
 | `MC-09` | IN_PROGRESS | ◐ | ◐ | ✅ | F05 |
 
 ### `PERSONAL-VOICE-02`

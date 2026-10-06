@@ -19,9 +19,9 @@
 | G02 / F13 | Automatic/manual CD допускает только trusted main exact revision с successful applicable validation; stale/fork/failed/pending/unknown candidate не получает deploy secrets и не меняет target | IN_PROGRESS |
 | G03 / F63 | Одна основная pre-merge suite; main reuse только по verified equivalent source/validation context, иначе полный безопасный прогон; docs selection/required aggregate не скрывают applicable failure | IN_PROGRESS |
 | G04 / F63 | Измерены CI elapsed и sum runner seconds до/после, причины selection/reuse сохраняются в primary summaries; отменяются только superseded PR runs | IN_PROGRESS |
-| G05 / F06 | Document provider/model соответствуют выбранному job/immutable usage; неизвестная authoritative recording date пропускается без замены job/mtime/current time | IN_PROGRESS |
-| G06 / F06 | Fragment/prepared source provenance сохраняет источник и преобразования с owner boundary; metadata lifecycle change блокирует side effect | IN_PROGRESS |
-| G07 / F06 | Analytics/UI показывают поддержанные фактические provider/model, unknown отдельно; historical ElevenLabs/legacy payload compatibility и cost semantics сохранены | IN_PROGRESS |
+| G05 / F06 | Document provider/model соответствуют выбранному job/immutable usage; неизвестная authoritative recording date пропускается без замены job/mtime/current time | READY; focused code/regressions PASS, delivery PENDING |
+| G06 / F06 | Fragment/prepared source provenance сохраняет источник и преобразованиями с owner boundary; metadata lifecycle change блокирует side effect | READY; focused code/regressions PASS, delivery PENDING |
+| G07 / F06 | Analytics/UI показывают поддержанные фактические provider/model, unknown отдельно; historical ElevenLabs/legacy payload compatibility и cost semantics сохранены | READY; focused code/regressions PASS, delivery PENDING |
 | G08 / F61 | Удалены только доказанно завершённые owned test/report материалы; absolute containment/reparse/tracked/active checks до удаления, readback/count/bytes; unknown и active сохранены | READY |
 
 Validation Plan: canonical commands — [validation](runbooks/validation.md), настройка — [CI/CD rules](ci-cd-rules.md), target/recovery — [operations](runbooks/studio-platform-ops.md).
