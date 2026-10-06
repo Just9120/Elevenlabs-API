@@ -69,7 +69,7 @@ def test_current_metadata_bootstrap_accepts_repeat(monkeypatch):
     engine.dispose()
 
 
-@pytest.mark.parametrize("missing", ["index", "column", "constraint"])
+@pytest.mark.parametrize("missing", ["index", "column", "constraint", "constraint_definition"])
 def test_incomplete_bootstrap_is_rejected_before_any_metadata_write(monkeypatch, missing):
     monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
     from studio_api.db import Base
@@ -84,9 +84,12 @@ def test_incomplete_bootstrap_is_rejected_before_any_metadata_write(monkeypatch,
     elif missing == "column":
         table = metadata.tables["transcription_jobs"]
         table._columns.remove(table.c.long_duration_preflight_json)
-    else:
+    elif missing == "constraint":
         table = metadata.tables["sources"]
         table.constraints.remove(next(c for c in table.constraints if c.name == "ck_sources_audio_retention_days"))
+    else:
+        table = metadata.tables["sources"]
+        next(c for c in table.constraints if c.name == "ck_sources_audio_retention_days").sqltext = sa.text("audio_retention_days >= 0")
     engine = sa.create_engine("sqlite+pysqlite:///:memory:")
     with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
         metadata.create_all(connection)

@@ -7,6 +7,7 @@ checkpoint actually exists; missing historical text is never fabricated.
 """
 
 from alembic import op
+import re
 import sqlalchemy as sa
 
 revision = "0040_text_lifecycle"
@@ -50,6 +51,16 @@ NEW_INDEXES = {
 }
 
 
+def _check_matches(actual, expected):
+    def normalized(expression):
+        return re.sub(r'[\s()"]', "", expression).lower()
+
+    # PostgreSQL reflects integer IN as = ANY (ARRAY[...]).
+    return normalized(actual) in {
+        normalized(expected), normalized(expected.replace("IN (3,7,30)", "= ANY (ARRAY[3,7,30])")),
+    }
+
+
 def _schema_boundary(bind):
     """0001 creates current metadata; only a complete bootstrap may skip DDL."""
     inspector = sa.inspect(bind)
@@ -67,7 +78,9 @@ def _schema_boundary(bind):
                 raise RuntimeError("partial text lifecycle schema: index")
     for table, checks in NEW_CHECKS.items():
         actual = {c["name"]: c for c in inspector.get_check_constraints(table)}
-        if any((name in actual) != bool(present) for name in checks):
+        if any((name in actual) != bool(present) or (
+            name in actual and not _check_matches(actual[name]["sqltext"], expression)
+        ) for name, expression in checks.items()):
             raise RuntimeError("partial text lifecycle schema: constraint")
     if present:
         for table, columns in NEW_COLUMNS.items():
