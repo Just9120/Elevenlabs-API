@@ -14,6 +14,7 @@ from pydantic import (
 from sqlalchemy.orm import Session
 
 from .audit import audit
+from .config import get_settings
 from .db import get_db
 from .deps import current_session, require_csrf
 from .rate_limit import RateLimiter
@@ -82,6 +83,28 @@ class TranscriptCatalogClearIn(BaseModel):
         if value is not True:
             raise ValueError("Подтвердите очистку манифеста")
         return value
+
+
+@router.post("/api/transcript-catalog/export")
+def export_transcript_catalog(data: TranscriptMaintenanceFolderIn, response: Response,
+    pair=Depends(require_csrf), db: Session = Depends(get_db), settings=Depends(get_settings)):
+    from .transcript_manifest_export import export_manifest
+    from .google_connection_access import GoogleConnectionAccessError
+    from .google_drive import GoogleDriveMetadataError
+    from .google_drive_upload import GoogleDriveUploadError
+    from .job_output_destination import OutputDestinationError
+    _, user = pair
+    catalog_limiter.check(f"transcript-catalog:export:{user.id}", 5, 3600)
+    _no_store(response)
+    try:
+        result = export_manifest(db, user_id=user.id, folder_id=data.folder_id, settings=settings)
+    except ValueError as exc:
+        raise HTTPException(409, detail="manifest_export_limit", headers=_NO_STORE_HEADERS) from exc
+    except (GoogleConnectionAccessError, GoogleDriveMetadataError, GoogleDriveUploadError, OutputDestinationError) as exc:
+        raise HTTPException(409, detail="manifest_export_unavailable", headers=_NO_STORE_HEADERS) from exc
+    audit(db, "transcript_catalog.exported", actor_user_id=user.id, subject_user_id=user.id)
+    db.commit()
+    return result
 
 
 @router.post("/api/transcript-catalog/clear")

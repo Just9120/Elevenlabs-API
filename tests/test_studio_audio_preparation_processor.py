@@ -71,7 +71,7 @@ def runner(command, **_kwargs):
 
 @pytest.mark.parametrize("result_title", ["Готовая запись", "Лекция 1. Предмет, задачи и методы социальной психологии", "Версия 2.1. Обсуждение"])
 @pytest.mark.parametrize("output_limit", [None, 14])
-def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, monkeypatch, result_title, output_limit):
+def test_preview_processing_storage_and_selected_source_retention_are_durable(tmp_path, monkeypatch, result_title, output_limit):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -119,22 +119,24 @@ def test_preview_processing_storage_and_ephemeral_cleanup_are_durable(tmp_path, 
             return
         assert result.output_created is True
         assert persisted.status is AudioPreparationStatus.completed
-        assert persisted.output_source_id is not None
-        assert storage.puts[0][1] == b"processed-audio"
-        output_source = db.get(Source, persisted.output_source_id)
-        assert output_source.reference_class == "audio_processing"
-        assert output_source.s3_bucket == "audio-private"
+        assert persisted.output_source_id is None
+        assert storage.puts == []
+        assert persisted.output_filename == f"{result_title}.flac"
+        assert persisted.output_mime_type == "audio/flac"
+        assert persisted.output_size_bytes == len(b"processed-audio")
         assert persisted.title == result_title
-        assert output_source.original_filename == f"{result_title}.flac"
+        assert db.query(Source).count() == 1
         db.refresh(source)
-        assert source.upload_status is SourceUploadStatus.deleted
-        assert source.storage_cleanup_status.value == "pending"
+        assert source.upload_status is SourceUploadStatus.uploaded
+        assert source.expires_at == datetime(2026, 8, 30)
+        assert source.storage_cleanup_status.value == "not_requested"
 
 
-def test_processing_reuses_preview_validation_instead_of_decoding_inputs_again(tmp_path):
+def test_processing_reuses_preview_validation_instead_of_decoding_inputs_again(tmp_path, monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     now = datetime(2026, 8, 25, 18, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("studio_api.audio_preparation_processor.utcnow", lambda: now)
     payload = b"reference-audio"
     storage = Storage(payload)
     settings = isolated_storage_settings()
@@ -190,7 +192,7 @@ def test_expired_active_lease_is_reclaimed():
         assert reclaimed.lease_generation == first_generation + 1
 
 
-def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_reference(tmp_path, monkeypatch):
+def test_processing_cancellation_preserves_selected_source_retention(tmp_path, monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     payload = b"reference-audio"
@@ -228,7 +230,8 @@ def test_processing_cancellation_finishes_cancelled_and_cleans_ephemeral_referen
         persisted = db.get(AudioPreparationJob, job.id)
         db.refresh(source)
         assert persisted.status is AudioPreparationStatus.cancelled
-        assert source.upload_status is SourceUploadStatus.deleted
+        assert source.upload_status is SourceUploadStatus.uploaded
+        assert source.expires_at == datetime(2026, 8, 30)
         assert storage.puts == []
 
 
@@ -260,8 +263,9 @@ def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, 
             with Session(engine) as observer:
                 persisted = observer.get(AudioPreparationJob, job.id)
                 assert persisted.status is AudioPreparationStatus.completed
-                assert persisted.output_source_id is not None and persisted.output_duration_ms == 60_000
-                assert observer.get(Source, source.id).upload_status is SourceUploadStatus.deleted
+                assert persisted.output_source_id is None and persisted.output_filename and persisted.output_duration_ms == 60_000
+                assert observer.get(Source, source.id).upload_status is SourceUploadStatus.uploaded
+                assert observer.get(Source, source.id).expires_at == datetime(2099, 1, 1)
             if outcome == "failure":
                 raise RuntimeError("synthetic transport failure")
             cancel_audio_preparation_job(db, owner_user_id=user.id, job_id=job.id, now=now); db.commit()
@@ -279,8 +283,8 @@ def test_initial_drive_export_keeps_durable_ready_output(tmp_path, monkeypatch, 
             with pytest.raises(Exception):
                 call()
             assert job.current_stage == ("google_drive_export_failed" if outcome == "failure" else "google_drive_export_cancelled")
-        assert job.status is AudioPreparationStatus.completed and job.output_source_id is not None
-        assert job.lease_owner_id is None and len(storage.puts) == 1
+        assert job.status is AudioPreparationStatus.completed and job.output_source_id is None and job.output_filename
+        assert job.lease_owner_id is None and storage.puts == []
     engine.dispose()
 
 

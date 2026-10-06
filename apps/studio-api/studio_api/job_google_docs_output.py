@@ -317,7 +317,10 @@ def _load_output_job_snapshot(db: Session, job_id: str, owner: str, generation: 
 
 def _load_source_snapshot(db, job_id, job_source_id, owner, generation, now, settings):
     try:
-        return _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, settings)
+        from .job_cached_transcript import fully_cached_relation
+        job = db.get(TranscriptionJob, job_id)
+        cached = job is not None and fully_cached_relation(db, job, job_source_id, now)
+        return _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, settings, allow_retired_source=cached)
     except SourceMaterializationError as exc:
         value = exc.reason.value
         mapped = {

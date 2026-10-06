@@ -73,7 +73,7 @@ export type JobUsageRateSnapshot = {
   rate_per_hour: string;
   currency: "USD";
   effective_date: string;
-  source: "elevenlabs_public_api_pricing";
+  source: "elevenlabs_public_api_pricing" | "yandex_public_api_pricing";
 };
 export type JobUsageCost = {
   accounting_status: JobUsageAccountingStatus;

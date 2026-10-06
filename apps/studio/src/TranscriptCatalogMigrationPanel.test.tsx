@@ -399,6 +399,27 @@ describe("TranscriptCatalogMigrationPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it.each(["picked", "cancel"] as const)("exports the manifest only after folder selection: %s", async (action) => {
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue(action === "cancel"
+      ? { action: "cancel", docs: [] } : { action: "picked", docs: [{ id: "chosen-folder", name: "Synthetic" }] });
+    const fetchMock = vi.fn((url: string) => {
+      if (isLatestRunRequest(url)) return json({ run: null });
+      if (url.endsWith("/api/google/maintenance/connection")) return json(readyMaintenanceConnection);
+      if (url.endsWith("/api/google/picker/session")) return sessionResponse();
+      if (url.endsWith("/api/transcript-catalog/export")) return json({ ok: true, entry_count: 2, web_view_url: "https://drive.google.com/file/d/synthetic/view" });
+      return json({}, false, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить манифест в Google Drive" }));
+    if (action === "picked") {
+      expect(await screen.findByText(/Манифест сохранён в выбранную папку/)).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/transcript-catalog/export"), expect.objectContaining({ body: JSON.stringify({ folder_id: "chosen-folder" }) }));
+    } else {
+      expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/api/transcript-catalog/export"))).toBe(false);
+    }
+  });
+
   it("clears the manifest only after an explicit Да confirmation", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (isLatestRunRequest(url)) return json({ run: null });

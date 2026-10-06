@@ -30,7 +30,7 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError, ProgrammingError
 from studio_api.config import Settings
@@ -160,7 +160,7 @@ def test_database_role_manifest_lets_real_migrator_extend_existing_enum(tmp_path
                 conn.execute(text("ALTER ROLE studio_migrator NOLOGIN"))
 
         with temp_engine.connect() as conn:
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0039_audio_diagnostics"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0040_text_lifecycle"
             assert conn.execute(
                 text(
                     "SELECT count(*) FROM pg_enum e "
@@ -442,7 +442,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0039_audio_diagnostics", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0040_text_lifecycle", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -3479,6 +3479,37 @@ def test_complete_local_upload_replay_returns_same_verified_source_without_exten
     assert replay.json()["expires_at"] == first_body["expires_at"]
 
 
+@pytest.mark.parametrize("days", [3, 7, 30, None])
+def test_audio_upload_has_separate_selected_retention_after_completion(monkeypatch, days):
+    enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project(f"audio-retention-{days}@example.com".lower())
+    preference = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 3600}, headers=headers)
+    assert preference.status_code == 200
+    payload = {"original_filename": "audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 10, "reference_class": "audio_processing"}
+    if days is not None:
+        payload["audio_retention_days"] = days
+    initiated = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json=payload, headers=headers)
+    assert initiated.status_code == 200
+    sid = initiated.json()["source_id"]
+    completed = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert completed.status_code == 200
+    body = completed.json()
+    assert datetime.fromisoformat(body["expires_at"]) - datetime.fromisoformat(body["uploaded_at"]) == timedelta(days=days or 7)
+    replay = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert replay.json() == body
+
+
+@pytest.mark.parametrize("reference_class,days", [("transcription", 7), ("audio_processing", 1), ("audio_processing", True)])
+def test_audio_retention_rejects_invalid_or_wrong_class_input(monkeypatch, reference_class, days):
+    enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project(f"invalid-audio-{reference_class}-{days}@example.com".lower())
+    response = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={
+        "original_filename": "audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 10,
+        "reference_class": reference_class, "audio_retention_days": days,
+    }, headers=headers)
+    assert response.status_code == 422
+
+
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     from studio_api.models import Source, SourceType, SourceUploadStatus
@@ -4397,7 +4428,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0039_audio_diagnostics"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0040_text_lifecycle"
 
 
 
@@ -4461,7 +4492,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0039_audio_diagnostics"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0040_text_lifecycle"
 
 
 
@@ -8702,7 +8733,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0039_audio_diagnostics"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0040_text_lifecycle"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -8872,6 +8903,157 @@ def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
     assert first.json()["output"]["download_ready"] is True
     assert "s3_object_key" not in first.text and "synthetic" not in first.text
     assert client.post(route, headers=headers, json={"folder_id": "folder"}).json()["id"] == job_id
+
+
+@pytest.mark.parametrize("sample", [False, True])
+def test_audio_regeneration_api_is_owner_csrf_scoped_and_only_enqueues(tmp_path, monkeypatch, sample):
+    from studio_api.audio_downloads import AudioDownloadManager
+    from studio_api.models import AudioPreparationJob, AudioPreparationJobInput, AudioPreparationStatus
+    from studio_api import main as api_main
+    email = "audio-regeneration-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]["id"]
+    root = tmp_path / "transfer"
+    root.mkdir()
+    monkeypatch.setattr(api_main, "audio_downloads", AudioDownloadManager(SessionLocal, api_main.settings, cache_root=root))
+    with SessionLocal() as db:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        source = Source(project_id=project_id, source_type=SourceType.local_upload,
+            original_filename="Лекция.flac", mime_type="audio/flac", size_bytes=14,
+            s3_bucket="private", s3_object_key="original", upload_status=SourceUploadStatus.uploaded,
+            expires_at=utcnow() + timedelta(days=7))
+        db.add(source)
+        db.flush()
+        job = AudioPreparationJob(project_id=project_id, owner_user_id=owner.id, title="Лекция",
+            options_json='{"output_format":"flac"}',
+            status=AudioPreparationStatus.preview_ready if sample else AudioPreparationStatus.completed,
+            current_stage="preview_ready" if sample else "completed",
+            output_filename=None if sample else "Лекция.flac", output_mime_type="audio/flac", output_size_bytes=14)
+        db.add(job)
+        db.flush()
+        db.add(AudioPreparationJobInput(job_id=job.id, source_id=source.id, position=0, ephemeral_reference=True))
+        db.commit()
+        job_id = job.id
+    route = f"/api/audio-preparations/{job_id}/{'preview-audio' if sample else 'download'}"
+    download_route = f"/api/audio-preparations/{job_id}/download"
+    listen_route = f"/api/audio-preparations/{job_id}/listen"
+    assert TestClient(app).post(route, headers=headers).status_code == 401
+    assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403
+    assert client.post(route, headers={**headers, "origin": "https://foreign.test"}).status_code == 403
+    other = TestClient(app)
+    other_email = "audio-regeneration-other@example.com"
+    other_csrf = login(other, admin(other_email), other_email)
+    other_headers = {**headers, "x-csrf-token": other_csrf}
+    assert other.post(route, headers=other_headers).status_code == 404
+    first = client.post(route, headers=headers)
+    assert first.status_code == 200 and first.json()["state"] == "preparing"
+    with SessionLocal() as db:
+        persisted = db.get(AudioPreparationJob, job_id)
+        request_id = persisted.download_request_id
+        assert persisted.current_stage == "audio_download_queued" and persisted.download_slot == 1
+        assert persisted.output_source_id is None and persisted.lease_owner_id is None
+        assert persisted.download_preview is sample
+        assert db.execute(select(func.count(Source.id)).where(Source.project_id == project_id)).scalar_one() == 1
+    assert client.post(route, headers=headers).json()["state"] == "preparing"
+    with SessionLocal() as db:
+        assert db.get(AudioPreparationJob, job_id).download_request_id == request_id
+    for site in ("cross-site", "same-site"):
+        assert client.get(download_route, headers={"sec-fetch-site": site}).status_code == 403
+        assert client.get(listen_route, headers={"sec-fetch-site": site}).status_code == 403
+    assert TestClient(app).get(listen_route).status_code == 401
+    assert other.get(listen_route).status_code == 404
+    assert client.get(listen_route).status_code == 409
+    assert client.get(download_route).status_code == 409
+    assert other.get(download_route + "/status").status_code == 404
+    assert other.post(download_route + "/cancel", headers=other_headers).status_code == 404
+    assert client.post(download_route + "/cancel", headers=headers).status_code == 200
+    assert client.get(download_route + "/status").json()["reason"] == "cancellation_requested"
+
+
+def test_long_recording_confirmation_rejects_stale_quote_and_requires_owner_csrf(monkeypatch):
+    from studio_api import main as api_main
+    from studio_api.job_retry_recovery import RetryReadiness, RetryReason, RetryQueueResult
+    from studio_api.long_media_preflight import long_media_preflight_payload
+    email = "long-estimate-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    with SessionLocal() as db:
+        owner = db.query(User).filter_by(email=email).one()
+        project = Project(owner_user_id=owner.id, title="Synthetic estimate")
+        db.add(project); db.flush()
+        job = TranscriptionJob(project_id=project.id, owner_user_id=owner.id, provider="elevenlabs",
+            status=JobStatus.failed, error_code="media_duration_confirmation_required", attempt_count=1,
+            long_duration_preflight_json=json.dumps({"source_duration_seconds": 18000, "selected_duration_seconds": 18000,
+                "nominal_cost": "1.10000000", "currency": "USD", "rate_per_hour": "0.220000",
+                "effective_date": "2026-10-06", "source": "elevenlabs_public_api_pricing", "provider": "elevenlabs",
+                "additional_source_count": 0, "maximum_seconds_per_source": 43200,
+                "basis": "measured_duration_x_immutable_public_tariff", "invoice_debit": False}))
+        db.add(job); db.commit()
+        job_id, quote = job.id, long_media_preflight_payload(job)
+    ready = RetryReadiness(True, RetryReason.available, 1, 3, 1, 1)
+    monkeypatch.setattr(api_main, "compute_explicit_retry_readiness", lambda *a, **k: ready)
+    queued = []
+    def queue(db, **kwargs):
+        job = db.get(TranscriptionJob, kwargs["job_id"])
+        queued.append(job.long_duration_cost_confirmed)
+        job.status = JobStatus.queued
+        return RetryQueueResult(job, ready, True)
+    monkeypatch.setattr(api_main, "queue_retry", queue)
+    route = f"/api/jobs/{job_id}/retry"
+    data = {"confirm_long_duration_cost": True, "long_duration_confirmation_token": quote["confirmation_token"]}
+    assert TestClient(app).post(route, headers=headers, json=data).status_code == 401
+    assert client.post(route, json=data).status_code == 403
+    for rejected in ({}, {"confirm_long_duration_cost": True}, {**data, "long_duration_confirmation_token": "f" * 64}):
+        response = client.post(route, headers=headers, json=rejected)
+        assert response.status_code == 409
+        assert response.json()["detail"]["preflight"]["nominal_cost"] == "1.10000000"
+    assert queued == []
+    assert client.post(route, headers=headers, json=data).status_code == 200
+    assert queued == [True]
+
+
+def test_audio_reuse_imports_only_verified_drive_copy_and_is_idempotent(monkeypatch):
+    from types import SimpleNamespace
+    from studio_api import main as api_main
+    from studio_api.models import AudioPreparationJob, AudioPreparationStatus
+    email = "audio-reuse-owner@example.com"
+    client = TestClient(app)
+    csrf = login(client, admin(email), email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project_id = client.post("/api/transcriptions/workspace", headers=headers).json()["project"]["id"]
+    with SessionLocal() as db:
+        owner = db.execute(select(User).where(User.email == email)).scalar_one()
+        job = AudioPreparationJob(project_id=project_id, owner_user_id=owner.id, title="Лекция",
+            options_json="{}", status=AudioPreparationStatus.completed, current_stage="completed",
+            output_filename="Лекция.flac", output_mime_type="audio/flac", output_size_bytes=14,
+            output_drive_file_id="prepared-audio-file", output_drive_web_view_url="https://drive.google.com/file/d/prepared-audio-file/view")
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    calls = []
+    monkeypatch.setattr(api_main, "refreshed_google_drive_access_token", lambda *args: "synthetic-token")
+    def metadata(db, user, file_id, **kwargs):
+        assert not db.in_transaction()
+        calls.append(file_id)
+        return SimpleNamespace(id=file_id, name="Лекция.flac", size_bytes=14, is_folder=False,
+            created_time="2026-10-05T21:00:00Z", web_view_link="https://drive.google.com/file/d/prepared-audio-file/view"), "audio/flac"
+    monkeypatch.setattr(api_main, "_validated_google_drive_source_metadata", metadata)
+    route = f"/api/audio-preparations/{job_id}/reuse-source"
+    assert TestClient(app).post(route, headers=headers).status_code == 401
+    assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403
+    first = client.post(route, headers=headers)
+    assert first.status_code == 200 and first.json()["source_type"] == "google_drive"
+    assert first.json()["original_filename"] == "Лекция.flac"
+    assert "synthetic-token" not in first.text
+    assert client.post(route, headers=headers).json()["id"] == first.json()["id"]
+    with SessionLocal() as db:
+        assert db.execute(select(func.count(Source.id)).where(Source.project_id == project_id)).scalar_one() == 1
+        source = db.get(Source, first.json()["id"])
+        assert source.s3_object_key is None and source.s3_bucket is None
+    assert calls == ["prepared-audio-file", "prepared-audio-file"]
 
 
 def test_audio_legacy_recovery_api_is_owner_csrf_scoped_and_never_calls_google(monkeypatch):

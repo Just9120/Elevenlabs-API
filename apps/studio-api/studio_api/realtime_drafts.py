@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import delete, select, func
@@ -44,7 +45,8 @@ class RealtimeDraftContent:
     committed_segments: tuple[str, ...]
     partial: str
     updated_at: datetime
-    expires_at: datetime
+    expires_at: datetime | None
+    segment_metadata: tuple[dict | None, ...] | None = None
 
 
 def save_realtime_draft(
@@ -58,10 +60,11 @@ def save_realtime_draft(
     partial: str,
     settings,
     now: datetime,
+    segment_metadata: list[dict | None] | None = None,
 ) -> RealtimeDraftContent:
     _require_project_scope(project, owner_user_id)
     client_session_id = _client_session_id(client_session_id)
-    payload, segments, partial = _serialize_payload(committed_segments, partial)
+    payload, segments, partial, metadata = _serialize_payload(committed_segments, partial, segment_metadata)
     key = _key(settings)
     # Serialize every draft admission for this owner, including different client IDs.
     db.execute(select(User.id).where(User.id == owner_user_id).with_for_update()).scalar_one()
@@ -73,10 +76,6 @@ def save_realtime_draft(
         )
         .with_for_update()
     ).scalar_one_or_none()
-    if existing is not None and _expired(existing.expires_at, now):
-        db.delete(existing)
-        db.flush()
-        existing = None
     if existing is not None and existing.project_id != project.id:
         raise RealtimeDraftError(RealtimeDraftReason.scope_conflict)
     if existing is not None and revision < existing.revision:
@@ -112,7 +111,9 @@ def save_realtime_draft(
     max_bytes = getattr(settings, "realtime_draft_max_storage_bytes", 32 * 1024 * 1024)
     if (existing is None and count >= max_count) or stored_bytes - (len(existing.ciphertext) if existing else 0) + len(ciphertext) > max_bytes:
         raise RealtimeDraftError(RealtimeDraftReason.storage_limit)
-    expires_at = now + timedelta(seconds=settings.realtime_draft_ttl_seconds)
+    # Only an explicit owner clear retires Live text. Legacy dates are not
+    # authority to erase a draft, including one recovered after deployment.
+    expires_at = None
     if existing is None:
         row = RealtimeTranscriptDraft(
             id=row_id,
@@ -152,6 +153,7 @@ def save_realtime_draft(
         partial=partial,
         updated_at=row.updated_at,
         expires_at=row.expires_at,
+        segment_metadata=metadata,
     )
 
 
@@ -175,7 +177,6 @@ def load_latest_realtime_draft(
         .where(
             RealtimeTranscriptDraft.owner_user_id == owner_user_id,
             RealtimeTranscriptDraft.project_id == project.id,
-            RealtimeTranscriptDraft.expires_at > now,
         )
         .order_by(
             RealtimeTranscriptDraft.updated_at.desc(),
@@ -195,6 +196,7 @@ def delete_realtime_draft(
 ) -> bool:
     _require_project_scope(project, owner_user_id)
     normalized = _client_session_id(client_session_id)
+    db.execute(select(User.id).where(User.id == owner_user_id).with_for_update()).scalar_one()
     result = db.execute(
         delete(RealtimeTranscriptDraft).where(
             RealtimeTranscriptDraft.owner_user_id == owner_user_id,
@@ -217,30 +219,12 @@ def cleanup_expired_realtime_drafts(
     project_id: str | None = None,
     limit: int = DEFAULT_REALTIME_DRAFT_CLEANUP_BATCH_SIZE,
 ) -> int:
-    safe_limit = max(1, min(int(limit), MAX_REALTIME_DRAFT_CLEANUP_BATCH_SIZE))
-    expired_ids = select(RealtimeTranscriptDraft.id).where(
-        RealtimeTranscriptDraft.expires_at <= now
-    )
-    if owner_user_id is not None:
-        expired_ids = expired_ids.where(
-            RealtimeTranscriptDraft.owner_user_id == owner_user_id
-        )
-    if project_id is not None:
-        expired_ids = expired_ids.where(
-            RealtimeTranscriptDraft.project_id == project_id
-        )
-    expired_ids = expired_ids.order_by(
-        RealtimeTranscriptDraft.expires_at.asc(),
-        RealtimeTranscriptDraft.id.asc(),
-    ).limit(safe_limit)
-    return int(
-        db.execute(
-            delete(RealtimeTranscriptDraft).where(
-                RealtimeTranscriptDraft.id.in_(expired_ids)
-            )
-        ).rowcount
-        or 0
-    )
+    """Compatibility hook for worker schedules; Live has no expiry cleanup.
+
+    Deliberately preserve even legacy expired rows. Owner quotas and explicit
+    deletion, rather than elapsed time, bound this encrypted store.
+    """
+    return 0
 
 
 def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftContent:
@@ -269,12 +253,13 @@ def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftCont
         candidate = json.loads(payload)
     except Exception as exc:
         raise RealtimeDraftError(RealtimeDraftReason.payload_invalid) from exc
-    if not isinstance(candidate, dict) or set(candidate) != {"segments", "partial"}:
+    if not isinstance(candidate, dict) or set(candidate) not in ({"segments", "partial"}, {"segments", "partial", "segment_metadata"}):
         raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
     try:
-        _serialized, segments, partial = _serialize_payload(
+        _serialized, segments, partial, metadata = _serialize_payload(
             candidate["segments"],
             candidate["partial"],
+            candidate.get("segment_metadata"),
         )
     except RealtimeDraftError as exc:
         raise RealtimeDraftError(RealtimeDraftReason.payload_invalid) from exc
@@ -291,10 +276,11 @@ def _row_content(row: RealtimeTranscriptDraft, *, settings) -> RealtimeDraftCont
         partial=partial,
         updated_at=row.updated_at,
         expires_at=row.expires_at,
+        segment_metadata=metadata,
     )
 
 
-def _serialize_payload(segments, partial) -> tuple[str, tuple[str, ...], str]:
+def _serialize_payload(segments, partial, metadata=None) -> tuple[str, tuple[str, ...], str, tuple[dict | None, ...] | None]:
     if not isinstance(segments, (list, tuple)) or len(segments) > MAX_COMMITTED_SEGMENTS:
         raise RealtimeDraftError(RealtimeDraftReason.payload_too_large)
     if not isinstance(partial, str):
@@ -312,12 +298,45 @@ def _serialize_payload(segments, partial) -> tuple[str, tuple[str, ...], str]:
         normalized.append(segment)
     if len(partial) > MAX_PARTIAL_CHARACTERS:
         raise RealtimeDraftError(RealtimeDraftReason.payload_too_large)
+    normalized_metadata = _normalize_segment_metadata(metadata, len(normalized))
     payload = json.dumps(
-        {"segments": normalized, "partial": partial},
+        {"segments": normalized, "partial": partial, **({"segment_metadata": normalized_metadata} if normalized_metadata is not None else {})},
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return payload, tuple(normalized), partial
+    return payload, tuple(normalized), partial, normalized_metadata
+
+
+def _normalize_segment_metadata(value, count: int) -> tuple[dict | None, ...] | None:
+    if value is None:
+        return None  # Legacy text carries no invented timing/speaker data.
+    if not isinstance(value, (list, tuple)) or len(value) != count:
+        raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+    seen = set()
+    normalized = []
+    for item in value:
+        if item is None:
+            normalized.append(None)
+            continue
+        if not isinstance(item, dict) or set(item) - {"id", "session_id", "start_seconds", "end_seconds", "speaker", "gap"}:
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        if "session_id" in item and (not isinstance(item["session_id"], str) or not CLIENT_SESSION_PATTERN.fullmatch(item["session_id"])):
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        identity = item.get("id")
+        if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", identity) or identity in seen:
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        seen.add(identity)
+        if "gap" in item and not isinstance(item["gap"], bool):
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        if "speaker" in item and (type(item["speaker"]) is not int or not 1 <= item["speaker"] <= 1000):
+            raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        if "start_seconds" in item or "end_seconds" in item:
+            start, end = item.get("start_seconds"), item.get("end_seconds")
+            if (type(start) not in (int, float) or type(end) not in (int, float)
+                    or not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end <= 604800):
+                raise RealtimeDraftError(RealtimeDraftReason.payload_invalid)
+        normalized.append(dict(item))
+    return tuple(normalized)
 
 
 def _client_session_id(value: str) -> str:
@@ -344,11 +363,3 @@ def _draft_aad(owner, project, draft, client_session, revision) -> bytes:
         f"owner={owner};project={project};draft={draft};client_session={client_session};"
         f"revision={revision};purpose=realtime_transcript_draft_v1"
     ).encode("utf-8")
-
-
-def _expired(expires_at: datetime, now: datetime) -> bool:
-    if expires_at.tzinfo is not None and now.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=None)
-    elif expires_at.tzinfo is None and now.tzinfo is not None:
-        now = now.replace(tzinfo=None)
-    return expires_at <= now

@@ -32,6 +32,7 @@ from .yandex_realtime_pb2 import (
     StreamingRequest,
 )
 from .yandex_realtime_pb2_grpc import RecognizerStub
+from .yandex_realtime_events import YandexRealtimeEvents
 
 
 CAPABILITY_TTL_SECONDS = 300
@@ -300,7 +301,8 @@ def _session_options(authority: YandexRealtimeAuthority) -> StreamingOptions:
     return StreamingOptions(
         recognition_model=recognition,
         speaker_labeling=SpeakerLabelingOptions(
-            speaker_labeling=SpeakerLabelingOptions.SPEAKER_LABELING_ENABLED
+            # Speaker labeling requires FULL_DATA; interactive Live uses REAL_TIME.
+            speaker_labeling=SpeakerLabelingOptions.SPEAKER_LABELING_DISABLED
         ),
     )
 
@@ -311,7 +313,7 @@ async def relay_yandex_realtime(websocket: WebSocket, *, capability: str, settin
         await websocket.close(code=4403)
         return
     received_transcript = False
-    pending_final = ""
+    events = YandexRealtimeEvents()
     try:
         authority = decode_yandex_realtime_capability(capability, settings=settings)
         api_key = await run_in_threadpool(_open_api_key, authority, settings)
@@ -346,50 +348,10 @@ async def relay_yandex_realtime(websocket: WebSocket, *, capability: str, settin
             )
             await websocket.send_json({"message_type": "session_started"})
             async for response in call:
-                event = response.WhichOneof("Event")
-                if event == "partial":
-                    if pending_final:
-                        await websocket.send_json(
-                            {
-                                "message_type": "committed_transcript",
-                                "text": pending_final,
-                            }
-                        )
-                        pending_final = ""
-                    update = response.partial
-                elif event == "final":
-                    update = response.final
-                elif event == "final_refinement":
-                    update = response.final_refinement.normalized_text
-                else:
-                    update = None
-                if update is None or not update.alternatives:
-                    continue
-                text = update.alternatives[0].text.strip()
-                if text:
+                payload = events.event(response)
+                if payload:
                     received_transcript = True
-                    if event == "final":
-                        pending_final = text
-                    else:
-                        await websocket.send_json(
-                            {
-                                "message_type": (
-                                    "partial_transcript"
-                                    if event == "partial"
-                                    else "committed_transcript"
-                                ),
-                                "text": text,
-                            }
-                        )
-                        if event == "final_refinement":
-                            pending_final = ""
-            if pending_final:
-                await websocket.send_json(
-                    {
-                        "message_type": "committed_transcript",
-                        "text": pending_final,
-                    }
-                )
+                    await websocket.send_json(payload)
             if received_transcript:
                 _record_realtime_provider_health(settings=settings, failure_code=None)
     except WebSocketDisconnect:

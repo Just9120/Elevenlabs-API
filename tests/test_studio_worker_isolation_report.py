@@ -7,6 +7,7 @@ import shutil
 import subprocess
 
 import pytest
+from scripts.test_shell_environment import repository_bash
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/manage_studio_worker.sh"
 pytestmark = pytest.mark.skipif(
@@ -45,7 +46,7 @@ container_isolation_report synthetic-container
 '''
     raw = json.dumps(capabilities, separators=(",", ":"))
     result = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\n" + function + fake_inspect],
+        [repository_bash(), "-c", "set -euo pipefail\n" + function + fake_inspect],
         env={**os.environ, "TEST_CAP_ADD": raw}, text=True, capture_output=True, timeout=10,
     )
     assert result.returncode == 0, result.stderr

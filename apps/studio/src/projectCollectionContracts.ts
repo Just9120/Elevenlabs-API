@@ -635,7 +635,7 @@ function parseJobUsageRateSnapshot(
     Number(rate) <= 0 ||
     candidate.currency !== "USD" ||
     !isIsoCalendarDate(candidate.effective_date) ||
-    candidate.source !== "elevenlabs_public_api_pricing"
+    (candidate.source !== "elevenlabs_public_api_pricing" && candidate.source !== "yandex_public_api_pricing")
   ) {
     return false;
   }
@@ -643,7 +643,7 @@ function parseJobUsageRateSnapshot(
     rate_per_hour: rate,
     currency: "USD",
     effective_date: candidate.effective_date,
-    source: "elevenlabs_public_api_pricing",
+    source: candidate.source as "elevenlabs_public_api_pricing" | "yandex_public_api_pricing",
   };
 }
 

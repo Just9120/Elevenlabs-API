@@ -27,7 +27,8 @@ def test_runtime_direct_pins_are_identical_in_both_constraint_sets():
     assert all(dev.get(name) == version for name, version in runtime.items())
     assert "python-multipart" not in runtime
     assert dev["pytest"]
-    assert dev["httpx2"] == "2.7.0"
+    dev_direct = _pins(ROOT / "requirements-dev.txt")
+    assert all(dev.get(name) == version for name, version in dev_direct.items())
 
 
 def test_ci_and_container_apply_constraints_to_source_requirements():

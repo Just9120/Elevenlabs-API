@@ -140,7 +140,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const usage = screen.getByLabelText("Расход ElevenLabs по задаче");
+    const usage = screen.getByLabelText("Расход сервиса распознавания по задаче");
     expect(usage).toHaveTextContent("Подтверждённая длительность: 12,612 с");
     expect(usage).toHaveTextContent("Номинальная стоимость: 0,00077073 USD");
     expect(usage).toHaveTextContent("а не фактическое списание");
@@ -162,7 +162,7 @@ describe("JobDetailSection", () => {
       />,
     );
 
-    const usage = screen.getByLabelText("Расход ElevenLabs по задаче");
+    const usage = screen.getByLabelText("Расход сервиса распознавания по задаче");
     expect(usage).toHaveTextContent("Показана только подтверждённая часть");
     expect(usage).toHaveTextContent("Итоговый расход неопределён");
     expect(usage).toHaveTextContent("0,00077073 USD");

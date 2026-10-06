@@ -20,6 +20,7 @@ from .models import (
 
 
 CURRENCY = "USD"
+PUBLIC_PRICING_SOURCES = {"elevenlabs": "elevenlabs_public_api_pricing", "yandex": "yandex_public_api_pricing"}
 COST_BASIS = "confirmed_audio_duration_x_rate_snapshot"
 COST_QUANTUM = Decimal("0.00000001")
 MAX_BILLED_PART_SECONDS = 604800
@@ -57,10 +58,11 @@ class ConfirmedProviderUsage:
     cost_basis: str = COST_BASIS
 
 
-def pricing_snapshot(settings) -> ProviderPricingSnapshot:
-    raw_rate = getattr(settings, "elevenlabs_scribe_v2_rate_per_hour_usd", None)
-    effective_date = getattr(settings, "elevenlabs_pricing_effective_date", None)
-    source = getattr(settings, "elevenlabs_pricing_source", None)
+def pricing_snapshot(settings, *, provider="elevenlabs") -> ProviderPricingSnapshot:
+    rate_field = {"elevenlabs": "elevenlabs_scribe_v2_rate_per_hour_usd", "yandex": "yandex_async_rate_per_hour_usd"}.get(provider)
+    raw_rate = getattr(settings, rate_field, None) if rate_field else None
+    effective_date = getattr(settings, f"{provider}_pricing_effective_date", None)
+    source = getattr(settings, f"{provider}_pricing_source", None)
     try:
         rate = Decimal(str(raw_rate))
     except (InvalidOperation, TypeError, ValueError):
@@ -71,7 +73,7 @@ def pricing_snapshot(settings) -> ProviderPricingSnapshot:
         not rate.is_finite()
         or rate <= 0
         or not isinstance(effective_date, date)
-        or source != "elevenlabs_public_api_pricing"
+        or source is None or source != PUBLIC_PRICING_SOURCES.get(provider)
     ):
         raise ProviderUsageAccountingError(
             ProviderUsageAccountingReason.pricing_unavailable
@@ -79,6 +81,22 @@ def pricing_snapshot(settings) -> ProviderPricingSnapshot:
     return ProviderPricingSnapshot(
         rate.quantize(Decimal("0.000001")), effective_date, source
     )
+
+
+def resolve_pricing_snapshot(job, settings) -> ProviderPricingSnapshot:
+    """Existing job provenance is independent of later configured pricing."""
+    provider = getattr(job, "provider", "elevenlabs")
+    stored = _stored_pricing_snapshot(job)
+    if stored and stored.source != PUBLIC_PRICING_SOURCES.get(provider):
+        raise ProviderUsageAccountingError(ProviderUsageAccountingReason.pricing_snapshot_conflict)
+    return stored or pricing_snapshot(settings, provider=provider)
+
+
+def preserve_pricing_snapshot(job, settings) -> ProviderPricingSnapshot:
+    """Freeze a tariff while the caller holds the job's authorized row lock."""
+    snapshot = resolve_pricing_snapshot(job, settings)
+    _apply_snapshot(job, snapshot)
+    return snapshot
 
 
 def begin_provider_part_usage(
@@ -102,7 +120,7 @@ def begin_provider_part_usage(
         lease_generation=lease_generation,
         now=now,
     )
-    snapshot = _stored_pricing_snapshot(job) or pricing_snapshot(settings)
+    snapshot = resolve_pricing_snapshot(job, settings)
     index = int(part_index)
     if (
         attempt.stage != SourceAttemptStage.provider_request_started
@@ -303,7 +321,7 @@ def job_usage_cost_payload(job: TranscriptionJob) -> dict[str, object | None]:
             return empty
         if (
             not isinstance(rate_values[1], date)
-            or rate_values[2] != "elevenlabs_public_api_pricing"
+            or rate_values[2] != PUBLIC_PRICING_SOURCES.get(getattr(job, "provider", "elevenlabs"))
         ):
             return empty
         rate_snapshot = {
@@ -469,7 +487,7 @@ def _stored_pricing_snapshot(target) -> ProviderPricingSnapshot | None:
         not rate.is_finite()
         or rate <= 0
         or not isinstance(values[1], date)
-        or values[2] != "elevenlabs_public_api_pricing"
+        or values[2] not in PUBLIC_PRICING_SOURCES.values()
         or values[3] != CURRENCY
     ):
         raise ProviderUsageAccountingError(

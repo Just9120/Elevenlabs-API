@@ -1,4 +1,5 @@
 import { audioSourceTitle } from "./audioOutputNaming";
+import type { AudioVisual } from "./AudioWaveform";
 
 export const LOCAL_AUDIO_MAX_FILES = 20;
 export const LOCAL_AUDIO_MAX_INPUT_BYTES = 256 * 1024 * 1024;
@@ -33,6 +34,7 @@ export type LocalAudioResult = {
   filename: string;
   inputDurationSeconds: number;
   outputDurationSeconds: number;
+  visual?: AudioVisual;
 };
 
 function ensureActive(signal?: AbortSignal) {
@@ -71,40 +73,69 @@ function copyChannels(audio: PcmAudio, mode: LocalAudioChannelMode): Float32Arra
   return audio.channels.slice(0, 2).map((channel) => channel.slice());
 }
 
-function retainedRanges(
+function visitSilences(
   channels: Float32Array[],
   sampleRate: number,
   thresholdDb: number,
   minimumSeconds: number,
-  keepSeconds: number,
+  visit: (start: number, end: number) => void,
 ) {
   const threshold = 10 ** (thresholdDb / 20);
   const minimumFrames = Math.max(1, Math.round(minimumSeconds * sampleRate));
-  const keepFrames = Math.max(0, Math.round(keepSeconds * sampleRate));
   const length = channels[0]?.length ?? 0;
-  const ranges: [number, number][] = [];
-  let cursor = 0;
   let silentStart = -1;
-  const push = (start: number, end: number) => {
-    if (end > start) ranges.push([start, end]);
-  };
   for (let frame = 0; frame <= length; frame += 1) {
     const silent = frame < length && channels.every((channel) => Math.abs(channel[frame]) < threshold);
     if (silent && silentStart < 0) silentStart = frame;
     if (!silent && silentStart >= 0) {
       const silentEnd = frame;
       const silentLength = silentEnd - silentStart;
-      if (silentLength >= minimumFrames && keepFrames < silentLength) {
-        const keepHead = Math.ceil(keepFrames / 2);
-        const keepTail = Math.floor(keepFrames / 2);
-        push(cursor, silentStart + keepHead);
-        cursor = silentEnd - keepTail;
-      }
+      if (silentLength >= minimumFrames) visit(silentStart, silentEnd);
       silentStart = -1;
     }
   }
+}
+
+function retainedRanges(channels: Float32Array[], sampleRate: number, thresholdDb: number, minimumSeconds: number, keepSeconds: number) {
+  const keepFrames = Math.max(0, Math.round(keepSeconds * sampleRate));
+  const length = channels[0]?.length ?? 0;
+  const ranges: [number, number][] = [];
+  let cursor = 0;
+  const push = (start: number, end: number) => { if (end > start) ranges.push([start, end]); };
+  visitSilences(channels, sampleRate, thresholdDb, minimumSeconds, (start, end) => {
+    if (end - start <= keepFrames) return;
+    push(cursor, start + Math.ceil(keepFrames / 2));
+    cursor = end - Math.floor(keepFrames / 2);
+  });
   push(cursor, length);
   return ranges;
+}
+
+export function buildLocalAudioVisual(inputs: PcmAudio[], options: LocalAudioOptions): AudioVisual {
+  const totalDuration = inputs.reduce((sum, input) => sum + input.channels[0].length / input.sampleRate, 0);
+  let remaining = 512, removedTotal = 0, remainingPoints = 512, remainingDuration = totalDuration;
+  const sources = inputs.map((input, position) => {
+    const channels = copyChannels(input, options.channelMode);
+    const duration = channels[0].length / input.sampleRate;
+    const pointCount = Math.max(1, Math.min(channels[0].length, remainingPoints - (inputs.length - position - 1), Math.floor(remainingPoints * duration / remainingDuration)));
+    remainingPoints -= pointCount; remainingDuration = Math.max(0.000001, remainingDuration - duration);
+    const peaks = Array.from({ length: pointCount }, (_, point) => {
+      let peak = 0;
+      const start = Math.floor(point * channels[0].length / pointCount), end = Math.floor((point + 1) * channels[0].length / pointCount);
+      for (let frame = start; frame < end; frame += 1) for (const channel of channels) peak = Math.max(peak, Math.abs(channel[frame]));
+      return Math.min(1, peak);
+    });
+    const silences: AudioVisual["sources"][number]["silences"] = [];
+    let count = 0;
+    if (options.silenceEnabled) visitSilences(channels, input.sampleRate, options.silenceThresholdDb, options.silenceMinimumSeconds, (start, end) => {
+      count += 1;
+      const removed = Math.max(0, end - start - Math.round(options.silenceKeepSeconds * input.sampleRate)) / input.sampleRate;
+      removedTotal += removed;
+      if (remaining > 0) { silences.push({ start: start / input.sampleRate, end: end / input.sampleRate, removed_seconds: removed }); remaining -= 1; }
+    });
+    return { position, duration_seconds: duration, peaks, silences, silence_count: count, intervals_truncated: count > silences.length };
+  });
+  return { sources, removed_seconds: removedTotal };
 }
 
 function applySilence(
@@ -241,6 +272,7 @@ export async function processLocalAudioFiles(
         filename: `${outputTitle}${suffix}.wav`,
         inputDurationSeconds: inputGroups[index].reduce((total, item) => total + item.channels[0].length / item.sampleRate, 0),
         outputDurationSeconds: audio.channels[0].length / audio.sampleRate,
+        visual: buildLocalAudioVisual(inputGroups[index], options),
       });
     }
     onProgress?.({ stage: "completed", percent: 100, filename: null });

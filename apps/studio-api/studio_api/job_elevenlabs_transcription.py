@@ -49,7 +49,7 @@ from .provider_usage_accounting import (
     begin_provider_part_usage,
     confirm_provider_part_usage,
     mark_pending_provider_usage_uncertain,
-    pricing_snapshot,
+    resolve_pricing_snapshot,
 )
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_part_completed, mark_attempt_provider_returned, mark_attempt_provider_started
@@ -146,6 +146,18 @@ def transcribe_processing_job_source_with_elevenlabs(
     **kwargs,
 ) -> Iterator[ElevenLabsTranscriptResult]:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
+    # A complete prior provider result is an export-only operation. It must
+    # never download a retired source, probe/encode media or read a provider key.
+    if part_checkpoints_enabled and requires_complete_checkpoint_restore(db, job_id=job_id, job_source_id=job_source_id):
+        from .job_cached_transcript import restore_cached_transcript
+        try:
+            with restore_cached_transcript(db, job_id=job_id, job_source_id=job_source_id,
+                lease_owner_id=lease_owner_id, lease_generation=lease_generation,
+                settings=settings, now=clock()) as restored:
+                yield restored
+            return
+        except ProviderPartCheckpointError as exc:
+            raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.retry_state_persistence_failed) from exc
     transport = elevenlabs_transport or ElevenLabsTranscriptionTransport()
     result: ElevenLabsTranscriptResult | None = None
     try:
@@ -195,6 +207,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                         provider_model=provider_model,
                     )
                     media_clip = initial_job_snapshot["catalog_settings"]
+                    from .long_media_preflight import confirmed_source_duration
+                    confirmed_duration = confirmed_source_duration(db.get(TranscriptionJob, job_id), job_source_id)
                     _close_read_transaction_before_media_preparation(db)
                     prepared_cm = media_preparer(
                         stream=source.stream,
@@ -206,9 +220,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                         media_clip_end_seconds=media_clip.media_clip_end_seconds,
                         duration_warning_seconds=settings.media_duration_warning_seconds,
                         max_duration_seconds=settings.media_max_duration_seconds,
-                        long_duration_confirmed=initial_job_snapshot[
-                            "long_duration_cost_confirmed"
-                        ],
+                        long_duration_confirmed=confirmed_duration is not None,
+                        **({"confirmed_source_duration_seconds": confirmed_duration} if confirmed_duration is not None else {}),
                         **(
                             {"probe_source_creation_time": True}
                             if source.source_type == "local_upload"
@@ -231,6 +244,11 @@ def transcribe_processing_job_source_with_elevenlabs(
                             now=clock(),
                         )
                 except MediaPreparationError as exc:
+                    if exc.reason is MediaPreparationReason.media_duration_confirmation_required:
+                        from .long_media_preflight import record_long_media_preflight
+                        record_long_media_preflight(db, job_id=job_id, relation_id=job_source_id,
+                            duration=exc.duration_seconds, settings=settings, owner=lease_owner_id,
+                            generation=lease_generation, now=clock())
                     mapped = _map_media_preparation_reason(exc.reason)
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                     raise JobElevenLabsTranscriptionError(mapped) from exc
@@ -290,7 +308,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                             ) from exc
                     if usage_accounting_enabled:
                         try:
-                            pricing_snapshot(settings)
+                            resolve_pricing_snapshot(db.get(TranscriptionJob, job_id), settings)
                         except ProviderUsageAccountingError as exc:
                             _best_effort_classify(
                                 db,
@@ -441,7 +459,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 clock,
                             )
                             try:
-                                if part_checkpoints_enabled and len(prepared_batch.parts) > 1:
+                                if part_checkpoints_enabled:
                                     save_provider_part_checkpoint(
                                         db,
                                         job_id=job_id,

@@ -317,6 +317,8 @@ class Source(Base):
     source_created_at_provenance: Mapped[str|None]=mapped_column(String(40))
     expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
     deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
+    audio_retention_days: Mapped[int|None]=mapped_column(Integer)
+    delete_after_transcripts: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     delete_reason: Mapped[str|None]=mapped_column(String(80))
     storage_cleanup_status: Mapped[SourceStorageCleanupStatus]=mapped_column(Enum(SourceStorageCleanupStatus), default=SourceStorageCleanupStatus.not_requested, server_default=text("'not_requested'"), nullable=False)
     storage_cleanup_requested_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
@@ -331,7 +333,7 @@ class Source(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
-    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("reference_class IN ('transcription','audio_processing')", name="ck_sources_reference_class"), CheckConstraint("upload_protocol IN ('single_put','multipart')", name="ck_sources_upload_protocol"), CheckConstraint("((upload_protocol = 'single_put' AND multipart_upload_id IS NULL AND multipart_part_size_bytes IS NULL AND multipart_part_count IS NULL AND multipart_completed_at IS NULL) OR (upload_protocol = 'multipart' AND multipart_upload_id IS NOT NULL AND multipart_part_size_bytes >= 5242880 AND multipart_part_count >= 1))", name="ck_sources_multipart_authority"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
+    __table_args__=(CheckConstraint("audio_retention_days IS NULL OR audio_retention_days IN (3,7,30)", name="ck_sources_audio_retention_days"), Index("ix_sources_storage_identity", "reference_class", "s3_bucket", "s3_object_key"), Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_project_deleted_created_id", "project_id", "deleted_at", "created_at", "id"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("reference_class IN ('transcription','audio_processing')", name="ck_sources_reference_class"), CheckConstraint("upload_protocol IN ('single_put','multipart')", name="ck_sources_upload_protocol"), CheckConstraint("((upload_protocol = 'single_put' AND multipart_upload_id IS NULL AND multipart_part_size_bytes IS NULL AND multipart_part_count IS NULL AND multipart_completed_at IS NULL) OR (upload_protocol = 'multipart' AND multipart_upload_id IS NOT NULL AND multipart_part_size_bytes >= 5242880 AND multipart_part_count >= 1))", name="ck_sources_multipart_authority"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
 
 class TranscriptionJob(Base):
     __tablename__="transcription_jobs"
@@ -355,6 +357,7 @@ class TranscriptionJob(Base):
     media_clip_start_seconds: Mapped[int|None]=mapped_column(Integer)
     media_clip_end_seconds: Mapped[int|None]=mapped_column(Integer)
     long_duration_cost_confirmed: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    long_duration_preflight_json: Mapped[str|None]=mapped_column(Text)
     terminal_dismissed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     history_attention_resolved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     history_attention_resolution: Mapped[str|None]=mapped_column(String(40))
@@ -511,6 +514,17 @@ class AudioPreparationJob(Base):
     output_drive_folder_url: Mapped[str|None]=mapped_column(Text)
     output_drive_folder_name: Mapped[str|None]=mapped_column(String(512))
     output_source_id: Mapped[str|None]=mapped_column(ForeignKey("sources.id"), unique=True)
+    output_filename: Mapped[str|None]=mapped_column(String(255))
+    output_mime_type: Mapped[str|None]=mapped_column(String(255))
+    output_size_bytes: Mapped[int|None]=mapped_column(Integer)
+    visual_analysis_json: Mapped[str|None]=mapped_column(Text)
+    download_slot: Mapped[int|None]=mapped_column(Integer)
+    download_preview: Mapped[bool]=mapped_column(Boolean, default=False, server_default=text("false"))
+    download_size_bytes: Mapped[int|None]=mapped_column(Integer)
+    download_request_id: Mapped[str|None]=mapped_column(String(36))
+    download_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    download_previous_stage: Mapped[str|None]=mapped_column(String(40))
+    download_error_code: Mapped[str|None]=mapped_column(String(80))
     output_drive_file_id: Mapped[str|None]=mapped_column(String(256), unique=True)
     output_drive_web_view_url: Mapped[str|None]=mapped_column(Text)
     total_input_duration_ms: Mapped[int|None]=mapped_column(Integer)
@@ -533,6 +547,9 @@ class AudioPreparationJob(Base):
     inputs: Mapped[list["AudioPreparationJobInput"]]=relationship("AudioPreparationJobInput", back_populates="job", order_by="AudioPreparationJobInput.position")
     __table_args__=(
         CheckConstraint("output_destination IN ('download','google_drive')", name="ck_audio_preparation_jobs_destination"),
+        CheckConstraint("download_slot IS NULL OR download_slot = 1", name="ck_audio_download_slot"),
+        Index("uq_audio_download_slot", "download_slot", unique=True),
+        Index("ix_audio_download_expiry", "download_expires_at"),
         CheckConstraint("progress_percent >= 0 AND progress_percent <= 100", name="ck_audio_preparation_jobs_progress"),
         CheckConstraint("total_input_duration_ms IS NULL OR total_input_duration_ms > 0", name="ck_audio_preparation_jobs_input_duration"),
         CheckConstraint("estimated_output_duration_ms IS NULL OR estimated_output_duration_ms >= 0", name="ck_audio_preparation_jobs_estimated_duration"),
@@ -770,11 +787,11 @@ class TranscriptionProviderPartCheckpoint(Base):
     key_id: Mapped[str]=mapped_column(String(80), nullable=False)
     payload_hmac: Mapped[str]=mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
-    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__=(
         UniqueConstraint("job_source_id", "part_index", name="uq_provider_part_checkpoint_source_part"),
         CheckConstraint("part_index >= 0", name="ck_provider_part_checkpoint_index_nonnegative"),
-        CheckConstraint("total_parts > 1", name="ck_provider_part_checkpoint_total_parts_multiple"),
+        CheckConstraint("total_parts >= 1", name="ck_provider_part_checkpoint_total_parts_multiple"),
         CheckConstraint("part_index < total_parts", name="ck_provider_part_checkpoint_index_bounded"),
         CheckConstraint("timeline_offset_seconds >= 0", name="ck_provider_part_checkpoint_offset_nonnegative"),
         CheckConstraint("duration_seconds > 0", name="ck_provider_part_checkpoint_duration_positive"),
@@ -801,7 +818,7 @@ class RealtimeTranscriptDraft(Base):
     partial_character_count: Mapped[int]=mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
-    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__=(
         UniqueConstraint("owner_user_id", "client_session_id", name="uq_realtime_drafts_owner_client_session"),
         CheckConstraint("revision >= 1", name="ck_realtime_drafts_revision_positive"),

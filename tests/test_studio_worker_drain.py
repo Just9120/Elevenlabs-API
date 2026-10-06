@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scripts.test_shell_environment import repository_bash
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/studio_worker_drain.sh"
 WORKFLOW = ROOT / ".github/workflows/studio-worker-drain.yml"
@@ -87,7 +89,7 @@ esac
 ''',
     )
     proc = subprocess.run(
-        ["bash", str(SCRIPT), _bash_path(repo), "main", "Just9120/Elevenlabs-API", SHA],
+        [repository_bash(), str(SCRIPT), _bash_path(repo), "main", "Just9120/Elevenlabs-API", SHA],
         cwd=repo,
         env={**os.environ, "PATH": f"{_bash_path(bin_dir)}:{os.environ['PATH']}"},
         text=True,

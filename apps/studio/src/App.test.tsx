@@ -1602,7 +1602,7 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Звук вкладки или экрана")).toBeChecked();
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
     expect(
-      screen.getByText(/Временно хранится только для восстановления/i),
+      screen.getByText(/до ручной очистки; звук не сохраняется/i),
     ).toBeInTheDocument();
 
     const navigation = screen.getByRole("navigation", {
@@ -3560,7 +3560,7 @@ describe("Studio PWA", () => {
         name: "Привести документы к текущему формату",
       }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/Транскрибации → Подготовка документов/)).toBeInTheDocument();
+    expect(screen.getByText(/Транскрибации → Обслуживание/)).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -3579,7 +3579,7 @@ describe("Studio PWA", () => {
     await openProjectsPage();
 
     await userEvent.click(
-      screen.getByRole("tab", { name: "Подготовка документов" }),
+      screen.getByRole("tab", { name: "Обслуживание" }),
     );
 
     expect(
@@ -3594,7 +3594,7 @@ describe("Studio PWA", () => {
       screen.getByRole("heading", { name: "Учесть готовые документы в Studio" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Подготовка документов" }),
+      screen.getByRole("tab", { name: "Обслуживание" }),
     ).toHaveAttribute("aria-selected", "true");
   });
 
@@ -10524,7 +10524,7 @@ describe("Studio PWA", () => {
       retry_safe_source_count: 1,
       resumable_provider_part_count: 0,
       provider_total_part_count: 0,
-      provider_failure_code: null,
+      provider_failure_code: null, long_duration_preflight: { source_duration_seconds: 18000, selected_duration_seconds: 18000, nominal_cost: "1.10000000", currency: "USD", rate_per_hour: "0.220000", effective_date: "2026-10-06", source: "elevenlabs_public_api_pricing", provider: "elevenlabs", additional_source_count: 0, maximum_seconds_per_source: 21600, basis: "measured_duration_x_immutable_public_tariff", invoice_debit: false, confirmation_token: "a".repeat(64) },
     };
     installFocusedOutputFixture({
       jobStatus: "failed",
@@ -10562,7 +10562,7 @@ describe("Studio PWA", () => {
     );
 
     expect(window.confirm).toHaveBeenCalledWith(
-      "Запись длится больше 2 ч. Обработка может заметно увеличить расход ElevenLabs. Продолжить? Максимально допустимая длительность — 6 ч.",
+      expect.stringContaining("Номинальная оценка: 1,1 USD"),
     );
     await waitFor(() =>
       expect(
@@ -10570,7 +10570,7 @@ describe("Studio PWA", () => {
           ([url, init]) =>
             url === "/api/jobs/job-focused/retry" &&
             init?.method === "POST" &&
-            JSON.parse(String(init.body)).confirm_long_duration_cost === true,
+            JSON.parse(String(init.body)).confirm_long_duration_cost === true && JSON.parse(String(init.body)).long_duration_confirmation_token === "a".repeat(64),
         ),
       ).toBe(true),
     );

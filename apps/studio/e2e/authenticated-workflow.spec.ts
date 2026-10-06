@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const E2E_EMAIL = 'browser-e2e@example.com';
 const E2E_PASSWORD = 'browser-e2e-password';
@@ -466,10 +467,12 @@ test('Audio workspace processes a device WAV in-browser without uploading source
   const download = localResults.getByRole('link', { name: 'Скачать файл' });
   await expect(download).toHaveAttribute('href', /^blob:/);
   await expect(download).toHaveAttribute('download', 'Лекция 1. Предмет, задачи и методы социальной психологии.wav');
+  await expect(localResults.getByRole('region', { name: 'Анализ звука и пауз' })).toBeVisible();
+  await expect(localResults.getByText(/^До:.*после сокращения:/)).toBeVisible();
   expect(uploadMutations).toEqual([]);
 });
 
-test('Live tab captures browser audio and keeps transcript browser-only', async ({
+test('Live captures browser audio, exports text and restores its encrypted draft after reload', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -684,6 +687,28 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
     live.getByText('подтверждённый текст', { exact: true }),
   ).toBeVisible();
   expect(capabilityRequests).toBe(1);
+
+  await expect(live.getByText('Live-текст сохранён локально и в Studio до ручной очистки.')).toBeVisible();
+  await live.getByLabel('Формат скачивания Live').selectOption('md');
+  const downloadPromise = page.waitForEvent('download');
+  await live.getByRole('button', { name: 'Скачать .md', exact: true }).click();
+  const exported = await downloadPromise;
+  expect(exported.suggestedFilename()).toMatch(/\.md$/);
+  const exportedPath = await exported.path();
+  expect(exportedPath).not.toBeNull();
+  const body = await readFile(exportedPath!, 'utf8');
+  expect(body).toContain('подтверждённый текст');
+  expect(body).not.toContain('sutkn_browser_e2e');
+
+  // A real page reload exercises IndexedDB + authenticated server restoration.
+  // The provider boundary remains synthetic; no new capability is requested.
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.reload();
+  await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
+  const recovered = page.getByRole('region', { name: 'Live-транскрибация' });
+  await recovered.getByRole('button', { name: 'Восстановить', exact: true }).click();
+  await expect(recovered.getByText('подтверждённый текст', { exact: true })).toBeVisible();
+  expect(capabilityRequests).toBe(1);
 });
 
 test('preparation stays fail-closed without external integrations', async ({
@@ -775,7 +800,7 @@ test('transcript maintenance stays fail-closed without Google authority', async 
     .click();
   await expect(page).toHaveURL(/\/transcriptions$/);
   await page
-    .getByRole('tab', { name: 'Подготовка документов', exact: true })
+    .getByRole('tab', { name: 'Обслуживание', exact: true })
     .click();
 
   const maintenance = page.getByRole('region', {

@@ -91,7 +91,7 @@ def test_export_preserves_ready_output_and_is_idempotent(export_state, tmp_path)
     queue(db); queue(db)
     assert job.status is AudioPreparationStatus.completed
     assert job.current_stage == "google_drive_export_queued"
-    assert audio_preparation_payload(job)["output"]["download_ready"] is True
+    assert audio_preparation_payload(job, now=NOW)["output"]["download_ready"] is True
     assert deletion_readiness(db, source, now=NOW).value == "audio_preparation_uses_source"
     claimed = claim(db)
     assert claim(db, "second-worker") is None
@@ -154,7 +154,7 @@ def test_cancel_export_retains_download_and_allows_explicit_retry(export_state, 
             process(db, job, tmp_path, lambda *args, **kwargs: pytest.fail("Cancelled export uploaded"))
     assert job.status is AudioPreparationStatus.completed
     assert job.current_stage == "google_drive_export_cancelled"
-    assert audio_preparation_payload(job)["output"]["download_ready"]
+    assert audio_preparation_payload(job, now=NOW)["output"]["download_ready"]
     queue(db)
     assert job.cancel_requested_at is None
 
@@ -240,7 +240,7 @@ def test_legacy_output_recovery_preserves_bytes_and_active_lease(export_state, s
     db, job, source = export_state
     legacy_output(db, job, source, status)
     lease = job.lease_owner_id, job.lease_generation, job.lease_expires_at
-    assert audio_preparation_payload(job)["recoverable_output"] is True
+    assert audio_preparation_payload(job, now=NOW)["recoverable_output"] is True
     with pytest.raises(AudioPreparationServiceError):
         recover_audio_preparation_output(db, owner_user_id="other", job_id=job.id, now=NOW)
     result = recover_audio_preparation_output(db, owner_user_id="owner", job_id=job.id, now=NOW)

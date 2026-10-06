@@ -5,6 +5,7 @@ import stat
 import subprocess
 from pathlib import Path
 import re
+from scripts.test_shell_environment import repository_bash
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "deploy_studio_platform_component.sh"
@@ -24,10 +25,10 @@ def git_bash_path(path: Path) -> str:
 
 def bash_test_command(bin_dir: Path, *args: str) -> list[str]:
     if os.name != "nt":
-        return ["bash", *args]
+        return [repository_bash(), *args]
 
     return [
-        "bash",
+        repository_bash(),
         "-c",
         'export PATH="$1:$PATH"; shift; exec "$@"',
         "studio-deploy-test",

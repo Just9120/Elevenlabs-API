@@ -959,6 +959,23 @@ def test_immutable_media_clip_reaches_preparation_boundary(db, models):
     assert len(transport.calls) == 1
 
 
+def test_long_recording_warning_persists_quote_before_any_provider_call(db, models):
+    from studio_api.media_preparation import MediaPreparationError, MediaPreparationReason
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    from studio_api.long_media_preflight import long_media_preflight_payload
+    *_, job, rel, now = make_job(db, models)
+    transport = CaptureTransport()
+    def prepare(**kwargs):
+        raise MediaPreparationError(MediaPreparationReason.media_duration_confirmation_required, duration_seconds=18000)
+    with pytest.raises(JobElevenLabsTranscriptionError, match="media_duration_confirmation_required"):
+        with run_boundary(db, models, job, rel, transport, now, media_preparer=prepare):
+            pytest.fail("Long unconfirmed source must not reach the provider")
+    db.refresh(job)
+    quote = long_media_preflight_payload(job)
+    assert quote["nominal_cost"] == "1.10000000" and quote["source_duration_seconds"] == 18000
+    assert transport.calls == [] and "private" not in str(quote)
+
+
 def test_media_preparation_failure_blocks_provider_with_safe_reason(db, models):
     from studio_api.job_elevenlabs_transcription import (
         JobElevenLabsTranscriptionError,
@@ -1436,8 +1453,8 @@ def test_complete_checkpoint_restore_never_calls_provider(monkeypatch, db, model
     first_checkpoint.expires_at = now - timedelta(seconds=1)
     db.flush()
     expired_readiness = compute_explicit_retry_readiness(db, job, now=now)
-    assert not expired_readiness.available
-    assert expired_readiness.reason.value == "provider_result_lost"
+    assert expired_readiness.available
+    assert expired_readiness.reason.value == "full_provider_restore_available"
     first_checkpoint.expires_at = expiry
     db.flush()
     assert queue_retry(db, owner_user_id=job.owner_user_id, job_id=job.id, now=now).transitioned
@@ -1464,7 +1481,7 @@ def test_complete_checkpoint_restore_never_calls_provider(monkeypatch, db, model
         def transcribe(self, **kwargs):
             pytest.fail("restore must not submit paid STT")
 
-    if checkpoint_state == "intact":
+    if checkpoint_state in {"intact", "expired"}:
         with run_boundary(db, models, job, rel, NeverCallProvider(), now, media_preparer=prepare) as result:
             assert result.text == "alpha"
         restored = db.query(models.TranscriptionJobSourceAttempt).filter_by(attempt_number=2).one()
@@ -1474,7 +1491,7 @@ def test_complete_checkpoint_restore_never_calls_provider(monkeypatch, db, model
         with pytest.raises(JobElevenLabsTranscriptionError, match="retry_state_persistence_failed"):
             with run_boundary(db, models, job, rel, NeverCallProvider(), now, media_preparer=prepare):
                 pass
-        if checkpoint_state in {"expired", "missing"}:
+        if checkpoint_state == "missing":
             job.status = models.JobStatus.failed
             job.lease_owner_id = None
             job.lease_expires_at = None
@@ -1483,6 +1500,60 @@ def test_complete_checkpoint_restore_never_calls_provider(monkeypatch, db, model
             assert not unavailable.available
             assert unavailable.reason.value == "provider_result_lost"
     assert original.provider_billed_duration_ms == billed
+
+
+def test_single_part_export_failure_restores_after_30_days_without_new_stt(monkeypatch, db, models):
+    from studio_api.job_retry_recovery import compute_explicit_retry_readiness, prepare_current_attempt_sources, queue_retry, requires_provider_cost_confirmation
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response
+    *_, job, rel, now = make_job(db, models)
+
+    class Provider:
+        calls = 0
+        def transcribe(self, **kwargs):
+            self.calls += 1
+            return normalize_elevenlabs_transcript_response({"text": "saved words", "words": [{"text": "saved words", "start": 0, "end": 1}]})
+
+    provider = Provider()
+    with run_boundary(db, models, job, rel, provider, now) as transcript:
+        assert transcript.text == "saved words"
+    assert provider.calls == 1
+    checkpoint = db.query(models.TranscriptionProviderPartCheckpoint).one()
+    assert checkpoint.total_parts == 1
+    assert checkpoint.expires_at is None
+    assert b"saved words" not in checkpoint.ciphertext
+    # STT returned, then document creation failed. No full output is recorded.
+    job.status = models.JobStatus.failed
+    job.lease_owner_id = job.lease_expires_at = None
+    db.commit()
+    later = now + timedelta(days=30)
+    db.expire_all()
+    ready = compute_explicit_retry_readiness(db, job, now=later)
+    assert ready.available and ready.reason.value == "full_provider_restore_available"
+    assert not requires_provider_cost_confirmation(ready)
+    assert queue_retry(db, owner_user_id=job.owner_user_id, job_id=job.id, now=later).transitioned
+    job.status = models.JobStatus.processing
+    job.attempt_count = 2
+    job.lease_owner_id = "worker"
+    job.lease_generation = 7
+    job.lease_expires_at = later + timedelta(minutes=5)
+    prepare_current_attempt_sources(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, now=later)
+
+    class NoNewSTT:
+        def transcribe(self, **kwargs):
+            pytest.fail("export recovery must not submit another STT request")
+
+    def no_source_or_credential_io(**kwargs):
+        pytest.fail("export recovery must not read source bytes or provider credentials")
+
+    monkeypatch.setattr(sys.modules[__name__], "fake_source", no_source_or_credential_io)
+    monkeypatch.setattr(sys.modules[__name__], "fake_prereq", no_source_or_credential_io)
+
+    with run_boundary(db, models, job, rel, NoNewSTT(), later, media_preparer=no_source_or_credential_io) as restored:
+        assert restored.text == "saved words"
+    assert provider.calls == 1
+    second = db.query(models.TranscriptionJobSourceAttempt).filter_by(attempt_number=2).one()
+    assert second.provider_completed_parts == second.provider_total_parts == 1
+    assert int(second.provider_billed_duration_ms or 0) == 0
 
 
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):

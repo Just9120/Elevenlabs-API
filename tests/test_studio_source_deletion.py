@@ -89,6 +89,116 @@ def _job_for_source(db, m, user, project, src, *, status, relation_status=None, 
     return job, rel
 
 
+def _complete_document(db, m, job, rel, now):
+    db.add(m.TranscriptionJobOutput(job_id=job.id, job_source_id=rel.id,
+        document_id=f"document-{rel.id}", web_view_url="https://docs.google.test/synthetic",
+        output_drive_folder_id="synthetic-folder", output_kind="google_docs_transcript",
+        transcript_standard="transcript_doc_v1.2", document_character_count=20,
+        document_created_at=now, persisted_at=now, lease_generation=1))
+    db.flush()
+
+
+@pytest.mark.parametrize("remaining", ["queued", "processing", "failed", "cancelled", "missing_document", "completed"])
+def test_one_shot_source_waits_for_every_full_document(sqlite_db, remaining):
+    from studio_api.source_deletion import mark_one_fully_exported_source_for_cleanup
+
+    db = sqlite_db
+    m, user, project = _owner_project(db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    src = _local_source(db, m, project, now)
+    src.delete_after_transcripts = True
+    first, rel = _job_for_source(db, m, user, project, src, status=m.JobStatus.completed)
+    first.media_clip_start_seconds, first.media_clip_end_seconds = 0, 60
+    _complete_document(db, m, first, rel, now)
+    second, other = _job_for_source(db, m, user, project, src, status=m.JobStatus.completed if remaining == "missing_document" else m.JobStatus(remaining))
+    second.media_clip_start_seconds, second.media_clip_end_seconds = 60, 120
+    if remaining == "completed":
+        _complete_document(db, m, second, other, now)
+    db.commit()
+    assert mark_one_fully_exported_source_for_cleanup(db, now=now) is (remaining == "completed")
+    if remaining != "completed":
+        assert src.deleted_at is None and src.upload_status == m.SourceUploadStatus.uploaded
+        second.status = m.JobStatus.completed
+        _complete_document(db, m, second, other, now)
+        db.commit()
+        assert mark_one_fully_exported_source_for_cleanup(db, now=now)
+    assert src.delete_reason == "all_transcripts_exported"
+    assert src.storage_cleanup_status == m.SourceStorageCleanupStatus.pending
+    assert src.upload_status == m.SourceUploadStatus.deleted
+    assert not mark_one_fully_exported_source_for_cleanup(db, now=now)
+    assert db.query(m.TranscriptionJobOutput).count() == 2
+
+
+@pytest.mark.parametrize("kind", ["historical", "audio", "google", "no_jobs"])
+def test_automatic_retirement_preserves_unenrolled_and_external_sources(sqlite_db, kind):
+    from studio_api.source_deletion import mark_one_fully_exported_source_for_cleanup
+
+    db = sqlite_db
+    m, user, project = _owner_project(db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    src = _local_source(db, m, project, now)
+    src.delete_after_transcripts = kind != "historical"
+    if kind == "audio":
+        src.reference_class = "audio_processing"
+    if kind == "google":
+        src.source_type = m.SourceType.google_drive
+    if kind != "no_jobs":
+        job, rel = _job_for_source(db, m, user, project, src, status=m.JobStatus.completed)
+        _complete_document(db, m, job, rel, now)
+    db.commit()
+    assert not mark_one_fully_exported_source_for_cleanup(db, now=now)
+    assert src.deleted_at is None
+
+
+def test_audio_lease_protects_only_its_source_and_does_not_starve_other_cleanup(sqlite_db):
+    from studio_api.source_deletion import mark_one_fully_exported_source_for_cleanup, mark_one_expired_source_for_cleanup
+
+    db = sqlite_db
+    m, user, project = _owner_project(db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    protected = _local_source(db, m, project, now, key="protected", expires_delta=timedelta(seconds=-1))
+    eligible = _local_source(db, m, project, now, key="eligible")
+    for src in (protected, eligible):
+        src.delete_after_transcripts = True
+        job, rel = _job_for_source(db, m, user, project, src, status=m.JobStatus.completed)
+        _complete_document(db, m, job, rel, now)
+    audio = m.AudioPreparationJob(project_id=project.id, owner_user_id=user.id,
+        title="Synthetic", status=m.AudioPreparationStatus.processing, options_json="{}", output_destination="download")
+    db.add(audio)
+    db.flush()
+    db.add(m.AudioPreparationJobInput(job_id=audio.id, source_id=protected.id, position=0, ephemeral_reference=False))
+    db.commit()
+    assert not mark_one_expired_source_for_cleanup(db, now=now)
+    assert mark_one_fully_exported_source_for_cleanup(db, now=now)
+    assert protected.deleted_at is None and protected.upload_status == m.SourceUploadStatus.uploaded
+    assert eligible.delete_reason == "all_transcripts_exported"
+    audio.status = m.AudioPreparationStatus.completed
+    db.commit()
+    assert mark_one_fully_exported_source_for_cleanup(db, now=now)
+    assert protected.delete_reason == "all_transcripts_exported"
+
+
+def test_download_rendering_keeps_input_until_its_active_lease_expires(sqlite_db):
+    from studio_api.source_deletion import mark_one_expired_source_for_cleanup
+    db = sqlite_db
+    m, user, project = _owner_project(db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    source = _local_source(db, m, project, now, expires_delta=timedelta(seconds=-1))
+    audio = m.AudioPreparationJob(project_id=project.id, owner_user_id=user.id, title="Synthetic",
+        status=m.AudioPreparationStatus.completed, options_json="{}", output_destination="download",
+        current_stage="audio_download_rendering", download_slot=1,
+        download_expires_at=now - timedelta(seconds=1), lease_owner_id="worker",
+        lease_expires_at=now + timedelta(seconds=30))
+    db.add(audio)
+    db.flush()
+    db.add(m.AudioPreparationJobInput(job_id=audio.id, source_id=source.id, position=0, ephemeral_reference=False))
+    db.commit()
+    assert not mark_one_expired_source_for_cleanup(db, now=now)
+    assert source.upload_status == m.SourceUploadStatus.uploaded
+    assert mark_one_expired_source_for_cleanup(db, now=now + timedelta(seconds=31))
+    assert source.upload_status == m.SourceUploadStatus.expired
+
+
 def test_google_drive_source_deletion_is_logical_and_not_applicable(sqlite_db):
     from studio_api.source_deletion import request_source_deletion
 

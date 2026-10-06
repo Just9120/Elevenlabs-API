@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
+import type { RealtimeSegmentMetadata } from "./realtimeTranscript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockCallbacks = {
@@ -8,7 +9,7 @@ type MockCallbacks = {
   onInputLevel: (value: number) => void;
   onSourceLevel: (kind: "display" | "microphone", value: number) => void;
   onPartial: (value: string) => void;
-  onCommitted: (value: string) => void;
+  onCommitted: (value: string, metadata?: RealtimeSegmentMetadata) => void;
 };
 
 const controllerState = vi.hoisted(() => ({
@@ -460,6 +461,71 @@ describe("LiveTranscriptionPanel", () => {
     await waitFor(() =>
       expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:live-transcript"),
     );
+  });
+
+  it("preserves prior sessions and downloads selected timed text without a new capture", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    click.mockClear();
+    render(<LiveTranscriptionPanel projectId="project-safe" csrf="csrf-safe" onCsrf={vi.fn()} active />);
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    act(() => controllerState.instances[0].callbacks.onCommitted("первая сессия", {
+      id: "first.0", session_id: "capture_first_123456", start_seconds: 10, end_seconds: 12,
+    }));
+    await userEvent.click(screen.getByRole("button", { name: "Остановить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Начать" }));
+    await userEvent.click(screen.getByRole("button", { name: "Скачать .txt" }));
+    const retainedBlob = vi.mocked(URL.createObjectURL).mock.calls.at(-1)![0] as Blob;
+    const retainedText = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(retainedBlob);
+    });
+    expect(retainedText).toContain("первая сессия");
+    expect(retainedText).not.toContain("Created at:");
+    click.mockClear();
+    act(() => controllerState.instances[1].callbacks.onCommitted("вторая сессия", {
+      id: "second.0", session_id: "capture_second_123456", start_seconds: 1, end_seconds: 2,
+    }));
+    expect(screen.getByText("первая сессия")).toBeInTheDocument();
+    expect(screen.getByText("вторая сессия")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "SRT" })).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText("Сессия скачивания Live"), "capture_second_123456");
+    expect(screen.getByRole("option", { name: "SRT" })).toBeEnabled();
+    await userEvent.selectOptions(screen.getByLabelText("Формат скачивания Live"), "srt");
+    await userEvent.click(screen.getByRole("button", { name: "Скачать .srt" }));
+    expect(click).toHaveBeenCalledOnce();
+    expect(controllerState.instances).toHaveLength(2);
+    expect(controllerState.instances[1].start).toHaveBeenCalledOnce();
+    expect(screen.getByText("первая сессия")).toBeInTheDocument();
+  });
+
+  it("replaces indexed corrections, preserves the next partial and gates timed downloads", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    click.mockClear();
+    render(<LiveTranscriptionPanel projectId="project-safe" csrf="csrf-safe" onCsrf={vi.fn()} active />);
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    const callbacks = controllerState.instances[0].callbacks;
+    act(() => callbacks.onCommitted("сырой текст", { id: "session.1.index.0" }));
+    expect(screen.getByRole("option", { name: "SRT" })).toBeDisabled();
+    act(() => {
+      callbacks.onPartial("следующая реплика");
+      callbacks.onCommitted("Исправленный текст.", { id: "session.1.index.0", start_seconds: 1, end_seconds: 2 });
+    });
+    expect(screen.queryByText("сырой текст")).not.toBeInTheDocument();
+    expect(screen.getByText("Исправленный текст.")).toBeInTheDocument();
+    expect(screen.getByText("следующая реплика")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "SRT" })).toBeDisabled();
+    act(() => callbacks.onCommitted("следующая реплика", { id: "session.1.index.1", start_seconds: 2, end_seconds: 3 }));
+    expect(screen.getByRole("option", { name: "SRT" })).toBeEnabled();
+    await userEvent.selectOptions(screen.getByLabelText("Формат скачивания Live"), "docx");
+    await userEvent.click(screen.getByRole("button", { name: "Скачать .docx" }));
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0].download).toMatch(/\.docx$/);
+    expect(controllerState.instances[0].start).toHaveBeenCalledOnce();
   });
 
   it("stops hidden capture and keeps the transcript mounted across mode switches", async () => {
@@ -1102,6 +1168,7 @@ describe("LiveTranscriptionPanel", () => {
     expect(JSON.parse(String(checkpointCall?.[1]?.body))).toEqual({
       revision: 1,
       committed_segments: ["Надёжный checkpoint"],
+      segment_metadata: [null],
       partial: "",
     });
     expect(String(checkpointCall?.[1]?.body)).not.toContain("audio");

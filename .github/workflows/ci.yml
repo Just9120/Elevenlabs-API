@@ -84,7 +84,10 @@ jobs:
         run: python scripts/ci_checks.py
 
       - name: Run pytest
-        run: PYTHONFAULTHANDLER=1 timeout --signal=SIGABRT --kill-after=10s 180s python -X faulthandler -m pytest -vv
+        # >2000 tests include repeated real PG migration/restore operations.
+        # 180s cut off the suite before completion on the slower observed runner;
+        # retain a bounded process deadline, diagnostic abort and hard kill.
+        run: PYTHONFAULTHANDLER=1 timeout --signal=SIGABRT --kill-after=10s 300s python -X faulthandler -m pytest -vv
 
       - name: Mark CI success
         run: echo "CI_OK"

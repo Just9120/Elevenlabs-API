@@ -250,6 +250,7 @@ describe("project collection contracts", () => {
 
   it("rejects malformed or internally inconsistent job usage projections", () => {
     const invalidUsageCosts = [
+      { ...usageCost, rate_snapshot: { ...usageCost.rate_snapshot, source: ["yandex_public_api_pricing"] } },
       { ...usageCost, accounting_status: "provider-private-state" },
       { ...usageCost, currency: "EUR" },
       {
@@ -282,6 +283,12 @@ describe("project collection contracts", () => {
         ),
       ).toBeNull();
     }
+  });
+
+  it("preserves the public Yandex tariff provenance", () => {
+    const yandexCost = { ...usageCost, rate_snapshot: { ...usageCost.rate_snapshot, source: "yandex_public_api_pricing" } };
+    const parsed = parseProjectJobCollection({ jobs: [{ ...job, provider: "yandex", usage_cost: yandexCost }] }, "project-safe");
+    expect(parsed?.[0].usage_cost?.rate_snapshot?.source).toBe("yandex_public_api_pricing");
   });
 
   it("accepts only safe speaker identity history metadata", () => {

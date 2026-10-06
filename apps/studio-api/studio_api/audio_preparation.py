@@ -469,6 +469,7 @@ def _run_processing_with_progress(
     process = None
     stderr_reader = None
     stderr_tail = ""
+    last_progress_ratio = 0.0
 
     def drain_stderr(stream) -> None:
         nonlocal stderr_tail
@@ -508,9 +509,14 @@ def _run_processing_with_progress(
                     current = _positive_duration(match.group("duration"))
                 except AudioPreparationError:
                     continue
-                progress_callback(min(0.99, current / expected_duration_seconds))
+                last_progress_ratio = max(last_progress_ratio, min(0.99, current / expected_duration_seconds))
+                progress_callback(last_progress_ratio)
             elif line == "progress=end":
                 progress_callback(1.0)
+            elif line == "progress=continue":
+                # Also check cancellation/lease while FFmpeg has not emitted a
+                # usable output timestamp yet (e.g. a long initial pause).
+                progress_callback(last_progress_ratio)
         return_code = process.wait()
     except FileNotFoundError as exc:
         raise AudioPreparationError(AudioPreparationReason.probe_unavailable) from exc
@@ -563,8 +569,8 @@ def render_output_filename(
     project_title: str,
     title: str,
 ) -> str:
-    moment = created_at or datetime.now(timezone.utc)
-    if moment.tzinfo is None:
+    moment = created_at
+    if moment is not None and moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     def safe_output_stem(value: str) -> str:
         normalized = normalize_source_display_filename(value, max_length=220)
@@ -574,8 +580,8 @@ def render_output_filename(
         return stem or "processed-audio"
 
     values = {
-        "date": moment.astimezone(timezone.utc).strftime("%Y-%m-%d"),
-        "time": moment.astimezone(timezone.utc).strftime("%H-%M-%SZ"),
+        "date": moment.astimezone(timezone.utc).strftime("%Y-%m-%d") if moment else "",
+        "time": moment.astimezone(timezone.utc).strftime("%H-%M-%SZ") if moment else "",
         "project": safe_output_stem(project_title),
         "title": safe_output_stem(title),
     }
@@ -583,7 +589,7 @@ def render_output_filename(
     extension = options.output_format.value
     if options.output_format is AudioOutputFormat.copy:
         extension = "audio"
-    stem = safe_output_stem(rendered)
+    stem = safe_output_stem(rendered) if rendered.strip(" ._-Z") else values["title"]
     return f"{stem[:220]}.{extension}"
 
 

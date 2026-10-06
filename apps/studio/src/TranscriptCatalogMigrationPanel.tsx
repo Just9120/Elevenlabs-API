@@ -1328,6 +1328,10 @@ export function TranscriptCatalogMigrationPanel({
   const [clearPending, setClearPending] = useState(false);
   const [clearMessage, setClearMessage] = useState("");
   const clearPendingRef = useRef(false);
+  const [exportPending, setExportPending] = useState(false);
+  const exportPendingRef = useRef(false);
+  const [exportMessage, setExportMessage] = useState("");
+  const [exportUrl, setExportUrl] = useState("");
   const maintenanceRequestEpochsRef = useRef(new Map<string, number>());
   const maintenanceRequestControllersRef = useRef(
     new Map<string, AbortController>(),
@@ -1418,6 +1422,36 @@ export function TranscriptCatalogMigrationPanel({
     }
   }
 
+  async function exportManifest() {
+    if (exportPendingRef.current || clearPendingRef.current || !pickerReady) return;
+    exportPendingRef.current = true;
+    setExportPending(true);
+    setExportMessage("");
+    setExportUrl("");
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    try {
+      const session = await mutate<PickerSession>("/google/picker/session", { method: "POST" });
+      const picked = await googlePicker.openGooglePicker("output-folder", session, { returnFocusTo });
+      if (picked.action === "cancel") return;
+      if (picked.action === "error") throw new Error("picker_unavailable");
+      if (picked.docs.length !== 1 || !picked.docs[0]?.id) throw new Error("invalid_folder");
+      const result = await mutate<{ ok: boolean; entry_count: number; web_view_url: string }>("/transcript-catalog/export", {
+        method: "POST", body: JSON.stringify({ folder_id: picked.docs[0].id }),
+      });
+      if (result.ok !== true || !Number.isInteger(result.entry_count) || result.entry_count < 0
+        || typeof result.web_view_url !== "string" || !/^https:\/\/drive\.google\.com\/file\/d\/[\w-]+(?:\/view)?$/.test(result.web_view_url)) {
+        throw new Error("invalid_export_response");
+      }
+      setExportMessage(`Манифест сохранён в выбранную папку Google Drive. Записей: ${result.entry_count}.`);
+      setExportUrl(result.web_view_url);
+    } catch {
+      setExportMessage("Не удалось сохранить манифест. Проверьте подключение и доступ к папке, затем повторите. Учёт Studio сохранён.");
+    } finally {
+      exportPendingRef.current = false;
+      setExportPending(false);
+    }
+  }
+
   async function clearManifest() {
     if (clearPendingRef.current) return;
     clearPendingRef.current = true;
@@ -1475,7 +1509,7 @@ export function TranscriptCatalogMigrationPanel({
         <p>
           Подключите отдельный доступ, чтобы проверять и приводить готовые
           документы к текущему формату. Сами действия находятся в разделе
-          «Транскрибации → Подготовка документов».
+          «Транскрибации → Обслуживание».
         </p>
         <details className="technical-details">
           <summary>Почему нужен отдельный доступ</summary>
@@ -1588,6 +1622,13 @@ export function TranscriptCatalogMigrationPanel({
       </div>
       <details className="card transcript-maintenance-access technical-details">
         <summary className="summary-row">Расширенные действия</summary>
+        <h3>Сохранить манифест</h3>
+        <p>Сохраните JSON со связями исходников, настройками и готовыми документами в выбранную папку Google Drive. Текст транскрипций и ключи в файл не входят.</p>
+        <button type="button" disabled={!pickerReady || exportPending || clearPending} onClick={() => void exportManifest()}>
+          {exportPending ? "Сохраняем манифест…" : "Сохранить манифест в Google Drive"}
+        </button>
+        {exportMessage && <p role="status">{exportMessage}</p>}
+        {exportUrl && <a href={exportUrl} target="_blank" rel="noopener noreferrer">Открыть сохранённый манифест</a>}
         <h3>Сбросить учёт готовых документов</h3>
         <p>
           Сброс удаляет только историю защиты от повторной обработки. Google
@@ -1596,7 +1637,7 @@ export function TranscriptCatalogMigrationPanel({
         <button
           type="button"
           className="danger"
-          disabled={clearPending}
+          disabled={clearPending || exportPending}
           onClick={() => setClearOpen(true)}
         >
           Сбросить учёт

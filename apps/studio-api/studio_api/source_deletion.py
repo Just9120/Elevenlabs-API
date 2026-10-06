@@ -26,6 +26,7 @@ from .models import (
     SourceUploadProtocol,
     SourceUploadStatus,
     TranscriptionJob,
+    TranscriptionJobOutput,
     TranscriptionJobSource,
 )
 from .source_storage import (
@@ -145,20 +146,31 @@ def _referencing_jobs(db: Session, source_id: str, *, lock: bool) -> list[Transc
     return list(db.execute(stmt).scalars().all())
 
 
-def _active_audio_preparation_references(db: Session, source_id: str, *, lock: bool) -> list[AudioPreparationJob]:
+def _active_audio_reference_predicate(source_id, now):
     input_reference = exists(select(AudioPreparationJobInput.job_id).where(
         AudioPreparationJobInput.job_id == AudioPreparationJob.id,
         AudioPreparationJobInput.source_id == source_id,
-    ))
-    stmt = select(AudioPreparationJob).where(or_(
+    ).correlate(AudioPreparationJob, Source))
+    return or_(
         and_(input_reference, AudioPreparationJob.status.in_((
             AudioPreparationStatus.preview_queued, AudioPreparationStatus.analyzing,
             AudioPreparationStatus.preview_ready, AudioPreparationStatus.queued, AudioPreparationStatus.processing,
         ))),
+        and_(input_reference, AudioPreparationJob.status == AudioPreparationStatus.completed,
+            or_(AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload")),
+                and_(AudioPreparationJob.current_stage.in_(("audio_download_queued", "audio_download_rendering")),
+                    AudioPreparationJob.download_slot == 1,
+                    or_(AudioPreparationJob.download_expires_at > _aware(now).replace(tzinfo=None),
+                        and_(AudioPreparationJob.lease_owner_id.is_not(None),
+                             AudioPreparationJob.lease_expires_at > _aware(now).replace(tzinfo=None)))))),
         and_(AudioPreparationJob.output_source_id == source_id,
             AudioPreparationJob.status == AudioPreparationStatus.completed,
             AudioPreparationJob.current_stage.in_(("google_drive_export_queued", "google_drive_upload"))),
-    )).order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
+    )
+
+
+def _active_audio_preparation_references(db: Session, source_id: str, *, lock: bool, now: datetime) -> list[AudioPreparationJob]:
+    stmt = select(AudioPreparationJob).where(_active_audio_reference_predicate(source_id, now)).order_by(AudioPreparationJob.created_at.asc(), AudioPreparationJob.id.asc())
     if lock:
         stmt = stmt.with_for_update()
     return list(db.execute(stmt).scalars().all())
@@ -182,6 +194,10 @@ def _project_owner_id(db: Session, project_id: str) -> str | None:
     return project.owner_user_id if project is not None else None
 
 
+def _no_active_audio_reference_predicate(now):
+    return ~exists(select(AudioPreparationJob.id).where(_active_audio_reference_predicate(Source.id, now)))
+
+
 def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_jobs: list[TranscriptionJob] | None = None, discard_failed_retry: bool = False) -> SourceDeletionReason:
     if source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted:
         return SourceDeletionReason.source_already_deleted
@@ -194,7 +210,7 @@ def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_job
             return SourceDeletionReason.processing_job_uses_source
         if not discard_failed_retry and job.status == JobStatus.failed and compute_explicit_retry_readiness(db, job, now=now).available:
             return SourceDeletionReason.retryable_failed_job_uses_source
-    if _active_audio_preparation_references(db, source.id, lock=False):
+    if _active_audio_preparation_references(db, source.id, lock=False, now=now):
         return SourceDeletionReason.audio_preparation_uses_source
     return SourceDeletionReason.available
 
@@ -288,7 +304,7 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     if project is None or project.owner_user_id != owner_user_id or project.archived_at is not None:
         return None
     jobs = _referencing_jobs(db, source.id, lock=True)
-    _active_audio_preparation_references(db, source.id, lock=True)
+    _active_audio_preparation_references(db, source.id, lock=True, now=now)
     already_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
     reason = deletion_readiness(db, source, now=now, locked_jobs=jobs, discard_failed_retry=discard_failed_retry)
     if reason not in {SourceDeletionReason.available, SourceDeletionReason.source_already_deleted}:
@@ -334,6 +350,7 @@ def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime) -> bool:
             Source.expires_at <= now,
             Source.upload_status != SourceUploadStatus.expired,
             _no_processing_reference_predicate(),
+            _no_active_audio_reference_predicate(now),
         )
         .order_by(Source.expires_at.asc(), Source.id.asc())
         .limit(1)
@@ -358,6 +375,54 @@ def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime) -> bool:
     return True
 
 
+def mark_one_fully_exported_source_for_cleanup(db: Session, *, now: datetime) -> bool:
+    """Retire enrolled device copies only when every requested document exists.
+
+    Source row locking fences new job admission. Historical sources and audio
+    preparation references are never enrolled implicitly.
+    """
+    document = exists(select(TranscriptionJobOutput.id).where(
+        TranscriptionJobOutput.job_source_id == TranscriptionJobSource.id,
+        TranscriptionJobOutput.job_id == TranscriptionJobSource.job_id,
+        TranscriptionJobOutput.output_kind == "google_docs_transcript",
+        TranscriptionJobOutput.document_character_count > 0,
+        TranscriptionJobOutput.document_id != "",
+    ))
+    relations = select(TranscriptionJobSource.id).join(TranscriptionJob, TranscriptionJob.id == TranscriptionJobSource.job_id).where(
+        TranscriptionJobSource.source_id == Source.id,
+        TranscriptionJobSource.status != JobSourceStatus.skipped,
+    )
+    unmet = relations.where(or_(TranscriptionJob.status != JobStatus.completed, TranscriptionJob.project_id != Source.project_id, ~document))
+    src = db.execute(select(Source).where(
+        Source.source_type == SourceType.local_upload,
+        Source.reference_class == "transcription",
+        Source.delete_after_transcripts.is_(True),
+        Source.upload_status == SourceUploadStatus.uploaded,
+        Source.deleted_at.is_(None),
+        exists(relations), ~exists(unmet),
+        _no_active_audio_reference_predicate(now),
+    ).order_by(Source.created_at, Source.id).limit(1).with_for_update(skip_locked=True)).scalar_one_or_none()
+    if src is None:
+        return False
+    # Both query and readback are conservative: failed/cancelled/queued jobs and
+    # active audio leases preserve the source, even if another output exists.
+    if _active_audio_preparation_references(db, src.id, lock=False, now=now):
+        return False
+    if db.execute(unmet.where(TranscriptionJobSource.source_id == src.id).correlate(None).limit(1)).first() is not None:
+        return False
+    src.deleted_at = now
+    src.delete_reason = "all_transcripts_exported"
+    src.upload_status = SourceUploadStatus.deleted
+    src.storage_cleanup_status = SourceStorageCleanupStatus.pending
+    src.storage_cleanup_requested_at = now
+    src.storage_cleanup_not_before_at = now
+    src.storage_cleanup_error_code = None
+    src.updated_at = now
+    audit(db, "source.all_transcripts_exported", project_id=src.project_id, deletion_reason="all_transcripts_exported")
+    db.flush()
+    return True
+
+
 def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> SourceCleanupClaim | None:
     owner = (owner_id or "")[:128] or f"source-cleanup-{uuid4().hex}"
     stale = or_(Source.storage_cleanup_owner_id.is_(None), Source.storage_cleanup_lease_expires_at.is_(None), Source.storage_cleanup_lease_expires_at <= now)
@@ -374,6 +439,7 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
             stale,
             or_(Source.deleted_at.is_not(None), Source.expires_at <= now),
             _no_processing_reference_predicate(),
+            _no_active_audio_reference_predicate(now),
         )
         .order_by(Source.storage_cleanup_not_before_at.asc(), Source.created_at.asc(), Source.id.asc())
         .limit(1)
@@ -451,6 +517,7 @@ def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetim
     if should_stop and should_stop():
         return False
     mark_one_expired_source_for_cleanup(db, now=now)
+    mark_one_fully_exported_source_for_cleanup(db, now=now)
     db.commit()
     if should_stop and should_stop():
         return False

@@ -1,9 +1,10 @@
 import hashlib, json, logging, re
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
 from sqlalchemy import and_, text, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -12,7 +13,8 @@ from .audit import audit
 from .auth_retention import cleanup_expired_auth_state
 from .collection_pagination import CollectionCursorError, DEFAULT_COLLECTION_PAGE_SIZE, MAX_COLLECTION_CURSOR_LENGTH, MAX_COLLECTION_PAGE_SIZE, decode_collection_cursor, page_envelope
 from .config import get_settings
-from .db import Base, engine, get_db
+from .db import Base, engine, get_db, SessionLocal
+from .audio_downloads import AudioDownloadError, AudioDownloadManager, stream_audio_download
 from .deps import current_session, get_client_ip, require_csrf, require_same_origin
 from .models import *
 from .rate_limit import RateLimiter
@@ -190,9 +192,18 @@ from .account_security import (
 )
 
 settings=get_settings()
-app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
+@asynccontextmanager
+async def app_lifespan(application):
+    audio_downloads.start()
+    try:
+        yield
+    finally:
+        audio_downloads.close()
+
+app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None, lifespan=app_lifespan)
 app.include_router(transcript_catalog_router)
 limiter=RateLimiter()
+audio_downloads = AudioDownloadManager(SessionLocal, settings)
 LOGGER=logging.getLogger("studio_api.api")
 REALTIME_DRAFT_SAVE_LIMIT_PER_HOUR = 7_200
 REALTIME_DRAFT_ROUTE_PATTERN = re.compile(
@@ -369,6 +380,19 @@ class LocalUploadInitiateIn(BaseModel):
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
     reference_class: SourceReferenceClass
+    audio_retention_days: StrictInt|None=None
+    delete_after_transcripts: StrictBool=False
+
+    @model_validator(mode="after")
+    def audio_retention_is_valid(self):
+        if self.delete_after_transcripts and self.reference_class != SourceReferenceClass.transcription:
+            raise ValueError("Автоудаление после документов применяется только к исходнику транскрибации")
+        if self.audio_retention_days is not None and (
+            self.reference_class != SourceReferenceClass.audio_processing
+            or self.audio_retention_days not in (3, 7, 30)
+        ):
+            raise ValueError("Срок хранения исходников аудио: 3, 7 или 30 дней")
+        return self
 
 
 class StorageReconciliationApplyIn(BaseModel):
@@ -607,6 +631,7 @@ class JobRetryIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm_remaining_provider_cost: StrictBool=False
     confirm_long_duration_cost: StrictBool=False
+    long_duration_confirmation_token: str | None = Field(default=None, min_length=64, max_length=64, pattern="^[a-f0-9]{64}$")
 
 class RealtimeCapabilityIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -625,6 +650,7 @@ class RealtimeDraftIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: StrictInt=Field(ge=1, le=2147483647)
     committed_segments: list[str]=Field(max_length=5000)
+    segment_metadata: list[dict | None] | None=Field(default=None, max_length=5000)
     partial: str=Field(default="", max_length=20000)
 
 class TranscriptionJobBatchCreateIn(BaseModel):
@@ -1222,6 +1248,14 @@ def project_payload(p: Project):
 def source_payload(s: Source):
     return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "source_created_at": s.source_created_at.isoformat() if s.source_created_at else None, "source_created_at_provenance": s.source_created_at_provenance, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
 
+def _completed_source_retention_seconds(source: Source, user: User) -> int:
+    if source_reference_class(source) == SourceReferenceClass.audio_processing.value:
+        days = source.audio_retention_days or 7
+        if days not in (3, 7, 30):
+            raise HTTPException(409, "Срок хранения исходника аудио не подтверждён")
+        return days * 86400
+    return user.source_retention_ttl_seconds
+
 def output_folder_favorite_payload(row: OutputFolderFavorite):
     return {"id": row.id, "drive_folder_id": row.drive_folder_id, "name": row.name, "web_view_url": row.web_view_url, "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat()}
 
@@ -1635,12 +1669,12 @@ def create_google_picker_session(request: Request, response: Response, pair=Depe
         )
     return {"access_token": access_token, "api_key": settings.google_picker_api_key.strip(), "app_id": settings.google_picker_app_id.strip(), "scope_ready": True}
 
-def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str):
+def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str, *, access_token: str | None = None):
     from .google_drive import GoogleDriveMetadataError, fetch_drive_file_metadata
     clean_id=clean_drive_id(drive_id, "ID Google Drive")
     if not clean_id: raise HTTPException(422, "Некорректный ID Google Drive")
     try:
-        access_token=refreshed_google_drive_access_token(db, user)
+        access_token=access_token or refreshed_google_drive_access_token(db, user)
         meta=fetch_drive_file_metadata(access_token, clean_id)
         if not isinstance(meta.id, str) or meta.id.strip() != clean_id:
             raise HTTPException(502, "Google Drive metadata is unavailable")
@@ -1652,8 +1686,9 @@ def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str)
     except Exception:
         raise HTTPException(502, "Google Drive metadata is unavailable")
 
-def _validated_google_drive_source_metadata(db: Session, user: User, drive_id: str):
-    meta=_validated_drive_metadata_for_picker(db, user, drive_id)
+def _validated_google_drive_source_metadata(db: Session, user: User, drive_id: str, *, access_token: str | None = None):
+    meta=(_validated_drive_metadata_for_picker(db, user, drive_id) if access_token is None
+          else _validated_drive_metadata_for_picker(db, user, drive_id, access_token=access_token))
     if meta.is_folder:
         raise HTTPException(422, "Папки Google Drive нельзя добавить как source")
     mime=normalize_source_mime_type(meta.mime_type or "")
@@ -2265,12 +2300,13 @@ def _realtime_draft_payload(draft, *, include_text: bool) -> dict:
         "client_session_id": draft.client_session_id,
         "revision": draft.revision,
         "updated_at": draft.updated_at.isoformat(),
-        "expires_at": draft.expires_at.isoformat(),
+        "expires_at": None,
     }
     if include_text:
         payload.update(
             {
                 "committed_segments": list(draft.committed_segments),
+                **({"segment_metadata": list(draft.segment_metadata)} if draft.segment_metadata is not None else {}),
                 "partial": draft.partial,
             }
         )
@@ -2303,6 +2339,7 @@ def put_project_realtime_draft(
             client_session_id=client_session_id,
             revision=data.revision,
             committed_segments=data.committed_segments,
+            segment_metadata=data.segment_metadata,
             partial=data.partial,
             settings=settings,
             now=utcnow(),
@@ -2763,6 +2800,9 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response
     # provider has actually created the multipart session, then persist the
     # complete multipart authority atomically with the response.
     now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, reference_class=reference_class, upload_protocol=SourceUploadProtocol.single_put.value, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
+    if reference_class == SourceReferenceClass.audio_processing.value:
+        src.audio_retention_days = data.audio_retention_days or 7
+    src.delete_after_transcripts = data.delete_after_transcripts
     db.add(src); db.flush(); src.s3_bucket=bucket; src.s3_object_key=f"{reference_class}/users/{user.id}/projects/{p.id}/sources/{src.id}/source"
     storage=get_reference_storage(settings, reference_class)
     upload_id=None
@@ -2930,7 +2970,7 @@ def complete_local_multipart_upload(source_id: str, response: Response, pair=Dep
     ):
         raise HTTPException(404,"Не найдено")
     source.upload_status=SourceUploadStatus.uploaded; source.uploaded_at=now; source.multipart_completed_at=now
-    source.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds); source.updated_at=now
+    source.expires_at=now+timedelta(seconds=_completed_source_retention_seconds(source,user)); source.updated_at=now
     audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id,upload_protocol=SourceUploadProtocol.multipart.value)
     db.commit(); return source_payload(source)
 
@@ -3020,7 +3060,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         raise HTTPException(404,"Не найдено")
     src.upload_status=SourceUploadStatus.uploaded
     src.uploaded_at=now
-    src.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds)
+    src.expires_at=now+timedelta(seconds=_completed_source_retention_seconds(src,user))
     src.updated_at=now
     audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()
@@ -3296,15 +3336,133 @@ def recover_audio_output(job_id: str, pair=Depends(require_csrf), db: Session=De
     return audio_preparation_payload(job)
 
 
+@app.post("/api/audio-preparations/{job_id}/reuse-source")
+def reuse_prepared_audio(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:reuse:" + user.id, 30, 3600)
+    try:
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+    owned_project_or_404(db, user, job.project_id)
+    if job.status is not AudioPreparationStatus.completed or not job.output_drive_file_id:
+        raise HTTPException(409, detail={"reason": "drive_copy_required"})
+    drive_id = job.output_drive_file_id
+    project_id = job.project_id
+    access_token = refreshed_google_drive_access_token(db, user)
+    db.commit()  # Persist token refresh and release the transaction before Drive I/O.
+    meta, mime = _validated_google_drive_source_metadata(db, user, drive_id, access_token=access_token)
+    job = db.execute(select(AudioPreparationJob).where(AudioPreparationJob.id == job_id,
+        AudioPreparationJob.owner_user_id == user.id).with_for_update()).scalar_one_or_none()
+    if job is None or job.status is not AudioPreparationStatus.completed or job.output_drive_file_id != drive_id:
+        raise HTTPException(409, detail={"reason": "output_unavailable"})
+    owned_project_or_404(db, user, project_id)
+    source = db.execute(select(Source).where(Source.project_id == project_id,
+        Source.source_type == SourceType.google_drive, Source.drive_file_id == drive_id,
+        Source.deleted_at.is_(None)).order_by(Source.created_at, Source.id).limit(1)).scalar_one_or_none()
+    if source is None:
+        source = _new_google_drive_source(project_id, meta, mime, utcnow())
+        db.add(source)
+        db.flush()
+        audit(db, "audio_preparation.reused", actor_user_id=user.id, subject_user_id=user.id,
+              project_id=project_id, source_id=source.id, job_id=job.id)
+    db.commit()
+    return source_payload(source)
+
+
+@app.post("/api/audio-preparations/{job_id}/preview-audio")
+def prepare_audio_sample(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:download:" + user.id, 30, 3600)
+    try:
+        return audio_downloads.prepare(db, owner=user.id, job_id=job_id, preview=True)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    except AudioDownloadError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+
+
+@app.post("/api/audio-preparations/{job_id}/download")
+def prepare_audio_download(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    limiter.check("audio-preparation:download:" + user.id, 30, 3600)
+    try:
+        job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
+        if job.output_source_id:
+            return {"state": "ready", "percent": 100, "reason": None}
+        return audio_downloads.prepare(db, owner=user.id, job_id=job_id)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    except AudioDownloadError as exc:
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+
+
+@app.get("/api/audio-preparations/{job_id}/download/status")
+def audio_download_status(job_id: str, pair=Depends(current_session)):
+    _, user = pair
+    try:
+        return audio_downloads.status(owner=user.id, job_id=job_id)
+    except AudioDownloadError as exc:
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+
+
+@app.post("/api/audio-preparations/{job_id}/download/cancel")
+def cancel_audio_download(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _, user = pair
+    try:
+        return audio_downloads.cancel(db, owner=user.id, job_id=job_id)
+    except AudioPreparationServiceError as exc:
+        db.rollback()
+        _raise_audio_preparation_error(exc)
+    except AudioDownloadError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+
+
+@app.get("/api/audio-preparations/{job_id}/listen")
+def listen_audio_result(job_id: str, request: Request, pair=Depends(current_session), db: Session=Depends(get_db)):
+    if request.headers.get("sec-fetch-site", "none") not in {"same-origin", "none"}:
+        raise HTTPException(403, detail={"reason": "same_origin_required"})
+    _, user = pair
+    owner_id = user.id
+    db.rollback()
+    try:
+        result = audio_downloads.listen(owner=owner_id, job_id=job_id)
+    except AudioDownloadError as exc:
+        raise HTTPException(409, detail={"reason": exc.reason}) from None
+    except AudioPreparationServiceError as exc:
+        _raise_audio_preparation_error(exc)
+    # Native media controls use byte ranges; reads never extend the fixed TTL.
+    return FileResponse(result.path, media_type=result.mime_type, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/audio-preparations/{job_id}/download")
-def download_audio_preparation(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+def download_audio_preparation(job_id: str, request: Request, pair=Depends(current_session), db: Session=Depends(get_db)):
+    if request.headers.get("sec-fetch-site", "none") not in {"same-origin", "none"}:
+        raise HTTPException(403, detail={"reason": "same_origin_required"})
     _, user = pair
     try:
         job = load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
     except AudioPreparationServiceError as exc:
         _raise_audio_preparation_error(exc)
-    if job.status is not AudioPreparationStatus.completed or not job.output_source_id:
+    if job.status is not AudioPreparationStatus.completed:
         raise HTTPException(409, detail={"reason": "output_unavailable"})
+    if not job.output_source_id:
+        owned_project_or_404(db, user, job.project_id)
+        owner_id = user.id
+        db.rollback()  # Do not pin the dependency's read transaction during a stream.
+        try:
+            return stream_audio_download(audio_downloads, owner=owner_id, job_id=job_id)
+        except AudioDownloadError as exc:
+            raise HTTPException(409, detail={"reason": exc.reason}) from None
+        except AudioPreparationServiceError as exc:
+            _raise_audio_preparation_error(exc)
     source = owned_source_or_404(db, user, job.output_source_id)
     if source.source_type is not SourceType.local_upload or not source.s3_object_key or is_source_expired(source, utcnow()):
         raise HTTPException(404, "Не найдено")
@@ -3596,16 +3754,25 @@ def post_job_retry(job_id: str, request: Request, data: JobRetryIn | None = None
             },
         )
     if job.error_code == "media_duration_confirmation_required":
-        if not (data and data.confirm_long_duration_cost):
+        from .long_media_preflight import long_media_preflight_payload
+        duration_preflight = long_media_preflight_payload(job)
+        if duration_preflight is None:
+            # Old failures have no measured quote. The duration guard still
+            # requires explicit confirmation for a long source before STT.
+            job.long_duration_cost_confirmed=False
+        elif not (data and data.confirm_long_duration_cost and
+                  data.long_duration_confirmation_token == duration_preflight["confirmation_token"]):
             raise HTTPException(
                 409,
                 detail={
                     "reason": "long_duration_confirmation_required",
                     "warning_seconds": settings.media_duration_warning_seconds,
                     "max_seconds": settings.media_max_duration_seconds,
+                    "preflight": duration_preflight,
                 },
             )
-        job.long_duration_cost_confirmed=True
+        else:
+            job.long_duration_cost_confirmed=True
         db.flush()
     if requires_provider_cost_confirmation(initial_readiness) and not (data and data.confirm_remaining_provider_cost):
         raise HTTPException(409, "Требуется подтверждение стоимости оставшихся частей")

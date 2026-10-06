@@ -6,6 +6,9 @@ import {
   realtimeAudioMessage,
   type RealtimeCapability,
 } from "./realtimeProtocol";
+import type { RealtimeSegmentMetadata } from "./realtimeTranscript";
+import { RealtimeSegmentStream } from "./realtimeSegmentStream";
+import { newRealtimeClientSessionId } from "./realtimeDrafts";
 
 export type RealtimeSourceOptions = {
   displayAudio: boolean;
@@ -19,6 +22,7 @@ export type RealtimeSessionStatus =
   | "ready"
   | "requesting_permission"
   | "connecting"
+  | "reconnecting"
   | "connected"
   | "transcribing"
   | "stopping"
@@ -28,7 +32,7 @@ export type RealtimeSessionStatus =
 type RealtimeSessionCallbacks = {
   onStatus: (status: RealtimeSessionStatus) => void;
   onPartial: (text: string) => void;
-  onCommitted: (text: string) => void;
+  onCommitted: (text: string, metadata?: RealtimeSegmentMetadata) => void;
   onError: (message: string) => void;
   onInputLevel?: (level: number) => void;
   onSourceLevel?: (kind: RealtimeSourceKind, level: number) => void;
@@ -64,6 +68,19 @@ type Attempt = {
   closeTimer: number | null;
   durationTimer: number | null;
   provider: "elevenlabs" | "yandex";
+  stream: MediaStream | null;
+  namespace: string;
+  transport: number;
+  reconnectTimer: number | null;
+  reconnectAttempts: number;
+  sessionReady: boolean;
+  audioSeconds: number;
+  replay: { audio: string; bytes: number; start: number; end: number }[];
+  replayBytes: number;
+  confirmedSeconds: number;
+  lastSentSeconds: number;
+  gapStart: number | null;
+  gapSequence: number;
 };
 
 type RealtimeSessionDependencies = {
@@ -105,6 +122,8 @@ const FINAL_COMMIT_GRACE_MS = 2_000;
 const YANDEX_SESSION_SAFE_DURATION_MS = 295_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 512 * 1024;
+const MAX_REPLAY_BYTES = 16_000 * 2 * 10;
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000];
 const MIXED_DISPLAY_GAIN = 0.35;
 const MIXED_DISPLAY_DUCKED_GAIN = 0.08;
 const MIXED_MICROPHONE_GAIN = 1;
@@ -243,6 +262,19 @@ export class RealtimeSessionController {
       closeTimer: null,
       durationTimer: null,
       provider: "elevenlabs",
+      stream: null,
+      namespace: newRealtimeClientSessionId(),
+      transport: 0,
+      reconnectTimer: null,
+      reconnectAttempts: 0,
+      sessionReady: false,
+      audioSeconds: 0,
+      replay: [],
+      replayBytes: 0,
+      confirmedSeconds: 0,
+      lastSentSeconds: 0,
+      gapStart: null,
+      gapSequence: 0,
     };
     this.current = attempt;
     this.callbacks.onError("");
@@ -250,6 +282,7 @@ export class RealtimeSessionController {
     this.callbacks.onStatus("requesting_permission");
     try {
       const stream = await this.capture(attempt, options);
+      attempt.stream = stream;
       this.assertActive(attempt);
       if (!attempt.audioContext) {
         attempt.audioContext = this.deps.createAudioContext();
@@ -303,6 +336,7 @@ export class RealtimeSessionController {
     if (attempt.userStopRequested) return;
     attempt.cancelled = true;
     attempt.userStopRequested = true;
+    this.clearReconnectTimer(attempt);
     this.clearCapabilityRequest(attempt);
     this.callbacks.onStatus("stopping");
     this.releaseMedia(attempt);
@@ -449,6 +483,7 @@ export class RealtimeSessionController {
     this.assertActive(attempt);
     const context = attempt.audioContext;
     if (!context) throw new Error("AudioContext не подготовлен.");
+    if (!attempt.processor) {
     const source = context.createMediaStreamSource(stream);
     const processor = context.createScriptProcessor(
       AUDIO_PROCESSOR_BUFFER_SIZE,
@@ -465,30 +500,31 @@ export class RealtimeSessionController {
     processor.onaudioprocess = (event) => {
       if (!this.owns(attempt) || attempt.cancelled) return;
       this.updateSourceLevels(attempt, context);
-      const websocket = attempt.websocket;
-      if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
       const mono = event.inputBuffer.getChannelData(0);
       this.callbacks.onInputLevel?.(normalizedInputLevel(mono));
-      if (websocket.bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES) {
-        this.callbacks.onError(
-          "Соединение не успевает отправлять аудио. Сессия остановлена, чтобы не накапливать задержку; проверьте сеть и начните заново.",
-        );
-        this.closeSocket(attempt, "Переполнение очереди аудио");
-        this.finish(attempt, "closed");
-        return;
-      }
       const downsampled = downsampleMono(mono, context.sampleRate);
-      try {
-        websocket.send(realtimeAudioMessage(floatToPcm16Base64(downsampled)));
-      } catch {
-        this.callbacks.onError(
-          "Realtime-соединение прервалось при отправке аудио. Проверьте сеть и начните новую сессию.",
-        );
-        this.closeSocket(attempt, "Ошибка отправки аудио");
-        this.finish(attempt, "closed");
+      const frame = { audio: floatToPcm16Base64(downsampled), bytes: downsampled.length * 2, start: attempt.audioSeconds, end: attempt.audioSeconds + downsampled.length / 16000 };
+      attempt.audioSeconds = frame.end;
+      attempt.replay.push(frame);
+      attempt.replayBytes += frame.bytes;
+      while (attempt.replayBytes > MAX_REPLAY_BYTES && attempt.replay.length) {
+        const dropped = attempt.replay.shift()!;
+        attempt.replayBytes -= dropped.bytes;
+        attempt.gapStart ??= dropped.start;
+        this.emitGap(attempt, attempt.gapStart, dropped.end, "Аудио не передано: обрыв превысил доступный буфер", `buffer.${attempt.transport}`);
       }
+      this.flushReplay(attempt);
     };
+    }
 
+    const transport = ++attempt.transport;
+    const offset = attempt.replay[0]?.start ?? attempt.audioSeconds;
+    // Each provider clock starts at zero. Previous transport loss is already
+    // reported; a failed new handshake must not report that same interval again.
+    attempt.confirmedSeconds = offset;
+    attempt.lastSentSeconds = offset;
+    const segments = new RealtimeSegmentStream(`${attempt.namespace}.${transport}`, offset, attempt.namespace);
+    attempt.sessionReady = false;
     let websocket: WebSocket;
     try {
       websocket = this.deps.createWebSocket(capability.websocket_url);
@@ -499,37 +535,30 @@ export class RealtimeSessionController {
       );
     }
     attempt.websocket = websocket;
+    const ownsTransport = () => this.owns(attempt) && !attempt.cleanupDone && attempt.websocket === websocket && attempt.transport === transport;
     attempt.connectionTimer = this.deps.setTimer(() => {
       attempt.connectionTimer = null;
       if (
-        !this.owns(attempt) ||
+        !ownsTransport() ||
         attempt.cleanupDone ||
         websocket.readyState !== WebSocket.CONNECTING
       ) {
         return;
       }
-      this.callbacks.onError(
-        `${attempt.provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs"} не установил realtime-соединение за 10 секунд. Начните новую сессию.`,
-      );
-      this.closeSocket(attempt, "Тайм-аут подключения");
-      this.finish(attempt, "closed");
+      this.reconnect(attempt);
     }, CONNECTION_TIMEOUT_MS);
     websocket.onopen = () => {
-      if (!this.owns(attempt) || attempt.cancelled) return;
+      if (!ownsTransport() || attempt.cancelled) return;
       this.clearConnectionTimer(attempt);
       this.callbacks.onStatus("connected");
       attempt.sessionTimer = this.deps.setTimer(() => {
         attempt.sessionTimer = null;
-        if (!this.owns(attempt) || attempt.cleanupDone) return;
-        this.callbacks.onError(
-          `${attempt.provider === "yandex" ? "Yandex SpeechKit" : "ElevenLabs"} открыл соединение, но не подтвердил realtime-сессию за 10 секунд. Начните новую сессию.`,
-        );
-        this.closeSocket(attempt, "Тайм-аут запуска сессии");
-        this.finish(attempt, "closed");
+        if (!ownsTransport()) return;
+        this.reconnect(attempt);
       }, SESSION_START_TIMEOUT_MS);
     };
     websocket.onmessage = (message) => {
-      if (!this.owns(attempt) || attempt.cleanupDone) return;
+      if (!ownsTransport()) return;
       let parsed: unknown;
       try {
         parsed = JSON.parse(String(message.data));
@@ -541,6 +570,11 @@ export class RealtimeSessionController {
         this.clearSessionTimer(attempt);
         this.startProviderDurationTimer(attempt);
         this.callbacks.onStatus("transcribing");
+        attempt.sessionReady = true;
+        attempt.reconnectAttempts = 0;
+        attempt.gapStart = null;
+        this.callbacks.onError("");
+        this.flushReplay(attempt);
       } else if (event.kind === "partial") {
         this.clearSessionTimer(attempt);
         this.callbacks.onStatus("transcribing");
@@ -548,8 +582,12 @@ export class RealtimeSessionController {
       } else if (event.kind === "committed") {
         this.clearSessionTimer(attempt);
         this.callbacks.onStatus("transcribing");
-        this.callbacks.onPartial("");
-        this.callbacks.onCommitted(event.text);
+        const commit = segments.committed(event);
+        if (commit) {
+          if (!commit.replaces && !event.timestampUpdate) this.callbacks.onPartial("");
+          if (commit.metadata.end_seconds !== undefined) attempt.confirmedSeconds = Math.max(attempt.confirmedSeconds, commit.metadata.end_seconds);
+          this.callbacks.onCommitted(commit.text, commit.metadata);
+        }
       } else if (event.kind === "error") {
         if (attempt.userStopRequested) return;
         this.callbacks.onError(
@@ -560,23 +598,84 @@ export class RealtimeSessionController {
       }
     };
     websocket.onerror = () => {
-      if (!this.owns(attempt) || attempt.userStopRequested) return;
-      this.callbacks.onError(
-        "Соединение realtime прервалось. Новая попытка получит новый одноразовый доступ.",
-      );
-      this.closeSocket(attempt, "Ошибка соединения");
-      this.finish(attempt, "closed");
+      if (!ownsTransport() || attempt.userStopRequested) return;
+      this.reconnect(attempt);
     };
     websocket.onclose = () => {
-      if (!this.owns(attempt)) return;
-      const status = attempt.userStopRequested ? "stopped" : "closed";
-      if (!attempt.userStopRequested) {
-        this.callbacks.onError(
-          "Realtime-соединение закрыто. Автоподключение отключено: нажмите «Начать» для новой безопасной сессии.",
-        );
-      }
-      this.finish(attempt, status);
+      if (!ownsTransport()) return;
+      if (attempt.userStopRequested) this.finish(attempt, "stopped");
+      else this.reconnect(attempt);
     };
+  }
+
+  private emitGap(attempt: Attempt, start: number, end: number, reason: string, identity?: string) {
+    if (end <= start) return;
+    this.callbacks.onCommitted(`[Разрыв аудио ${start.toFixed(1)}–${end.toFixed(1)} сек: ${reason}]`, {
+      id: `${attempt.namespace}.gap.${identity ?? attempt.gapSequence++}`, session_id: attempt.namespace, start_seconds: start, end_seconds: end, gap: true,
+    });
+  }
+
+  private flushReplay(attempt: Attempt) {
+    const socket = attempt.websocket;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !attempt.sessionReady || attempt.cancelled) return;
+    while (attempt.replay.length) {
+      if (socket.bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES) { this.reconnect(attempt); return; }
+      const frame = attempt.replay[0];
+      try { socket.send(realtimeAudioMessage(frame.audio)); }
+      catch { this.reconnect(attempt); return; }
+      attempt.replay.shift();
+      attempt.replayBytes -= frame.bytes;
+      attempt.lastSentSeconds = frame.end;
+    }
+  }
+
+  private reconnect(attempt: Attempt, planned = false) {
+    if (!this.owns(attempt) || attempt.cancelled || attempt.cleanupDone || attempt.reconnectTimer !== null) return;
+    if (attempt.lastSentSeconds > attempt.confirmedSeconds) {
+      this.emitGap(attempt, attempt.confirmedSeconds, attempt.lastSentSeconds, "Переданное аудио не полностью подтверждено провайдером");
+    }
+    this.closeSocket(attempt, "Переподключение");
+    this.callbacks.onStatus("reconnecting");
+    const delay = planned ? 0 : RECONNECT_DELAYS_MS[attempt.reconnectAttempts++];
+    if (delay === undefined) {
+      if (attempt.replay.length) this.emitGap(attempt, attempt.replay[0].start, attempt.audioSeconds, "Соединение не восстановлено");
+      this.callbacks.onError("Не удалось восстановить Live после трёх попыток. Текст сохранён; проверьте сеть и начните снова.");
+      this.finish(attempt, "closed");
+      return;
+    }
+    attempt.reconnectTimer = this.deps.setTimer(() => {
+      attempt.reconnectTimer = null;
+      void this.reconnectTransport(attempt);
+    }, delay);
+  }
+
+  private async reconnectTransport(attempt: Attempt) {
+    if (!this.owns(attempt) || attempt.cancelled || !attempt.stream) return;
+    const abort = new AbortController();
+    attempt.capabilityAbort = abort;
+    attempt.capabilityTimer = this.deps.setTimer(() => abort.abort(), CAPABILITY_TIMEOUT_MS);
+    try {
+      const value = await this.deps.requestCapability(abort.signal);
+      this.assertActive(attempt);
+      const capability = parseRealtimeCapability(value);
+      if ((capability.provider ?? "elevenlabs") !== attempt.provider) throw new Error("Провайдер Live изменился во время восстановления.");
+      this.clearCapabilityRequest(attempt, false);
+      this.connect(attempt, capability, attempt.stream);
+    } catch (error) {
+      this.clearCapabilityRequest(attempt);
+      if (!this.owns(attempt) || attempt.cancelled) return;
+      const cause = error instanceof Error ? error.cause : null;
+      const status = cause && typeof cause === "object" && "status" in cause ? cause.status : null;
+      if ([401, 403, 422, 429].includes(status as number)) {
+        this.callbacks.onError(error instanceof Error ? error.message : "Live-доступ отклонён. Проверьте настройки.");
+        this.finish(attempt, "closed");
+      } else this.reconnect(attempt);
+    }
+  }
+
+  private clearReconnectTimer(attempt: Attempt) {
+    if (attempt.reconnectTimer !== null) this.deps.clearTimer(attempt.reconnectTimer);
+    attempt.reconnectTimer = null;
   }
 
   private updateSourceLevels(attempt: Attempt, context: AudioContext) {
@@ -688,9 +787,16 @@ export class RealtimeSessionController {
       attempt.durationTimer = null;
       if (!this.owns(attempt) || attempt.cleanupDone) return;
       this.callbacks.onError(
-        "Yandex SpeechKit ограничивает realtime-сессию пятью минутами. Studio безопасно завершает текущую сессию; сохраните текст и начните следующую.",
+        "Yandex SpeechKit ограничивает соединение пятью минутами. Продолжаем ту же Live-сессию через новый доступ.",
       );
-      this.stop();
+      const socket = attempt.websocket;
+      // Keep capturing into the bounded replay buffer while the old transport
+      // commits its tail. Sending new frames after commit loses that tail on rotation.
+      attempt.sessionReady = false;
+      if (socket?.readyState === WebSocket.OPEN) {
+        try { socket.send(realtimeAudioMessage("", true)); } catch { /* reconnect below */ }
+      }
+      attempt.closeTimer = this.deps.setTimer(() => { attempt.closeTimer = null; this.reconnect(attempt, true); }, FINAL_COMMIT_GRACE_MS);
     }, YANDEX_SESSION_SAFE_DURATION_MS);
   }
 
@@ -713,6 +819,9 @@ export class RealtimeSessionController {
   ) {
     if (attempt.cleanupDone) return;
     attempt.cleanupDone = true;
+    this.clearReconnectTimer(attempt);
+    attempt.replay = [];
+    attempt.replayBytes = 0;
     this.clearCapabilityRequest(attempt);
     this.releaseMedia(attempt);
     this.closeSocket(attempt);

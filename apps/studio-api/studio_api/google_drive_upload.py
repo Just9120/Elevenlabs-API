@@ -46,6 +46,7 @@ def upload_file_resumable(
     client_factory=httpx.Client,
     check_cancelled=None,
     progress_callback=None,
+    app_property_key="studioAudioPreparationJobId",
 ) -> GoogleDriveUploadResult:
     size = path.stat().st_size
     if size <= 0:
@@ -53,7 +54,7 @@ def upload_file_resumable(
     metadata = {
         "name": filename,
         "parents": [folder_id],
-        "appProperties": {"studioAudioPreparationJobId": idempotency_key},
+        "appProperties": {app_property_key: idempotency_key},
     }
     params = urlencode(
         {
@@ -78,6 +79,7 @@ def upload_file_resumable(
                 folder_id=folder_id,
                 idempotency_key=idempotency_key,
                 expected_size=size,
+                app_property_key=app_property_key,
             )
             if existing is not None:
                 return existing
@@ -146,12 +148,12 @@ def upload_file_resumable(
         raise GoogleDriveUploadError(GoogleDriveUploadReason.unavailable) from exc
 
 
-def _find_existing_upload(client, *, access_token: str, folder_id: str, idempotency_key: str, expected_size: int) -> GoogleDriveUploadResult | None:
-    if not _safe_drive_identifier(folder_id) or not _safe_drive_identifier(idempotency_key):
+def _find_existing_upload(client, *, access_token: str, folder_id: str, idempotency_key: str, expected_size: int, app_property_key="studioAudioPreparationJobId") -> GoogleDriveUploadResult | None:
+    if not _safe_drive_identifier(folder_id) or not _safe_drive_identifier(idempotency_key) or app_property_key not in {"studioAudioPreparationJobId", "studioManifestSnapshot"}:
         raise GoogleDriveUploadError(GoogleDriveUploadReason.malformed_response)
     query = (
         f"'{folder_id}' in parents and trashed = false and "
-        f"appProperties has {{ key='studioAudioPreparationJobId' and value='{idempotency_key}' }}"
+        f"appProperties has {{ key='{app_property_key}' and value='{idempotency_key}' }}"
     )
     response = client.get(
         DRIVE_FILES_URL,

@@ -7,4 +7,4 @@ pytest
 -r apps/studio-api/requirements.txt
 httpx==0.28.1
 # Starlette TestClient compatibility; the Studio runtime client remains httpx.
-httpx2==2.7.0
+httpx2==2.13.1

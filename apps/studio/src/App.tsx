@@ -158,6 +158,7 @@ import {
   type OutputReconciliationResponse,
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
+import { longMediaEstimate } from "./longMediaPreflight";
 import {
   cancellationIsConfirmed,
   dismissalIsConfirmed,
@@ -2926,6 +2927,7 @@ function PreparationPanel({
               mime_type: mimeType,
               size_bytes: sizeBytes,
               reference_class: "transcription",
+              delete_after_transcripts: true,
             }),
             signal,
           },
@@ -4013,14 +4015,15 @@ function PreparationPanel({
   async function retryJob(jobId: string) {
     const selectedJob=jobs.items.find((item) => item.id === jobId) ?? null;
     const longDurationMode=selectedJob?.error_code === "media_duration_confirmation_required";
+    const longDurationQuote = retries[jobId]?.data?.long_duration_preflight ?? null;
     const durationWarningSeconds=
       sourceUploadPolicy?.media_duration_warning_seconds ?? 14400;
     const durationMaxSeconds=
       sourceUploadPolicy?.media_max_duration_seconds ?? 43200;
     if (
-      longDurationMode &&
+      longDurationMode && longDurationQuote &&
       !safeConfirm(
-        `Запись длится больше ${formatDurationLimit(durationWarningSeconds)}. Обработка может заметно увеличить расход ElevenLabs. Продолжить? Максимально допустимая длительность — ${formatDurationLimit(durationMaxSeconds)}.`,
+        `${longMediaEstimate(longDurationQuote)} Запись длится больше ${formatDurationLimit(durationWarningSeconds)}. Продолжить? Максимально допустимая длительность — ${formatDurationLimit(durationMaxSeconds)}.`,
       )
     ) return;
     if (!beginJobMutation("retry", jobId)) return;
@@ -4057,7 +4060,8 @@ function PreparationPanel({
               partialMode || longDurationMode
                 ? JSON.stringify({
                     confirm_remaining_provider_cost: partialMode,
-                    confirm_long_duration_cost: longDurationMode,
+                    confirm_long_duration_cost: longDurationMode && longDurationQuote !== null,
+                    ...(longDurationMode && longDurationQuote ? { long_duration_confirmation_token: longDurationQuote.confirmation_token } : {}),
                   })
                 : undefined,
           },
@@ -4920,6 +4924,9 @@ function PreparationPanel({
           <p className="muted">
             Можно загрузить аудио или видео размером до{" "}
             {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.
+            {" "}Загруженная копия для разовой транскрибации удалится после
+            создания всех полных документов. Ошибки и незавершённые задачи
+            сохраняют копию до срока хранения; оригинал на устройстве не меняется.
           </p>
         ) : sourceUploadPolicy ? (
           <p className="notice">Локальная загрузка временно недоступна.</p>
@@ -6869,7 +6876,7 @@ function ProjectsPage({
                     )
                   }
                 >
-                  Подготовка документов
+                  Обслуживание
                 </button>
               </div>
               <div
@@ -7311,6 +7318,7 @@ function auditLabel(type: string) {
     "transcript_maintenance.failed":
       "Операция обслуживания остановлена",
     "transcript_catalog.cleared": "Манифест Studio очищен",
+    "transcript_catalog.exported": "Манифест Studio сохранён",
     "history.cleared": "История транскрибаций очищена",
     "analytics.cleared": "Аналитика транскрибаций очищена",
   };

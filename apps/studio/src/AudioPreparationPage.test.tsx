@@ -127,7 +127,7 @@ describe("AudioPreparationPage", () => {
     expect(screen.queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
   });
 
-  it("loads the owner workspace, explains ephemeral retention and enables preview after selection", async () => {
+  it("loads the owner workspace, displays the actual source deadline and enables preview after selection", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
@@ -148,7 +148,8 @@ describe("AudioPreparationPage", () => {
       screen.getByText("Выбрать из сохранённых файлов Studio"),
     );
     const source = await screen.findByRole("checkbox", { name: /meeting\.wav/i });
-    expect(screen.getByText(/максимум через 24 часа/i)).toBeInTheDocument();
+    expect(screen.getByText(/хранится до.*2027/i)).toBeInTheDocument();
+    expect(screen.queryByText(/максимум через 24 часа/i)).not.toBeInTheDocument();
     const preview = screen.getByRole("button", { name: "Проверить файлы и рассчитать" });
     expect(screen.getByRole("textbox", { name: /Название результата/ })).toHaveValue("");
     expect(screen.getByPlaceholderText("Имя исходного файла")).toBeInTheDocument();
@@ -180,6 +181,31 @@ describe("AudioPreparationPage", () => {
     await user.selectOptions(screen.getByLabelText("Формат результата"), "copy");
     expect(screen.getByLabelText("Звуковые каналы")).toHaveValue("preserve");
     expect(screen.getByRole("checkbox", { name: "Уменьшить длинные паузы в аудио или видео" })).not.toBeChecked();
+  });
+
+  it("submits a friendly naming choice using known creation metadata without exposing template syntax", async () => {
+    const calls: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [source("lecture", "Лекция 1. Предмет.flac", "2026-10-06T12:34:56Z")] });
+      if (url.endsWith("/audio-preparations") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        calls.push(body);
+        return json(previewJob("queued", body.title, body.source_ids));
+      }
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      throw new Error(url);
+    }));
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await userEvent.click(screen.getByText("Выбрать из сохранённых файлов Studio"));
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Лекция 1\. Предмет/ }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Как назвать файл" }), "dateTime");
+    expect(screen.getByText(/Пример имени: 2026-10-06_12-34-56Z_Лекция 1\. Предмет/)).toBeVisible();
+    expect(screen.queryByText("{date}_{time}_{title}")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Проверить файлы и рассчитать" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].options).toMatchObject({ output_name_template: "{date}_{time}_{title}" });
   });
 
   it("renders consistent terminal actions and hands the exact output source to transcriptions", async () => {
@@ -352,6 +378,31 @@ describe("AudioPreparationPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("sends separately selected audio retention and retains it after an upload admission error", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init;
+      const url = String(input);
+      if (url.endsWith("/api/transcriptions/workspace")) return json({ project: { id: "project-id", title: "Транскрибации" }, created: false });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [] });
+      if (url.endsWith("/local-upload/initiate")) return new Response(JSON.stringify({ detail: "Хранилище временно недоступно" }), { status: 503, headers: { "content-type": "application/json" } });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Подготовка аудио" });
+    await userEvent.click(screen.getByRole("tab", { name: "Загрузить в Studio" }));
+    const retention = screen.getByRole("combobox", { name: "Хранить исходники аудио" });
+    expect(retention).toHaveValue("7");
+    expect(within(retention).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["3", "7", "30"]);
+    await userEvent.selectOptions(retention, "30");
+    await userEvent.upload(screen.getByLabelText("Выбрать файлы для загрузки в Studio"), new File(["synthetic"], "safe.wav", { type: "audio/wav" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Не удалось загрузить файлы: safe.wav:/);
+    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/local-upload/initiate"));
+    expect(JSON.parse((call?.[1] as RequestInit).body as string)).toMatchObject({ reference_class: "audio_processing", audio_retention_days: 30 });
+    expect(retention).toHaveValue("30");
+  });
+
   it("exposes keyboard-accessible source tabs and isolates direct Drive upload from processing controls", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -499,4 +550,35 @@ describe("audio UX regression", () => {
     expect(posts).toEqual([{ folder_id: "original" }]);
     expect(picker).toHaveBeenCalledTimes(1);
   });
+  it("hands a regenerated result through a confirmed Drive copy without an S3 output Source", async () => {
+    const ready = { ...previewJob("ready", "Готовая лекция", []), status: "completed", progress: { percent: 100, stage: "completed" },
+      output: { download_ready: true, export_ready: true, regeneration_required: true, source_id: null, google_drive_url: null } };
+    const queued = { ...ready, progress: { percent: 0, stage: "google_drive_export_queued" }, output_folder: { id: "folder", name: "Материалы" } };
+    const saved = { ...queued, progress: { percent: 100, stage: "completed" }, output: { ...ready.output, google_drive_url: "https://drive.google.com/file/d/prepared/view" } };
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({ action: "picked", docs: [{ id: "folder", name: "Материалы", mimeType: "application/vnd.google-apps.folder" }] });
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workspace")) return json({ project: { id: "project-id", title: "Studio" } });
+      if (url.endsWith("/sources")) return json({ sources: [] });
+      if (url.endsWith("/audio-preparations")) return json({ jobs: [ready] });
+      if (url.endsWith("/picker/session")) return json({ access_token: "synthetic", api_key: "test", app_id: "test", scope_ready: true });
+      if (url.endsWith("/save-to-drive")) { posts.push(url); return json(queued); }
+      if (url.endsWith("/reuse-source")) { posts.push(url); return json(source("drive-input", "Готовая лекция.flac", null)); }
+      if (url.endsWith("/audio-preparations/ready")) return json(saved);
+      throw new Error(`Unexpected call: ${url}`);
+    }));
+    const handoff = vi.fn();
+    window.addEventListener("studio:transcribe-source", handoff);
+    try {
+      render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()} />);
+      await userEvent.click(await screen.findByRole("button", { name: "Использовать для транскрибации" }));
+      expect(screen.getByRole("status")).toHaveTextContent("Сохраняем копию в Google Drive для передачи");
+      await waitFor(() => expect(handoff).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      expect(handoff.mock.calls[0][0].detail).toEqual({ sourceId: "drive-input" });
+      expect(posts).toEqual(["/api/audio-preparations/ready/save-to-drive", "/api/audio-preparations/ready/reuse-source"]);
+      expect(screen.getByRole("button", { name: "Подготовить файл для скачивания" })).toBeEnabled();
+    } finally { window.removeEventListener("studio:transcribe-source", handoff); }
+  });
+
 });

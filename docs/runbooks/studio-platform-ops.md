@@ -320,7 +320,7 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository history now extends through additive `0038_trusted_devices`. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
+The following `0017 -> 0018 -> 0019 -> 0020` sequence is a superseded historical example, not a current migration instruction. Repository head must be read from the current Alembic scripts; literal schema numbers in this historical example are not current-state evidence. For every future release, first read the exact production revision and the exact reviewed repository head, then apply only one direct additive successor per approval and verified backup. Never copy historical literal revisions into a live command:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no` plus local/public liveness. Readiness may be intentionally
@@ -387,6 +387,24 @@ API; the caller must establish every value above from the same reviewed
 candidate. These commands must not print secret values. Do not use the manual
 fallback to bypass the protected lane or to retry a partially applied release.
 
+## Nominal provider tariff configuration
+
+Each job's confirmed duration and immutable public tariff produce a nominal
+cost; this is not an invoice, quota/subscription allocation, currency conversion
+or proof of a debit. Existing job provenance wins over later configuration.
+ElevenLabs keeps its existing required worker rate/date/source settings.
+Yandex asynchronous recognition can use the optional complete triple
+`STUDIO_YANDEX_ASYNC_RATE_PER_HOUR_USD`, `STUDIO_YANDEX_PRICING_EFFECTIVE_DATE`,
+`STUDIO_YANDEX_PRICING_SOURCE=yandex_public_api_pricing`. Configure only a verified
+applicable public USD tariff and its effective date. No default is invented
+and RUB/KZT prices must not be passed as USD. All three empty means explicitly
+unavailable accounting and no new transcription blocker; a partial/invalid
+triple fails configuration validation. A preserved valid Yandex snapshot stays
+usable if the later optional configuration is removed. Normal and long-media
+cost presentations preserve the selected provider's provenance. This narrow
+accounting support does not claim completion of the separate Yandex REST
+response/parsing workstream.
+
 ## Backup and restore rehearsal
 
 Backup/restore rehearsal is manual and isolated:
@@ -396,6 +414,62 @@ Backup/restore rehearsal is manual and isolated:
 - run read-only smoke checks only;
 - destroy only the temporary target after verification;
 - never delete, overwrite, prune, or reset live production data from the rehearsal path.
+
+Personal backup schedule is defined by
+[studio-postgres-backup.timer](../../deploy/studio/systemd/studio-postgres-backup.timer):
+every 10 hours after the previous activation. The
+[backup script](../../scripts/backup_studio_postgres_r2.sh) keeps scheduled
+snapshots within 7 days, 30 daily and 12 monthly snapshots; pre-migration
+snapshots are kept within 90 days. These retention rules are not a fixed expiry
+for every snapshot. Repository configuration alone does not prove that the
+host timer is enabled or that a scheduled backup succeeded. Confirm those
+conditions and the latest snapshot age from host/backup records before recovery.
+The owner selected a 12-hour personal RPO (43200 seconds) and a 4-hour RTO
+(14400 seconds) on 2026-10-06. The existing R2 backup remains in use. The
+10-hour interval is not itself a verified RPO; actual snapshot age and recovery
+measurements must be checked against the selected targets.
+
+The bounded automated rehearsal is
+[rehearse_studio_restore.py](../../scripts/rehearse_studio_restore.py), run from
+the repository root with the normal Python test dependencies and a running
+Docker engine with the existing `postgres:17` CI image cached. It accepts no
+production URL, existing dump, credentials or target. It creates two
+network-isolated, read-only-root, tmpfs-only containers with exact image/name/
+nonce verification; performs a real custom-format PostgreSQL dump and restore
+of current-model synthetic data with encrypted Live drafts; and removes only
+its verified containers. Its report includes snapshot age at the synthetic incident, one measured post-snapshot metadata loss, and elapsed time
+to a quarantined restored state. The Linux suite requires this rehearsal;
+unavailable local Docker remains an explicit local limitation, not PASS. The default comparison uses the owner-approved personal targets12h/4h; an explicit diagnostic override must supply both `--rpo-seconds` and `--rto-seconds`. Invalid or one-sided targets fail before container creation. The loss window is measured at the incident, excluding subsequent restore time; an exceeded RPO or already-over-budget quarantine fails. An in-budget quarantine reports full RTO as PENDING, never PASS, because service reactivation is outside that measurement.
+
+The Linux integration test also checks authenticated application access on the
+restored synthetic target. The Linux host accesses the owned internal bridge
+directly, without published host ports. Exact image/name/nonce/network/subnet ownership is checked
+before access and cleanup. A separately read current inventory authorizes
+removal of the fixture cleared after backup before only the synthetic owner
+and workspace are reactivated. Restored old sessions remain revoked; a fresh
+synthetic session reads and decrypts retained text through the real API.
+Elapsed time includes restore, reconciliation and authenticated access and
+is compared against4h. Production service recovery remains unverified; no
+production restore, provider, Google or notification operation is performed.
+
+The quarantine statements in
+[recovery_quarantine.py](../../apps/studio-api/studio_api/recovery_quarantine.py)
+disable restored users, archive workspaces, revoke sessions/trusted devices/
+Google grants/provider credentials, suppress unsent notifications, and stop
+restored work and download slots with fenced leases. Text is retained encrypted
+for reconciliation. Apply them in one transaction **on the isolated restored
+copy before starting any runtime or allowing access**. The module is not an
+ordinary application endpoint and does not grant permission for production
+restore or reactivation.
+
+A synthetic deletion after backup is deliberately absent from the restored
+snapshot. The rehearsal verifies that the stale content cannot become active.
+Do not reactivate identities, workspaces, tasks or exports until owner-approved
+reconciliation establishes current deletion evidence from a separately trusted
+source. This repository has no independent deletion ledger; if that evidence
+is unavailable, retain quarantine and stop. The measured time is restoration
+**to quarantine**, not proof of full service recovery, production RPO/RTO,
+R2 snapshot validity, Alembic role/grant compatibility or restored source bytes.
 
 ## Reference storage isolation
 
@@ -495,7 +569,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. Repository history now extends through successor `0038_trusted_devices`, but actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
+- Transcript maintenance OAuth was introduced by `0017_google_maintenance_oauth`; durable execution requires additive `0028_transcript_maintenance_runs`. The repository head must be read from current Alembic scripts; actual production revision must be read and checked against the exact deployed API before the canary. Apply only the direct reviewed successor with its own tagged pre-migration backup and protected release before dependent API/worker deployment.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -1214,6 +1288,37 @@ failure rather than a successful truncated export. Increase budgets only togethe
 with reviewed worker capacity. These operational ceilings are resource guards,
 not commercial billing quotas.
 
+Повторное скачивание готового аудио не использует S3 archive. API ставит задачу
+отдельному worker, который собирает файл из доступных исходников и сохранённых
+параметров. Общий `studio-audio-delivery` volume — volatile tmpfs2GiB,
+uid/gid10001, mode0700, nosuid/nodev/noexec; он смонтирован в API и worker по
+`STUDIO_AUDIO_DELIVERY_DIRECTORY=/run/studio-audio-delivery`. Это отдельный
+лимит сверх worker scratch3GiB: перед rollout проверь доступный RAM/cgroup budget
+обоих контейнеров и mount options, не увеличивай его автоматически. Один unique
+DB slot ограничивает сервис одной задачей/готовым файлом. Work deadline3h,
+ready/transfer deadline15min. API janitor каждые30s выбирает до10 истёкших rows
+по индексу и очищает только UUID/marker-проверенные каталоги; disconnect и
+завершение stream также освобождают slot. Нельзя очищать volume вслепую при
+активной операции или заменять его persistent S3 хранения результата.
+
+Preview sample также занимает этот slot: отдельный worker обрабатывает60s окно
+возле первой обнаруженной паузы или начала записи и отдаёт не более30s WAV.
+Sample сохраняет статус preview_ready, не публикует полный результат и не
+запускает транскрибацию. Native playback поддерживает byte ranges, не продлевает
+TTL; закрытие примера обязательно перед full start. Анализ хранит только bounded
+waveform/silence metadata512 points/intervals; raw PCM и decoder output не
+попадают в DB/logs. Integrity/visual analysis совмещены в один полный decode.
+
+Migration0040 добавляет nullable result/download metadata и unique slot без
+удаления historical output Sources. Она одновременно сохраняет Live/unfinished
+provider text до явной retirement, добавляет source lifecycle поля и index.
+Применять через protected backup/migration lane0039→0040 с approval точной
+revision; затем подтвердить schema/API и поставить совместимый worker с тем же
+transfer mount. Перед recreate обоих компонентов дождись drain/отсутствия
+active work. Старые S3 outputs остаются на прежнем compatibility path, без
+автоматического массового удаления. Rollout не повторяет пользовательские jobs
+и не вызывает платный provider для smoke.
+
 The audio-processing hotfix adds `0039_audio_diagnostics`, a direct additive
 successor of `0038_trusted_devices`. Diagnostics retain the transcription-job
 foreign key and gain a separate nullable audio-job foreign key, a mutually
@@ -1229,3 +1334,43 @@ the output `-fs` budget. Stderr is drained with a bounded16KiB memory tail;
 only an allowlisted failure category and bounded numeric exit code can reach
 diagnostics. Raw stderr, private paths and source contents are neither stored
 nor logged. Delivery does not retry failed user audio jobs automatically.
+
+### Long-source confirmation
+
+До STT worker проверяет duration всего исходника, включая запрос короткого clip. Для записи выше configured warning сохраняются измеренная whole/selected duration и nominal quote по immutable public tariff snapshot; неизвестный tariff обозначается unavailable. Retry подтверждает exact quote token, конкретный source и неизменённый clip. Повторное измерение другой duration отзывает consent до conversion/provider call; другой длинный source требует собственной оценки. Legacy warning без quote сначала повторяет проверку без long consent. Quote не invoice и не включает overlap/subscription/quota; остальные непромеренные sources не включаются в показанную сумму. Общее ограничение12h не обходится splitting. Отдельные provider limits остаются: current Yandex async adapter ограничен4h и не получает ElevenLabs tariff.
+
+## Personal history and analytics retention
+
+`STORAG-12/13`: historical job/output metadata and analytics inputs remain durable
+PostgreSQL records without an automatic TTL. Owner actions reset the visible
+history (`projects.history_reset_at`) or analytics interval
+(`projects.analytics_reset_at`); they do not physically erase job/output evidence.
+Active jobs and unresolved output outcomes remain visible after history reset.
+This preserves retries, document-based duplicate protection and operational
+integrity. No separate retained full transcript or finished audio is implied.
+Source bytes and transient text follow their separate lifecycle rules above;
+log/debug retention follows configured diagnostic limits. Any future physical
+purge needs its own agreed requirements and reconciliation of those references.
+
+## Explicit manifest snapshot export
+
+In Transcriptions → Обслуживание → Расширенные действия, the owner can save the
+manifest JSON to a selected Google Drive folder. This uses the primary
+`drive.file` grant and the existing output-folder picker; separate maintenance
+consent is not needed for this write. Folder identity, type, trash state and
+write permission are rechecked server-side. The owner/reset cutoff applies to
+accepted nonempty output records and imported catalog metadata. The snapshot
+contains source/document identities and processing metadata; it never contains
+transcript bodies, storage keys, credentials or OAuth tokens. It is metadata
+export, not an automatic restore/import or a guarantee that every external
+Google Doc still exists.
+
+Requests require owner session/CSRF, no-store and a bounded selection: at most
+5000 entries and8 MiB; exceeding either fails without a partial snapshot. The
+owner row lock serializes export/clear; a dedicated snapshot hash property and
+Drive readback before write make an unchanged export to the same folder reuse
+its result. A changed snapshot or another folder gets a separate file, with no
+overwrite of an existing owner file. Transient metadata bytes are deleted on
+success/failure. The JSON file is an owner-selected external copy and remains
+in Drive until the owner removes it; clearing Studio never deletes that copy.
+Tests use synthetic records and a fake Drive transport, not a real account.

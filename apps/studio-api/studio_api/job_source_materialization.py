@@ -194,7 +194,7 @@ def materialize_processing_job_source(
             temp.close()
 
 
-def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, settings) -> _SourceSnapshot:
+def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, settings, *, allow_retired_source=False) -> _SourceSnapshot:
     db.expire_all()
     job = db.query(TranscriptionJob).options(selectinload(TranscriptionJob.sources).selectinload(TranscriptionJobSource.source)).filter_by(id=job_id).first()
     if job is None:
@@ -215,9 +215,9 @@ def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, s
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_found)
     src = rel.source
     mime = normalize_source_mime_type(src.mime_type)
-    if rel.status == JobSourceStatus.skipped or src.project_id != job.project_id or src.upload_status != SourceUploadStatus.uploaded or src.deleted_at is not None:
+    if rel.status == JobSourceStatus.skipped or src.project_id != job.project_id or (not allow_retired_source and (src.upload_status != SourceUploadStatus.uploaded or src.deleted_at is not None)):
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
-    if is_source_expired(src.expires_at, now):
+    if not allow_retired_source and is_source_expired(src.expires_at, now):
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
     if src.source_type not in {SourceType.local_upload, SourceType.google_drive} or not is_supported_source_mime_type(mime):
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)

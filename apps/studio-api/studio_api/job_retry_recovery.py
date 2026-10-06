@@ -39,7 +39,8 @@ class RetryReason(str, Enum):
 class RetryReadiness:
     available: bool; reason: RetryReason; attempt_count: int; max_attempts: int; missing_output_count: int; retry_safe_source_count: int; resumable_provider_part_count: int = 0; provider_total_part_count: int = 0; provider_failure_code: str | None = None
     def payload(self, job):
-        return {"job_id": job.id, "job_status": job.status.value, "available": self.available, "reason": self.reason.value, "attempt_count": self.attempt_count, "max_attempts": self.max_attempts, "missing_output_count": self.missing_output_count, "retry_safe_source_count": self.retry_safe_source_count, "resumable_provider_part_count": self.resumable_provider_part_count, "provider_total_part_count": self.provider_total_part_count, "provider_failure_code": self.provider_failure_code}
+        from .long_media_preflight import long_media_preflight_payload
+        return {"job_id": job.id, "job_status": job.status.value, "available": self.available, "reason": self.reason.value, "attempt_count": self.attempt_count, "max_attempts": self.max_attempts, "missing_output_count": self.missing_output_count, "retry_safe_source_count": self.retry_safe_source_count, "resumable_provider_part_count": self.resumable_provider_part_count, "provider_total_part_count": self.provider_total_part_count, "provider_failure_code": self.provider_failure_code, **({"long_duration_preflight": quote} if (quote := long_media_preflight_payload(job)) is not None else {})}
 
 @dataclass(frozen=True)
 class RetryQueueResult:

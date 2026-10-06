@@ -44,6 +44,8 @@ from studio_api.yandex_transcription import (  # noqa: E402
 
 import grpc  # noqa: E402
 from studio_api import yandex_realtime_relay as realtime_relay  # noqa: E402
+from studio_api.yandex_realtime_events import YandexRealtimeEvents  # noqa: E402
+from studio_api.yandex_realtime_pb2 import StreamingResponse, AlternativeUpdate, Alternative, AudioCursors, FinalRefinement  # noqa: E402
 
 
 class Settings:
@@ -290,6 +292,8 @@ def test_yandex_realtime_wire_options_and_audio_budget_match_documented_limits()
     assert options.recognition_model.model == "general"
     assert options.recognition_model.audio_format.raw_audio.sample_rate_hertz == 16_000
     assert options.recognition_model.audio_format.raw_audio.audio_channel_count == 1
+    assert options.recognition_model.audio_processing_type == 1
+    assert options.speaker_labeling.speaker_labeling == 2
     assert list(options.recognition_model.language_restriction.language_code) == ["ru-RU"]
 
     encoded = base64.b64encode(b"a" * MAX_AUDIO_CHUNK_BYTES).decode("ascii")
@@ -337,23 +341,8 @@ def test_yandex_realtime_relay_streams_audio_and_committed_text(monkeypatch):
             async for request in self.requests:
                 if request.WhichOneof("Event") == "chunk":
                     received_audio.append(request.chunk.data)
-            yield SimpleNamespace(
-                WhichOneof=lambda _name: "final",
-                partial=None,
-                final=SimpleNamespace(
-                    alternatives=[SimpleNamespace(text="сырой фрагмент")],
-                ),
-            )
-            yield SimpleNamespace(
-                WhichOneof=lambda _name: "final_refinement",
-                partial=None,
-                final=None,
-                final_refinement=SimpleNamespace(
-                    normalized_text=SimpleNamespace(
-                        alternatives=[SimpleNamespace(text="Готовый фрагмент")],
-                    ),
-                ),
-            )
+            yield StreamingResponse(audio_cursors=AudioCursors(final_index=0), final=AlternativeUpdate(alternatives=[Alternative(text="сырой фрагмент", start_time_ms=100, end_time_ms=1200)]))
+            yield StreamingResponse(final_refinement=FinalRefinement(final_index=0, normalized_text=AlternativeUpdate(alternatives=[Alternative(text="Готовый фрагмент")])))
 
     class Stub:
         def __init__(self, _channel):
@@ -414,10 +403,37 @@ def test_yandex_realtime_relay_streams_audio_and_committed_text(monkeypatch):
     assert {
         "message_type": "committed_transcript",
         "text": "Готовый фрагмент",
+        "final_index": 0,
+        "start_seconds": 0.1,
+        "end_seconds": 1.2,
     } in sent
-    assert all(item.get("text") != "сырой фрагмент" for item in sent)
+    assert [item["final_index"] for item in sent if item.get("message_type") == "committed_transcript"] == [0, 0]
     assert health == [{"settings": settings, "failure_code": None}]
     assert sent[-1] == {"closed": 1000}
+
+
+def test_realtime_events_keep_delayed_refinement_identity_and_real_timing():
+    events = YandexRealtimeEvents()
+    def final(index, text, start, end):
+        message = StreamingResponse(audio_cursors=AudioCursors(final_index=index), final=AlternativeUpdate(alternatives=[Alternative(text=text, start_time_ms=start, end_time_ms=end)]))
+        # Test the checked-in descriptor's actual wire decoding, not a mock field.
+        return StreamingResponse.FromString(message.SerializeToString())
+    assert events.event(final(0, "первая", 100, 200))["final_index"] == 0
+    assert events.event(final(1, "вторая", 400, 800))["final_index"] == 1
+    correction = StreamingResponse(final_refinement=FinalRefinement(final_index=0, normalized_text=AlternativeUpdate(alternatives=[Alternative(text="Первая.")])))
+    assert events.event(correction) == {"message_type": "committed_transcript", "text": "Первая.", "final_index": 0, "start_seconds": 0.1, "end_seconds": 0.2}
+    assert events.event(final(0, "старый дубль", 100, 200)) is None
+    assert events.event(final(2, "без таймкода", 0, 0)) == {"message_type": "committed_transcript", "text": "без таймкода", "final_index": 2}
+    assert events.event(final(3, "некорректный таймкод", -1, 20)) == {"message_type": "committed_transcript", "text": "некорректный таймкод", "final_index": 3}
+
+
+def test_realtime_finals_without_cursor_do_not_share_an_invented_zero_identity():
+    events = YandexRealtimeEvents()
+    for text in ("первый фрагмент", "другой фрагмент"):
+        message = StreamingResponse(final=AlternativeUpdate(alternatives=[Alternative(text=text)]))
+        decoded = StreamingResponse.FromString(message.SerializeToString())
+        assert events.event(decoded) == {"message_type": "committed_transcript", "text": text}
+    assert not events.finals
 
 
 def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resumes_without_resubmit():

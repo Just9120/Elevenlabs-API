@@ -130,11 +130,14 @@ def test_manual_order_is_preserved(db):
     assert [item.source_id for item in job.inputs] == ["late", "early"]
 
 
-def test_ephemeral_local_reference_gets_hard_24_hour_ttl(db):
+@pytest.mark.parametrize("days", [3, 7, 30])
+def test_audio_reference_preserves_selected_upload_retention(db, days):
     seed(db)
+    deadline = datetime(2026, 8, 24, 20, 0) + timedelta(days=days)
+    db.get(Source, "early").expires_at = deadline
     job = create(db, source_ids=["early"], ephemeral=["early"])
     source = db.get(Source, "early")
-    assert source.expires_at == datetime(2026, 8, 25, 20, 0)
+    assert source.expires_at == deadline
     assert job.inputs[0].ephemeral_reference is True
 
 
