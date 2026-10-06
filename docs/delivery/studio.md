@@ -157,23 +157,23 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-13` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-14` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `AP-14` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `AP-15` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-16` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `AP-16` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-22` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
-| `AP-23` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `AP-23` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `AP-24` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-25` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-26` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-31` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `AP-31` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`
@@ -221,7 +221,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `PTM-01` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `PTM-01` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Обслуживание в транскрибациях, settings link и metadata naming; maintenance/component/browser checks PASS, provider/Google boundaries fake. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `PTM-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PTM-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PTM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -246,7 +246,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PR-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PR-12` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `PR-12` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Encrypted Live manual-clear lifecycle, new capture сохраняет старый текст; >72h/restart/owner/clear concurrency tests PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `PR-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-OPERABILITY-01`
@@ -317,23 +317,23 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `STORAG-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-05` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-05` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-07` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
-| `STORAG-08` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-07` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-08` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-10` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-10` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-12` | IN_PROGRESS | ✅ | ◐ | PENDING | History/analytics metadata без автоматического TTL; reset задаёт границу owner view, записи сохраняются для целостности операций. Фактическая политика явно описана, reset/code tests есть; required Linux gate PENDING. |
-| `STORAG-13` | IN_PROGRESS | ✅ | ◐ | PENDING | History/analytics metadata без автоматического TTL; reset задаёт границу owner view, записи сохраняются для целостности операций. Фактическая политика явно описана, reset/code tests есть; required Linux gate PENDING. |
+| `STORAG-12` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). History/analytics metadata без automatic TTL; owner reset скрывает прежний view, operational rows сохраняются для integrity. Retention policy и reset regressions PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-13` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). History/analytics metadata без automatic TTL; owner reset скрывает прежний view, operational rows сохраняются для integrity. Retention policy и reset regressions PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-15` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-15` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-19` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-19` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-22` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `STORAG-22` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `STORAG-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `STT-PROVIDER-ABSTRACTION-01`
@@ -439,16 +439,16 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `TRANSC-01` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
-| `TRANSC-02` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
-| `TRANSC-03` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `TRANSC-01` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `TRANSC-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `TRANSC-03` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 
 ### `USAGE-COST-ACCOUNTING-01`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `USAGEC-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `USAGEC-02` | IN_PROGRESS | ✅ | ◐ | PENDING | Реализовано локально в выбранной Goal; код и подходящие synthetic checks — в текущей таблице Evidence delivery dashboard. Required Linux/PG/browser проверки новой revision PENDING; работа production не утверждается. |
+| `USAGEC-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Immutable provider-specific nominal public USD snapshot/confirmed duration/rounding; unknown Yandex price не ноль и не ElevenLabs. Accounting tests PASS; runtime Yandex tariff UNSET, invoice debit не заявляется. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
 | `USAGEC-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `USAGEC-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `USAGEC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
