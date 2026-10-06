@@ -15,14 +15,14 @@
 
 | Критерий закрытия / задача | Проверяемый результат | Baseline |
 |---|---|---|
-| G01 / F13 | main требует PR и успешный итоговый required gate из GitHub Actions, актуальную base; force/delete отключены, admin enforcement; новый человеческий review не добавляется | BACKLOG |
-| G02 / F13 | Automatic/manual CD допускает только trusted main exact revision с successful applicable validation; stale/fork/failed/pending/unknown candidate не получает deploy secrets и не меняет target | BACKLOG |
-| G03 / F63 | Одна основная pre-merge suite; main reuse только по verified equivalent source/validation context, иначе полный безопасный прогон; docs selection/required aggregate не скрывают applicable failure | BACKLOG |
-| G04 / F63 | Измерены CI elapsed и sum runner seconds до/после, причины selection/reuse сохраняются в primary summaries; отменяются только superseded PR runs | BACKLOG |
-| G05 / F06 | Document provider/model соответствуют выбранному job/immutable usage; неизвестная authoritative recording date пропускается без замены job/mtime/current time | BACKLOG |
-| G06 / F06 | Fragment/prepared source provenance сохраняет источник и преобразования с owner boundary; metadata lifecycle change блокирует side effect | BACKLOG |
-| G07 / F06 | Analytics/UI показывают поддержанные фактические provider/model, unknown отдельно; historical ElevenLabs/legacy payload compatibility и cost semantics сохранены | BACKLOG |
-| G08 / F61 | Удалены только доказанно завершённые owned test/report материалы; absolute containment/reparse/tracked/active checks до удаления, readback/count/bytes; unknown и active сохранены | BACKLOG |
+| G01 / F13 | main требует PR и успешный итоговый required gate из GitHub Actions, актуальную base; force/delete отключены, admin enforcement; новый человеческий review не добавляется | IN_PROGRESS |
+| G02 / F13 | Automatic/manual CD допускает только trusted main exact revision с successful applicable validation; stale/fork/failed/pending/unknown candidate не получает deploy secrets и не меняет target | IN_PROGRESS |
+| G03 / F63 | Одна основная pre-merge suite; main reuse только по verified equivalent source/validation context, иначе полный безопасный прогон; docs selection/required aggregate не скрывают applicable failure | IN_PROGRESS |
+| G04 / F63 | Измерены CI elapsed и sum runner seconds до/после, причины selection/reuse сохраняются в primary summaries; отменяются только superseded PR runs | IN_PROGRESS |
+| G05 / F06 | Document provider/model соответствуют выбранному job/immutable usage; неизвестная authoritative recording date пропускается без замены job/mtime/current time | IN_PROGRESS |
+| G06 / F06 | Fragment/prepared source provenance сохраняет источник и преобразования с owner boundary; metadata lifecycle change блокирует side effect | IN_PROGRESS |
+| G07 / F06 | Analytics/UI показывают поддержанные фактические provider/model, unknown отдельно; historical ElevenLabs/legacy payload compatibility и cost semantics сохранены | IN_PROGRESS |
+| G08 / F61 | Удалены только доказанно завершённые owned test/report материалы; absolute containment/reparse/tracked/active checks до удаления, readback/count/bytes; unknown и active сохранены | READY |
 
 Validation Plan: canonical commands — [validation](runbooks/validation.md), настройка — [CI/CD rules](ci-cd-rules.md), target/recovery — [operations](runbooks/studio-platform-ops.md).
 
@@ -34,7 +34,7 @@ Validation Plan: canonical commands — [validation](runbooks/validation.md), н
 | G08 | PowerShell owned inventory без раскрытия user content; проверка resolved workspace paths, tracked/reparse/active users, bounded deletion и readback | До удаления REQUIRED; broad cleanup N/A, scope ограничен завершёнными owned outputs |
 | Delivery | Primary CI/CD revision, health/schema/image, safe authorized browser/read-only API smoke; production provider/Google writes не выполняются | После merge REQUIRED; migration gate только при фактической применимости |
 
-Checkpoint06Oct: discovery выполнен, branch/base подтверждены; implementation/PR/settings mutation/cleanup ещё не начаты. Следующий шаг — metadata regressions и CI proof/selection design; затем узкие local commits, self-review, initial push, один PR, protections/readback, CI/merge/CD. Included GitHub minutes UNSET; bounded required runs входят в Goal, длительный monitoring/speculative reruns не выполняются.
+Checkpoint06Oct: branch/base подтверждены; local implementation выполнена, PR/push/settings mutation ещё не начаты. G05..07 local PASS:87 focused metadata/CI cases,13 UI model/render cases, lint/typecheck/Vite/PWA build;8 workflow/static и6 provider/options cases PASS,1 FFmpeg skip. Shell fixtures недоступны в текущем Windows runtime (WSL access/Git Bash launcher); actual Linux CI до merge REQUIRED, не N/A. G08 выполнен:32 завершённых owned synthetic per-run dirs,1048files/283844773bytes удалены после absolute .tmp containment, zero tracked/reparse/process references, unchanged inventory; readback0 remaining. Active Python envs, dependency stores, FFmpeg tools, unknown/stash/foreign branch сохранены. G01..04 IN_PROGRESS: always aggregate/reusable selection/verified tree proof/exact-main CD gates и cost summaries подготовлены; actual CI/settings/reuse/cost/CD Evidence PENDING. Следующий шаг — review/regressions, узкие commits, initial push, один PR, protections/readback, CI/merge/CD. Included GitHub minutes UNSET; bounded required runs входят в Goal, длительный monitoring/speculative reruns не выполняются.
 
 ### Предыдущая Goal PERSONAL-COMPLETION-20261004 — DONE
 

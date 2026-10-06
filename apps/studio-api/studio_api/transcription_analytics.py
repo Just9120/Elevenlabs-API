@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from decimal import Decimal
 
+from .transcription_metadata import selected_provider, analytics_bucket
 from .transcription_options import browser_language_mode, job_diarization_enabled
 
 
@@ -54,11 +55,7 @@ def _selected_provider(
     provider_by_credential_id: Mapping[str, str],
 ) -> str:
     credential_id = getattr(job, "provider_credential_id", None)
-    credential_provider = provider_by_credential_id.get(credential_id, "")
-    if credential_provider == "elevenlabs":
-        return credential_provider
-    explicit_provider = str(getattr(job, "provider", "") or "").strip().lower()
-    return explicit_provider if explicit_provider == "elevenlabs" else "unknown"
+    return selected_provider(getattr(job, "provider", None), provider_by_credential_id.get(credential_id))
 
 
 def build_transcription_analytics_payload(
@@ -73,7 +70,7 @@ def build_transcription_analytics_payload(
     job_rows = list(jobs)
     attempt_rows = list(attempts)
     outcomes = {status: 0 for status in JOB_STATUSES}
-    provider_model = {"elevenlabs_scribe_v2": 0, "unknown": 0}
+    provider_model = {"elevenlabs_scribe_v2": 0, "yandex_general": 0, "yandex_deferred_general": 0, "unknown": 0}
     language_mode = {"ru": 0, "en": 0, "detect": 0, "other": 0}
     diarization = {"enabled": 0, "disabled": 0}
     queue_durations: list[float] = []
@@ -92,11 +89,8 @@ def build_transcription_analytics_payload(
         if status in outcomes:
             outcomes[status] += 1
 
-        provider_key = (
-            "elevenlabs_scribe_v2"
-            if _selected_provider(job, provider_by_credential_id) == "elevenlabs"
-            else "unknown"
-        )
+        provider_key = analytics_bucket(_selected_provider(job, provider_by_credential_id),
+            getattr(job, "options_json", None), getattr(job, "operating_mode", None))
         provider_model[provider_key] += 1
 
         selected_language = browser_language_mode(getattr(job, "language", None))
@@ -221,7 +215,7 @@ def load_transcription_analytics_payload(
         scope_filters.append(TranscriptionJob.created_at > since)
 
     outcomes = {status: 0 for status in JOB_STATUSES}
-    provider_model = {"elevenlabs_scribe_v2": 0, "unknown": 0}
+    provider_model = {"elevenlabs_scribe_v2": 0, "yandex_general": 0, "yandex_deferred_general": 0, "unknown": 0}
     language_mode = {"ru": 0, "en": 0, "detect": 0, "other": 0}
     diarization = {"enabled": 0, "disabled": 0}
     total_jobs = 0
@@ -233,6 +227,7 @@ def load_transcription_analytics_payload(
             ProviderCredential.provider,
             TranscriptionJob.language,
             TranscriptionJob.options_json,
+            TranscriptionJob.operating_mode,
             func.count(TranscriptionJob.id),
         )
         .outerjoin(
@@ -249,6 +244,7 @@ def load_transcription_analytics_payload(
             ProviderCredential.provider,
             TranscriptionJob.language,
             TranscriptionJob.options_json,
+            TranscriptionJob.operating_mode,
         )
         .yield_per(500)
     )
@@ -258,6 +254,7 @@ def load_transcription_analytics_payload(
         credential_provider,
         language,
         options_json,
+        operating_mode,
         raw_count,
     ) in configuration_rows:
         count = max(0, int(raw_count or 0))
@@ -265,14 +262,7 @@ def load_transcription_analytics_payload(
         status_key = _enum_value(status)
         if status_key in outcomes:
             outcomes[status_key] += count
-        selected_provider = _enum_value(credential_provider).strip().lower()
-        if selected_provider != "elevenlabs":
-            selected_provider = str(explicit_provider or "").strip().lower()
-        provider_model[
-            "elevenlabs_scribe_v2"
-            if selected_provider == "elevenlabs"
-            else "unknown"
-        ] += count
+        provider_model[analytics_bucket(selected_provider(explicit_provider, _enum_value(credential_provider)), options_json, operating_mode)] += count
         selected_language = browser_language_mode(language)
         language_mode[
             selected_language

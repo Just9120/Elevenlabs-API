@@ -99,6 +99,93 @@ def good_meta(token, folder):
     return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
 
 
+@pytest.mark.parametrize("provider,model,label", [("yandex", "general", "Yandex SpeechKit"), ("yandex", "deferred-general", "Yandex SpeechKit"), ("elevenlabs", "reviewed-new-model", "ElevenLabs")])
+def test_selected_model_and_unknown_recording_date(db, models, provider, model, label):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript
+    _, _, source, job, relation, now = make_job(db, models)
+    job.provider = provider
+    job.options_json = '{"_stt_model":"' + model + '"}'
+    job.media_clip_start_seconds = 10
+    job.media_clip_end_seconds = 20
+    source.source_created_at = source.source_created_at_provenance = None
+    db.commit()
+    transport = FakeTransport()
+    with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=relation.id,
+            lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(),
+            clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta,
+            google_docs_transport=transport):
+        pass
+    body = transport.calls[0]["document_text"]
+    assert f"Provider: {label}" in body and f"Model: {model}" in body
+    assert "Created at:" not in body
+    assert f"Source: {source.id}" in body and "Clip: 10-20 seconds; source timeline" in body
+
+
+def test_metadata_change_before_creation_blocks_side_effect(db, models):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript, JobGoogleDocsOutputError
+    _, _, _, job, relation, now = make_job(db, models)
+    def mutate(token, folder):
+        job.media_clip_start_seconds = 10
+        job.media_clip_end_seconds = 20
+        db.commit()
+        return good_meta(token, folder)
+    transport = FakeTransport()
+    with pytest.raises(JobGoogleDocsOutputError, match="lifecycle_changed_before"):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=relation.id,
+                lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(),
+                clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=mutate,
+                google_docs_transport=transport): pass
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("case", ["unknown_date", "known_original_date", "foreign_source", "recipe_changed_after_creation"])
+def test_prepared_document_retains_inputs_recipe_not_export_date(db, models, case):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript, JobGoogleDocsOutputError
+    user, project, source, job, relation, now = make_job(db, models)
+    original = models.Source(project_id=project.id, source_type=models.SourceType.local_upload,
+        original_filename="original.wav", mime_type="audio/wav", size_bytes=5,
+        upload_status=models.SourceUploadStatus.uploaded)
+    if case == "known_original_date":
+        original.source_created_at = datetime(2024, 1, 1)
+        original.source_created_at_provenance = "embedded_media_metadata"
+    elif case == "foreign_source":
+        other = models.User(email="foreign-metadata@example.test", role=models.UserRole.user, status=models.UserStatus.active)
+        db.add(other); db.flush()
+        foreign = models.Project(owner_user_id=other.id, title="foreign")
+        db.add(foreign); db.flush()
+        original.project_id = foreign.id
+    db.add(original); db.flush()
+    preparation = models.AudioPreparationJob(owner_user_id=user.id, project_id=project.id,
+        title="Prepared", options_json='{"silence_enabled":true,"output_format":"flac"}',
+        output_destination="download", status=models.AudioPreparationStatus.completed,
+        output_source_id=source.id)
+    db.add(preparation); db.flush()
+    db.add(models.AudioPreparationJobInput(job_id=preparation.id, source_id=original.id, position=0))
+    db.commit()
+    def mutate_recipe():
+        preparation.options_json = '{"output_format":"wav"}'
+        db.commit()
+    transport = FakeTransport(mutate_recipe if case == "recipe_changed_after_creation" else None)
+    context = create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=relation.id,
+            lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(),
+            clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta,
+            google_docs_transport=transport)
+    if case in {"foreign_source", "recipe_changed_after_creation"}:
+        with pytest.raises(JobGoogleDocsOutputError, match="selected_source_changed" if case == "foreign_source" else "lifecycle_changed_after"):
+            with context: pass
+        assert len(transport.calls) == (0 if case == "foreign_source" else 1)
+        return
+    with context: pass
+    body = transport.calls[0]["document_text"]
+    if case == "known_original_date":
+        assert "Created at: 2024-01-01T00:00:00Z" in body
+    else:
+        assert "Created at:" not in body
+    assert f"Preparation: {preparation.id}" in body
+    assert f"Original source 1: {original.id}" in body
+    assert '"silence_enabled":true' in body and "Timeline: prepared audio" in body
+
+
 def test_transport_multipart_and_redaction():
     from studio_api.google_docs_output import GoogleDocsTranscriptTransport
     calls = []
@@ -224,7 +311,7 @@ def test_formatting_contract_title_language_unicode_empty_body():
     empty = format_transcript_doc(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
     assert empty.title == "Transcript" and empty.body.endswith("Транскрипция\n\n") and "Language: unknown" in empty.body
     unknown = format_transcript_doc(title="Unknown", transcript_text="Text", job_language="en", detected_language_code=None, created_at=None)
-    assert "Created at: unknown" in unknown.body
+    assert "Created at:" not in unknown.body
 
 
 def test_success_job_boundary_one_token_one_create_lifetime_and_no_mutation(db, models):

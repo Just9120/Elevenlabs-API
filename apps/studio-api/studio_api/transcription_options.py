@@ -52,8 +52,11 @@ def stored_transcription_options(
     *,
     existing_result_reprocess_authorized: bool = False,
     dictionary_terms: list[str] | tuple[str, ...] = (),
+    model: str | None = None,
 ) -> str | None:
     payload = {}
+    if model is not None:
+        payload["_stt_model"] = model
     if diarize:
         payload["diarize"] = True
     if existing_result_reprocess_authorized:

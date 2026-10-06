@@ -2760,6 +2760,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
                 data.options.diarize,
                 existing_result_reprocess_authorized=reprocess_existing[idx],
                 dictionary_terms=dictionary_terms,
+                model=capability.model,
             )
             job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, trace_id=getattr(request.state,"trace_id",None), status=JobStatus.queued, provider=data.provider.value, operating_mode=data.operating_mode.value, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx, media_clip_start_seconds=media_clip.start_seconds, media_clip_end_seconds=media_clip.end_seconds)
             job.apply_output_folder_snapshot(folder_id=vf.id, folder_url=vf.web_view_url, folder_name=vf.name)

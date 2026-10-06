@@ -62,6 +62,16 @@ const analytics = {
 };
 
 describe("TranscriptionAnalyticsPanel", () => {
+  it("shows Yandex models alongside historical ElevenLabs counts", async () => {
+    const result = structuredClone(analytics);
+    const provider_model = { elevenlabs_scribe_v2: 1, yandex_general: 1, yandex_deferred_general: 1, unknown: 0 };
+    render(<TranscriptionAnalyticsPanel projectId="fixture-project" loadAnalytics={vi.fn().mockResolvedValue({ ...result, configuration: { ...result.configuration, provider_model } })} />);
+    await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+    expect(await screen.findByText("Yandex SpeechKit · general 1")).toBeInTheDocument();
+    expect(screen.getByText("Yandex SpeechKit · deferred-general 1")).toBeInTheDocument();
+    expect(screen.getByText("ElevenLabs · scribe_v2 1")).toBeInTheDocument();
+    expect(screen.queryByText(/Не определено:/)).not.toBeInTheDocument();
+  });
   it("loads on demand and renders safe aggregate evidence", async () => {
     const loadAnalytics = vi.fn().mockResolvedValue(analytics);
     render(

@@ -7275,7 +7275,7 @@ def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessin
             .one()
         )
         assert created_job.options_json == (
-            '{"_existing_result_reprocess_authorized":true,"diarize":true}'
+            '{"_existing_result_reprocess_authorized":true,"_stt_model":"scribe_v2","diarize":true}'
         )
     finally:
         db.close()

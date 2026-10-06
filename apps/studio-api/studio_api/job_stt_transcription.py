@@ -16,6 +16,7 @@ from .security import utcnow
 from .stt_provider import SttCapabilityError, resolve_capability
 from .stt_provider_health import provider_health, record_provider_failure, record_provider_success
 from .yandex_transcription import YandexTranscriptionTransport
+from .transcription_metadata import stored_model
 from .provider_usage_accounting import ProviderUsageAccountingError, resolve_pricing_snapshot
 
 
@@ -60,6 +61,7 @@ def transcribe_processing_job_source(
         capability = resolve_capability(settings, provider, mode)
     except SttCapabilityError as exc:
         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_mismatch) from exc
+    model = stored_model(job.options_json) or capability.model
     health = provider_health(db, provider=provider, operating_mode=mode, now=clock())
     if not health.available:
         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable)
@@ -75,7 +77,7 @@ def transcribe_processing_job_source(
         now=now,
         clock=clock,
         expected_provider=provider,
-        provider_model=capability.model,
+        provider_model=model,
         **kwargs,
     )
     if provider == "elevenlabs":

@@ -24,7 +24,8 @@ from .job_source_materialization import SourceMaterializationError, _load_select
 from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, prepare_output_reconciliation_case, mark_reconciliation_creation_returned
-from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
+from .transcription_metadata import selected_provider, selected_model, source_provenance
+from .models import SttProviderOperation, TranscriptionProviderPartCheckpoint
 from .transcript_document import build_transcript_document_text
 from .transcription_options import document_language, job_diarization_enabled
 
@@ -103,6 +104,10 @@ class _OutputJobSnapshot:
     cancel_requested_at: datetime | None
     project_archived_at: datetime | None
     project_owner_user_id: str | None
+    provider: str | None
+    model: str
+    clip_start: int | None
+    clip_end: int | None
 
 
 @contextmanager
@@ -152,16 +157,22 @@ def create_processing_job_google_doc_from_transcript(
         except (ElevenLabsTranscriptionError, GoogleDocsOutputError) as exc:
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.transcript_context_closed) from exc
         title = choose_transcript_document_title(job_title=snap.title, original_filename=source_snap.original_filename)
+        provenance = _source_provenance_snapshot(db, source_snap)
         formatted = format_transcript_doc(
             title=title,
             transcript_text=transcript_text,
             job_language=snap.language,
             detected_language_code=transcript.detected_language_code,
-            created_at=source_snap.source_created_at,
+            created_at=provenance[1],
+            provider=selected_provider(snap.provider or "elevenlabs"),
+            model=snap.model,
+            provenance_lines=provenance[0] + ((f"Recording date provenance: {provenance[2]}",) if provenance[1] else ()) + ((f"Clip: {snap.clip_start or 0}-{snap.clip_end if snap.clip_end is not None else 'end'} seconds; source timeline",) if snap.clip_start is not None or snap.clip_end is not None else ()),
             diarization_enabled=diarization_enabled,
         )
         _compare_or_before(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
         _compare_source_or_before(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
+        if _source_provenance_snapshot(db, source_snap) != provenance:
+            raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.selected_source_changed)
         _require_no_persisted_output(db, job_source_id)
         try:
             case = prepare_output_reconciliation_case(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, document_title=formatted.title, character_count=len(formatted.body), now=clock())
@@ -189,6 +200,8 @@ def create_processing_job_google_doc_from_transcript(
         try:
             _compare_or_after(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
             _compare_source_or_after(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
+            if _source_provenance_snapshot(db, source_snap) != provenance:
+                raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.selected_source_changed)
         except Exception as exc:
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.lifecycle_changed_after_output_creation) from exc
         try:
@@ -204,20 +217,18 @@ def create_processing_job_google_doc_from_transcript(
             artifact.revoke()
 
 
-def format_transcript_doc(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime | None, diarization_enabled: bool = False) -> FormattedTranscriptDocument:
+def format_transcript_doc(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime | None, diarization_enabled: bool = False, provider: str = "elevenlabs", model: str = "scribe_v2", provenance_lines: tuple[str, ...] = ()) -> FormattedTranscriptDocument:
     safe_title = normalize_document_title(title)
     lang = document_language(job_language, detected_language_code)
-    ts = _utc_iso(created_at) if created_at is not None else "unknown"
     speakers = "yes" if diarization_enabled else "no"
     body = build_transcript_document_text(
         title=safe_title,
         metadata_lines=(
-            "Provider: ElevenLabs",
-            f"Model: {CURRENT_TRANSCRIPTION_MODEL}",
+            f"Provider: {dict(elevenlabs='ElevenLabs', yandex='Yandex SpeechKit').get(provider, 'unknown')}",
+            f"Model: {model}",
             f"Language: {lang}",
             f"Speakers: {speakers}",
-            f"Created at: {ts}",
-        ),
+        ) + ((f"Created at: {_utc_iso(created_at)}",) if created_at is not None else ()) + provenance_lines,
         transcript_text=transcript_text,
     )
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)
@@ -312,7 +323,23 @@ def _load_output_job_snapshot(db: Session, job_id: str, owner: str, generation: 
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.project_unavailable)
     if not job.output_drive_folder_id:
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.output_folder_missing)
-    return _OutputJobSnapshot(job.id, job.owner_user_id, project.id, job.title, job.language, job.options_json, job.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, project.archived_at, project.owner_user_id)
+    provider = selected_provider(job.provider or "elevenlabs")
+    model = selected_model(provider, job.options_json, job.operating_mode)
+    identities = set()
+    for table in (SttProviderOperation, TranscriptionProviderPartCheckpoint):
+        identities.update(db.query(table.provider, table.model).filter(
+            table.job_id == job.id, table.owner_user_id == job.owner_user_id,
+            table.project_id == job.project_id).distinct().all())
+    if identities:
+        model = next(iter(identities))[1] if len(identities) == 1 and next(iter(identities))[0] == provider else "unknown"
+    return _OutputJobSnapshot(job.id, job.owner_user_id, project.id, job.title, job.language, job.options_json, job.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, project.archived_at, project.owner_user_id, job.provider, model, job.media_clip_start_seconds, job.media_clip_end_seconds)
+
+
+def _source_provenance_snapshot(db, source_snap):
+    try:
+        return source_provenance(db, source_snap)
+    except ValueError as exc:
+        raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.selected_source_changed) from exc
 
 
 def _load_source_snapshot(db, job_id, job_source_id, owner, generation, now, settings):
