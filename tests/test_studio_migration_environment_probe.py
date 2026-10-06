@@ -102,9 +102,7 @@ def test_probe_summary_does_not_claim_review_was_proven_by_success() -> None:
 def test_studio_ci_watches_probe_workflow_and_contract_test() -> None:
     workflow = STUDIO_CI.read_text(encoding="utf-8")
 
-    assert workflow.count(
-        "- '.github/workflows/studio-migration-environment-probe.yml'"
-    ) == 2
-    assert workflow.count(
-        "- 'tests/test_studio_migration_environment_probe.py'"
-    ) == 2
+    from scripts.ci_validation import select
+    assert "workflow_call:" in workflow
+    assert select([".github/workflows/studio-migration-environment-probe.yml"]) == (True, True)
+    assert select(["tests/test_studio_migration_environment_probe.py"]) == (True, True)
