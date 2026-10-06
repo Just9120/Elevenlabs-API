@@ -69,8 +69,9 @@ def source_provenance(db, snapshot):
     if len(prepared) != 1:
         raise ValueError("ambiguous preparation provenance")
     preparation = prepared[0]
-    lines += [f"Preparation: {preparation.id}", f"Timeline: prepared audio", f"Transformations: {_line(preparation.options_json)}"]
+    lines += [f"Preparation: {preparation.id}", "Timeline: prepared audio", f"Transformations: {_line(preparation.options_json)}"]
     dates = []
+    originals = []
     inputs = preparation.inputs
     if not inputs or len(inputs) > 50:
         raise ValueError("invalid preparation inputs")
@@ -79,10 +80,12 @@ def source_provenance(db, snapshot):
         project = db.get(Project, source.project_id) if source else None
         if source is None or project is None or project.owner_user_id != snapshot.job_owner_user_id:
             raise ValueError("foreign preparation source")
-        lines.append(f"Original source {item.position + 1}: {source.id} · {_line(source.original_filename)}")
+        original = {"position": item.position, "source_id": source.id, "filename": _line(source.original_filename)}
         if source.source_created_at is not None and source.source_created_at_provenance:
             dates.append((source.source_created_at, source.source_created_at_provenance))
-            lines.append(f"Original recording date {item.position + 1}: {source.source_created_at.isoformat()} · {source.source_created_at_provenance}")
+            original.update(recording_date=source.source_created_at.isoformat(), date_provenance=source.source_created_at_provenance)
+        originals.append(original)
+    lines.append("Original source: " + json.dumps(originals, ensure_ascii=False, separators=(",", ":")))
     # Do not manufacture a whole-recording date from a partially known concat.
     date, authority = min(dates, key=lambda pair: pair[0]) if len(dates) == len(inputs) else (None, None)
     return tuple(lines), date, authority

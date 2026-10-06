@@ -189,8 +189,11 @@ def effective_settings_from_persisted_job(
     language_mode = _catalog_language_mode(browser_language_mode(language))
     if selected_provider not in {"elevenlabs", "yandex"} or language_mode is None:
         return None
-    model = CURRENT_TRANSCRIPTION_MODEL
-    if settings is not None:
+    from .transcription_metadata import stored_model
+    model = stored_model(options_json)
+    if model is not None:
+        pass  # Durable request identity wins over later configuration changes.
+    elif settings is not None:
         from .stt_provider import resolve_capability
         try:
             model = resolve_capability(settings, selected_provider, operating_mode or "standard").model
@@ -198,6 +201,8 @@ def effective_settings_from_persisted_job(
             return None
     elif selected_provider == "yandex":
         model = "deferred-general" if operating_mode == "economic" else "general"
+    else:
+        model = CURRENT_TRANSCRIPTION_MODEL
     return provider_effective_settings(
         provider=selected_provider,
         model=model,

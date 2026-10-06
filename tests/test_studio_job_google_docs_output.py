@@ -182,8 +182,14 @@ def test_prepared_document_retains_inputs_recipe_not_export_date(db, models, cas
     else:
         assert "Created at:" not in body
     assert f"Preparation: {preparation.id}" in body
-    assert f"Original source 1: {original.id}" in body
+    assert 'Original source: [' in body and f'"source_id":"{original.id}"' in body
     assert '"silence_enabled":true' in body and "Timeline: prepared audio" in body
+    from studio_api.transcript_catalog_scan import classify_transcript_document_standard
+    from studio_api.transcript_catalog_standardize import build_standardized_transcript_document_text
+    assert classify_transcript_document_standard(body).value == "current"
+    rewritten = build_standardized_transcript_document_text(document_name="Reviewed", existing_document_text=body, created_time=None)
+    for prefix in ("Source:", "Preparation:", "Timeline:", "Transformations:", "Original source:"):
+        assert next(line for line in body.splitlines() if line.startswith(prefix)) in rewritten
 
 
 def test_transport_multipart_and_redaction():
