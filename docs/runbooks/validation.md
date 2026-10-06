@@ -12,6 +12,8 @@ Do not record secrets, provider API keys, OAuth tokens, refresh tokens, document
 
 Рабочий каталог указан отдельно; команды установки выполняй в изолированном environment. Production config/data не использовать. При расхождении сверяй команды с фактическими workflow/package scripts, фиксируя drift.
 
+CI process budget полной Python suite —300s с diagnostic SIGABRT и hard kill через10s; job ограничен15min. Основание06Oct: >2000 cases с повторными PostgreSQL migrations/isolated restore, один полный прогон157.59s и другой cutoff180s до завершения64% suite. Budget не заменяет assertions или успех полного процесса; gates сохраняются. Пять real FFmpeg cases требуют binary: при отсутствии на CI host они SKIP, отдельные synthetic local decoder/processing PASS сохраняются с указанием environment.
+
 | Назначение | Каталог и команда | Применимость / условия |
 | --- | --- | --- |
 | Install Python | Root: `python -m pip install -r requirements-dev.txt -c constraints-dev.txt` | Изолированный Python 3.11 для CI-equivalent; API-only install — как в `studio-ci.yml` |

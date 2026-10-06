@@ -109,11 +109,25 @@ def upgrade():
             for name, (columns, unique) in indexes.items():
                 op.create_index(name, table, columns, unique=unique)
     for table in ("realtime_transcript_drafts", "transcription_provider_part_checkpoints"):
-        with op.batch_alter_table(table) as batch:
-            batch.alter_column("expires_at", existing_type=sa.DateTime(timezone=True), nullable=True)
-            if table == "transcription_provider_part_checkpoints":
-                batch.drop_constraint("ck_provider_part_checkpoint_total_parts_multiple", type_="check")
-                batch.create_check_constraint("ck_provider_part_checkpoint_total_parts_multiple", "total_parts >= 1")
+        inspector = sa.inspect(bind)
+        expiry = next(c for c in inspector.get_columns(table) if c["name"] == "expires_at")
+        relax_parts = False
+        if table == "transcription_provider_part_checkpoints":
+            check = next(c for c in inspector.get_check_constraints(table)
+                         if c["name"] == "ck_provider_part_checkpoint_total_parts_multiple")
+            if not _check_matches(check["sqltext"], "total_parts >= 1"):
+                if not _check_matches(check["sqltext"], "total_parts > 1"):
+                    raise RuntimeError("incompatible provider checkpoint constraint")
+                relax_parts = True
+        # Fresh/current metadata already has both changes. Avoid acquiring
+        # redundant ALTER locks or rebuilding SQLite tables on repeat runs.
+        if not expiry["nullable"] or relax_parts:
+            with op.batch_alter_table(table) as batch:
+                if not expiry["nullable"]:
+                    batch.alter_column("expires_at", existing_type=sa.DateTime(timezone=True), nullable=True)
+                if relax_parts:
+                    batch.drop_constraint("ck_provider_part_checkpoint_total_parts_multiple", type_="check")
+                    batch.create_check_constraint("ck_provider_part_checkpoint_total_parts_multiple", "total_parts >= 1")
         # Data-preserving metadata change; payload HMAC/AAD do not use expiry.
         op.execute(sa.text(f"UPDATE {table} SET expires_at = NULL WHERE expires_at IS NOT NULL"))
 

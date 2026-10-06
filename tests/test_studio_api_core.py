@@ -3482,7 +3482,7 @@ def test_complete_local_upload_replay_returns_same_verified_source_without_exten
 @pytest.mark.parametrize("days", [3, 7, 30, None])
 def test_audio_upload_has_separate_selected_retention_after_completion(monkeypatch, days):
     enable_fake_storage(monkeypatch)
-    c, headers, pid = create_logged_in_project(f"audio-retention-{days}@example.com")
+    c, headers, pid = create_logged_in_project(f"audio-retention-{days}@example.com".lower())
     preference = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 3600}, headers=headers)
     assert preference.status_code == 200
     payload = {"original_filename": "audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 10, "reference_class": "audio_processing"}
@@ -3502,7 +3502,7 @@ def test_audio_upload_has_separate_selected_retention_after_completion(monkeypat
 @pytest.mark.parametrize("reference_class,days", [("transcription", 7), ("audio_processing", 1), ("audio_processing", True)])
 def test_audio_retention_rejects_invalid_or_wrong_class_input(monkeypatch, reference_class, days):
     enable_fake_storage(monkeypatch)
-    c, headers, pid = create_logged_in_project(f"invalid-audio-{reference_class}-{days}@example.com")
+    c, headers, pid = create_logged_in_project(f"invalid-audio-{reference_class}-{days}@example.com".lower())
     response = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={
         "original_filename": "audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 10,
         "reference_class": reference_class, "audio_retention_days": days,
