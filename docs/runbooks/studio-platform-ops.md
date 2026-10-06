@@ -439,7 +439,18 @@ nonce verification; performs a real custom-format PostgreSQL dump and restore
 of current-model synthetic data with encrypted Live drafts; and removes only
 its verified containers. Its report includes snapshot age at the synthetic incident, one measured post-snapshot metadata loss, and elapsed time
 to a quarantined restored state. The Linux suite requires this rehearsal;
-unavailable local Docker remains an explicit local limitation, not PASS. After owner targets are selected, supply both `--rpo-seconds` and `--rto-seconds` to compare them. Invalid or one-sided targets fail before container creation. The loss window is measured at the incident, excluding subsequent restore time; an exceeded RPO or already-over-budget quarantine fails. An in-budget quarantine reports full RTO as PENDING, never PASS, because service reactivation is outside that measurement.
+unavailable local Docker remains an explicit local limitation, not PASS. The default comparison uses the owner-approved personal targets12h/4h; an explicit diagnostic override must supply both `--rpo-seconds` and `--rto-seconds`. Invalid or one-sided targets fail before container creation. The loss window is measured at the incident, excluding subsequent restore time; an exceeded RPO or already-over-budget quarantine fails. An in-budget quarantine reports full RTO as PENDING, never PASS, because service reactivation is outside that measurement.
+
+The Linux integration test also checks authenticated application access on the
+restored synthetic target. It uses an owned internal bridge and a random port
+bound only to127.0.0.1; exact image/name/nonce/network/port ownership is checked
+before access and cleanup. A separately read current inventory authorizes
+removal of the fixture cleared after backup before only the synthetic owner
+and workspace are reactivated. Restored old sessions remain revoked; a fresh
+synthetic session reads and decrypts retained text through the real API.
+Elapsed time includes restore, reconciliation and authenticated access and
+is compared against4h. Production service recovery remains unverified; no
+production restore, provider, Google or notification operation is performed.
 
 The quarantine statements in
 [recovery_quarantine.py](../../apps/studio-api/studio_api/recovery_quarantine.py)

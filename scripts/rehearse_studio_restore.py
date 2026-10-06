@@ -2,7 +2,9 @@
 
 No URL, source dump, production target, secret file or existing container is
 accepted. Two owned, network-isolated tmpfs containers use a locally cached
-postgres:17 image. The restored copy is quarantined, never activated.
+postgres:17 image. The default restored copy remains quarantined. The Linux
+test may probe authenticated access only after reconciling a separately read
+synthetic deletion inventory, using an owned internal network/loopback port.
 """
 from __future__ import annotations
 
@@ -27,10 +29,14 @@ sys.path.insert(0, str(ROOT / "apps/studio-api"))
 from studio_api.db import Base
 from studio_api.models import Project, RealtimeTranscriptDraft, Session, TrustedDevice, User
 from studio_api.realtime_drafts import save_realtime_draft
+from studio_api.security import token_hash
 from studio_api.recovery_quarantine import quarantine_statements
 
 LABEL = "studio.synthetic-recovery-drill"
 CLEARED_SESSION_ID = "cleared-after-backup".ljust(20, "_")
+PERSONAL_RPO_SECONDS = 12 * 3600
+PERSONAL_RTO_SECONDS = 4 * 3600
+OLD_SESSION_TOKEN = "synthetic-original-session-token"
 
 
 class DrillFailure(RuntimeError):
@@ -91,7 +97,7 @@ def fixture_sql():
             save_realtime_draft(db, owner_user_id=user.id, project=project,
                 client_session_id=name.ljust(20, "_"), revision=1,
                 committed_segments=["SYNTHETIC_RESTORE_TEXT"], partial="", settings=Settings(), now=now)
-        db.add(Session(user_id=user.id, token_hash="s" * 64, csrf_hash="c" * 64,
+        db.add(Session(user_id=user.id, token_hash=token_hash(OLD_SESSION_TOKEN), csrf_hash="c" * 64,
             expires_at=now + timedelta(days=1), reauthenticated_at=now))
         db.add(TrustedDevice(user_id=user.id, token_hash="t" * 64, expires_at=now + timedelta(days=30)))
         db.commit()
@@ -105,9 +111,48 @@ def fixture_sql():
     return "\n".join(statements).encode(), ciphertexts, dialect.dialect
 
 
+class OwnedNetwork:
+    """An internal bridge for a loopback-only synthetic application probe."""
+    def __init__(self, nonce):
+        self.nonce = nonce
+        self.name = f"studio-recovery-{nonce}"
+        self.network_id = None
+        self.containers = set()
+
+    def verify(self):
+        if not self.network_id or not re.fullmatch(r"[a-f0-9]{64}", self.network_id):
+            raise DrillFailure("drill_network_identity_invalid")
+        record = json.loads(_run(["docker", "network", "inspect", self.network_id]))[0]
+        if (record.get("Name") != self.name or record.get("Id") != self.network_id
+            or record.get("Driver") != "bridge" or record.get("Internal") is not True
+            or record.get("Labels", {}).get(LABEL) != self.nonce
+            or set(record.get("Containers", {})) - self.containers):
+            raise DrillFailure("drill_network_boundary_invalid")
+
+    def start(self):
+        try:
+            self.network_id = _run(["docker", "network", "create", "--internal", "--driver", "bridge",
+                "--label", f"{LABEL}={self.nonce}", self.name]).decode().strip()
+        except DrillFailure:
+            try:
+                self.network_id = json.loads(_run(["docker", "network", "inspect", self.name]))[0]["Id"]
+                self.verify()
+            except (DrillFailure, ValueError, KeyError, IndexError):
+                raise DrillFailure("ambiguous_network_create_needs_identity_review") from None
+            raise
+        self.verify()
+
+    def close(self):
+        if self.network_id:
+            self.verify()
+            _run(["docker", "network", "rm", self.network_id])
+            self.network_id = None
+
+
 class OwnedPostgres:
-    def __init__(self, image_id, nonce, role):
+    def __init__(self, image_id, nonce, role, network=None):
         self.image_id, self.nonce, self.role = image_id, nonce, role
+        self.network = network
         self.container_id = None
 
     def verify(self):
@@ -115,10 +160,19 @@ class OwnedPostgres:
             raise DrillFailure("drill_container_identity_invalid")
         record = json.loads(_run(["docker", "inspect", self.container_id]))[0]
         host = record["HostConfig"]
+        if self.network:
+            self.network.verify()
+        ports = host.get("PortBindings") or {}
+        expected_ports = self.network is not None and self.role == "restore"
+        bindings = ports.get("5432/tcp", [])
+        if (expected_ports and (set(ports) != {"5432/tcp"} or len(bindings) != 1
+            or bindings[0].get("HostIp") != "127.0.0.1"
+            or bindings[0].get("HostPort") not in ("", "0"))) or (not expected_ports and ports):
+            raise DrillFailure("drill_container_port_boundary_invalid")
         if (record["Image"] != self.image_id or record["Config"].get("Labels", {}).get(LABEL) != self.nonce
             or record.get("Name") != f"/studio-recovery-{self.nonce}-{self.role}"
-            or host["NetworkMode"] != "none" or not host["ReadonlyRootfs"]
-            or host.get("Binds") or host.get("PortBindings")
+            or host["NetworkMode"] != (self.network.name if self.network else "none") or not host["ReadonlyRootfs"]
+            or host.get("Binds")
             or "ALL" not in host.get("CapDrop", [])
             or not any(value.startswith("no-new-privileges") for value in host.get("SecurityOpt", []))
             or any(mount.get("Type") != "tmpfs" for mount in record.get("Mounts", []))):
@@ -129,7 +183,9 @@ class OwnedPostgres:
         try:
             self.container_id = _run(["docker", "create", "--pull=never",
             "--name", f"studio-recovery-{self.nonce}-{self.role}", "--label", f"{LABEL}={self.nonce}",
-            "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "--network", self.network.name if self.network else "none",
+            *(["--publish", "127.0.0.1::5432"] if self.network and self.role == "restore" else []),
+            "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--user", "999:999", "--memory", "384m", "--cpus", "1", "--pids-limit", "128",
             "--tmpfs", f"/var/lib/postgresql/data:{data}", "--tmpfs", "/var/run/postgresql:rw,uid=999,gid=999,mode=0700",
             "--tmpfs", "/tmp:rw,size=16777216,mode=1777", "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
@@ -141,10 +197,14 @@ class OwnedPostgres:
             try:
                 records = json.loads(_run(["docker", "inspect", f"studio-recovery-{self.nonce}-{self.role}"]))
                 self.container_id = records[0]["Id"]
+                if self.network:
+                    self.network.containers.add(self.container_id)
                 self.verify()
             except (DrillFailure, ValueError, KeyError, IndexError):
                 raise DrillFailure("ambiguous_create_needs_identity_review") from None
             raise
+        if self.network:
+            self.network.containers.add(self.container_id)
         self.verify()
         _run(["docker", "start", self.container_id])
         deadline = time.monotonic() + 25
@@ -165,6 +225,20 @@ class OwnedPostgres:
 
     def sql(self, sql):
         return self.exec(["psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "studio_drill", "-d", "studio_drill"], input=sql)
+
+    def application_url(self):
+        self.verify()
+        if not self.network or self.role != "restore":
+            raise DrillFailure("drill_application_target_not_enabled")
+        record = json.loads(_run(["docker", "inspect", self.container_id]))[0]
+        ports = record["NetworkSettings"].get("Ports", {})
+        bindings = ports.get("5432/tcp", [])
+        if (set(ports) != {"5432/tcp"} or len(bindings) != 1
+            or bindings[0].get("HostIp") != "127.0.0.1"
+            or not re.fullmatch(r"[0-9]{1,5}", bindings[0].get("HostPort", ""))
+            or not 1024 <= int(bindings[0]["HostPort"]) <= 65535):
+            raise DrillFailure("drill_application_port_invalid")
+        return f"postgresql+psycopg://studio_drill@127.0.0.1:{bindings[0]['HostPort']}/studio_drill"
 
     def close(self):
         if self.container_id:
@@ -187,22 +261,34 @@ def compare_recovery_targets(report, *, rpo_seconds, rto_seconds):
     # A restore already over budget fails it; a fast quarantine cannot prove
     # successful full reactivation, deletion reconciliation or service health.
     rto_overrun = elapsed > rto_seconds
-    return {"result": "FAIL" if not rpo_pass or rto_overrun else "PARTIAL",
+    application_elapsed = report.get("synthetic_application_recovery_seconds")
+    application_result = "PENDING"
+    if application_elapsed is not None:
+        if (type(application_elapsed) not in (int, float) or not math.isfinite(application_elapsed)
+            or application_elapsed < elapsed or report.get("synthetic_application_access_result") != "PASS"):
+            raise DrillFailure("recovery_application_measurement_invalid")
+        application_result = "PASS" if application_elapsed <= rto_seconds else "FAIL"
+    failed = not rpo_pass or rto_overrun or application_result == "FAIL"
+    return {"result": "FAIL" if failed else "PASS" if application_result == "PASS" else "PARTIAL",
         "rpo_target_seconds": rpo_seconds, "rto_target_seconds": rto_seconds,
         "synthetic_loss_window_result": "PASS" if rpo_pass else "FAIL",
         "full_recovery_time_result": "FAIL" if rto_overrun else "PENDING",
-        "full_recovery_time_reason": "quarantine_only_no_service_reactivation",
+        "full_recovery_time_reason": "quarantine_only_no_service_reactivation" if application_result == "PENDING" else "synthetic_application_only_production_unverified",
+        "synthetic_application_time_result": application_result,
         "production_rpo_rto_verified": False}
 
 
-def rehearse():
+def rehearse(*, application_probe=None):
     image_id = _run(["docker", "image", "inspect", "postgres:17", "--format", "{{.Id}}"] ).decode().strip()
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
         raise DrillFailure("cached_postgres_image_identity_invalid")
     nonce = uuid.uuid4().hex
-    source, target = OwnedPostgres(image_id, nonce, "source"), OwnedPostgres(image_id, nonce, "restore")
+    network = OwnedNetwork(nonce) if application_probe else None
+    source, target = OwnedPostgres(image_id, nonce, "source", network), OwnedPostgres(image_id, nonce, "restore", network)
     schema, expected_ciphertexts, dialect = fixture_sql()
     try:
+        if network:
+            network.start()
         source.start()
         source.sql(schema)
         captured = datetime.now(timezone.utc)
@@ -232,7 +318,7 @@ def rehearse():
         counts = target.sql(b"SELECT count(*) FROM users WHERE status='active'; SELECT count(*) FROM projects WHERE archived_at IS NULL; SELECT count(*) FROM sessions WHERE revoked_at IS NULL; SELECT count(*) FROM trusted_devices WHERE revoked_at IS NULL;").decode().splitlines()
         if counts != ["0"] * 4:
             raise DrillFailure("restored_copy_not_quarantined")
-        return {"result": "PASS", "image_id": image_id, "fixture": "synthetic_current_model_schema",
+        report = {"result": "PASS", "image_id": image_id, "fixture": "synthetic_current_model_schema",
             "encrypted_drafts_restored": len(restored), "deleted_after_backup_reactivated": 0,
             "post_snapshot_metadata_updates_missing_from_restore": 1,
             "restore_to_quarantine_seconds": round(time.monotonic() - incident, 3),
@@ -240,12 +326,31 @@ def rehearse():
             "incident_snapshot_age_seconds": round(incident_snapshot_age, 3),
             "automatic_activation": False, "production_rpo_rto_verified": False,
             "limits": "No production snapshot/storage/Google/provider call; activation needs current deletion evidence."}
+        if application_probe:
+            # This current inventory is read from the separately verified source,
+            # not reconstructed from a stale snapshot or guessed in production.
+            current = source.sql(b"SELECT client_session_id FROM realtime_transcript_drafts ORDER BY client_session_id;").decode().splitlines()
+            if current != ["retained".ljust(20, "_")]:
+                raise DrillFailure("synthetic_current_deletion_inventory_invalid")
+            application_probe(target, tuple(current))
+            report["synthetic_application_access_result"] = "PASS"
+            report["synthetic_application_recovery_seconds"] = round(time.monotonic() - incident, 3)
+        report["target_comparison"] = compare_recovery_targets(report,
+            rpo_seconds=PERSONAL_RPO_SECONDS, rto_seconds=PERSONAL_RTO_SECONDS)
+        if report["target_comparison"]["result"] == "FAIL":
+            raise DrillFailure("synthetic_recovery_target_exceeded")
+        return report
     finally:
         # Always attempt both owned removals; never delete an unverified target.
         failures = []
         for container in (target, source):
             try:
                 container.close()
+            except DrillFailure as exc:
+                failures.append(str(exc))
+        if network:
+            try:
+                network.close()
             except DrillFailure as exc:
                 failures.append(str(exc))
         if failures:
