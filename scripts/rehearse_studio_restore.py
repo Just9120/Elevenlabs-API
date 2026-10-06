@@ -4,13 +4,14 @@ No URL, source dump, production target, secret file or existing container is
 accepted. Two owned, network-isolated tmpfs containers use a locally cached
 postgres:17 image. The default restored copy remains quarantined. The Linux
 test may probe authenticated access only after reconciling a separately read
-synthetic deletion inventory, using an owned internal network/loopback port.
+synthetic deletion inventory, using an owned internal network without published ports.
 """
 from __future__ import annotations
 
 import base64
 import argparse
 import enum
+import ipaddress
 import json
 import math
 import re
@@ -112,7 +113,7 @@ def fixture_sql():
 
 
 class OwnedNetwork:
-    """An internal bridge for a loopback-only synthetic application probe."""
+    """An internal bridge accessible only to its containers and the Linux host."""
     def __init__(self, nonce):
         self.nonce = nonce
         self.name = f"studio-recovery-{nonce}"
@@ -128,6 +129,7 @@ class OwnedNetwork:
             or record.get("Labels", {}).get(LABEL) != self.nonce
             or set(record.get("Containers", {})) - self.containers):
             raise DrillFailure("drill_network_boundary_invalid")
+        return record
 
     def start(self):
         try:
@@ -163,11 +165,7 @@ class OwnedPostgres:
         if self.network:
             self.network.verify()
         ports = host.get("PortBindings") or {}
-        expected_ports = self.network is not None and self.role == "restore"
-        bindings = ports.get("5432/tcp", [])
-        if (expected_ports and (set(ports) != {"5432/tcp"} or len(bindings) != 1
-            or bindings[0].get("HostIp") != "127.0.0.1"
-            or bindings[0].get("HostPort") not in ("", "0"))) or (not expected_ports and ports):
+        if ports:
             raise DrillFailure("drill_container_port_boundary_invalid")
         if (record["Image"] != self.image_id or record["Config"].get("Labels", {}).get(LABEL) != self.nonce
             or record.get("Name") != f"/studio-recovery-{self.nonce}-{self.role}"
@@ -184,7 +182,6 @@ class OwnedPostgres:
             self.container_id = _run(["docker", "create", "--pull=never",
             "--name", f"studio-recovery-{self.nonce}-{self.role}", "--label", f"{LABEL}={self.nonce}",
             "--network", self.network.name if self.network else "none",
-            *(["--publish", "127.0.0.1::5432"] if self.network and self.role == "restore" else []),
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--user", "999:999", "--memory", "384m", "--cpus", "1", "--pids-limit", "128",
             "--tmpfs", f"/var/lib/postgresql/data:{data}", "--tmpfs", "/var/run/postgresql:rw,uid=999,gid=999,mode=0700",
@@ -231,14 +228,27 @@ class OwnedPostgres:
         if not self.network or self.role != "restore":
             raise DrillFailure("drill_application_target_not_enabled")
         record = json.loads(_run(["docker", "inspect", self.container_id]))[0]
-        ports = record["NetworkSettings"].get("Ports", {})
-        bindings = ports.get("5432/tcp", [])
-        if (set(ports) != {"5432/tcp"} or len(bindings) != 1
-            or bindings[0].get("HostIp") != "127.0.0.1"
-            or not re.fullmatch(r"[0-9]{1,5}", bindings[0].get("HostPort", ""))
-            or not 1024 <= int(bindings[0]["HostPort"]) <= 65535):
-            raise DrillFailure("drill_application_port_invalid")
-        return f"postgresql+psycopg://studio_drill@127.0.0.1:{bindings[0]['HostPort']}/studio_drill"
+        # Internal bridges do not publish host ports. The Linux CI host reaches
+        # the container directly; accept only its verified owned-network IPv4.
+        networks = record["NetworkSettings"].get("Networks", {})
+        if set(networks) != {self.network.name}:
+            raise DrillFailure("drill_application_network_invalid")
+        endpoint = networks[self.network.name]
+        if endpoint.get("NetworkID") != self.network.network_id:
+            raise DrillFailure("drill_application_network_invalid")
+        network_record = self.network.verify()
+        try:
+            address = ipaddress.IPv4Address(endpoint.get("IPAddress", ""))
+            subnets = [ipaddress.IPv4Network(config["Subnet"])
+                for config in network_record.get("IPAM", {}).get("Config", [])]
+        except (ValueError, TypeError):
+            raise DrillFailure("drill_application_address_invalid") from None
+        if (not address.is_private or address.is_loopback or address.is_link_local
+            or not any(1 <= subnet.prefixlen <= 30 and address in subnet
+                and address not in (subnet.network_address, subnet.broadcast_address) for subnet in subnets)
+            or any(record["NetworkSettings"].get("Ports", {}).values())):
+            raise DrillFailure("drill_application_address_invalid")
+        return f"postgresql+psycopg://studio_drill@{address}:5432/studio_drill"
 
     def close(self):
         if self.container_id:

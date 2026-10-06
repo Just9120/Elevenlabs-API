@@ -88,22 +88,33 @@ def test_application_network_must_be_internal_owned_and_free_of_foreign_containe
     assert calls == [["docker", "network", "inspect", network.network_id]]
 
 
-@pytest.mark.parametrize("address,accepted", [("127.0.0.1", True), ("0.0.0.0", False), ("::", False)])
-def test_application_database_port_never_exposes_the_restored_copy_outside_loopback(monkeypatch, address, accepted):
+@pytest.mark.parametrize("violation", [None, "publish_loopback", "publish_public", "public_ip", "foreign_subnet", "foreign_network", "extra_network"])
+def test_application_database_accepts_only_owned_internal_address_without_published_ports(monkeypatch, violation):
     network = drill.OwnedNetwork("nonce")
-    monkeypatch.setattr(network, "verify", lambda: None)
+    network.network_id = "c" * 64
+    monkeypatch.setattr(network, "verify", lambda: {"IPAM": {"Config": [{"Subnet": "172.28.0.0/16"}]}})
     container = drill.OwnedPostgres("sha256:" + "a" * 64, "nonce", "restore", network)
     container.container_id = "b" * 64
     record = {"Image": container.image_id, "Name": "/studio-recovery-nonce-restore",
         "Config": {"Labels": {drill.LABEL: "nonce"}}, "HostConfig": {"NetworkMode": network.name,
             "ReadonlyRootfs": True, "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"],
-            "PortBindings": {"5432/tcp": [{"HostIp": address, "HostPort": ""}]}}, "Mounts": [],
-        "NetworkSettings": {"Ports": {"5432/tcp": [{"HostIp": address, "HostPort": "34567"}]}}}
+            "PortBindings": {}}, "Mounts": [],
+        "NetworkSettings": {"Ports": {"5432/tcp": None}, "Networks": {network.name: {
+            "NetworkID": network.network_id, "IPAddress": "172.28.0.2"}}}}
+    if violation in ("publish_loopback", "publish_public"):
+        address = "127.0.0.1" if violation == "publish_loopback" else "0.0.0.0"
+        record["HostConfig"]["PortBindings"] = {"5432/tcp": [{"HostIp": address, "HostPort": "34567"}]}
+    elif violation in ("public_ip", "foreign_subnet"):
+        record["NetworkSettings"]["Networks"][network.name]["IPAddress"] = "8.8.8.8" if violation == "public_ip" else "172.29.0.2"
+    elif violation == "foreign_network":
+        record["NetworkSettings"]["Networks"][network.name]["NetworkID"] = "d" * 64
+    elif violation == "extra_network":
+        record["NetworkSettings"]["Networks"]["unrelated"] = {}
     monkeypatch.setattr(drill, "_run", lambda *args, **kwargs: json.dumps([record]).encode())
-    if accepted:
-        assert container.application_url() == "postgresql+psycopg://studio_drill@127.0.0.1:34567/studio_drill"
+    if violation is None:
+        assert container.application_url() == "postgresql+psycopg://studio_drill@172.28.0.2:5432/studio_drill"
     else:
-        with pytest.raises(drill.DrillFailure, match="port_boundary_invalid"):
+        with pytest.raises(drill.DrillFailure, match="(port_boundary|address|network)_invalid"):
             container.application_url()
 
 

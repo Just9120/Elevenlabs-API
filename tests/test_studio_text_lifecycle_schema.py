@@ -132,7 +132,7 @@ def test_populated_0039_shape_keeps_ciphertext_and_does_not_enroll_sources(monke
         connection.execute(metadata.tables["users"].insert().values(id="owner", email="migration@example.test"))
         connection.execute(metadata.tables["projects"].insert().values(id="project", owner_user_id="owner", title="Synthetic"))
         connection.execute(metadata.tables["sources"].insert().values(
-            id="source", project_id="project", source_type="device", original_filename="test.wav"))
+            id="source", project_id="project", source_type=models.SourceType.local_upload, original_filename="test.wav"))
         connection.execute(metadata.tables["transcription_jobs"].insert().values(
             id="job", owner_user_id="owner", project_id="project"))
         connection.execute(metadata.tables["transcription_job_sources"].insert().values(

@@ -442,8 +442,8 @@ to a quarantined restored state. The Linux suite requires this rehearsal;
 unavailable local Docker remains an explicit local limitation, not PASS. The default comparison uses the owner-approved personal targets12h/4h; an explicit diagnostic override must supply both `--rpo-seconds` and `--rto-seconds`. Invalid or one-sided targets fail before container creation. The loss window is measured at the incident, excluding subsequent restore time; an exceeded RPO or already-over-budget quarantine fails. An in-budget quarantine reports full RTO as PENDING, never PASS, because service reactivation is outside that measurement.
 
 The Linux integration test also checks authenticated application access on the
-restored synthetic target. It uses an owned internal bridge and a random port
-bound only to127.0.0.1; exact image/name/nonce/network/port ownership is checked
+restored synthetic target. The Linux host accesses the owned internal bridge
+directly, without published host ports. Exact image/name/nonce/network/subnet ownership is checked
 before access and cleanup. A separately read current inventory authorizes
 removal of the fixture cleared after backup before only the synthetic owner
 and workspace are reactivated. Restored old sessions remain revoked; a fresh
