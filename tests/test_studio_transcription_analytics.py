@@ -14,6 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
 
 
+def test_provider_identity_survives_credential_rotation_and_future_models():
+    from studio_api.transcription_analytics import build_transcription_analytics_payload
+    rows = [SimpleNamespace(status="queued", provider=p, provider_credential_id="rotated",
+        options_json=json.dumps({"_stt_model": m}), operating_mode="standard", language="ru")
+        for p, m in [("yandex", "general"), ("yandex", "deferred-general"), ("elevenlabs", "scribe_v2"), ("yandex", "future-model")]]
+    payload = build_transcription_analytics_payload(jobs=rows, source_count=4, output_count=0,
+        attempts=[], provider_by_credential_id={"rotated": "elevenlabs"})
+    assert payload["configuration"]["provider_model"] == {
+        "elevenlabs_scribe_v2": 1, "yandex_general": 1, "yandex_deferred_general": 1, "unknown": 1}
+
+
 def enum(value: str):
     return SimpleNamespace(value=value)
 
@@ -154,6 +165,8 @@ def test_analytics_aggregates_only_safe_durable_counts_and_intervals():
         "configuration": {
             "provider_model": {
                 "elevenlabs_scribe_v2": 2,
+                "yandex_general": 0,
+                "yandex_deferred_general": 0,
                 "unknown": 1,
             },
             "language_mode": {"ru": 1, "en": 1, "detect": 1, "other": 0},
@@ -351,6 +364,8 @@ def test_database_analytics_is_exact_and_uses_constant_query_count(monkeypatch):
     }
     assert payload["configuration"]["provider_model"] == {
         "elevenlabs_scribe_v2": 25,
+        "yandex_general": 0,
+        "yandex_deferred_general": 0,
         "unknown": 0,
     }
     assert payload["usage_cost"] == {

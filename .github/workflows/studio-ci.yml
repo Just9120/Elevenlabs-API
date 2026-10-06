@@ -1,75 +1,12 @@
 name: Studio PWA CI
 
 on:
-  pull_request:
-    paths:
-      - 'apps/studio/**'
-      - 'apps/studio-api/**'
-      - 'deploy/studio/**'
-      - '.github/workflows/studio-ci.yml'
-      - '.github/workflows/studio-platform-cd.yml'
-      - '.github/workflows/studio-edge-cd.yml'
-      - '.github/workflows/studio-migration-environment-probe.yml'
-      - 'scripts/deploy_studio_platform_component.sh'
-      - 'scripts/deploy_studio_platform_component_bundle_transport.sh'
-      - 'scripts/studio_processing_preflight.sh'
-      - 'scripts/check_studio_worker_secret.py'
-      - 'scripts/configure_studio_database_roles.sh'
-      - 'scripts/configure_studio_worker_db_role.sh'
-      - 'tests/test_studio_processing_preflight.py'
-      - 'tests/test_studio_database_roles.py'
-      - 'tests/test_studio_worker_secret_metadata.py'
-      - 'tests/test_studio_worker_db_role.py'
-      - 'tests/test_studio_worker_db_role_integration.py'
-      - 'tests/support/studio_web_network_smoke.py'
-      - 'tests/test_studio_web_network_smoke.py'
-      - 'scripts/migrate_studio_platform.sh'
-      - 'scripts/release_studio_platform_migration.sh'
-      - 'scripts/release_studio_edge.sh'
-      - 'scripts/prepare_studio_edge_known_hosts.py'
-      - 'scripts/backup_studio_postgres_r2.sh'
-      - 'tests/test_migrate_studio_platform.py'
-      - 'tests/test_studio_migration_release.py'
-      - 'tests/test_studio_edge_release.py'
-      - 'tests/test_studio_migration_environment_probe.py'
-      - 'tests/support/studio_browser_e2e_seed.py'
-      - 'tests/test_studio_browser_e2e_contract.py'
-      - 'docs/runbooks/studio-platform-ops.md'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/studio/**'
-      - 'apps/studio-api/**'
-      - 'deploy/studio/**'
-      - '.github/workflows/studio-ci.yml'
-      - '.github/workflows/studio-platform-cd.yml'
-      - '.github/workflows/studio-edge-cd.yml'
-      - '.github/workflows/studio-migration-environment-probe.yml'
-      - 'scripts/deploy_studio_platform_component.sh'
-      - 'scripts/deploy_studio_platform_component_bundle_transport.sh'
-      - 'scripts/studio_processing_preflight.sh'
-      - 'scripts/check_studio_worker_secret.py'
-      - 'scripts/configure_studio_database_roles.sh'
-      - 'scripts/configure_studio_worker_db_role.sh'
-      - 'tests/test_studio_processing_preflight.py'
-      - 'tests/test_studio_database_roles.py'
-      - 'tests/test_studio_worker_secret_metadata.py'
-      - 'tests/test_studio_worker_db_role.py'
-      - 'tests/test_studio_worker_db_role_integration.py'
-      - 'tests/support/studio_web_network_smoke.py'
-      - 'tests/test_studio_web_network_smoke.py'
-      - 'scripts/migrate_studio_platform.sh'
-      - 'scripts/release_studio_platform_migration.sh'
-      - 'scripts/release_studio_edge.sh'
-      - 'scripts/prepare_studio_edge_known_hosts.py'
-      - 'scripts/backup_studio_postgres_r2.sh'
-      - 'tests/test_migrate_studio_platform.py'
-      - 'tests/test_studio_migration_release.py'
-      - 'tests/test_studio_edge_release.py'
-      - 'tests/test_studio_migration_environment_probe.py'
-      - 'tests/support/studio_browser_e2e_seed.py'
-      - 'tests/test_studio_browser_e2e_contract.py'
-      - 'docs/runbooks/studio-platform-ops.md'
+  workflow_call:
+    outputs:
+      studio_runner:
+        value: ${{ jobs.studio.outputs.runner }}
+      browser_runner:
+        value: ${{ jobs.browser-e2e.outputs.runner }}
   workflow_dispatch:
 
 permissions:
@@ -81,12 +18,16 @@ concurrency:
 
 jobs:
   studio:
+    outputs:
+      runner: ${{ steps.runner.outputs.runner }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: runner
+        run: python scripts/ci_validation.py runner-context
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
@@ -248,6 +189,8 @@ jobs:
       - run: echo "STUDIO_CI_OK"
 
   browser-e2e:
+    outputs:
+      runner: ${{ steps.runner.outputs.runner }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -293,6 +236,8 @@ jobs:
           cache-dependency-path: |
             apps/studio-api/requirements.txt
             apps/studio-api/constraints.txt
+      - id: runner
+        run: python scripts/ci_validation.py runner-context
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'

@@ -27,6 +27,8 @@ export type TranscriptionAnalytics = {
   configuration: {
     provider_model: {
       elevenlabs_scribe_v2: number;
+      yandex_general?: number;
+      yandex_deferred_general?: number;
       unknown: number;
     };
     language_mode: {
@@ -73,6 +75,7 @@ const EXACT_KEYS = {
   success: ["successful_jobs", "terminal_jobs", "percentage"],
   configuration: ["provider_model", "language_mode", "diarization"],
   providerModel: ["elevenlabs_scribe_v2", "unknown"],
+  providerModelExtended: ["elevenlabs_scribe_v2", "yandex_general", "yandex_deferred_general", "unknown"],
   languageMode: ["ru", "en", "detect", "other"],
   diarization: ["enabled", "disabled"],
   usageCost: [
@@ -116,10 +119,8 @@ export function parseTranscriptionAnalytics(
     !isPercentageOrNull(value.success.percentage) ||
     !isRecord(value.configuration) ||
     !hasExactKeys(value.configuration, EXACT_KEYS.configuration) ||
-    !isCountRecord(
-      value.configuration.provider_model,
-      EXACT_KEYS.providerModel,
-    ) ||
+    !(isCountRecord(value.configuration.provider_model, EXACT_KEYS.providerModel) ||
+      isCountRecord(value.configuration.provider_model, EXACT_KEYS.providerModelExtended)) ||
     !isCountRecord(
       value.configuration.language_mode,
       EXACT_KEYS.languageMode,

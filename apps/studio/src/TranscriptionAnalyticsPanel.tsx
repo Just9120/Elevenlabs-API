@@ -294,6 +294,8 @@ export function TranscriptionAnalyticsPanel({
                     ElevenLabs · scribe_v2{" "}
                     {analytics.configuration.provider_model.elevenlabs_scribe_v2}
                   </span>
+                  {(analytics.configuration.provider_model.yandex_general ?? 0) > 0 && <span>Yandex SpeechKit · general {analytics.configuration.provider_model.yandex_general}</span>}
+                  {(analytics.configuration.provider_model.yandex_deferred_general ?? 0) > 0 && <span>Yandex SpeechKit · deferred-general {analytics.configuration.provider_model.yandex_deferred_general}</span>}
                   {analytics.configuration.provider_model.unknown > 0 && (
                     <small>
                       Не определено:{" "}

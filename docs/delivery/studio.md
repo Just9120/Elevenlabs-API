@@ -137,7 +137,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PB-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-10` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; F06: unknown creation metadata подставляется как placeholder; корректная дата для доступного источника есть, отсутствие даты и provenance не закрыты. |
+| `PB-10` | READY | ✅ | ✅ | ✅ | PR327: authoritative source date либо полное отсутствие поля; prepared export не подменяет дату оригинала. Document/source ownership и lifecycle regressions PASS; current-revision Linux CI/delivery PENDING. |
 | `PB-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-AUDIO-PREPARATION-01`
@@ -266,7 +266,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PO-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PO-14` | IN_PROGRESS | ◐ | ◐ | ✅ | F06: Yandex в analytics отображается как unknown |
+| `PO-14` | READY | ✅ | ✅ | ✅ | PR327: durable provider/model snapshot, ElevenLabs/Yandex standard/economic/unknown buckets, legacy payload/cost compatibility; Python и UI regressions PASS. Linux CI/delivery PENDING. |
 | `PO-15` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |

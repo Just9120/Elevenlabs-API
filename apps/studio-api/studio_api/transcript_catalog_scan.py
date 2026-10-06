@@ -54,6 +54,12 @@ TRANSCRIPT_OPTIONAL_METADATA_PREFIXES = (
     "Segment project:",
     "Segment time range:",
     "Original source:",
+    "Source:",
+    "Preparation:",
+    "Timeline:",
+    "Transformations:",
+    "Recording date provenance:",
+    "Clip:",
 )
 TRANSCRIPT_LEGACY_METADATA_PREFIXES = (
     "Source file:",

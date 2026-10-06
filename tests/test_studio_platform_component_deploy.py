@@ -290,7 +290,8 @@ def test_studio_platform_cd_uses_exact_bundle_transport_for_components() -> None
     component_script = SCRIPT.read_text(encoding="utf-8")
 
     assert workflow.count("Checkout exact trusted revision") == 4
-    assert workflow.count("persist-credentials: false") == 4
+    assert workflow.count("ref: ${{ needs.detect-components.outputs.revision }}") == 4
+    assert workflow.count("persist-credentials: false") == 6
     for component in ("web", "api", "worker"):
         assert (
             workflow.count(
@@ -334,13 +335,11 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
     missing = sorted(path for path in literal_paths if not (ROOT / path).is_file())
 
     assert missing == []
-    assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
-    assert (
-        workflow.count(
-            "- 'scripts/deploy_studio_platform_component_bundle_transport.sh'"
-        )
-        == 2
-    )
+    assert "workflow_call:" in workflow
+    from test_ci_validation import ci
+    assert ci.select(["docs/runbooks/studio-platform-ops.md"]) == (False, False)
+    assert ci.select(["scripts/deploy_studio_platform_component_bundle_transport.sh"]) == (True, True)
+
 
 
 def test_repository_local_git_auth_or_rewrite_config_blocks_before_fetch(
@@ -496,7 +495,7 @@ def test_workflow_worker_is_manual_only_and_bundle_transported() -> None:
         "bash scripts/deploy_studio_platform_component_bundle_transport.sh worker"
         in workflow
     )
-    assert "worker=true" not in workflow.split('elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]', 1)[1].split('echo "web=$web"',1)[0]
+    assert "worker=true" not in workflow.split('elif [[ "$CD_ENABLED" == "true" ]]', 1)[1].split('echo "web=$web"',1)[0]
     assert "manage_studio_worker.sh drain" not in workflow
     assert "alembic upgrade" not in workflow
 

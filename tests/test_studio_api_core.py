@@ -5317,6 +5317,8 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
     assert body["configuration"] == {
         "provider_model": {
             "elevenlabs_scribe_v2": 1,
+            "yandex_general": 0,
+            "yandex_deferred_general": 0,
             "unknown": 0,
         },
         "language_mode": {"ru": 0, "en": 0, "detect": 1, "other": 0},
@@ -7275,7 +7277,7 @@ def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessin
             .one()
         )
         assert created_job.options_json == (
-            '{"_existing_result_reprocess_authorized":true,"diarize":true}'
+            '{"_existing_result_reprocess_authorized":true,"_stt_model":"scribe_v2","diarize":true}'
         )
     finally:
         db.close()
@@ -7917,7 +7919,7 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
         jobs = db.query(TranscriptionJob).filter_by(project_id=pid).order_by(TranscriptionJob.batch_position).all()
         assert len(jobs) == 2
         assert [j.output_drive_folder_id for j in jobs] == ["folder-a", "folder-b"]
-        assert [j.options_json for j in jobs] == ['{"diarize":true}', '{"diarize":true}']
+        assert [json.loads(j.options_json) for j in jobs] == [{"_stt_model": "scribe_v2", "diarize": True}] * 2
         assert all(len(j.sources) == 1 and j.sources[0].position == 0 for j in jobs)
     finally:
         db.close()

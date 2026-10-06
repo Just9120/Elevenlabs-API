@@ -106,3 +106,8 @@ Automatic rollback допустим только при проверенной �
 Указывай источники и время/revision проверки; неизвестное — UNSET, неприменимое — N/A с основанием. При изменении stack, settings или окружений обновляй затронутые процедуры. Сохраняй доступную версию шаблона и основания проектных отличий, не выдумывая provenance.
 
 Исключение из safety contract требует решения пользователя/уполномоченного владельца: правило, причина, scope/срок, риск, compensating checks и stop/recovery criteria. Уже разрешённое исключение действует в своих границах и не меняет универсальный шаблон. Стоимость, flaky test или ожидание доступа не разрешают обходить обязательный gate.
+
+
+## Project profile — Elevenlabs-API
+
+Настройка F13/F63 разрешена владельцем06Oct2026 в Goal DELIVERY-METADATA-CLEANUP-20261006. Canonical validation commands, required aggregate `ci-required`, source/tree/context proof, selection/reuse fallback и cost records — [validation runbook](runbooks/validation.md). Exact-main component/edge CI gate, production target/queue, protected migration approval и post-checks — [Studio operations](runbooks/studio-platform-ops.md#ci-gate-для-component-и-edge-delivery). Общая policy выше не изменена. GitHub enforcement применяется с readback после PASS текущего PR, до merge; до primary подтверждения не считать настройку завершённой. Production provider/Google mutations и cleanup/restore не являются CI fixtures.

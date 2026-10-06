@@ -1,11 +1,10 @@
 name: Studio Platform CD
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'apps/studio/**'
-      - 'apps/studio-api/**'
   workflow_dispatch:
     inputs:
       component:
@@ -25,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: studio-platform-production
@@ -32,8 +32,11 @@ concurrency:
 
 jobs:
   detect-components:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
+      revision: ${{ steps.trust.outputs.revision }}
       web: ${{ steps.detect.outputs.web }}
       api: ${{ steps.detect.outputs.api }}
       migration_release: ${{ steps.detect.outputs.migration_release }}
@@ -44,13 +47,32 @@ jobs:
       worker_reason: ${{ steps.detect.outputs.worker_reason }}
     steps:
       - name: Checkout for push detection
-        if: github.event_name == 'push'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Require successful CI for exact current trusted main
+        id: trust
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
+
+      - name: Checkout validated candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.trust.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect selected components
         id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMPONENT: ${{ inputs.component }}
+          MIGRATION_ENABLED: ${{ vars.STUDIO_MIGRATION_RELEASE_ENABLED }}
+          CD_ENABLED: ${{ vars.STUDIO_PLATFORM_CD_ENABLED }}
         shell: bash
         run: |
           set -euo pipefail
@@ -64,12 +86,12 @@ jobs:
           migration_reason=not_selected
           worker_reason=not_selected
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            case "${{ inputs.component }}" in
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            case "$COMPONENT" in
               web) web=true; web_reason=manual_selection ;;
               api) api=true; api_reason=manual_selection ;;
               migration)
-                if [[ "${{ vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" == "true" ]]; then
+                if [[ "$MIGRATION_ENABLED" == "true" ]]; then
                   migration_release=true
                   migration_reason=manual_selection_approval_required
                   api_reason=migration_release_selected
@@ -81,13 +103,13 @@ jobs:
               worker) worker=true; worker_reason=manual_selection ;;
               *) echo "unsupported component" >&2; exit 1 ;;
             esac
-          elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]; then
+          elif [[ "$CD_ENABLED" == "true" ]]; then
             web_reason=not_changed
             api_reason=not_changed
             migration_reason=not_changed
             worker_reason=manual_only
-            before="${{ github.event.before }}"
-            after="${{ github.sha }}"
+            before="$(git rev-parse HEAD^)"
+            after="$(git rev-parse HEAD)"
             zero_sha="0000000000000000000000000000000000000000"
 
             if [[ "$before" == "$zero_sha" ]]; then
@@ -124,7 +146,7 @@ jobs:
             fi
 
             if [[ "$api_migration_changed" == "true" ]]; then
-              if [[ "${{ vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" == "true" ]]; then
+              if [[ "$MIGRATION_ENABLED" == "true" ]]; then
                 migration_release=true
                 migration_reason=source_changed_approval_required
                 api_reason=migration_release_selected
@@ -167,6 +189,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ needs.detect-components.outputs.revision }}
+
+      - name: Recheck CI and current main before deployment credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
 
       - name: Validate deployment secrets
         shell: bash
@@ -202,7 +230,7 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ needs.detect-components.outputs.revision }}
         run: |
           set -euo pipefail
           bash scripts/deploy_studio_platform_component_bundle_transport.sh web
@@ -220,6 +248,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ needs.detect-components.outputs.revision }}
+
+      - name: Recheck CI and current main before deployment credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
 
       - name: Validate deployment secrets
         shell: bash
@@ -255,7 +289,7 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ needs.detect-components.outputs.revision }}
         run: |
           set -euo pipefail
           bash scripts/deploy_studio_platform_component_bundle_transport.sh api
@@ -264,7 +298,7 @@ jobs:
     needs:
       - detect-components
       - deploy-web
-    if: always() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.component == 'migration')) && needs.detect-components.outputs.migration_release == 'true' && (needs.detect-components.outputs.web != 'true' || needs.deploy-web.result == 'success')
+    if: always() && (github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.component == 'migration')) && needs.detect-components.outputs.migration_release == 'true' && (needs.detect-components.outputs.web != 'true' || needs.deploy-web.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: studio-production-migration
@@ -274,6 +308,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ needs.detect-components.outputs.revision }}
+
+      - name: Recheck CI and current main after protected approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
 
       - name: Validate guarded migration release inputs
         shell: bash
@@ -281,7 +321,7 @@ jobs:
           MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
           MIGRATION_SSH_KEY: ${{ secrets.STUDIO_MIGRATION_SSH_KEY }}
           MIGRATION_KNOWN_HOSTS: ${{ secrets.STUDIO_MIGRATION_KNOWN_HOSTS }}
-          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SHA: ${{ needs.detect-components.outputs.revision }}
           RELEASE_REF: ${{ github.ref }}
           RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
         run: |
@@ -322,7 +362,7 @@ jobs:
         shell: bash
         env:
           MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
-          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SHA: ${{ needs.detect-components.outputs.revision }}
           RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
         run: |
           set -euo pipefail
@@ -375,6 +415,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ needs.detect-components.outputs.revision }}
+
+      - name: Recheck CI and current main before deployment credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
 
       - name: Validate deployment secrets
         shell: bash
@@ -410,7 +456,7 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ needs.detect-components.outputs.revision }}
         run: |
           set -euo pipefail
           bash scripts/deploy_studio_platform_component_bundle_transport.sh worker

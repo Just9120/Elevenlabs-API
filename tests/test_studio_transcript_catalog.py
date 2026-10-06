@@ -809,3 +809,12 @@ def test_media_clip_range_participates_in_provider_attempt_identity():
     assert classify_provider_attempt_authorities(
         sources=(candidate,), evidence=evidence, target_settings=second
     )[candidate.id] == ProviderAttemptAuthorityStatus.available
+
+
+def test_persisted_model_identity_survives_configuration_change(monkeypatch):
+    from types import SimpleNamespace
+    from studio_api.transcript_catalog import effective_settings_from_persisted_job
+    monkeypatch.setattr("studio_api.stt_provider.resolve_capability", lambda *a: SimpleNamespace(model="new-configured-model"))
+    selection = effective_settings_from_persisted_job(job_provider="yandex", credential_provider="elevenlabs",
+        language="ru", options_json='{"_stt_model":"general"}', settings=SimpleNamespace())
+    assert selection.provider == "yandex" and selection.model == "general"

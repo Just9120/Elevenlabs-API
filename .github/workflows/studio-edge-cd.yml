@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: studio-edge-production
@@ -26,6 +27,12 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require successful CI for exact current main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
 
       - name: Validate exact-main release selection
         id: validate
@@ -66,6 +73,11 @@ jobs:
         with:
           ref: ${{ needs.validate-selection.outputs.release_sha }}
           persist-credentials: false
+
+      - name: Recheck current main and CI after environment approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_validation.py deploy-gate
 
       - name: Validate dedicated edge deployment secrets
         shell: bash

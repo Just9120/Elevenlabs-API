@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { parseTranscriptionAnalytics } from "./transcriptionAnalyticsModel";
 
+it("accepts legacy and actual Yandex model counts but rejects ambiguous partial extensions", () => {
+  expect(parseTranscriptionAnalytics(valid)).not.toBeNull();
+  const updated = structuredClone(valid);
+  const provider_model = { elevenlabs_scribe_v2: 1, yandex_general: 1, yandex_deferred_general: 1, unknown: 0 };
+  expect(parseTranscriptionAnalytics({ ...updated, configuration: { ...updated.configuration, provider_model } })).not.toBeNull();
+  expect(parseTranscriptionAnalytics({ ...updated, configuration: { ...updated.configuration, provider_model: { ...valid.configuration.provider_model, yandex_general: 0 } } })).toBeNull();
+  expect(parseTranscriptionAnalytics({ ...updated, configuration: { ...updated.configuration, provider_model: { ...provider_model, yandex_general: -1 } } })).toBeNull();
+});
+
 const valid = {
   scope: "project_all_time",
   totals: { jobs: 3, sources: 4, outputs: 1 },
