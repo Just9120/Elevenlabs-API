@@ -1,6 +1,6 @@
 # Реестр AC: Colab
 
-Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/colab.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
+Часть [delivery dashboard](../delivery-plan.md). Полный аудит 2026-10-10 на проверенном `origin/main` `bc5150eb189b44867101ca45b9da201921a99227`; формулировки — [spec](../spec/colab.md), источник — [trace](../spec/source-trace.md). Все действующие ID повторно оценены по реализации и подходящим проверкам A20261010-CODE/CI; runtime scope/ограничения — A20261010-RUNTIME в плане. CODE/TEST/CI — типы Evidence, а не три процента; ◐ ограничивает проверенные условия. ALIAS/SUPERSEDED исключены. READY не требует ручной приёмки и не доказывает commercial rollout.
 
 ### `COLAB-BATCH-01`
 
