@@ -1,8 +1,6 @@
 # Реестр AC: Studio: существующие personal-подсистемы
 
-Часть [delivery dashboard](../delivery-plan.md). Аудит 2026-10-04 на `origin/main` `9be46234b6961da076c6360adead845f382d592b`; текущие формулировки — [spec](../spec/studio.md), источники — [trace](../spec/source-trace.md). CODE — проверка entrypoints/adapters/ownership; TEST — подходящие существующие synthetic suites, полный Linux CI A20261004-CI. ◐ означает ограниченное покрытие условий, а не долю AC. Runtime Evidence — в плане, не выводится из значка CI. Все строки повторно сверены; нерешённые внешние сценарии указаны в findings. ALIAS/SUPERSEDED исключены; отдельного процента ручной приёмки нет.
-
-Checkpoint06Oct: выбранные AC ниже относятся к локальной ветке/current diff и таблице Evidence в [delivery dashboard](../delivery-plan.md). Заголовок аудита — исторический baseline origin/main. Для изменённого поведения current-revision CI PENDING; старый PASS не доказывает эту ветку.
+Часть [delivery dashboard](../delivery-plan.md). Полный аудит 2026-10-10 на проверенном `origin/main` `bc5150eb189b44867101ca45b9da201921a99227`; формулировки — [spec](../spec/studio.md), источник — [trace](../spec/source-trace.md). Все действующие ID повторно оценены по реализации и подходящим проверкам A20261010-CODE/CI; runtime scope/ограничения — A20261010-RUNTIME в плане. CODE/TEST/CI — типы Evidence, а не три процента; ◐ ограничивает проверенные условия. ALIAS/SUPERSEDED исключены. READY не требует ручной приёмки и не доказывает commercial rollout.
 
 ### `PWA-CORE-01`
 
@@ -36,7 +34,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PUX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-06` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: local audio validation раскрывает настройки, фокусирует неверное поле и показывает inline/ARIA error; Vitest 751/751, Studio CI и browser-e2e PASS, web/API CD 35962179284 PASS. |
 | `PUX-07` | READY | ✅ | ✅ | ✅ | PR #310 доставил `source_names`, PR #311 убрал второе отображение имени внутри группы; targeted/full Vitest 239/752 PASS, PR CI 35967620882/35967621016 и main CI 35967953699/35967953526 PASS. Web CD 35967953684, live web `02fc21d`: имя ровно один раз, номер элемента сохранён. |
-| `PUX-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PUX-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F74: Live disclosure отрицает automatic reconnect, хотя realtimeSession реализует bounded reconnect/replay. Browser10Oct на bc5150eb189b44867101ca45b9da201921a99227; код RTC остаётся READY, объяснение требует исправления. |
 | `PUX-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -53,7 +51,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `UXPOL-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `UXPOL-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `UXPOL-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `UXPOL-07` | READY | ✅ | ◐ | ✅ | Поиск/выбор уже реализован, App.tsx:9437–9454; V26-WEB PASS; browser scenario PENDING |
+| `UXPOL-07` | READY | ✅ | ◐ | ✅ | Поиск/выбор уже реализован, App.tsx:9437–9454; V26-WEB PASS; historical browser scenario не подтверждён этим record, current representative UI scope A20261010-RUNTIME |
 | `UXPOL-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-UX-CONTROLS-04`
@@ -104,7 +102,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `PG-01` | READY | ✅ | ✅ | ◐ | V30-LAYOUT-LOCAL: исправлена grid regression после #305; geometry PASS desktop/mobile, remote E2E/merge и production smoke этой поправки PENDING |
+| `PG-01` | READY | ✅ | ✅ | ◐ | V30-LAYOUT-LOCAL: исправлена grid regression после #305; geometry PASS desktop/mobile, поправка merged; current CI37502013651/production identity PASS10Oct, geometry этого конкретного сценария runtime отдельно не повторялась |
 | `PG-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PG-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -133,11 +131,11 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PB-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-06` | READY | ✅ | ✅ | ✅ | A20261004; job_processing_orchestrator.py, job_google_docs_output.py; тесты Google output/orchestration. Яндекс Диск учитывается отдельно YD-05; не реализован. |
+| `PB-06` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; job_processing_orchestrator.py, job_google_docs_output.py; тесты Google output/orchestration. Яндекс Диск учитывается отдельно YD-05; не реализован. |
 | `PB-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-10` | READY | ✅ | ✅ | ✅ | PR327: authoritative source date либо полное отсутствие поля; prepared export не подменяет дату оригинала. Document/source ownership и lifecycle regressions PASS; current-revision Linux CI/delivery PENDING. |
+| `PB-10` | READY | ✅ | ✅ | ✅ | PR327: authoritative source date либо полное отсутствие поля; prepared export не подменяет дату оригинала. Document/source ownership и lifecycle regressions PASS; PR327 mergedbc5150e; exact-main CI37502013651 и web/API CD37502621690/worker37504355706 SUCCESS06Oct; runtime identity/health10Oct PASS (A20261010-RUNTIME). |
 | `PB-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-AUDIO-PREPARATION-01`
@@ -157,23 +155,23 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `AP-11` | READY | ✅ | ✅ | ✅ | V27 / PR #302: full dotted Unicode title, processor/API и actual local download; web/API/worker 84ae25f. Новый Drive side effect не выполнялся в проверках агента; это ограничение Evidence |
 | `AP-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-13` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-14` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `AP-14` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `AP-15` | READY | ✅ | ✅ | ✅ | F41 исправлен #318/8d9f45d: output сохранён до initial Drive export, cancellation/recovery; CI 36701312137/36701312154 PASS, current main CI 37155276745/37155276751 PASS. |
-| `AP-16` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `AP-16` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `AP-17` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: локальный результат остаётся доступным при переходе между разделами той же вкладки; regression App component и 751/751 Vitest PASS, Studio CI/browser-e2e и web CD 35962179284 PASS. Обновление/закрытие вкладки не обещает durable storage. |
 | `AP-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-19` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-22` | READY | ✅ | ✅ | ⏳ | V30-DELIVERY: #305/a56afb8, required CI и web/API/worker CD PASS; real numeric/sorting smoke PASS, Google writes покрыты fakes |
-| `AP-23` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `AP-23` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `AP-24` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-25` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-26` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-31` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `AP-31` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`
@@ -194,7 +192,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PM-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PM-05` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261004; Полный Google Doc и failed export guards реализованы; общий контракт для DOCX на Яндекс Диске не реализован (F02). Восстановление текста до явной отмены нарушено TTL (F01). |
+| `PM-05` | IN_PROGRESS | ◐ | ◐ | ✅ | A20261010-CODE/CI; full Google Doc и failed-export guards реализованы; unfinished text до документа/cancel подтверждён PR326. Optional DOCX destination на Яндекс Диске отсутствует (F02); прежний TTL finding F01 закрыт. |
 | `PM-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PM-07` | READY | ✅ | ✅ | ✅ | PR #313–#316 поставлены; последний merge `3902b2a`, main CI 36285760379/36285760427 и web/API CD 36285760435 PASS. Принятый связанный catalog-result блокирует подтверждение отсутствия; private replay исходного файла не проверен. |
 
@@ -221,7 +219,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `PTM-01` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Обслуживание в транскрибациях, settings link и metadata naming; maintenance/component/browser checks PASS, provider/Google boundaries fake. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `PTM-01` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Обслуживание в транскрибациях, settings link и metadata naming; maintenance/component/browser checks PASS, provider/Google boundaries fake. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `PTM-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PTM-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PTM-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -246,7 +244,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PR-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PR-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PR-12` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Encrypted Live manual-clear lifecycle, new capture сохраняет старый текст; >72h/restart/owner/clear concurrency tests PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `PR-12` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Encrypted Live manual-clear lifecycle, new capture сохраняет старый текст; >72h/restart/owner/clear concurrency tests PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `PR-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-OPERABILITY-01`
@@ -266,7 +264,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `PO-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PO-14` | READY | ✅ | ✅ | ✅ | PR327: durable provider/model snapshot, ElevenLabs/Yandex standard/economic/unknown buckets, legacy payload/cost compatibility; Python и UI regressions PASS. Linux CI/delivery PENDING. |
+| `PO-14` | READY | ✅ | ✅ | ✅ | PR327: durable provider/model snapshot, ElevenLabs/Yandex standard/economic/unknown buckets, legacy payload/cost compatibility; Python и UI regressions PASS. PR327 mergedbc5150e; exact-main CI37502013651 и web/API CD37502621690/worker37504355706 SUCCESS06Oct; runtime identity/health10Oct PASS (A20261010-RUNTIME). |
 | `PO-15` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PO-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -317,23 +315,23 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `STORAG-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-05` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
-| `STORAG-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-07` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
-| `STORAG-08` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-05` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
+| `STORAG-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F75: Q162 требует 3/7/30; account preferences и source_policy всё ещё принимают 1h/24h для новых transcription uploads. API/UI/production settings10Oct на bc5150eb189b44867101ca45b9da201921a99227. Audio retention3/7/30 реализован отдельно. |
+| `STORAG-07` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
+| `STORAG-08` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-10` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-10` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-12` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). History/analytics metadata без automatic TTL; owner reset скрывает прежний view, operational rows сохраняются для integrity. Retention policy и reset regressions PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
-| `STORAG-13` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). History/analytics metadata без automatic TTL; owner reset скрывает прежний view, operational rows сохраняются для integrity. Retention policy и reset regressions PASS. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-12` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). History/analytics metadata без automatic TTL; owner reset скрывает прежний view, operational rows сохраняются для integrity. Retention policy и reset regressions PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
+| `STORAG-13` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). History/analytics metadata без automatic TTL; owner reset скрывает прежний view, operational rows сохраняются для integrity. Retention policy и reset regressions PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-15` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-15` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-17` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-18` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-19` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-19` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-20` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STORAG-22` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `STORAG-22` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-21` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `STT-PROVIDER-ABSTRACTION-01`
@@ -361,7 +359,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | --- | --- | --- | --- | --- | --- |
 | `YANDEX-01` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 |
 | `YANDEX-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 |
-| `YANDEX-03` | IN_PROGRESS | ◐ | ◐ | ✅ | F05 |
+| `YANDEX-03` | READY | ✅ | ✅ | ✅ | REAL_TIME relay с отключённым speaker labeling, single-use capability, indexed finals/refinements и bounded reconnect/replay реализованы; tests/test_studio_yandex_transcription.py и exact-main CI37502013651 PASS. F05 сохраняется для неверного capability diarization, не для самой realtime transcription. Реальный Yandex runtime disabled, paid canary не выполнялся. |
 | `YANDEX-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `YANDEX-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 |
 
@@ -390,7 +388,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | `DBLP-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `DBLP-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `DBLP-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `DBLP-08` | IN_PROGRESS | ◐ | ◐ | ✅ | V-RESTORE: role/preflight scripts есть; полнота всей backup→switch→compatible recovery процедуры требует технического разбора агентом |
+| `DBLP-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F71: role/preflight/backup и synthetic restore есть; compatible rollback полной API/web/worker topology после credential/schema switch не подтверждён воспроизводимым drill. A20261010-CODE/CI; bootstrap credential не возвращать. |
 
 ### `JOB-RELIABILITY-02`
 
@@ -439,16 +437,16 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `TRANSC-01` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
-| `TRANSC-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
-| `TRANSC-03` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `TRANSC-01` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
+| `TRANSC-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
+| `TRANSC-03` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Live MD/SRT/VTT, order/corrections/session clocks; без timing экспорт ограничен явно. Python/client/component checks PASS; без нового STT. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 
 ### `USAGE-COST-ACCOUNTING-01`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `USAGEC-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `USAGEC-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Immutable provider-specific nominal public USD snapshot/confirmed duration/rounding; unknown Yandex price не ноль и не ElevenLabs. Accounting tests PASS; runtime Yandex tariff UNSET, invoice debit не заявляется. Merge/CD ещё PENDING; это прогресс Goal branch, не новая оценка main. |
+| `USAGEC-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Immutable provider-specific nominal public USD snapshot/confirmed duration/rounding; unknown Yandex price не ноль и не ElevenLabs. Accounting tests PASS; runtime Yandex tariff UNSET, invoice debit не заявляется. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `USAGEC-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `USAGEC-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `USAGEC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -499,7 +497,7 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `RELEAS-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `RELEAS-02` | IN_PROGRESS | ◐ | ◐ | ✅ | V-RESTORE: worker rollback реализован в manage_studio_worker.sh:230; полнота recovery для всей personal topology не установлена, технический gap агента |
+| `RELEAS-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F71: worker rollback и synthetic dump/restore/API decrypt проверены; полного application release rollback с совместимостью schema/config нет в доступном drill Evidence. A20261010-CI; production restore не запускался. |
 | `RELEAS-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `RELEAS-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `RELEAS-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -509,8 +507,8 @@ Checkpoint06Oct: выбранные AC ниже относятся к локал
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `TECH-01` | READY | ✅ | ✅ | ✅ | A20261004; package.json, vite.config.ts, pwaUpdate.ts; Studio build/component/browser CI; runtime claims только A20261004-RUNTIME. |
-| `TECH-02` | READY | ✅ | ✅ | ✅ | A20261004; API requirements/models, migrations 0038; CI PostgreSQL/migration tests; runtime claims только A20261004-RUNTIME. |
-| `TECH-03` | READY | ✅ | ✅ | ✅ | A20261004; rate_limit.py, realtime replay guard; API/security/Redis CI; runtime claims только A20261004-RUNTIME. |
-| `TECH-04` | READY | ✅ | ✅ | ✅ | A20261004; audio processor/browserAudioProcessing; preparation/security/resource/component tests; runtime claims только A20261004-RUNTIME. |
-| `TECH-05` | READY | ✅ | ✅ | ✅ | A20261004; source_storage.py, deploy/studio, API/Compose/edge tests; Yandex Disk feature отдельно YD; runtime claims только A20261004-RUNTIME. |
+| `TECH-01` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; package.json, vite.config.ts, pwaUpdate.ts; Studio build/component/browser CI; runtime claims только A20261010-RUNTIME. |
+| `TECH-02` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; API requirements/models, migrations0040; CI PostgreSQL/migration tests; runtime claims только A20261010-RUNTIME. |
+| `TECH-03` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; rate_limit.py, realtime replay guard; API/security/Redis CI; runtime claims только A20261010-RUNTIME. |
+| `TECH-04` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; audio processor/browserAudioProcessing; preparation/security/resource/component tests; runtime claims только A20261010-RUNTIME. |
+| `TECH-05` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; source_storage.py, deploy/studio, API/Compose/edge tests; Yandex Disk feature отдельно YD; runtime claims только A20261010-RUNTIME. |

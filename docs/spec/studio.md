@@ -354,7 +354,7 @@ Q009,Q089..092: отложено до отдельного решения вла
 | `STORAG-03` | Failed/request-scoped FFmpeg temporary files очищаются. |
 | `STORAG-04` | Orphaned storage objects периодически reconciliate и очищаются. |
 | `STORAG-05` | Cleanup удаляет obsolete object versions при включённом storage versioning. |
-| `STORAG-06` | Original transcription sources имеют явную retention policy. |
+| `STORAG-06` | Загруженные исходники транскрибаций имеют выбираемый срок 3/7/30 дней и видимую дату удаления. Проверка: настройка новых загрузок, readback expiry и сохранение сроков уже загруженных файлов; политика не применяется к Live. Q162..164,Q178. |
 | `STORAG-07` | Готовое подготовленное аудио не сохраняется отдельным finished object в S3; скачивание/Google Drive и request-scoped cleanup сохраняют доступный пользователю результат. Q169. |
 | `STORAG-08` | Исходники серверной подготовки аудио с устройства имеют отдельную выбираемую политику 3/7/30 дней и видимую дату удаления. Q162,Q163,Q177,Q178. |
 | `STORAG-09` | Transcription reference files имеют отдельную явную retention policy. |

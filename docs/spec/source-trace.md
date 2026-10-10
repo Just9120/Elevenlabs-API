@@ -1,6 +1,6 @@
 # Трассировка согласованных требований
 
-Часть [canonical spec](../project-spec.md). Google Doc ID `1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI`; полный read 2026-10-04, modifiedTime `2026-09-27T19:48:44.099Z`. Все 308 bullet paragraphs ниже — актуальный snapshot Q001..Q308. Исходные S001..S289 сохранены как исторические ID, а не текущая нумерация. Таблица связи не доказывает реализацию: статусы/ограничения Evidence — [delivery dashboard](../delivery-plan.md).
+Часть [canonical spec](../project-spec.md). Google Doc ID `1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI`; полный повторный read 2026-10-10; 308 пунктов совпадают с snapshot 2026-10-04, modifiedTime `2026-09-27T19:48:44.099Z`. Все 308 bullet paragraphs ниже — актуальный snapshot Q001..Q308. Исходные S001..S289 сохранены как исторические ID, а не текущая нумерация. Таблица связи не доказывает реализацию: статусы/ограничения Evidence — [delivery dashboard](../delivery-plan.md).
 
 Q301..308 задают отдельные действия владельца и внешней модели, не автоматически запускаемую feature Studio. Отсутствие повторного упоминания прежнего AC не отменяет его; явные изменения и SUPERSEDED перечислены в spec/плане. Широкий диапазон означает распределённое покрытие; атомарные условия принадлежат единственному spec соответствующего эпика.
 

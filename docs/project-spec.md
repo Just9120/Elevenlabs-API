@@ -8,7 +8,7 @@ Canonical требования и атомарные AC — здесь и в и�
 
 ## Источники и решения
 
-Согласованный Google Doc ID `1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI` прочитан полностью 2026-10-04, modifiedTime `2026-09-27T19:48:44.099Z`, 308 пунктов Q001..Q308. [Source trace](spec/source-trace.md) сохраняет все пункты, актуальные AC/constraints и исторические S-ID. Прежняя revision 2026-09-05 содержала 289 пунктов; перенос её процентов без сверки недопустим. Неповторённые старые AC сохранены, явно изменённые — обновлены либо SUPERSEDED со связями. Последующие решения PWA update prompt, document-based retry и trusted device30 days остаются обязательными.
+Согласованный Google Doc ID `1uaYvnqpbns_iyHTtQDZYjNYygT4ikUhmhuhRDWySrzI` повторно прочитан полностью 2026-10-10; содержание и 308 пунктов не изменились с аудита 2026-10-04, modifiedTime `2026-09-27T19:48:44.099Z`, 308 пунктов Q001..Q308. [Source trace](spec/source-trace.md) сохраняет все пункты, актуальные AC/constraints и исторические S-ID. Прежняя revision 2026-09-05 содержала 289 пунктов; перенос её процентов без сверки недопустим. Неповторённые старые AC сохранены, явно изменённые — обновлены либо SUPERSEDED со связями. Последующие решения PWA update prompt, document-based retry и trusted device30 days остаются обязательными.
 
 ## Бизнес-правила и интерфейсы/данные
 
@@ -78,4 +78,4 @@ READY = исполняемый код и подходящие автоматич
 - Video audio extraction и automatic long-media split/merge остаются server-side, bounded и deterministic.
 - Existing-document standardization мутирует только подходящие Google Docs; manifest import мутирует только PostgreSQL catalog metadata.
 - Service worker не runtime-cache-ит API responses или upload requests.
-- CI/CD, migrations, environments, production operations и rollback регулирует `docs/ci-cd-rules.md`.
+- Обычные проверки, merge, deployment и recovery регулируют [AGENTS](../AGENTS.md), [validation](runbooks/validation.md) и [operations](runbooks/studio-platform-ops.md); настройку CI/CD и исправления pipeline — [CI/CD rules](ci-cd-rules.md).
