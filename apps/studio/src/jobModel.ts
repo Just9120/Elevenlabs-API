@@ -100,6 +100,7 @@ export type TranscriptionJob = {
   status: JobСтатус;
   title: string | null;
   source_names?: string[];
+  primary_output_url?: string;
   provider: string | null;
   language_mode?: TranscriptionLanguageMode | null;
   diarization_enabled?: boolean;

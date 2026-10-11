@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useId, useRef, useState } from "react";
 import { isSafeDisplayUrl } from "./resourceLinks";
 
 export type ActionMenuItem = {
@@ -17,6 +17,7 @@ export function ActionMenu({ label, items, disabled = false }: {
 }) {
   const [open, setOpen] = useState(false);
   const [alignLeft, setAlignLeft] = useState(false);
+  const [above, setAbove] = useState(false);
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -30,6 +31,12 @@ export function ActionMenu({ label, items, disabled = false }: {
     setOpen(false);
     if (restoreFocus) trigger.current?.focus();
   };
+  useLayoutEffect(() => {
+    if (!open || !menu.current || !trigger.current) return;
+    const triggerBounds = trigger.current.getBoundingClientRect();
+    const height = menu.current.getBoundingClientRect().height;
+    setAbove(window.innerHeight - triggerBounds.bottom < height + 8 && triggerBounds.top > height + 8);
+  }, [open, items]);
   useEffect(() => {
     if (!open) return;
     menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
@@ -43,14 +50,14 @@ export function ActionMenu({ label, items, disabled = false }: {
     if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setOpen(false);
   }}>
     <button ref={trigger} type="button" className="secondary action-menu-trigger"
-      aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
+      aria-label={label} aria-haspopup="menu" aria-expanded={open && !disabled} aria-controls={open && !disabled ? id : undefined}
       disabled={disabled} onClick={() => open ? close(true) : show()}
       onKeyDown={(event) => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault(); show();
         }
       }}><span aria-hidden="true">⋮</span></button>
-    {open && !disabled && <div id={id} className="action-menu-items" style={alignLeft ? { left: 0, right: "auto" } : undefined} role="menu" aria-label={label} ref={menu}
+    {open && !disabled && <div id={id} className="action-menu-items" style={{ ...(alignLeft ? { left: 0, right: "auto" } : {}), ...(above ? { top: "auto", bottom: "calc(100% + .25rem)" } : {}) }} role="menu" aria-label={label} ref={menu}
       onKeyDown={(event) => {
         if (event.key === "Tab") { close(true); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); return; }
@@ -63,7 +70,7 @@ export function ActionMenu({ label, items, disabled = false }: {
       }}>
       {items.map((item) => {
         const className = item.danger ? "action-menu-danger" : undefined;
-        if (item.href && isSafeDisplayUrl(item.href) && !item.disabled) return <a key={item.id} role="menuitem" tabIndex={-1}
+        if (item.href && isSafeDisplayUrl(item.href) && !item.disabled) return <a key={item.id} role="menuitem" aria-label={item.label} tabIndex={-1}
           className={className} href={item.href} target="_blank" rel="noopener noreferrer" onClick={() => close(true)}>{item.label} ↗</a>;
         return <button key={item.id} type="button" role="menuitem" tabIndex={-1} className={className}
           disabled={item.disabled || Boolean(item.href)} onClick={() => { close(true); item.onSelect?.(); }}>{item.label}</button>;

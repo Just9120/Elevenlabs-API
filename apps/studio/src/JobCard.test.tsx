@@ -284,3 +284,13 @@ describe("JobCard", () => {
     );
   });
 });
+
+ it("keeps the ready document visible and reopens cached details without another request", async () => {
+  const onOpen = vi.fn();
+  renderCard({ job: { ...job, status: "completed", primary_output_url: "https://docs.google.com/document/d/synthetic/edit" }, onOpen });
+  expect(screen.getByRole("link", { name: "Открыть документ" })).toHaveAttribute("href", "https://docs.google.com/document/d/synthetic/edit");
+  await userEvent.click(screen.getByRole("button", { name: "Показать результаты и детали" }));
+  await userEvent.click(screen.getByRole("button", { name: "Скрыть детали" }));
+  await userEvent.click(screen.getByRole("button", { name: "Показать результаты и детали" }));
+  expect(onOpen).not.toHaveBeenCalled();
+ });

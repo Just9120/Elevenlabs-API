@@ -9,9 +9,11 @@ import { ResourceExternalLink } from "./resourceLinks";
 export function JobOutputsSection({
   jobId,
   data,
+  primaryUrl = null,
 }: {
   jobId: string;
   data: JobOutputsResponse;
+  primaryUrl?: string | null;
 }) {
   return (
     <section aria-label="Результаты транскрибации">
@@ -29,7 +31,7 @@ export function JobOutputsSection({
             <b>{outputSourceLabel(output)}</b>
             <span>Символов: {output.document_character_count ?? "—"}</span>
             <span>Создан: {formatTime(output.document_created_at)}</span>
-            {approvedLink ? (
+            {approvedLink && output.web_view_url === primaryUrl ? <span>Документ доступен по кнопке над деталями.</span> : approvedLink ? (
               <ResourceExternalLink
                 href={output.web_view_url ?? ""}
                 label="Открыть документ"

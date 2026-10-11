@@ -4594,9 +4594,7 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByText(/Отключение запрещает использовать ключ/),
     ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     expect(confirm).toHaveBeenLastCalledWith(
       "Отключить ключ «Primary STT»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.",
     );
@@ -4607,9 +4605,7 @@ describe("Studio PWA", () => {
     ).toBe(false);
 
     confirm.mockReturnValue(true);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/credentials/cred-active/revoke",
@@ -4618,9 +4614,7 @@ describe("Studio PWA", () => {
     );
 
     confirm.mockReturnValue(false);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Удалить навсегда" }),
-    );
+    await clickCredentialAction("Удалить навсегда");
     expect(confirm).toHaveBeenLastCalledWith(
       "Удалить ключ «Primary STT» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.",
     );
@@ -4632,9 +4626,7 @@ describe("Studio PWA", () => {
     ).toBe(false);
 
     confirm.mockReturnValue(true);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Удалить навсегда" }),
-    );
+    await clickCredentialAction("Удалить навсегда");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/credentials/cred-active",
@@ -4905,9 +4897,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await openSettingsSection("Подключения");
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     expect(
       await screen.findByText(
         "Отключение ключа подтверждено по актуальному списку.",
@@ -4952,9 +4942,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await openSettingsSection("Подключения");
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Удалить навсегда" }),
-    );
+    await clickCredentialAction("Удалить навсегда");
     expect(
       await screen.findByText(
         "Удаление ключа подтверждено по актуальному списку.",
@@ -7727,7 +7715,7 @@ describe("Studio PWA", () => {
     await userEvent.click(
       within(
         screen.getByText("A completed job").closest("article") as HTMLElement,
-      ).getByRole("button", { name: "Открыть" }),
+      ).getByRole("button", { name: /^(Открыть|Показать результаты и детали)$/ }),
     );
     expect(
       await screen.findByLabelText("Подробности транскрибации"),
@@ -8711,8 +8699,9 @@ describe("Studio PWA", () => {
     expect(verificationCalls.length).toBeGreaterThanOrEqual(2);
 
     await userEvent.click(
-      within(secondRow).getByRole("button", { name: "Удалить" }),
+      within(secondRow).getByRole("button", { name: "Действия с избранной папкой Favorite Folder" }),
     );
+    await userEvent.click(within(secondRow).getByRole("menuitem", { name: "Убрать из избранного" }));
     await waitFor(() =>
       expect(
         within(secondRow).queryByRole("button", {
@@ -9279,6 +9268,7 @@ describe("Studio PWA", () => {
     });
 
     await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Показать результаты и детали" }));
 
     expect(
       await screen.findByText(
@@ -13751,7 +13741,7 @@ describe("settings diagnostics", () => {
     }
   });
 
-  it("renders appended audit cursor pages without hiding rows behind a presentation cap", async () => {
+  it("replaces audit cursor pages without accumulating previously viewed rows", async () => {
     installBasicPlatformSettingsFixture();
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = fetchMock.getMockImplementation();
@@ -13798,20 +13788,22 @@ describe("settings diagnostics", () => {
     const auditRegion = screen.getByRole("region", {
       name: "Аудит безопасности",
     });
+    await userEvent.click(within(auditRegion).getByText("Аудит безопасности"));
     await waitFor(() =>
       expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(50),
     );
 
     await userEvent.click(
       within(auditRegion).getByRole("button", {
-        name: "Показать ещё события аудита",
+        name: "Следующая страница аудита",
       }),
     );
 
     expect(
       await within(auditRegion).findByText(/Ключ отозван/),
     ).toBeInTheDocument();
-    expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(51);
+    expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(auditRegion).getByRole("button", { name: "Предыдущая страница аудита" })).toBeEnabled();
     expect(auditUrls).toHaveLength(2);
     expect(auditUrls[1]).toContain("page_size=50");
     expect(auditUrls[1]).toContain("cursor=audit-next-page");
@@ -13854,9 +13846,7 @@ describe("settings diagnostics", () => {
     renderApp();
     await openSettingsSection("Подключения");
     await waitFor(() => expect(resolveStale).toBeDefined());
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     await waitFor(() => expect(auditGets).toBe(2));
     expect(staleSignal?.aborted).toBe(true);
     await act(async () =>
@@ -16309,3 +16299,8 @@ describe("Settings DEBUG session controls", () => {
     vi.useRealTimers();
   });
 });
+
+async function clickCredentialAction(label: string) {
+  await userEvent.click(await screen.findByRole("button", { name: "Другие действия с ключом Primary STT" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: label }));
+}

@@ -14,7 +14,7 @@ describe("ActionMenu", () => {
     const launcher = screen.getByRole("button", { name: "Действия с тестовой папкой" });
     launcher.focus();
     await userEvent.keyboard("{Enter}");
-    expect(screen.getByRole("menuitem", { name: "Открыть ↗" })).toHaveFocus();
+    expect(screen.getByRole("menuitem", { name: "Открыть" })).toHaveFocus();
     await userEvent.keyboard("{ArrowDown}");
     expect(screen.getByRole("menuitem", { name: "Убрать из избранного" })).toHaveFocus();
     await userEvent.keyboard("{Escape}");

@@ -9,7 +9,9 @@ import type {
   JobOutputsState,
   TranscriptionJob,
 } from "./jobModel";
-import { jobTitle } from "./jobModel";
+import { jobTitle, isApprovedOutputUrl } from "./jobModel";
+import { ActionMenu } from "./ActionMenu";
+import { ResourceExternalLink } from "./resourceLinks";
 import type {
   JobAttentionCandidate,
   JobRetryState,
@@ -71,6 +73,9 @@ export function JobCard({
 }) {
   const detailedJob = detail?.job;
   const terminal = ["completed", "failed", "cancelled"].includes(job.status);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const ready = job.status === "completed";
+  const primaryUrl = job.primary_output_url ?? outputs?.data?.outputs.find((output) => output.link_available)?.web_view_url ?? null;
   const [linkedJobId, setLinkedJobId] = useState("");
   const selectedCandidate = attentionCandidates.some((candidate) => candidate.id === linkedJobId);
   const confirmNoResult = () => {
@@ -83,12 +88,12 @@ export function JobCard({
   const body = (
     <>
       <JobProgressPipeline jobId={job.id} state={progress} />
-      <JobCardActions
+      {!ready && <JobCardActions
         job={job}
         onOpen={onOpen}
         onCancel={onCancel}
         cancelPending={cancelPending}
-      />
+      />}
       {detail?.loading && <p role="status">Загрузка деталей задачи…</p>}
       {detail?.error && <p className="error">{detail.error}</p>}
       {outputs?.loading && <p role="status">Загрузка результатов…</p>}
@@ -100,7 +105,7 @@ export function JobCard({
           onCheck={onCheckReconciliation}
         />
       )}
-      {outputs?.data && <JobOutputsSection jobId={job.id} data={outputs.data} />}
+      {outputs?.data && <JobOutputsSection jobId={job.id} data={outputs.data} primaryUrl={ready ? primaryUrl : null} />}
       {detailedJob && (
         <>
           <JobDetailSection
@@ -130,6 +135,16 @@ export function JobCard({
       data-job-id={job.id}
     >
       <JobCardSummary job={job} />
+      {ready && <div className="job-actions">
+        {isApprovedOutputUrl(primaryUrl) && <ResourceExternalLink href={primaryUrl!} label="Открыть документ" ariaLabel="Открыть документ" />}
+        <button type="button" aria-expanded={detailsOpen} onClick={() => {
+          setDetailsOpen(!detailsOpen);
+          if (!detailsOpen && (!detail?.job || !outputs?.data) && !detail?.loading) void onOpen(job.id);
+        }}>{detailsOpen ? "Скрыть детали" : "Показать результаты и детали"}</button>
+        {job.output_folder?.web_view_url && isApprovedOutputUrl(job.output_folder.web_view_url) && <ActionMenu
+          label={`Другие действия: ${jobTitle(job)}`}
+          items={[{id: "folder", label: "Открыть папку результата", href: job.output_folder.web_view_url}]} />}
+      </div>}
       {pinnedTerminal && (
         <div
           className={`job-terminal-notice job-terminal-notice-${job.status}`}
@@ -239,7 +254,7 @@ export function JobCard({
           <summary>Показать детали старой ошибки</summary>
           {body}
         </details>
-      ) : body}
+      ) : ready ? detailsOpen && body : body}
     </article>
   );
 }

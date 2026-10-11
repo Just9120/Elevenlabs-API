@@ -62,6 +62,13 @@ const analytics = {
 };
 
 describe("TranscriptionAnalyticsPanel", () => {
+  it("never rounds a positive tiny cost to zero and keeps exact precision in details", async () => {
+    render(<TranscriptionAnalyticsPanel projectId="fixture-project" loadAnalytics={vi.fn().mockResolvedValue({ ...analytics, usage_cost: { ...analytics.usage_cost, confirmed_provider_cost: "0.00077073" } })} />);
+    await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+    expect(await screen.findByText(/< 0,01 USD/)).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Точное значение стоимости"));
+    expect(screen.getByText(/0.00077073 USD/)).toBeVisible();
+  });
   it("shows Yandex models alongside historical ElevenLabs counts", async () => {
     const result = structuredClone(analytics);
     const provider_model = { elevenlabs_scribe_v2: 1, yandex_general: 1, yandex_deferred_general: 1, unknown: 0 };

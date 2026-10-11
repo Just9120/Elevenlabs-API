@@ -10,7 +10,7 @@ import {
   type TranscriptionJob,
 } from "./jobModel";
 import { LATEST_REQUEST_CANCEL_REASON } from "./latestRequest";
-import type { Source } from "./sourceModel";
+import { parsePreparedAudioContext, type Source } from "./sourceModel";
 
 const JOB_STATUSES = new Set([
   "queued",
@@ -359,6 +359,7 @@ function parseSource(
     id,
     project_id: candidateProjectId,
     source_type: candidate.source_type,
+    ...(parsePreparedAudioContext(candidate.prepared_audio) ? { prepared_audio: parsePreparedAudioContext(candidate.prepared_audio)! } : {}),
     original_filename: originalFilename,
     mime_type: mimeType,
     size_bytes: candidate.size_bytes,
@@ -451,6 +452,7 @@ function parseJob(
   const errorMessage = nullableBoundedString(candidate.error_message, 512);
   const mediaClip = parseOptionalMediaClip(candidate.media_clip);
   const outputFolder = parseOptionalOutputFolder(candidate.output_folder);
+  const primaryOutputUrl = candidate.primary_output_url === undefined ? undefined : boundedString(candidate.primary_output_url, 2_000);
   const batch = parseOptionalBatchReference(candidate.batch);
   const languageMode = candidate.language_mode;
   const diarizationEnabled = candidate.diarization_enabled;
@@ -474,6 +476,7 @@ function parseJob(
     errorMessage === undefined ||
     mediaClip === false ||
     outputFolder === false ||
+    (candidate.primary_output_url !== undefined && (!primaryOutputUrl || !isApprovedGoogleUrl(primaryOutputUrl))) ||
     batch === false ||
     speakerIdentities === false ||
     usageCost === false ||
@@ -516,6 +519,7 @@ function parseJob(
     status: candidate.status as TranscriptionJob["status"],
     title,
     provider,
+    ...(primaryOutputUrl ? { primary_output_url: primaryOutputUrl } : {}),
     ...(languageMode !== undefined ? { language_mode: languageMode } : {}),
     ...(diarizationEnabled !== undefined
       ? { diarization_enabled: diarizationEnabled }

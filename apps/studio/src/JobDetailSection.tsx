@@ -1,5 +1,5 @@
 import { JobUsageCostSummary } from "./JobUsageCostSummary";
-import { formatBytes } from "./formatters";
+import { formatBytes, formatMediaTimestamp } from "./formatters";
 import { longMediaEstimate } from "./longMediaPreflight";
 import {
   jobSourceProcessingСтатусLabel,
@@ -105,6 +105,12 @@ export function JobDetailSection({
                   {providerFailureLabel(retry.data.provider_failure_code)}.
                 </span>
               )}
+              {partialResume && retry.data.missing_provider_parts?.length ? <section aria-label="Нераспознанные части">
+                <strong>Осталось распознать:</strong>
+                <ul>{retry.data.missing_provider_parts.map((part) => <li key={`${part.source_id}:${part.part_index}`}>
+                  {job.sources?.find((source) => source.id === part.source_id)?.original_filename ?? "Исходник"}: часть {part.part_index + 1} · {formatMediaTimestamp(part.start_seconds)}–{formatMediaTimestamp(part.end_seconds)}
+                </li>)}</ul>
+              </section> : partialResume && <p className="muted">Точные интервалы старой задачи не сохранены. Продолжение использует подтверждённые готовые части.</p>}
               <button
                 type="button"
                 onClick={() => void onRetry(job.id)}

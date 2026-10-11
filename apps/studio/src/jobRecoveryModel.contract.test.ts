@@ -26,6 +26,14 @@ it("accepts only a complete cached restore set", () => {
   expect(parseJobRetryResponse({ ...complete, provider_total_part_count: 0 }, retry.job_id)).toBeNull();
 });
 
+it("projects exact missing intervals and rejects ambiguous or nonfinite recovery ranges", () => {
+  const part = {source_id: "source-safe", part_index: 2, start_seconds: 18, end_seconds: 30};
+  expect(parseJobRetryResponse({...retry, missing_provider_parts: [{...part, secret: "hidden"}]}, retry.job_id)?.missing_provider_parts).toEqual([part]);
+  for (const missing_provider_parts of [[part, part], [{...part, start_seconds: NaN}], [{...part, source_id: ""}], [{...part, end_seconds: 17}]]) {
+    expect(parseJobRetryResponse({...retry, missing_provider_parts}, retry.job_id)).toBeNull();
+  }
+});
+
 const reconciliation = {
   job_id: "job-safe",
   job_status: "failed",

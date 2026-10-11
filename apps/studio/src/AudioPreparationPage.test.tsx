@@ -240,9 +240,8 @@ describe("AudioPreparationPage", () => {
     expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
       sourceId: "prepared-source-id",
     });
-    expect(
-      screen.getByRole("button", { name: "Использовать в новой обработке" }),
-    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Другие действия: Готовый файл" }));
+    expect(screen.getByRole("menuitem", { name: "Использовать в новой обработке" })).toBeInTheDocument();
     window.removeEventListener("studio:transcribe-source", listener);
   });
 
@@ -524,7 +523,9 @@ describe("audio UX regression", () => {
     expect(posts).toEqual([{ folder_id: "chosen-folder" }]);
     expect(screen.getByRole("link", { name: "Скачать файл" })).toHaveAttribute("href", "/api/audio-preparations/ready/download");
     expect(screen.getByRole("button", { name: "Сохраняем в Google Drive…" })).toBeDisabled();
-    expect(await screen.findByRole("link", { name: "Открыть в Google Drive" }, { timeout: 3000 })).toHaveAttribute("href", "https://drive.google.com/file/d/result/view");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Сохраняем в Google Drive…" })).not.toBeInTheDocument(), { timeout: 3000 });
+    await userEvent.click(screen.getByRole("button", { name: "Другие действия: Готовое аудио" }));
+    expect(screen.getByRole("menuitem", { name: "Открыть в Google Drive" })).toHaveAttribute("href", "https://drive.google.com/file/d/result/view");
   });
 
   it("picker cancellation makes no export and an unconfirmed export retries its original destination", async () => {

@@ -1,4 +1,5 @@
 export type Source = {
+  prepared_audio?: { job_id: string; input_duration_ms: number; output_duration_ms: number; pauses_removed: boolean };
   id: string;
   project_id: string;
   source_type: "local_upload" | "google_drive";
@@ -19,6 +20,22 @@ export type Source = {
   created_at: string;
   updated_at: string;
 };
+
+export function preparedAudioContext(source: Source) {
+  return parsePreparedAudioContext(source.prepared_audio);
+}
+
+export function parsePreparedAudioContext(candidate: unknown): Source["prepared_audio"] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const value = candidate as Record<string, unknown>;
+  if (typeof value.job_id !== "string" || value.job_id.length !== 36 ||
+      typeof value.input_duration_ms !== "number" || typeof value.output_duration_ms !== "number" ||
+      !Number.isSafeInteger(value.input_duration_ms) || value.input_duration_ms <= 0 ||
+      !Number.isSafeInteger(value.output_duration_ms) || value.output_duration_ms <= 0 ||
+      typeof value.pauses_removed !== "boolean") return null;
+  return { job_id: value.job_id, input_duration_ms: value.input_duration_ms,
+    output_duration_ms: value.output_duration_ms, pauses_removed: value.pauses_removed };
+}
 
 export function reconcileOptimisticSources(
   optimisticSources: Source[],
