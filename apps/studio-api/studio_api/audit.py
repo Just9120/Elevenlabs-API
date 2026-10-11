@@ -1,4 +1,5 @@
 import json
+import uuid
 from sqlalchemy.orm import Session
 from .models import AuditEvent
 from .trace_context import current_trace_id, valid_trace_id
@@ -86,4 +87,11 @@ def audit(
     if resolved_trace_id is not None and not valid_trace_id(resolved_trace_id):
         raise ValueError("invalid audit trace id")
     safe=_safe_audit_metadata(metadata)
-    db.add(AuditEvent(event_type=event_type, actor_user_id=actor_user_id, subject_user_id=subject_user_id, outcome=outcome, trace_id=resolved_trace_id, metadata_json=json.dumps(safe, sort_keys=True)))
+    event_id = str(uuid.uuid4())
+    db.add(AuditEvent(id=event_id, event_type=event_type, actor_user_id=actor_user_id, subject_user_id=subject_user_id, outcome=outcome, trace_id=resolved_trace_id, metadata_json=json.dumps(safe, sort_keys=True)))
+    if outcome == "success":
+        from .security_email import SECURITY_EVENTS, enqueue_security_event
+        if event_type in SECURITY_EVENTS:
+            from .config import get_settings
+            enqueue_security_event(db, settings=get_settings(), user_id=subject_user_id or actor_user_id,
+                event_type=event_type, event_id=event_id)

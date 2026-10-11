@@ -85,3 +85,23 @@ def load_browser_job_output_rows(db, job_id: str):
         )
         .all()
     )
+
+
+def load_primary_output_urls(db, *, owner_user_id: str, job_ids: list[str]) -> dict[str, str]:
+    """One bounded owner-scoped query; listing history never fetches each job."""
+    from .models import TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource
+    if not job_ids:
+        return {}
+    rows = (db.query(TranscriptionJobOutput.job_id, TranscriptionJobOutput.web_view_url)
+        .join(TranscriptionJob, TranscriptionJob.id == TranscriptionJobOutput.job_id)
+        .join(TranscriptionJobSource, TranscriptionJobSource.id == TranscriptionJobOutput.job_source_id)
+        .filter(TranscriptionJob.owner_user_id == owner_user_id,
+                TranscriptionJob.id.in_(job_ids), TranscriptionJobSource.job_id == TranscriptionJob.id)
+        .order_by(TranscriptionJobSource.position, TranscriptionJobOutput.persisted_at,
+                  TranscriptionJobOutput.id).all())
+    result = {}
+    for job_id, raw_url in rows:
+        url = normalize_google_web_view_url(raw_url)
+        if url:
+            result.setdefault(job_id, url)
+    return result

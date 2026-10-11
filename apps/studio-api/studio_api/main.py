@@ -16,6 +16,7 @@ from .config import get_settings
 from .db import Base, engine, get_db, SessionLocal
 from .audio_downloads import AudioDownloadError, AudioDownloadManager, stream_audio_download
 from .deps import current_session, get_client_ip, require_csrf, require_same_origin
+from .integration_ports import get_authorization_provider, get_cloud_files_provider, AuthorizationProvider
 from .models import *
 from .rate_limit import RateLimiter
 from .http_limits import RequestBodyLimitMiddleware
@@ -29,8 +30,9 @@ from .source_storage import (
     source_reference_class,
 )
 from .source_creation import parse_authoritative_source_created_at
+from .media_context import prepared_audio_context_payload
 from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, effective_source_retention_seconds, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
-from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
 from .job_attention import confirmed_later_results_query, recent_attention_candidates
@@ -39,7 +41,7 @@ from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, 
 from .trace_context import reset_current_trace_id, sanitize_inbound_trace, set_current_trace_id, valid_trace_id
 from .operational_alerts import acknowledge_incident, incident_payload
 from .diagnostic_reports import build_diagnostic_report, serialize_diagnostic_report
-from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
+from .job_output_read import browser_job_output_payload, load_browser_job_output_rows, load_primary_output_urls
 from .job_progress import load_browser_job_progress_payloads
 from .realtime_capability import RealtimeCapabilityError, RealtimeCapabilityReason, create_realtime_capability
 from .realtime_drafts import (
@@ -835,12 +837,12 @@ def login_context(request: Request, db: Session=Depends(get_db), _=Depends(requi
     raw=new_token(); ctx=LoginContext(csrf_hash=token_hash(raw), expires_at=utcnow()+timedelta(minutes=10)); db.add(ctx); db.commit(); return {"login_csrf_token": raw}
 
 @app.post("/api/auth/login")
-def login(data: LoginIn, request: Request, response: Response, db: Session=Depends(get_db), _=Depends(require_same_origin)):
+def login(data: LoginIn, request: Request, response: Response, db: Session=Depends(get_db), _=Depends(require_same_origin), authorization: AuthorizationProvider=Depends(get_authorization_provider)):
     email=normalize_email(data.email); limiter.check("login:account:"+rate_key_part(email), 10, 300); limiter.check("login:"+rate_key_part(client_id(request))+":"+rate_key_part(email), 5, 300)
     ctx=db.query(LoginContext).filter_by(csrf_hash=token_hash(data.login_csrf_token), used_at=None).first()
     if not ctx or ctx.expires_at <= utcnow(): raise HTTPException(403, "Не удалось выполнить вход")
-    user=db.query(User).filter_by(email=email, status=UserStatus.active).first(); ident=db.get(LocalIdentity, user.id) if user else None
-    if not user or not ident or not verify_password(ident.password_hash, data.password):
+    user=authorization.authenticate(db, email=email, password=data.password)
+    if not user:
         audit(db,"auth.login_failed",outcome="rejected"); db.commit(); raise HTTPException(401, "Неверная почта или пароль")
     now=utcnow()
     if _active_totp_factor(db,user.id) is not None:
@@ -885,16 +887,16 @@ def account_security_status(request: Request,response: Response,pair=Depends(cur
         "recent_auth_expires_at":deadline.isoformat() if deadline and deadline > utcnow() else None,
         "trusted_device_expires_at":device.expires_at.isoformat() if device else None,
         "trusted_device_count":trusted_count,
-        "password_reset_delivery":"not_configured",
+        "password_reset_delivery":"configured" if settings.security_email_configured() else "not_configured",
     }
 
 @app.post("/api/auth/reauth")
-def reauthenticate(data: ReauthenticateIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db)):
+def reauthenticate(data: ReauthenticateIn,request: Request,response: Response,pair=Depends(require_csrf),db: Session=Depends(get_db),authorization: AuthorizationProvider=Depends(get_authorization_provider)):
     sess,user=pair
     limiter.check("auth:reauth:account:"+rate_key_part(user.id),10,300)
     limiter.check("auth:reauth:"+rate_key_part(client_id(request))+":"+rate_key_part(user.id),5,300)
     ident=db.get(LocalIdentity,user.id); now=utcnow()
-    valid=bool(ident and verify_password(ident.password_hash,data.password))
+    valid=bool(ident and authorization.verify_password(ident.password_hash,data.password))
     if valid and _active_totp_factor(db,user.id) is not None:
         valid=_verify_second_factor(db,user=user,verification_code=data.verification_code,recovery_code=data.recovery_code,now=now)
     if not valid:
@@ -1007,12 +1009,14 @@ def request_password_reset(data: PasswordResetRequestIn,request: Request,respons
     limiter.check("password-reset:request:ip:"+ip_key,5,3600)
     limiter.check("password-reset:request:account:"+account_key,3,3600)
     user=db.query(User).filter_by(email=email,status=UserStatus.active).first()
+    from .security_email import request_reset_delivery
+    request_reset_delivery(db, settings=settings, user=user, fingerprint=ip_key, now=utcnow())
     audit(db,"auth.password_reset_requested",subject_user_id=user.id if user else None,outcome="success")
     db.commit()
-    return {"accepted":True,"delivery":"not_configured"}
+    return {"accepted":True,"delivery":"configured" if settings.security_email_configured() else "not_configured"}
 
 @app.post("/api/auth/password-reset/confirm")
-def confirm_password_reset(data: PasswordResetConfirmIn,request: Request,response: Response,db: Session=Depends(get_db),_=Depends(require_same_origin)):
+def confirm_password_reset(data: PasswordResetConfirmIn,request: Request,response: Response,db: Session=Depends(get_db),_=Depends(require_same_origin),authorization: AuthorizationProvider=Depends(get_authorization_provider)):
     _browser_capability_cache_headers(response)
     limiter.check("password-reset:confirm:ip:"+rate_key_part(client_id(request)),10,3600)
     hashed=token_hash(data.token); limiter.check("password-reset:confirm:token:"+hashed[:24],5,3600); now=utcnow()
@@ -1022,7 +1026,7 @@ def confirm_password_reset(data: PasswordResetConfirmIn,request: Request,respons
     user=db.get(User,challenge.user_id); ident=db.get(LocalIdentity,challenge.user_id)
     if not user or user.status != UserStatus.active or not ident:
         raise HTTPException(422,"Ссылка сброса недействительна или устарела")
-    ident.password_hash=hash_password(data.new_password); challenge.used_at=now
+    ident.password_hash=authorization.hash_password(data.new_password); challenge.used_at=now
     db.query(Session).filter(Session.user_id==user.id,Session.revoked_at.is_(None)).update({Session.revoked_at:now},synchronize_session=False)
     revoke_all_browsers(db,user_id=user.id,now=now)
     clear_trusted_device_cookie(response,settings=settings)
@@ -1246,7 +1250,7 @@ def project_payload(p: Project):
     return {"id": p.id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
 
 def source_payload(s: Source):
-    return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "source_created_at": s.source_created_at.isoformat() if s.source_created_at else None, "source_created_at_provenance": s.source_created_at_provenance, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
+    return {**({"prepared_audio": context} if (context := prepared_audio_context_payload(s.prepared_audio_context_json)) else {}), "id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "source_created_at": s.source_created_at.isoformat() if s.source_created_at else None, "source_created_at_provenance": s.source_created_at_provenance, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
 
 def _completed_source_retention_seconds(source: Source, user: User) -> int:
     if source_reference_class(source) == SourceReferenceClass.audio_processing.value:
@@ -1647,7 +1651,7 @@ def create_google_picker_session(request: Request, response: Response, pair=Depe
     try:
         conn=active_google_connection_for_user(db, user_id=user.id)
         require_picker_browser_scope_boundary(conn)
-        access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+        access_token=get_cloud_files_provider().access_token(db, user_id=user.id, settings=settings)
     except GoogleConnectionAccessError as exc:
         status_code, retryable = {
             GoogleConnectionAccessReason.missing: (404, False),
@@ -1675,7 +1679,7 @@ def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str,
     if not clean_id: raise HTTPException(422, "Некорректный ID Google Drive")
     try:
         access_token=access_token or refreshed_google_drive_access_token(db, user)
-        meta=fetch_drive_file_metadata(access_token, clean_id)
+        meta=get_cloud_files_provider().metadata(access_token, clean_id)
         if not isinstance(meta.id, str) or meta.id.strip() != clean_id:
             raise HTTPException(502, "Google Drive metadata is unavailable")
         return meta
@@ -1859,7 +1863,7 @@ def _direct_drive_upload_access_token(db: Session, user: User) -> str:
         connection=active_google_connection_for_user(db, user_id=user.id)
         require_drive_file_scope(connection)
         require_picker_browser_scope_boundary(connection)
-        return refresh_user_google_drive_access_token(
+        return get_cloud_files_provider().access_token(
             db, user_id=user.id, settings=settings
         )
     except GoogleConnectionAccessError as exc:
@@ -3227,7 +3231,7 @@ def create_audio_preparation(
     folder = None
     if data.output_destination == "google_drive":
         try:
-            access_token = refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+            access_token = get_cloud_files_provider().access_token(db, user_id=user.id, settings=settings)
             folder = verify_output_folder_selection(access_token, data.output_drive_folder_id)
         except GoogleConnectionAccessError as exc:
             raise HTTPException(409, detail={"reason": exc.reason.value}) from None
@@ -3307,7 +3311,7 @@ def save_audio_preparation_to_drive(job_id: str, data: GooglePickerOutputFolderI
     try:
         # Check ownership before any external request.
         load_owned_audio_preparation_job(db, owner_user_id=user.id, job_id=job_id)
-        access_token = refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+        access_token = get_cloud_files_provider().access_token(db, user_id=user.id, settings=settings)
         folder = verify_output_folder_selection(access_token, data.folder_id)
         job = queue_audio_drive_export(db, owner_user_id=user.id, job_id=job_id, folder=folder, now=utcnow())
         audit(db, "audio_preparation.export_requested", actor_user_id=user.id, subject_user_id=user.id, project_id=job.project_id, job_id=job.id)
@@ -3367,6 +3371,13 @@ def reuse_prepared_audio(job_id: str, pair=Depends(require_csrf), db: Session=De
         db.flush()
         audit(db, "audio_preparation.reused", actor_user_id=user.id, subject_user_id=user.id,
               project_id=project_id, source_id=source.id, job_id=job.id)
+    if job.output_size_bytes == meta.size_bytes and job.total_input_duration_ms and job.output_duration_ms:
+        context = {"job_id": job.id, "input_duration_ms": job.total_input_duration_ms,
+            "output_duration_ms": job.output_duration_ms,
+            "pauses_removed": bool(json.loads(job.options_json).get("silence_enabled", False)) and job.output_duration_ms < job.total_input_duration_ms}
+        source.prepared_audio_context_json = json.dumps(context, separators=(",", ":"))
+    else:
+        source.prepared_audio_context_json = None
     db.commit()
     return source_payload(source)
 
@@ -3548,10 +3559,13 @@ def list_project_jobs(
         )
         .all()
     }
+    primary_urls = load_primary_output_urls(db, owner_user_id=user.id, job_ids=[row.id for row in rows])
     payloads=[]
     for row in rows:
         payload=job_payload(row)
         payload["history_attention_required"]=row.id in attention_job_ids
+        if row.id in primary_urls:
+            payload["primary_output_url"] = primary_urls[row.id]
         payloads.append(payload)
     return {"jobs":payloads, "next_cursor": next_cursor, "page_size": page_size}
 
@@ -3893,7 +3907,7 @@ def check_output_reconciliation(job_id: str, request: Request, pair=Depends(requ
         return {"job_id": job.id, "checked": 0, "resolved": 0, "unresolved": 0, "conflicts": 0}
     try:
         conn=active_google_connection_for_user(db, user_id=user.id); require_drive_file_scope(conn)
-        access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+        access_token=get_cloud_files_provider().access_token(db, user_id=user.id, settings=settings)
     except GoogleConnectionAccessError as exc:
         write_diagnostic_event(owner_user_id=user.id, component="api", event_code="OUTPUT_RECONCILIATION_FAILED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"case_status":"reconciliation_required","resolved":False})
         raise HTTPException(409, "Google connection unavailable")
@@ -4747,7 +4761,7 @@ def google_drive_metadata_payload(meta):
 
 def refreshed_google_drive_access_token(db: Session, user: User) -> str:
     try:
-        return refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+        return get_cloud_files_provider().access_token(db, user_id=user.id, settings=settings)
     except GoogleConnectionAccessError as exc:
         if exc.reason == GoogleConnectionAccessReason.missing:
             raise HTTPException(404, "Google Drive connection is not connected")
@@ -4763,9 +4777,8 @@ def get_google_drive_file_metadata(drive_file_id: str, pair=Depends(current_sess
     clean_id=clean_drive_id(drive_file_id, "ID файла Google Drive")
     if not clean_id: raise HTTPException(422, "Некорректный ID файла Google Drive")
     try:
-        from .google_drive import fetch_drive_file_metadata
         access_token=refreshed_google_drive_access_token(db, user)
-        meta=fetch_drive_file_metadata(access_token, clean_id)
+        meta=get_cloud_files_provider().metadata(access_token, clean_id)
     except HTTPException:
         raise
     except Exception:
@@ -4778,11 +4791,10 @@ def get_google_drive_folder_children(folder_id: str, page_size: int=Query(50, ge
     clean_id=clean_drive_id(folder_id, "ID папки Google Drive")
     if not clean_id: raise HTTPException(422, "Некорректный ID папки Google Drive")
     try:
-        from .google_drive import list_drive_folder_children
         conn=active_google_connection_for_user(db, user_id=user.id)
         require_drive_readonly_scope(conn)
         access_token=refreshed_google_drive_access_token(db, user)
-        children=list_drive_folder_children(access_token, clean_id, page_size=page_size, page_token=page_token)
+        children=get_cloud_files_provider().folder_children(access_token, clean_id, page_size=page_size, page_token=page_token)
     except GoogleConnectionAccessError as exc:
         status_code = (
             404

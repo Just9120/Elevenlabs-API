@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .media_context import parse_part_plan
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -38,9 +39,10 @@ class RetryReason(str, Enum):
 @dataclass(frozen=True)
 class RetryReadiness:
     available: bool; reason: RetryReason; attempt_count: int; max_attempts: int; missing_output_count: int; retry_safe_source_count: int; resumable_provider_part_count: int = 0; provider_total_part_count: int = 0; provider_failure_code: str | None = None
+    missing_provider_parts: tuple[dict, ...] = ()
     def payload(self, job):
         from .long_media_preflight import long_media_preflight_payload
-        return {"job_id": job.id, "job_status": job.status.value, "available": self.available, "reason": self.reason.value, "attempt_count": self.attempt_count, "max_attempts": self.max_attempts, "missing_output_count": self.missing_output_count, "retry_safe_source_count": self.retry_safe_source_count, "resumable_provider_part_count": self.resumable_provider_part_count, "provider_total_part_count": self.provider_total_part_count, "provider_failure_code": self.provider_failure_code, **({"long_duration_preflight": quote} if (quote := long_media_preflight_payload(job)) is not None else {})}
+        return {"job_id": job.id, "job_status": job.status.value, "available": self.available, "reason": self.reason.value, "attempt_count": self.attempt_count, "max_attempts": self.max_attempts, "missing_output_count": self.missing_output_count, "retry_safe_source_count": self.retry_safe_source_count, "resumable_provider_part_count": self.resumable_provider_part_count, "provider_total_part_count": self.provider_total_part_count, "provider_failure_code": self.provider_failure_code, **({"missing_provider_parts": list(self.missing_provider_parts)} if self.missing_provider_parts else {}), **({"long_duration_preflight": quote} if (quote := long_media_preflight_payload(job)) is not None else {})}
 
 @dataclass(frozen=True)
 class RetryQueueResult:
@@ -167,8 +169,13 @@ def _transition(row, *, allowed_from, to_stage, disposition, now, idempotent=Tru
         raise RuntimeError("retry_state_invalid_transition")
     row.stage=to_stage; row.retry_disposition=disposition; row.updated_at=now; return row
 
-def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, lease_generation, now, total_parts=None, completed_parts=0):
+def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, lease_generation, now, total_parts=None, completed_parts=0, media_plan=None):
     _job,_rel,row=_current_attempt(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=now, require_processing_lease=True)
+    if media_plan is not None:
+        parsed = parse_part_plan(media_plan)
+        if len(parsed) != total_parts or (row.provider_media_plan_json and parse_part_plan(row.provider_media_plan_json) != parsed):
+            raise RuntimeError("retry_state_media_plan_conflict")
+        row.provider_media_plan_json = media_plan
     _transition(row, allowed_from={Stage.prepared}, to_stage=Stage.provider_request_started, disposition=Disp.undetermined, now=now)
     if total_parts is not None:
         total_parts = int(total_parts)
@@ -293,7 +300,7 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
     else:
         if job.status!=JobStatus.processing: return RetryReadiness(False, RetryReason.job_not_failed, attempts, MAX_PROCESSING_ATTEMPTS, 0, 0)
         if now is not None and is_lease_active(job, now): return RetryReadiness(False, RetryReason.non_retryable, attempts, MAX_PROCESSING_ATTEMPTS, 0, 0)
-    rels=_required(db, job.id); missing=[]; safe=0; reason=None; resumable_parts=0; provider_total_parts=0; provider_failure_code=None; fully_cached_sources=0
+    rels=_required(db, job.id); missing=[]; safe=0; reason=None; resumable_parts=0; provider_total_parts=0; provider_failure_code=None; fully_cached_sources=0; missing_parts=[]
     for rel in rels:
         if _has_output(db, rel.id): continue
         missing.append(rel)
@@ -336,6 +343,9 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
             )
             if resumed:
                 safe+=1; resumable_parts+=resumed; provider_total_parts+=int(att.provider_total_parts or 0); provider_failure_code=att.provider_failure_code
+                plan = parse_part_plan(att.provider_media_plan_json)
+                if len(plan) == att.provider_total_parts:
+                    missing_parts.extend({"source_id": rel.source_id, **part} for part in plan[resumed:])
             elif mode == "explicit" and (
                 att.provider_failure_code in SAFE_PROVIDER_FAILURES
                 or _confirmed_uncheckpointed_partial_result(db, att)
@@ -356,7 +366,7 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
             retry_reason = RetryReason.partial_provider_restart_available
         else:
             retry_reason = RetryReason.partial_provider_resume_available if resumable_parts else RetryReason.available
-        return RetryReadiness(True, retry_reason, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe, resumable_parts, provider_total_parts, provider_failure_code)
+        return RetryReadiness(True, retry_reason, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe, resumable_parts, provider_total_parts, provider_failure_code, tuple(missing_parts))
     return RetryReadiness(False, reason or RetryReason.prerequisites_unavailable, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe, resumable_parts, provider_total_parts, provider_failure_code)
 
 def compute_explicit_retry_readiness(db, job, *, now: datetime|None=None):

@@ -128,6 +128,26 @@ class PasswordResetChallenge(Base):
     expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, index=True)
     used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
 
+class SecurityEmailDelivery(Base):
+    __tablename__="security_email_deliveries"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    dedup_key: Mapped[str]=mapped_column(String(128), nullable=False, unique=True)
+    kind: Mapped[str]=mapped_column(String(64), nullable=False)
+    payload_ciphertext: Mapped[bytes|None]=mapped_column(LargeBinary)
+    payload_nonce: Mapped[bytes|None]=mapped_column(LargeBinary)
+    state: Mapped[str]=mapped_column(String(24), nullable=False, default="pending")
+    attempt_count: Mapped[int]=mapped_column(Integer, nullable=False, default=0)
+    claim_token: Mapped[str|None]=mapped_column(String(64))
+    claim_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str|None]=mapped_column(String(64))
+    __table_args__=(Index("ix_security_email_dispatch", "state", "next_attempt_at", "created_at"),
+                   CheckConstraint("attempt_count >= 0 AND attempt_count <= 3", name="ck_security_email_attempts"),)
+
 class LoginContext(Base):
     __tablename__="login_contexts"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -300,6 +320,7 @@ class Source(Base):
     source_type: Mapped[SourceType]=mapped_column(Enum(SourceType), index=True)
     original_filename: Mapped[str]=mapped_column(String(255))
     mime_type: Mapped[str|None]=mapped_column(String(255))
+    prepared_audio_context_json: Mapped[str|None]=mapped_column(Text)
     size_bytes: Mapped[int|None]=mapped_column(Integer)
     drive_file_id: Mapped[str|None]=mapped_column(String(256))
     drive_file_url: Mapped[str|None]=mapped_column(Text)
@@ -645,6 +666,7 @@ class TranscriptionJobSourceAttempt(Base):
     provider_request_started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     provider_response_returned_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     provider_total_parts: Mapped[int|None]=mapped_column(Integer)
+    provider_media_plan_json: Mapped[str|None]=mapped_column(Text)
     provider_completed_parts: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
     provider_accounting_status: Mapped[str|None]=mapped_column(String(24), default="not_started")
     provider_pending_part_index: Mapped[int|None]=mapped_column(Integer)

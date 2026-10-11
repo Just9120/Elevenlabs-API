@@ -153,6 +153,8 @@ class Settings(BaseSettings):
     job_smtp_use_ssl: bool = False
     job_smtp_starttls: bool = True
     job_smtp_timeout_seconds: int = Field(default=10, ge=1, le=30)
+    security_email_enabled: bool = False
+    security_email_sender_domain: str | None = None
     job_telegram_enabled: bool = False
     job_telegram_bot_token_file: str | None = None
     job_telegram_chat_id_file: str | None = None
@@ -338,6 +340,18 @@ class Settings(BaseSettings):
         try:
             return bool(Path(self.job_smtp_password_file or "").read_text(encoding="utf-8").strip())
         except (OSError, UnicodeError):
+            return False
+
+    def security_email_configured(self) -> bool:
+        domain = (self.security_email_sender_domain or "").strip().lower()
+        address = str(self.job_smtp_from_email or "")
+        if not (self.security_email_enabled and self.job_smtp_host and domain and
+                address.rpartition("@")[2].lower() == domain and
+                self.job_smtp_use_ssl != self.job_smtp_starttls):
+            return False
+        try:
+            return not self.job_smtp_username or bool(self.job_smtp_password())
+        except (OSError, RuntimeError, UnicodeError):
             return False
 
     def job_smtp_password(self) -> str | None:

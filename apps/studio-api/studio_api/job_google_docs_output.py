@@ -17,7 +17,6 @@ from .google_docs_output import (
     GoogleDocsOutputError,
     GoogleDocsOutputReason,
     GoogleDocsTranscriptArtifact,
-    GoogleDocsTranscriptTransport,
     new_google_docs_transcript_artifact,
 )
 from .job_claim_lease import is_lease_active
@@ -25,6 +24,7 @@ from .job_output_destination import DriveFolderAuthorizationMetadata, OutputDest
 from .job_source_materialization import SourceMaterializationError, _load_selected_snapshot
 from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
+from .integration_ports import TranscriptDocumentProvider, get_document_provider
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, prepare_output_reconciliation_case, mark_reconciliation_creation_returned
 from .transcription_metadata import selected_provider, selected_model, source_provenance
 from .models import SttProviderOperation, TranscriptionProviderPartCheckpoint
@@ -126,7 +126,7 @@ def create_processing_job_google_doc_from_transcript(
     clock: Callable[[], datetime] | None = None,
     token_resolver: Callable = refresh_user_google_drive_access_token,
     metadata_fetcher: Callable[[str, str], DriveFolderAuthorizationMetadata] | None = None,
-    google_docs_transport: GoogleDocsTranscriptTransport | Callable[..., object] | None = None,
+    google_docs_transport: TranscriptDocumentProvider | Callable[..., object] | None = None,
 ) -> Iterator[GoogleDocsTranscriptArtifact]:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
     check_now = now or clock()
@@ -193,7 +193,7 @@ def create_processing_job_google_doc_from_transcript(
         except Exception:
             db.rollback()
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.reconciliation_case_persistence_failed)
-        transport = google_docs_transport or GoogleDocsTranscriptTransport()
+        transport = google_docs_transport or get_document_provider()
         try:
             result = _call_transport(transport, access_token=token, folder_id=snap.output_drive_folder_id, title=formatted.title, document_text=formatted.body, reconciliation_token=case.reconciliation_token)
         except GoogleDocsOutputError as exc:

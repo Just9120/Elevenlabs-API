@@ -13,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
 
 
+@pytest.fixture(autouse=True)
+def fake_integrity_for_split_unit_fixtures(monkeypatch):
+    # These split/clip unit cases intentionally use fake byte streams. The
+    # actual probe/decode contract is covered by transcription_media_integrity.
+    from studio_api import media_preparation
+    monkeypatch.setattr(media_preparation, "_validate_elevenlabs_prepared_audio", lambda *args: None)
+
+
 def test_audio_input_is_passed_through_without_ffmpeg():
     from studio_api.media_preparation import prepare_elevenlabs_media_input
 

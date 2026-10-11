@@ -83,6 +83,7 @@ GRANT SELECT ON TABLE
     user_notification_preferences,
     web_push_subscriptions,
     job_notification_deliveries,
+    security_email_deliveries,
     runtime_component_status,
     stt_dictionaries,
     stt_dictionary_entries,
@@ -106,6 +107,7 @@ GRANT UPDATE ON TABLE
     operational_alert_deliveries,
     web_push_subscriptions,
     job_notification_deliveries,
+    security_email_deliveries,
     runtime_component_status,
     stt_provider_operations,
     stt_provider_health

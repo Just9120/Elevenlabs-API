@@ -14,6 +14,7 @@ from tempfile import TemporaryDirectory
 from typing import BinaryIO, Callable, Iterator
 
 from .source_creation import parse_authoritative_source_created_at
+from .audio_preparation import AudioPreparationError, AudioPreparationReason, probe_media, verify_media_integrity
 
 
 FFMPEG_VIDEO_EXTRACTION_TIMEOUT_SECONDS = 1800
@@ -215,6 +216,7 @@ def prepare_elevenlabs_media_parts(
                 _validate_whole_source_duration(duration, max_duration_seconds, duration_warning_seconds,
                     long_duration_confirmed and (confirmed_source_duration_seconds is None
                         or round(duration, 3) == confirmed_source_duration_seconds))
+                _validate_elevenlabs_prepared_audio(prepared_path, prepared.mime_type, runner)
                 clip_requested = (
                     media_clip_start_seconds is not None
                     or media_clip_end_seconds is not None
@@ -447,6 +449,7 @@ def _create_manual_clip(
         "-hide_banner",
         "-loglevel",
         "error",
+        "-xerror",
         "-y",
         "-ss",
         f"{start_seconds:.3f}",
@@ -529,6 +532,26 @@ def _run_ffmpeg(
         raise MediaPreparationError(
             MediaPreparationReason.media_preparation_failed,
         ) from exc
+
+
+def _validate_elevenlabs_prepared_audio(path: Path, mime_type: str, runner: Callable[..., object]) -> None:
+    """Validate the actual full input before clipping, splitting or any STT call."""
+    try:
+        actual = probe_media(path, runner=runner)
+        declared_containers = {
+            "audio/mpeg": {"mp3"}, "audio/mp3": {"mp3"},
+            "audio/wav": {"wav"}, "audio/x-wav": {"wav"}, "audio/wave": {"wav"},
+            "audio/flac": {"flac"}, "audio/x-flac": {"flac"},
+            "audio/ogg": {"ogg"}, "application/ogg": {"ogg"},
+            "audio/mp4": {"mov", "mp4", "m4a"}, "audio/x-m4a": {"mov", "mp4", "m4a"},
+            "audio/aac": {"aac"}, "audio/webm": {"matroska", "webm"},
+        }.get(mime_type.split(";", 1)[0].strip().lower())
+        if declared_containers and not declared_containers.intersection(actual.format_name.split(",")):
+            raise MediaPreparationError(MediaPreparationReason.media_preparation_failed)
+        verify_media_integrity(path, runner=runner)
+    except AudioPreparationError as exc:
+        reason = MediaPreparationReason.ffmpeg_unavailable if exc.reason is AudioPreparationReason.probe_unavailable else MediaPreparationReason.media_preparation_failed
+        raise MediaPreparationError(reason) from exc
 
 
 def _probe_duration_seconds(
