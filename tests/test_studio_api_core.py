@@ -63,7 +63,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["runtime_component_status", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "stt_provider_operations", "stt_provider_health", "stt_dictionary_entries", "stt_dictionaries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "trusted_devices", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["runtime_component_status", "security_email_deliveries", "job_notification_deliveries", "web_push_subscriptions", "user_notification_preferences", "operational_alert_deliveries", "operational_incidents", "audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "stt_provider_operations", "stt_provider_health", "stt_dictionary_entries", "stt_dictionaries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_account_snapshots", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "password_reset_challenges", "user_totp_recovery_codes", "user_totp_factors", "trusted_devices", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -160,7 +160,7 @@ def test_database_role_manifest_lets_real_migrator_extend_existing_enum(tmp_path
                 conn.execute(text("ALTER ROLE studio_migrator NOLOGIN"))
 
         with temp_engine.connect() as conn:
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0040_text_lifecycle"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
             assert conn.execute(
                 text(
                     "SELECT count(*) FROM pg_enum e "
@@ -438,13 +438,76 @@ def test_password_reset_request_is_uniform_for_known_and_unknown_accounts():
     }
 
 
+def test_configured_password_reset_is_uniform_single_use_and_revokes_sessions(monkeypatch):
+    from studio_api import main
+    from studio_api.models import PasswordResetChallenge, SecurityEmailDelivery
+    from studio_api.security_email import _aad
+    monkeypatch.setattr(main.settings, "security_email_enabled", True)
+    monkeypatch.setattr(main.settings, "security_email_sender_domain", "example.com")
+    monkeypatch.setattr(main.settings, "job_smtp_host", "smtp.example.com")
+    monkeypatch.setattr(main.settings, "job_smtp_from_email", "security@example.com")
+    monkeypatch.setattr(main.settings, "job_smtp_starttls", True)
+    monkeypatch.setattr(main.settings, "job_smtp_use_ssl", False)
+    monkeypatch.setattr(main.settings, "job_smtp_username", None)
+    pw = admin(email="reset-owner@example.com")
+    owner = TestClient(app); login(owner, pw, "reset-owner@example.com")
+    anonymous = TestClient(app)
+    headers = {"origin": "https://studio.test"}
+    known = anonymous.post("/api/auth/password-reset/request", json={"email": "reset-owner@example.com"}, headers=headers)
+    unknown = anonymous.post("/api/auth/password-reset/request", json={"email": "missing@example.com"}, headers=headers)
+    assert known.status_code == unknown.status_code == 200
+    assert known.json() == unknown.json() == {"accepted": True, "delivery": "configured"}
+    assert known.headers["cache-control"] == unknown.headers["cache-control"] == "no-store"
+    with SessionLocal() as db:
+        row = db.scalar(select(SecurityEmailDelivery).where(SecurityEmailDelivery.kind == "password_reset"))
+        payload = json.loads(decrypt(row.payload_ciphertext, row.payload_nonce, master_key_from_b64(main.settings.master_key_b64()), _aad(row.owner_user_id, row.id)))
+        token = re.search(r"#password-reset=([A-Za-z0-9_-]+)", payload["body"]).group(1)
+        assert token not in known.text and db.query(PasswordResetChallenge).count() == 1
+    body = {"token": token, "new_password": "Synthetic-new-password-123"}
+    assert anonymous.post("/api/auth/password-reset/confirm", json=body, headers=headers).status_code == 200
+    assert anonymous.post("/api/auth/password-reset/confirm", json=body, headers=headers).status_code == 422
+    assert owner.get("/api/auth/security").status_code == 401
+    with SessionLocal() as db:
+        assert db.query(SecurityEmailDelivery).filter_by(kind="auth.password_reset_completed").count() == 1
+
+
 def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0040_text_lifecycle", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0041_source_retention_default", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
+
+
+def test_retention_context_mail_migrations_round_trip_preserve_existing_expiry():
+    with isolated_migration_database("studio_context_mail_roundtrip") as (target, env):
+        run_alembic("0040_text_lifecycle", env=env)
+        # Bootstrap metadata includes current nullable columns. Downgrade removes
+        # them to reproduce the released schema before the real upgrade.
+        run_alembic("0040_text_lifecycle", env=env, command="downgrade")
+        with target.begin() as db:
+            db.execute(text("ALTER TABLE sources DROP COLUMN IF EXISTS prepared_audio_context_json"))
+            db.execute(text("ALTER TABLE transcription_job_source_attempts DROP COLUMN IF EXISTS provider_media_plan_json"))
+            db.execute(text("DROP TABLE IF EXISTS security_email_deliveries"))
+            db.execute(text("INSERT INTO users(id,email,role,status,created_at,updated_at,source_retention_ttl_seconds) VALUES ('synthetic-user','roundtrip@example.test','user','active',now(),now(),86400)"))
+            db.execute(text("INSERT INTO projects(id,owner_user_id,title,created_at,updated_at) VALUES ('synthetic-project','synthetic-user','Roundtrip',now(),now())"))
+            db.execute(text("INSERT INTO sources(id,project_id,source_type,original_filename,upload_status,size_bytes,expires_at,created_at,updated_at) VALUES ('synthetic-source','synthetic-project','local_upload','synthetic.wav','uploaded',42,'2026-10-12 10:00:00+00',now(),now())"))
+            before = db.execute(text("SELECT expires_at FROM sources WHERE id='synthetic-source'" )).scalar_one()
+        try:
+            run_alembic("head", env=env)
+            assert {"prepared_audio_context_json"} <= {c["name"] for c in inspect(target).get_columns("sources")}
+            assert "security_email_deliveries" in inspect(target).get_table_names()
+            with target.connect() as db:
+                assert db.execute(text("SELECT expires_at FROM sources WHERE id='synthetic-source'")).scalar_one() == before
+                assert db.execute(text("SELECT source_retention_ttl_seconds FROM users WHERE id='synthetic-user'")).scalar_one() == 86400
+            run_alembic("0040_text_lifecycle", env=env, command="downgrade")
+            assert "security_email_deliveries" not in inspect(target).get_table_names()
+            assert "prepared_audio_context_json" not in {c["name"] for c in inspect(target).get_columns("sources")}
+            with target.connect() as db:
+                assert db.execute(text("SELECT expires_at FROM sources WHERE id='synthetic-source'")).scalar_one() == before
+        finally:
+            run_alembic("head", env=env)
 
 
 def test_audit_rows_are_database_enforced_append_only():
@@ -1111,17 +1174,19 @@ def test_account_source_retention_preferences_are_server_authoritative():
     c = TestClient(app)
     csrf = login(c, pw, email)
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
-    expected_options = [3600, 86400, 259200, 604800, 2592000]
+    expected_options = [259200, 604800, 2592000]
     current = c.get("/api/account/preferences")
     assert current.status_code == 200
     assert current.json() == {
-        "source_retention_ttl_seconds": 86400,
+        "source_retention_ttl_seconds": 259200,
         "allowed_source_retention_ttl_seconds": expected_options,
         "accent_color": "blue",
         "allowed_accent_colors": ["blue", "violet", "teal", "rose"],
     }
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}).status_code == 403
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 7200}, headers=headers).status_code == 422
+    for legacy_seconds in (3600, 86400):
+        assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": legacy_seconds}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800, "unknown": True}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={"accent_color": "orange"}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={}, headers=headers).status_code == 422
@@ -2880,7 +2945,7 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     db.close()
     _connect_google_for_test(user_id)
     monkeypatch.setattr(
-        main_mod, "refresh_user_google_drive_access_token", lambda *a, **k: "access"
+        "studio_api.google_connection_access.refresh_user_google_drive_access_token", lambda *a, **k: "access"
     )
     metadata = {
         "file_123": GoogleDriveMetadata(
@@ -3479,11 +3544,38 @@ def test_complete_local_upload_replay_returns_same_verified_source_without_exten
     assert replay.json()["expires_at"] == first_body["expires_at"]
 
 
+@pytest.mark.parametrize("legacy_seconds", [3600, 86400])
+def test_new_upload_normalizes_legacy_preference_without_rewriting_existing_expiry(monkeypatch, legacy_seconds):
+    enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project(f"legacy-retention-{legacy_seconds}@example.com")
+    with SessionLocal() as db:
+        user = db.get(User, db.get(Project, pid).owner_user_id)
+        user.source_retention_ttl_seconds = legacy_seconds
+        db.commit()
+    prefs = c.get("/api/account/preferences").json()
+    assert prefs["source_retention_ttl_seconds"] == 259200
+    initiated = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={
+        "original_filename": "legacy.mp3", "mime_type": "audio/mpeg", "size_bytes": 10,
+        "reference_class": "transcription",
+    }, headers=headers)
+    sid = initiated.json()["source_id"]
+    completed = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers).json()
+    assert datetime.fromisoformat(completed["expires_at"]) - datetime.fromisoformat(completed["uploaded_at"]) == timedelta(days=3)
+    legacy_expiry = datetime.now(timezone.utc) + timedelta(seconds=legacy_seconds)
+    with SessionLocal() as db:
+        db.get(Source, sid).expires_at = legacy_expiry
+        db.commit()
+    replay = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers).json()
+    assert datetime.fromisoformat(replay["expires_at"]) == legacy_expiry
+    with SessionLocal() as db:
+        assert db.get(User, db.get(Project, pid).owner_user_id).source_retention_ttl_seconds == legacy_seconds
+
+
 @pytest.mark.parametrize("days", [3, 7, 30, None])
 def test_audio_upload_has_separate_selected_retention_after_completion(monkeypatch, days):
     enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project(f"audio-retention-{days}@example.com".lower())
-    preference = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 3600}, headers=headers)
+    preference = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 2592000}, headers=headers)
     assert preference.status_code == 200
     payload = {"original_filename": "audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 10, "reference_class": "audio_processing"}
     if days is not None:
@@ -4428,7 +4520,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0040_text_lifecycle"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
 
 
 
@@ -4492,7 +4584,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0040_text_lifecycle"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
 
 
 
@@ -5630,7 +5722,7 @@ def test_uncertain_job_attention_resolution_is_explicit_owner_scoped_and_replay_
     assert other.get(reconciliation_endpoint).status_code == 404
     def unexpected_google_refresh(*args, **kwargs):
         raise AssertionError("No Google request is allowed without reconciliation cases")
-    monkeypatch.setattr("studio_api.main.refresh_user_google_drive_access_token", unexpected_google_refresh)
+    monkeypatch.setattr("studio_api.google_connection_access.refresh_user_google_drive_access_token", unexpected_google_refresh)
     check = client.post(reconciliation_endpoint + "/check", headers=headers)
     assert check.status_code == 200
     assert check.json() == {"job_id": uncertain_job_id, "checked": 0, "resolved": 0, "unresolved": 0, "conflicts": 0}
@@ -6066,7 +6158,7 @@ def test_job_output_forbidden_fields_and_secret_markers_absent():
         assert marker not in r.text
 
 
-def test_job_output_existing_job_payloads_remain_unchanged_after_outputs_exist():
+def test_job_output_list_adds_only_safe_primary_document_without_expanding_detail():
     c, _headers, pid, jid, source_ids = create_job_with_sources("job-output-compat@example.com")
     add_output_row(jid, source_ids[0], doc_id="doc-output-compat", url="https://docs.google.com/document/d/compat/edit")
     detail = c.get(f"/api/jobs/{jid}")
@@ -6075,9 +6167,22 @@ def test_job_output_existing_job_payloads_remain_unchanged_after_outputs_exist()
         assert response.status_code == 200
         assert "outputs" not in response.json()
         assert "doc-output-compat" not in response.text
-        assert "compat/edit" not in response.text
+    assert "compat/edit" not in detail.text
+    assert listed.json()["jobs"][0]["primary_output_url"] == "https://docs.google.com/document/d/compat/edit"
     assert detail.json()["source_names"] == ["one.mp4"]
     assert listed.json()["jobs"][0]["source_names"] == ["one.mp4"]
+
+
+def test_primary_output_urls_are_owner_scoped_even_for_mixed_requested_job_ids():
+    from studio_api.job_output_read import load_primary_output_urls
+    c1, _h1, _p1, jid1, sources1 = create_job_with_sources("primary-owner@example.com")
+    _c2, _h2, _p2, jid2, sources2 = create_job_with_sources("primary-other@example.com")
+    add_output_row(jid1, sources1[0], doc_id="primary-owner-doc", url="https://docs.google.com/document/d/owner/edit")
+    add_output_row(jid2, sources2[0], doc_id="primary-other-doc", url="https://docs.google.com/document/d/other/edit")
+    with SessionLocal() as db:
+        owner = db.get(TranscriptionJob, jid1).owner_user_id
+        assert load_primary_output_urls(db, owner_user_id=owner, job_ids=[jid1, jid2]) == {jid1: "https://docs.google.com/document/d/owner/edit"}
+        assert load_primary_output_urls(db, owner_user_id=owner, job_ids=[]) == {}
 
 
 def test_job_output_archived_project_matches_existing_job_detail_authority():
@@ -6156,8 +6261,7 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     assert config_missing.json() == {"detail": "google_config_unavailable"}
     from studio_api.google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason
     monkeypatch.setattr(
-        main,
-        "refresh_user_google_drive_access_token",
+        "studio_api.google_connection_access.refresh_user_google_drive_access_token",
         lambda *a, **k: (_ for _ in ()).throw(
             GoogleConnectionAccessError(
                 GoogleConnectionAccessReason.reauthorization_required
@@ -6168,8 +6272,7 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     assert reconnect.status_code == 409
     assert reconnect.json() == {"detail": "google_reauthorization_required"}
     monkeypatch.setattr(
-        main,
-        "refresh_user_google_drive_access_token",
+        "studio_api.google_connection_access.refresh_user_google_drive_access_token",
         lambda *a, **k: (_ for _ in ()).throw(
             GoogleConnectionAccessError(GoogleConnectionAccessReason.token_unavailable)
         ),
@@ -6177,7 +6280,7 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     transient = c.post("/api/google/picker/session", headers=headers)
     assert transient.status_code == 502
     assert transient.json() == {"detail": "google_token_unavailable"}
-    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "short-access-token")
+    monkeypatch.setattr("studio_api.google_connection_access.refresh_user_google_drive_access_token", lambda *a, **k: "short-access-token")
     r = c.post("/api/google/picker/session", headers=headers)
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
@@ -6207,7 +6310,7 @@ def test_direct_drive_upload_session_and_completion_are_bound_and_server_verifie
     db.close()
     _connect_google_for_test(user_id)
     monkeypatch.setattr(
-        main, "refresh_user_google_drive_access_token", lambda *a, **k: "memory-token"
+        "studio_api.google_connection_access.refresh_user_google_drive_access_token", lambda *a, **k: "memory-token"
     )
     folder_calls = []
 
@@ -6306,7 +6409,7 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
     pw = admin(); c = TestClient(app); csrf = login(c, pw)
     db = SessionLocal(); uid = db.query(User).first().id; db.close(); _connect_google_for_test(uid)
-    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
+    monkeypatch.setattr("studio_api.google_connection_access.refresh_user_google_drive_access_token", lambda *a, **k: "access")
     metas = {
         "file-a": GoogleDriveMetadata("file-a", "Backend A.mp3", "audio/mpeg", 10, "https://drive.google.com/file/d/file-a/view", "2025-12-01T10:20:30Z", None, False),
         "file-b": GoogleDriveMetadata("file-b", "Backend B.mp4", "video/mp4", 20, "https://drive.google.com/file/d/file-b/view", "2025-12-02T11:21:31+00:00", None, False),
@@ -6601,7 +6704,7 @@ def test_legacy_google_drive_source_ignores_browser_metadata_and_uses_verified_m
     uid = db.query(User).first().id
     db.close()
     _connect_google_for_test(uid)
-    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
+    monkeypatch.setattr("studio_api.google_connection_access.refresh_user_google_drive_access_token", lambda *a, **k: "access")
     verified = GoogleDriveMetadata(
         "verified-file",
         "Verified meeting.mp4",
@@ -8735,7 +8838,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0040_text_lifecycle"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0041_source_retention_default"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -8878,7 +8981,7 @@ def test_audio_export_api_checks_auth_and_folder_before_queueing(monkeypatch):
         db.add(job); db.commit()
         job_id = job.id
     external = []
-    monkeypatch.setattr("studio_api.main.refresh_user_google_drive_access_token", lambda *args, **kwargs: external.append("token") or "synthetic")
+    monkeypatch.setattr("studio_api.google_connection_access.refresh_user_google_drive_access_token", lambda *args, **kwargs: external.append("token") or "synthetic")
     def verify(token, folder_id):
         external.append(folder_id)
         if folder_id == "denied":
@@ -9080,7 +9183,7 @@ def test_audio_legacy_recovery_api_is_owner_csrf_scoped_and_never_calls_google(m
         job_id, source_id = job.id, source.id
     def no_google(*args, **kwargs):
         pytest.fail("Recovery must not call Google or a provider")
-    monkeypatch.setattr("studio_api.main.refresh_user_google_drive_access_token", no_google)
+    monkeypatch.setattr("studio_api.google_connection_access.refresh_user_google_drive_access_token", no_google)
     route = f"/api/audio-preparations/{job_id}/recover-output"
     assert TestClient(app).post(route, headers=headers).status_code == 401
     assert client.post(route, headers={"origin": "https://studio.test"}).status_code == 403

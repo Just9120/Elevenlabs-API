@@ -9,7 +9,7 @@ from sqlalchemy import update
 from .models import (
     AudioPreparationJob, AudioPreparationStatus, CredentialStatus,
     GoogleConnection, GoogleConnectionStatus, GoogleOAuthState, JobStatus, JobNotificationDelivery, OperationalAlertDelivery,
-    Project, ProviderCredential, Session, TranscriptMaintenanceRun,
+    Project, ProviderCredential, Session, TranscriptMaintenanceRun, SecurityEmailDelivery, PasswordResetChallenge,
     TranscriptMaintenanceRunStatus, TranscriptionJob, TrustedDevice, User, UserStatus,
 )
 
@@ -23,6 +23,10 @@ def quarantine_statements(now):
     yield update(Session).where(Session.revoked_at.is_(None)).values(revoked_at=now, reauthenticated_at=None)
     yield update(TrustedDevice).where(TrustedDevice.revoked_at.is_(None)).values(revoked_at=now)
     yield update(GoogleOAuthState).where(GoogleOAuthState.used_at.is_(None)).values(used_at=now)
+    yield update(PasswordResetChallenge).where(PasswordResetChallenge.used_at.is_(None)).values(used_at=now)
+    yield update(SecurityEmailDelivery).where(SecurityEmailDelivery.state.in_(("pending", "claimed", "failed"))).values(
+        state="cancelled", payload_ciphertext=None, payload_nonce=None, claim_token=None, claim_expires_at=None,
+        next_attempt_at=None, finished_at=now)
     yield update(ProviderCredential).where(ProviderCredential.status == CredentialStatus.active).values(status=CredentialStatus.revoked, updated_at=now)
     yield update(GoogleConnection).where(GoogleConnection.status == GoogleConnectionStatus.active).values(
         status=GoogleConnectionStatus.revoked, revoked_at=now, maintenance_revoked_at=now, updated_at=now)

@@ -207,6 +207,12 @@ def run_worker_loop(
                 break
             alert_now = datetime.now(timezone.utc)
             try:
+                from .security_email import process_one_security_email
+                if process_one_security_email(session_factory=session_factory, settings=settings, now=alert_now):
+                    continue
+            except Exception:
+                logger.warning("studio_worker_security_email_failed", extra={"event": "studio_worker_security_email_failed"})
+            try:
                 if job_notification_runner is None:
                     from .job_notifications import process_one_job_notification as deliver_job_notification
                 else:

@@ -36,11 +36,11 @@ export function MultiTranscriptionCard({
         </div>
         <div className="multi-transcription-counts" aria-live="polite">
           <span>Готово: {completedCount}</span>
-          <span>В работе: {activeCount}</span>
-          <span>Ошибка/отмена: {problemCount}</span>
+          {activeCount > 0 && <span>В работе: {activeCount}</span>}
+          {problemCount > 0 && <span>Ошибка/отмена: {problemCount}</span>}
         </div>
       </header>
-      <div className="multi-transcription-progress">
+      {activeCount > 0 && <div className="multi-transcription-progress">
         <span>Завершено: {terminalCount} из {jobs.length}</span>
         <progress
           max={100}
@@ -49,7 +49,7 @@ export function MultiTranscriptionCard({
         >
           {terminalPercent}%
         </progress>
-      </div>
+      </div>}
       {grouped ? (
         <ol className="multi-transcription-items">
           {jobs.map((job, index) => (

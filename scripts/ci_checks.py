@@ -66,7 +66,9 @@ def check_launcher_notebook() -> None:
     required_markers = [
         "GITHUB_REF",
         "raw.githubusercontent.com",
-        "urllib.request.urlretrieve",
+        "urllib.request.urlopen",
+        "download_verified",
+        "hashlib.sha256",
         "subprocess.run",
         "exec(compile",
     ]
@@ -111,7 +113,9 @@ def check_realtime_launcher_notebook() -> None:
     required_markers = [
         "GITHUB_REF",
         "raw.githubusercontent.com",
-        "urllib.request.urlretrieve",
+        "urllib.request.urlopen",
+        "download_verified",
+        "hashlib.sha256",
         "elevenlabs_realtime.py",
         "exec(compile",
     ]

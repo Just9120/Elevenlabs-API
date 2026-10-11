@@ -83,6 +83,30 @@ describe("app-owned Google Drive picker", () => {
     }
   });
 
+  it("returns focus after Escape when the caller reenables its launcher on cancellation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith("/files/root")) return json(rootPayload());
+      if (url.pathname.endsWith("/drives")) return json({ drives: [] });
+      return json({ files: [] });
+    }));
+    const launcher = document.createElement("button");
+    document.body.appendChild(launcher);
+    launcher.focus();
+    launcher.disabled = true;
+    try {
+      const { resultPromise } = await startPicker("output-folder", pickerSession(), { returnFocusTo: launcher });
+      await screen.findByRole("button", { name: "Выбрать эту папку" });
+      await userEvent.keyboard("{Escape}");
+      expect((await resultPromise).action).toBe("cancel");
+      launcher.disabled = false;
+      await waitFor(() => expect(launcher).toHaveFocus());
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    } finally {
+      launcher.remove();
+    }
+  });
+
   it("sorts all pages through Drive and preserves folder/search context while discarding old tokens", async () => {
     const requests: URL[] = [];
     const folder = (id: string, name: string) => ({ id, name, mimeType: FOLDER_MIME_TYPE });

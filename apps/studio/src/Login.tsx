@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "./apiClient";
+import { PasswordResetPanel } from "./PasswordResetPanel";
 import {
   parseAuthenticatedLoginResponse,
   parseBootstrapStatusResponse,
@@ -236,6 +237,7 @@ export function Login({
         </button>
         {error && <p className="error" role="alert">{error}</p>}
       </form>
+      <PasswordResetPanel />
     </main>
   );
 }

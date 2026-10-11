@@ -19,6 +19,7 @@ export type OutputReconciliationResponse = {
 };
 
 export type JobRetryResponse = {
+  missing_provider_parts?: { source_id: string; part_index: number; start_seconds: number; end_seconds: number }[];
   long_duration_preflight?: LongMediaPreflight | null;
   job_id: string;
   job_status: JobСтатус;
@@ -99,6 +100,14 @@ export function parseJobRetryResponse(
   jobId: string,
 ): JobRetryResponse | null {
   if (!isRecord(candidate)) return null;
+  const missingParts = candidate.missing_provider_parts;
+  if (missingParts !== undefined && (!Array.isArray(missingParts) || missingParts.length > 12800 || missingParts.some((part) =>
+    !isRecord(part) || typeof part.source_id !== "string" || !part.source_id.trim() || part.source_id.length > 36 ||
+    !Number.isInteger(part.part_index) || Number(part.part_index) < 0 || Number(part.part_index) >= 256 ||
+    typeof part.start_seconds !== "number" || typeof part.end_seconds !== "number" ||
+    !Number.isFinite(part.start_seconds) || !Number.isFinite(part.end_seconds) || !(0 <= part.start_seconds && part.start_seconds < part.end_seconds)
+  ))) return null;
+  if (Array.isArray(missingParts) && new Set(missingParts.map(part => `${part.source_id}:${part.part_index}`)).size !== missingParts.length) return null;
   const durationPreflight = parseLongMediaPreflight(candidate.long_duration_preflight);
   if (candidate.long_duration_preflight !== undefined && candidate.long_duration_preflight !== null && !durationPreflight) return null;
   const reason = candidate.reason;
@@ -159,6 +168,7 @@ export function parseJobRetryResponse(
   return {
     ...(candidate.long_duration_preflight !== undefined ? { long_duration_preflight: durationPreflight } : {}),
     job_id: jobId,
+    ...(Array.isArray(missingParts) ? { missing_provider_parts: missingParts.map(part => ({source_id: part.source_id as string, part_index: part.part_index as number, start_seconds: part.start_seconds as number, end_seconds: part.end_seconds as number})) } : {}),
     job_status: candidate.job_status as JobRetryResponse["job_status"],
     available: candidate.available,
     reason: reason as string,

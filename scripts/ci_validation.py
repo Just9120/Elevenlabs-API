@@ -169,6 +169,13 @@ def output(**values) -> None:
             file.write(f"{key}={str(value).lower() if isinstance(value, bool) else value}\n")
 
 
+def requires_release_rehearsal(paths: list[str]) -> bool:
+    return any(path.startswith("apps/studio-api/alembic/versions/") or path in {
+        "deploy/studio/database-roles.sql", "deploy/studio/worker-db-role.sql",
+        "scripts/rehearse_studio_release.py",
+    } for path in paths)
+
+
 def plan(api: GitHub, event: dict) -> None:
     mode, reason, reused = "full", "applicable suites", None
     if os.environ["GITHUB_EVENT_NAME"] == "push":
@@ -190,14 +197,20 @@ def plan(api: GitHub, event: dict) -> None:
                 mode, reason = "docs", "recognized Markdown-only changes; lightweight checks required"
         else:
             root = studio = True
-    output(root=root, studio=studio, mode=mode)
+    rehearsal = False
+    if root and os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+        base = event.get("pull_request", {}).get("base", {}).get("sha")
+        if not base or not SHA.fullmatch(base):
+            raise ValueError("release rehearsal base unavailable")
+        rehearsal = requires_release_rehearsal(git("diff", "--name-only", base, "HEAD").splitlines())
+    output(root=root, studio=studio, mode=mode, rehearsal=rehearsal)
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as file:
         file.write(f"## Validation selection\n\n{reason}. Root: {root}; Studio: {studio}.\n")
 
 
 def proof(event: dict, mode: str) -> None:
     pr = event.get("pull_request", {})
-    runners = [json.loads(os.environ[key]) for key in ("ROOT_RUNNER_JSON", "STUDIO_RUNNER_JSON", "BROWSER_RUNNER_JSON") if os.environ.get(key)]
+    runners = [json.loads(os.environ[key]) for key in ("ROOT_RUNNER_JSON", "STUDIO_RUNNER_JSON", "BROWSER_RUNNER_JSON", "REHEARSAL_RUNNER_JSON") if os.environ.get(key)]
     data = dict(schema=1, mode=mode, repository=REPOSITORY,
                 run_id=int(os.environ["GITHUB_RUN_ID"]), checkout=git("rev-parse", "HEAD"),
                 tree=git("rev-parse", "HEAD^{tree}"), context=validation_context(),

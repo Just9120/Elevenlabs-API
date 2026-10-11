@@ -698,6 +698,39 @@ unbounded retry, secret-bearing output, unknown storage/account limits or an
 unexpected provider/Google call. Do not restart services, requeue jobs, mutate
 audit history or delete storage as alert remediation.
 
+## Personal access/security email
+
+`STUDIO_SECURITY_EMAIL_ENABLED` is false by default. Enable it only after the
+owner selects the sender domain, SMTP service and From address. Set
+`STUDIO_SECURITY_EMAIL_SENDER_DOMAIN` to the exact From domain; the API and
+worker must have matching settings. The transport uses the existing
+`STUDIO_JOB_SMTP_*` settings with exactly one TLS mode and a protected password
+file. Reuse of a job-notification SMTP account needs explicit owner approval;
+security delivery does not enable job notifications or change owner opt-ins.
+Do not put SMTP passwords into `.env` or test fixtures.
+
+Migration `0041_source_retention_default` adds the encrypted transactional outbox.
+Apply and verify the reviewed worker role manifest after migration: mail
+dispatch needs SELECT/UPDATE only; reset challenges remain API-owned. Rollout
+follows the existing backup/migration → API/web → stopped-worker config/role
+verification → worker order. Without configured mail, reset requests report
+`not_configured` uniformly and no email is sent. Health alone does not confirm
+domain ownership, SMTP acceptance or inbox delivery.
+
+Reset links expire after 15 minutes and are single use. Requesting a newer
+link invalidates earlier challenges and pending mail. Successful reset revokes
+sessions and trusted browsers; account security changes create separate
+deduplicated notifications. Delivery claims expire after60 seconds, retries
+are bounded to3 with backoff, expired/reset-cancelled payloads are erased.
+SMTP may accept a message before worker failure or an expired slow-send claim: a retry can
+resend its stable Message-ID, but the reset token still works once.
+
+Synthetic transport/transaction/expiry checks run without real mail. An
+operator-approved delivery test must use a selected test recipient and verify
+the exact deployed revision, settings presence, outbox outcome and inbox;
+never print the token, body, ciphertext or credentials. Wrong domain, TLS,
+secret or role stops dependent activation without blocking unrelated UI fixes.
+
 ## Automatic retry and owner job notifications
 
 Migration `0035_job_notifications` adds the automatic-retry schedule, explicit

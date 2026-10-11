@@ -83,9 +83,10 @@ function formatSuccessPercentage(value: number | null) {
 function formatProviderCost(value: string) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "Нет данных";
+  if (numeric > 0 && numeric < 0.01) return "< 0,01 USD";
   return `${numeric.toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 8,
+    maximumFractionDigits: 2,
   })} USD`;
 }
 
@@ -398,6 +399,7 @@ export function TranscriptionAnalyticsPanel({
                       analytics.usage_cost.confirmed_provider_cost,
                     )}
                   </strong>
+                  <details><summary>Точное значение стоимости</summary>{analytics.usage_cost.confirmed_provider_cost} USD</details>
                 </article>
                 <article>
                   <span>Полный учёт</span>

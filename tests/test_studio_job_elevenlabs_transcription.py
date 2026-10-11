@@ -1091,6 +1091,12 @@ def test_chunk_transcripts_merge_in_order_without_duplicate_overlap():
     assert merged.text == "Hello world again"
     assert [word.text for word in merged.words] == ["Hello", " world", " again"]
     assert merged.words[-1].start == 10.1
+    assert [word.speaker_id for word in merged.words] == ["part_1:speaker_0", "part_1:speaker_0", "part_2:speaker_0"]
+    from studio_api.job_google_docs_output import build_speaker_labeled_transcript
+    rendered = build_speaker_labeled_transcript(tuple(merged.words), fallback_text=merged.text)
+    assert "личность между частями не сопоставлялась" in rendered
+    assert "Спикер 1 — часть 1" in rendered and "Спикер 2 — часть 2" in rendered
+    assert rendered.endswith("Спикер 2:\nagain")
     assert merged.detected_language_code == "en"
     assert merged.language_probability == 0.8
     assert "Hello" not in repr(merged)

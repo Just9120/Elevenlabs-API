@@ -324,7 +324,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                             ) from exc
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
-                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts), completed_parts=len(part_results))
+                        from .media_context import serialize_part_plan
+                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts), completed_parts=len(part_results), media_plan=serialize_part_plan(prepared_batch.parts))
                         db.commit()
                     except Exception as exc:
                         db.rollback()

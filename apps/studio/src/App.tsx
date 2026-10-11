@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import * as googlePicker from "./googlePicker";
+import { ActionMenu } from "./ActionMenu";
 import { diagnosticsTimeZoneLabel, formatDiagnosticsTime } from "./diagnosticsTime";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
@@ -48,6 +49,7 @@ import {
   formatBytes,
   formatUploadLimit,
   formatDurationLimit,
+  formatMediaTimestamp,
   retentionOptionLabel,
 } from "./formatters";
 import {
@@ -71,6 +73,7 @@ import {
 import {
   isUsableJobSource,
   reconcileOptimisticSources,
+  preparedAudioContext,
   sourceСтатусLabel,
   type Source,
 } from "./sourceModel";
@@ -81,6 +84,7 @@ import {
 } from "./SourcesPanel";
 import { JobCard } from "./JobCard";
 import { Login } from "./Login";
+import { PasswordResetPanel } from "./PasswordResetPanel";
 import {
   parseAuthenticatedSessionResponse,
   parseCsrfResponse,
@@ -214,7 +218,7 @@ import {
 import "./styles.css";
 
 const SOURCE_RETENTION_TTL_OPTIONS_SECONDS = [
-  3600, 86400, 259200, 604800, 2592000,
+  259200, 604800, 2592000,
 ] as const;
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
@@ -1729,6 +1733,12 @@ function PreparationPanel({
   const [historyClearOpen, setHistoryClearOpen] = useState(false);
   const [historyClearPending, setHistoryClearPending] = useState(false);
   const [historyClearMessage, setHistoryClearMessage] = useState("");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyStatus, setHistoryStatus] = useState("all");
+  const [historyPage, setHistoryPage] = useState(0);
+  useEffect(() => {
+    setHistoryQuery(""); setHistoryStatus("all"); setHistoryPage(0);
+  }, [project.id]);
   const historyClearPendingRef = useRef(false);
 
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
@@ -3509,20 +3519,12 @@ function PreparationPanel({
             >
               Выбрать: {favorite.name}
             </button>
-            <ResourceExternalLink
-              href={favorite.web_view_url}
-              label="Открыть"
-              ariaLabel={`Открыть избранную папку ${favorite.name} в Google Drive`}
-            />
-            <button
-              type="button"
-              className="secondary danger"
+            <ActionMenu label={`Действия с избранной папкой ${favorite.name}`}
               disabled={folderFavoriteMutation !== null}
-              aria-busy={folderFavoriteMutation === `delete:${favorite.id}`}
-              onClick={() => void deleteFolderFavorite(favorite)}
-            >
-              Удалить
-            </button>
+              items={[
+                { id: "open", label: "Открыть в Google Drive", href: favorite.web_view_url },
+                { id: "remove", label: "Убрать из избранного", danger: true, onSelect: () => void deleteFolderFavorite(favorite) },
+              ]} />
           </div>
         ))}
         {folderFavoritesError && !folderFavoritesLoading && (
@@ -4262,6 +4264,12 @@ function PreparationPanel({
         (job) => job.history_attention_required !== true,
       ),
     );
+  const filteredHistory = recentTranscriptions.filter((presentation) => presentation.jobs.some((job) =>
+    jobTitle(job).toLocaleLowerCase("ru-RU").includes(historyQuery.trim().toLocaleLowerCase("ru-RU")) &&
+    (historyStatus === "all" || job.status === historyStatus),
+  ));
+  const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / 10));
+  const currentHistoryPage = Math.min(historyPage, historyPageCount - 1);
   useEffect(() => {
     for (const job of displayJobs) {
       if (
@@ -4651,308 +4659,6 @@ function PreparationPanel({
             </span>
           </div>
         </div>
-        <div className="provider-card">
-          <div>
-            <label className="profile-selector">
-              Провайдер транскрибации
-              <select
-                aria-label="Провайдер транскрибации"
-                value={selectedProvider}
-                onChange={(event) => {
-                  const provider = event.target.value as SttProvider;
-                  setSelectedProvider(provider);
-                  setSelectedCredentialId("");
-                  setOperatingMode("standard");
-                  setDiarizationEnabled(false);
-                  setSelectedDictionaryIds([]);
-                  setRows((current) =>
-                    current.map(clearComposerReprocessDecisions),
-                  );
-                }}
-              >
-                <option value="elevenlabs">ElevenLabs</option>
-                <option
-                  value="yandex"
-                  disabled={
-                    providerCatalog.length > 0 &&
-                    providerCatalog.find((item) => item.provider === "yandex")
-                      ?.byok_enabled !== true
-                  }
-                >
-                  Yandex SpeechKit
-                  {providerCatalog.length > 0 &&
-                  providerCatalog.find((item) => item.provider === "yandex")
-                    ?.byok_enabled !== true
-                    ? " — не включён"
-                    : ""}
-                </option>
-              </select>
-            </label>
-            {visibleBatchModes.length > 1 ? (
-              <label className="profile-selector">
-                Режим
-                <select
-                  aria-label="Режим транскрибации"
-                  value={operatingMode}
-                  onChange={(event) => {
-                    const mode = event.target.value as SttOperatingMode;
-                    const capability = selectedProviderCapability?.modes.find(
-                      (item) => item.mode === mode,
-                    );
-                    setOperatingMode(mode);
-                    if (capability?.diarization === false) {
-                      setDiarizationEnabled(false);
-                    }
-                    if (capability?.dictionaries === false) {
-                      setSelectedDictionaryIds([]);
-                    }
-                    setRows((current) =>
-                      current.map(clearComposerReprocessDecisions),
-                    );
-                  }}
-                >
-                  {visibleBatchModes.map((mode) => (
-                    <option
-                      key={mode.mode}
-                      value={mode.mode}
-                      disabled={!mode.health.available}
-                    >
-                      {sttModeLabel(mode.mode)}
-                      {!mode.health.available ? " — временно недоступен" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : visibleBatchModes[0] ? (
-              <p className="muted">
-                Режим: <b>{sttModeLabel(visibleBatchModes[0].mode)}</b>. Других
-                реально отличающихся режимов провайдер сейчас не предлагает.
-              </p>
-            ) : null}
-            {selectedModeCapability && (
-              <p className="muted stt-mode-explanation">
-                {sttModeExplanation(selectedModeCapability)}. Стоимость здесь не
-                сравнивается: провайдер не передал подтверждённые тарифы по режимам.
-              </p>
-            )}
-            {selectedCredentialId && !credentialsError && !providerBlocker && (
-              <span className="provider-ready">Подключён и готов</span>
-            )}
-            <p className="muted">
-              Ключи создаются и изменяются только в настройках.
-            </p>
-          </div>
-          {credentialsLoading && <p role="status">Загрузка подключения…</p>}
-          {credentialsError && (
-            <div className="notice" role="alert">
-              <p>{credentialsError}</p>
-              <button type="button" onClick={loadCredentials}>
-                Повторить загрузку профилей
-              </button>
-            </div>
-          )}
-          {providerBlocker && (
-            <p className="notice" role="alert">
-              {providerBlocker}
-            </p>
-          )}
-          {!credentialsLoading &&
-            !credentialsError &&
-            activeProviderCredentials.length === 0 && (
-              <div>
-                <p className="notice">
-                  Добавьте активный ключ{" "}
-                  {selectedProviderCapability?.display_name ?? selectedProvider}
-                  {" "}в настройках, чтобы создавать задачи.
-                </p>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("studio:navigate-settings", {
-                        detail: { section: "connections" },
-                      }),
-                    )
-                  }
-                >
-                  Перейти в настройки
-                </button>
-              </div>
-            )}
-          {!credentialsLoading &&
-            !credentialsError &&
-            activeProviderCredentials.length > 1 && (
-              <label className="profile-selector">
-                Профиль подключения
-                <select
-                  aria-label="Профиль подключения"
-                  value={selectedCredentialId}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setSelectedCredentialId(value);
-                    if (value) {
-                      sessionStorage.setItem(
-                        `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`,
-                        value,
-                      );
-                    } else {
-                      sessionStorage.removeItem(
-                        `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`,
-                      );
-                    }
-                  }}
-                >
-                  <option value="">Выберите профиль</option>
-                  {activeProviderCredentials.map((credential) => (
-                    <option key={credential.id} value={credential.id}>
-                      {credentialProfileLabel(credential)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          <label className="profile-selector">
-            Язык транскрибации
-            <select
-              aria-label="Язык транскрибации"
-              value={languageMode}
-              onChange={(event) => {
-                setLanguageMode(
-                  event.target.value as TranscriptionLanguageMode,
-                );
-                setRows((current) =>
-                  current.map(clearComposerReprocessDecisions),
-                );
-              }}
-            >
-              <option value="ru">Русский</option>
-              <option value="en">Английский</option>
-              <option value="detect">Автоопределение</option>
-            </select>
-          </label>
-          <label
-            className={`transcription-toggle${
-              diarizationEnabled ? " is-enabled" : ""
-            }`}
-          >
-            <input
-              type="checkbox"
-              aria-label="Разделять на спикеров"
-              checked={diarizationEnabled}
-              disabled={selectedModeCapability?.diarization === false}
-              onChange={(event) => {
-                setDiarizationEnabled(event.target.checked);
-                setRows((current) =>
-                  current.map(clearComposerReprocessDecisions),
-                );
-              }}
-            />
-            <span>
-              <strong>Разделять на спикеров</strong>
-              <span
-                className="diarization-state"
-                aria-live="polite"
-              >
-                Разделение спикеров:{" "}
-                {diarizationEnabled ? "включено" : "выключено"}
-              </span>
-              <small>
-                В документе появятся последовательные блоки Speaker 1,
-                Speaker 2 и далее.
-              </small>
-            </span>
-          </label>
-          <details className="technical-details">
-            <summary>Пользовательские словари</summary>
-            {selectedModeCapability?.dictionaries === false ? (
-              <p className="muted">
-                В выбранном режиме словари не поддерживаются.
-              </p>
-            ) : dictionariesError ? (
-              <p className="error">{dictionariesError}</p>
-            ) : dictionaries.length === 0 ? (
-              <p className="muted">Словари пока не созданы.</p>
-            ) : (
-              <div className="dictionary-selector">
-                {dictionaries.map((dictionary) => (
-                  <label className="check-row" key={dictionary.id}>
-                    <input
-                      type="checkbox"
-                      checked={selectedDictionaryIds.includes(dictionary.id)}
-                      onChange={(event) =>
-                        setSelectedDictionaryIds((current) =>
-                          event.target.checked
-                            ? [...current, dictionary.id]
-                            : current.filter((id) => id !== dictionary.id),
-                        )
-                      }
-                    />
-                    <span>
-                      <b>{dictionary.name}</b>
-                      <small>{dictionary.entries.length} записей</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              className="secondary"
-              onClick={loadSttMetadata}
-            >
-              Обновить словари
-            </button>
-          </details>
-        </div>
-        <div
-          className="composer-status"
-          role="status"
-          aria-live="polite"
-          aria-label="Готовность задач подготовки"
-        >
-          <b>
-            Готово: {completeRowCount} из {rows.length}
-          </b>
-          <span>
-            {firstReadinessBlocker
-              ? firstReadinessBlocker
-              : "Все задачи готовы"}
-          </span>
-        </div>
-        {sourceUploadPolicy?.local_upload_enabled ? (
-          <p className="muted">
-            Можно загрузить аудио или видео размером до{" "}
-            {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.
-            {" "}Загруженная копия для разовой транскрибации удалится после
-            создания всех полных документов. Ошибки и незавершённые задачи
-            сохраняют копию до срока хранения; оригинал на устройстве не меняется.
-          </p>
-        ) : sourceUploadPolicy ? (
-          <p className="notice">Локальная загрузка временно недоступна.</p>
-        ) : sourceUploadPolicyError ? (
-          <div className="notice" role="alert">
-            <p>{sourceUploadPolicyError}</p>
-            <button type="button" onClick={loadSourceUploadPolicy}>
-              Проверить ещё раз
-            </button>
-          </div>
-        ) : (
-          <p className="muted">Проверяем возможность загрузки файлов…</p>
-        )}
-        {googleConnectionState === "loading" && (
-          <p className="muted" role="status">
-            Проверяем подключение Google Drive…
-          </p>
-        )}
-        {googleConnectionState === "unavailable" && (
-          <div className="notice" role="alert">
-            <p>Не удалось проверить подключение Google Drive.</p>
-            <button type="button" onClick={onReloadGoogleConnection}>
-              Повторить проверку Google Drive
-            </button>
-          </div>
-        )}
         <fieldset className="composer-rows">
           <legend>Задачи подготовки</legend>
           {!sources.loaded && (
@@ -4985,6 +4691,7 @@ function PreparationPanel({
           <ol>
             {rows.map((row, index) => {
               const selectedSource = sourceById(row.source_id);
+              const preparedContext = selectedSource ? preparedAudioContext(selectedSource) : null;
               const duplicate = duplicateRowIds.has(row.id);
               const rowReadiness = rowReadinessResults[index];
               const rowReady = rowReadiness.ready;
@@ -5194,6 +4901,12 @@ function PreparationPanel({
                       {selectedSource && (
                         <div className="selected-source-summary">
                           <b>{selectedSource.original_filename}</b>
+                          {preparedContext && <p className="notice">
+                            Выбрана подготовленная версия записи: {formatMediaTimestamp(preparedContext.output_duration_ms / 1000)}
+                            (исходники: {formatMediaTimestamp(preparedContext.input_duration_ms / 1000)}).
+                            {preparedContext.pauses_removed ? " Длинные паузы сокращены." : " Длительность относится к результату подготовки."}
+                            {" "}Границы фрагментов задаются по этой версии, а не по исходной записи.
+                          </p>}
                           <span>
                             {selectedSource.source_type === "google_drive"
                               ? "Google Drive"
@@ -5532,6 +5245,310 @@ function PreparationPanel({
             })}
           </ol>
         </fieldset>
+        <div className="provider-card">
+          <div>
+            <label className="profile-selector">
+              Провайдер транскрибации
+              <select
+                aria-label="Провайдер транскрибации"
+                value={selectedProvider}
+                onChange={(event) => {
+                  const provider = event.target.value as SttProvider;
+                  setSelectedProvider(provider);
+                  setSelectedCredentialId("");
+                  setOperatingMode("standard");
+                  setDiarizationEnabled(false);
+                  setSelectedDictionaryIds([]);
+                  setRows((current) =>
+                    current.map(clearComposerReprocessDecisions),
+                  );
+                }}
+              >
+                <option value="elevenlabs">ElevenLabs</option>
+                <option
+                  value="yandex"
+                  disabled={
+                    providerCatalog.length > 0 &&
+                    providerCatalog.find((item) => item.provider === "yandex")
+                      ?.byok_enabled !== true
+                  }
+                >
+                  Yandex SpeechKit
+                  {providerCatalog.length > 0 &&
+                  providerCatalog.find((item) => item.provider === "yandex")
+                    ?.byok_enabled !== true
+                    ? " — не включён"
+                    : ""}
+                </option>
+              </select>
+            </label>
+            {visibleBatchModes.length > 1 ? (
+              <label className="profile-selector">
+                Режим
+                <select
+                  aria-label="Режим транскрибации"
+                  value={operatingMode}
+                  onChange={(event) => {
+                    const mode = event.target.value as SttOperatingMode;
+                    const capability = selectedProviderCapability?.modes.find(
+                      (item) => item.mode === mode,
+                    );
+                    setOperatingMode(mode);
+                    if (capability?.diarization === false) {
+                      setDiarizationEnabled(false);
+                    }
+                    if (capability?.dictionaries === false) {
+                      setSelectedDictionaryIds([]);
+                    }
+                    setRows((current) =>
+                      current.map(clearComposerReprocessDecisions),
+                    );
+                  }}
+                >
+                  {visibleBatchModes.map((mode) => (
+                    <option
+                      key={mode.mode}
+                      value={mode.mode}
+                      disabled={!mode.health.available}
+                    >
+                      {sttModeLabel(mode.mode)}
+                      {!mode.health.available ? " — временно недоступен" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : visibleBatchModes[0] ? (
+              <p className="muted">
+                Режим: <b>{sttModeLabel(visibleBatchModes[0].mode)}</b>. Других
+                реально отличающихся режимов провайдер сейчас не предлагает.
+              </p>
+            ) : null}
+            {selectedModeCapability && (
+              <details className="technical-details"><summary>Подробнее о режиме провайдера</summary><p className="muted stt-mode-explanation">
+                {sttModeExplanation(selectedModeCapability)}. Стоимость здесь не
+                сравнивается: провайдер не передал подтверждённые тарифы по режимам.
+              </p></details>
+            )}
+            {selectedCredentialId && !credentialsError && !providerBlocker && (
+              <span className="provider-ready">Подключён и готов</span>
+            )}
+            <p className="muted">
+              Ключи создаются и изменяются только в настройках.
+            </p>
+          </div>
+          {credentialsLoading && <p role="status">Загрузка подключения…</p>}
+          {credentialsError && (
+            <div className="notice" role="alert">
+              <p>{credentialsError}</p>
+              <button type="button" onClick={loadCredentials}>
+                Повторить загрузку профилей
+              </button>
+            </div>
+          )}
+          {providerBlocker && (
+            <p className="notice" role="alert">
+              {providerBlocker}
+            </p>
+          )}
+          {!credentialsLoading &&
+            !credentialsError &&
+            activeProviderCredentials.length === 0 && (
+              <div>
+                <p className="notice">
+                  Добавьте активный ключ{" "}
+                  {selectedProviderCapability?.display_name ?? selectedProvider}
+                  {" "}в настройках, чтобы создавать задачи.
+                </p>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("studio:navigate-settings", {
+                        detail: { section: "connections" },
+                      }),
+                    )
+                  }
+                >
+                  Перейти в настройки
+                </button>
+              </div>
+            )}
+          {!credentialsLoading &&
+            !credentialsError &&
+            activeProviderCredentials.length > 1 && (
+              <label className="profile-selector">
+                Профиль подключения
+                <select
+                  aria-label="Профиль подключения"
+                  value={selectedCredentialId}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSelectedCredentialId(value);
+                    if (value) {
+                      sessionStorage.setItem(
+                        `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`,
+                        value,
+                      );
+                    } else {
+                      sessionStorage.removeItem(
+                        `${STT_CREDENTIAL_SESSION_KEY_PREFIX}${selectedProvider}`,
+                      );
+                    }
+                  }}
+                >
+                  <option value="">Выберите профиль</option>
+                  {activeProviderCredentials.map((credential) => (
+                    <option key={credential.id} value={credential.id}>
+                      {credentialProfileLabel(credential)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          <label className="profile-selector">
+            Язык транскрибации
+            <select
+              aria-label="Язык транскрибации"
+              value={languageMode}
+              onChange={(event) => {
+                setLanguageMode(
+                  event.target.value as TranscriptionLanguageMode,
+                );
+                setRows((current) =>
+                  current.map(clearComposerReprocessDecisions),
+                );
+              }}
+            >
+              <option value="ru">Русский</option>
+              <option value="en">Английский</option>
+              <option value="detect">Автоопределение</option>
+            </select>
+          </label>
+          <label
+            className={`transcription-toggle${
+              diarizationEnabled ? " is-enabled" : ""
+            }`}
+          >
+            <input
+              type="checkbox"
+              aria-label="Разделять на спикеров"
+              checked={diarizationEnabled}
+              disabled={selectedModeCapability?.diarization === false}
+              onChange={(event) => {
+                setDiarizationEnabled(event.target.checked);
+                setRows((current) =>
+                  current.map(clearComposerReprocessDecisions),
+                );
+              }}
+            />
+            <span>
+              <strong>Разделять на спикеров</strong>
+              <span
+                className="diarization-state"
+                aria-live="polite"
+              >
+                Разделение спикеров:{" "}
+                {diarizationEnabled ? "включено" : "выключено"}
+              </span>
+              <small>
+                {diarizationEnabled
+                  ? "В документе появятся последовательные блоки Speaker 1, Speaker 2 и далее. Метки разных частей длинной записи не подтверждают личность одного и того же человека."
+                  : "Документ будет без разделения на спикеров."}
+              </small>
+            </span>
+          </label>
+          <details className="technical-details">
+            <summary>Пользовательские словари</summary>
+            {selectedModeCapability?.dictionaries === false ? (
+              <p className="muted">
+                В выбранном режиме словари не поддерживаются.
+              </p>
+            ) : dictionariesError ? (
+              <p className="error">{dictionariesError}</p>
+            ) : dictionaries.length === 0 ? (
+              <p className="muted">Словари пока не созданы.</p>
+            ) : (
+              <div className="dictionary-selector">
+                {dictionaries.map((dictionary) => (
+                  <label className="check-row" key={dictionary.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedDictionaryIds.includes(dictionary.id)}
+                      onChange={(event) =>
+                        setSelectedDictionaryIds((current) =>
+                          event.target.checked
+                            ? [...current, dictionary.id]
+                            : current.filter((id) => id !== dictionary.id),
+                        )
+                      }
+                    />
+                    <span>
+                      <b>{dictionary.name}</b>
+                      <small>{dictionary.entries.length} записей</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="secondary"
+              onClick={loadSttMetadata}
+            >
+              Обновить словари
+            </button>
+          </details>
+        </div>
+        <div
+          className="composer-status"
+          role="status"
+          aria-live="polite"
+          aria-label="Готовность задач подготовки"
+        >
+          <b>
+            Готово: {completeRowCount} из {rows.length}
+          </b>
+          <span>
+            {firstReadinessBlocker
+              ? firstReadinessBlocker
+              : "Все задачи готовы"}
+          </span>
+        </div>
+        {sourceUploadPolicy?.local_upload_enabled ? (
+          <p className="muted">
+            Можно загрузить аудио или видео размером до{" "}
+            {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.
+            {" "}Загруженная копия для разовой транскрибации удалится после
+            создания всех полных документов. Ошибки и незавершённые задачи
+            сохраняют копию до срока хранения; оригинал на устройстве не меняется.
+          </p>
+        ) : sourceUploadPolicy ? (
+          <p className="notice">Локальная загрузка временно недоступна.</p>
+        ) : sourceUploadPolicyError ? (
+          <div className="notice" role="alert">
+            <p>{sourceUploadPolicyError}</p>
+            <button type="button" onClick={loadSourceUploadPolicy}>
+              Проверить ещё раз
+            </button>
+          </div>
+        ) : (
+          <p className="muted">Проверяем возможность загрузки файлов…</p>
+        )}
+        {googleConnectionState === "loading" && (
+          <p className="muted" role="status">
+            Проверяем подключение Google Drive…
+          </p>
+        )}
+        {googleConnectionState === "unavailable" && (
+          <div className="notice" role="alert">
+            <p>Не удалось проверить подключение Google Drive.</p>
+            <button type="button" onClick={onReloadGoogleConnection}>
+              Повторить проверку Google Drive
+            </button>
+          </div>
+        )}
+
         {activePreflight && (
           <section
             className="batch-preflight"
@@ -5819,7 +5836,24 @@ function PreparationPanel({
             {historyClearMessage}
           </p>
         )}
-        {recentTranscriptions.map(renderTranscriptionPresentation)}
+        <div className="history-filters">
+          <label>Поиск по названию среди загруженных задач
+            <input type="search" value={historyQuery} onChange={(event) => { setHistoryQuery(event.target.value); setHistoryPage(0); }} />
+          </label>
+          <label>Статус в истории
+            <select value={historyStatus} onChange={(event) => { setHistoryStatus(event.target.value); setHistoryPage(0); }}>
+              <option value="all">Все статусы</option><option value="completed">Готово</option>
+              <option value="failed">Ошибка</option><option value="cancelled">Отменено</option>
+            </select>
+          </label>
+        </div>
+        {filteredHistory.length === 0 && <p role="status">Среди загруженных задач совпадений нет.</p>}
+        {filteredHistory.slice(currentHistoryPage * 10, (currentHistoryPage + 1) * 10).map(renderTranscriptionPresentation)}
+        {filteredHistory.length > 10 && <nav className="actions" aria-label="Страницы истории">
+          <button type="button" disabled={currentHistoryPage === 0} onClick={() => setHistoryPage(currentHistoryPage - 1)}>Предыдущая страница истории</button>
+          <span role="status">Страница {currentHistoryPage + 1} из {historyPageCount}</span>
+          <button type="button" disabled={currentHistoryPage + 1 === historyPageCount} onClick={() => setHistoryPage(currentHistoryPage + 1)}>Следующая страница истории</button>
+        </nav>}
         {jobs.nextCursor && (
           <button
             type="button"
@@ -7277,6 +7311,22 @@ function auditLabel(type: string) {
     "auth.logout": "Выход выполнен",
     "auth.session_revoked": "Отдельная сессия завершена",
     "auth.sessions_revoked": "Другие сеансы завершены",
+    "auth.csrf_refreshed": "Подтверждение сессии обновлено",
+    "auth.reauthenticated": "Личность подтверждена для чувствительных операций",
+    "auth.reauthentication_failed": "Подтвердить личность не удалось",
+    "auth.trusted_device_created": "Этот браузер добавлен в доверенные",
+    "auth.trusted_device_revoked": "Доверие к браузеру отозвано",
+    "auth.totp_enrollment_started": "Начата настройка двухфакторной защиты",
+    "auth.totp_enabled": "Двухфакторная защита включена",
+    "auth.totp_disabled": "Двухфакторная защита отключена",
+    "auth.totp_recovery_rotated": "Резервные коды защиты заменены",
+    "auth.password_reset_requested": "Запрошено восстановление пароля",
+    "auth.password_reset_completed": "Пароль восстановлен",
+    "notifications.preferences_updated": "Настройки уведомлений изменены",
+    "notifications.web_push_subscribed": "Уведомления браузера подключены",
+    "notifications.web_push_unsubscribed": "Уведомления браузера отключены",
+    "audio_preparation.created": "Задача подготовки аудио создана",
+    "audio_preparation.reused": "Подготовленное аудио передано в новую задачу",
     "account.preferences_updated": "Настройки хранения обновлены",
     "project.created": "Проект создан",
     "project.updated": "Проект обновлён",
@@ -7625,6 +7675,8 @@ function SettingsPage({
   const [events, setEvents] = useState<Audit[]>([]);
   const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
+  const [auditCursors, setAuditCursors] = useState<Array<string | null>>([null]);
+  const [auditPageIndex, setAuditPageIndex] = useState(0);
   const [auditState, setAuditState] = useState<
     "loading" | "ready" | "error"
   >("loading");
@@ -7645,7 +7697,7 @@ function SettingsPage({
   const retentionRequestControllersRef = useRef(
     new Map<string, AbortController>(),
   );
-  const [retentionSelection, setRetentionSelection] = useState("86400");
+  const [retentionSelection, setRetentionSelection] = useState("259200");
   const [retentionState, setRetentionState] = useState<
     "loading" | "ready" | "error"
   >("loading");
@@ -7770,9 +7822,14 @@ function SettingsPage({
       "settings:audit-events",
       (signal) => requestAuditCollection(signal, cursor),
       (page) => {
-        setEvents((current) =>
-          append ? appendUniqueItems(current, page.items) : page.items,
-        );
+        setEvents(page.items);
+        if (cursor === null) {
+          setAuditCursors([null]); setAuditPageIndex(0);
+        } else {
+          const knownIndex = auditCursors.indexOf(cursor);
+          if (knownIndex >= 0) setAuditPageIndex(knownIndex);
+          else { setAuditCursors([...auditCursors, cursor]); setAuditPageIndex(auditCursors.length); }
+        }
         setAuditNextCursor(page.nextCursor);
         setAuditLoadingMore(false);
         setAuditState("ready");
@@ -8491,6 +8548,8 @@ function SettingsPage({
             onRetryAudit={() => void loadAuditEvents()}
             auditNextCursor={auditNextCursor}
             auditLoadingMore={auditLoadingMore}
+            auditPageNumber={auditPageIndex + 1}
+            onPreviousAudit={() => void loadAuditEvents({ cursor: auditCursors[Math.max(0, auditPageIndex - 1)] })}
             onLoadMoreAudit={() =>
               void loadAuditEvents({ cursor: auditNextCursor })
             }
@@ -8754,14 +8813,14 @@ function SettingsPage({
                   required
                 />
               )}
-              <input
+              <label>Метка ключа<input
                 name="credential_label"
                 autoComplete="off"
                 placeholder="Метка"
                 disabled={createCredentialPending}
                 required
-              />
-              <input
+              /></label>
+              <label>Новый ключ<input
                 name="credential_raw_value"
                 type="password"
                 autoComplete="new-password"
@@ -8772,7 +8831,7 @@ function SettingsPage({
                 placeholder="Новый ключ"
                 disabled={createCredentialPending}
                 required
-              />
+              /></label>
               <button className="primary" disabled={createCredentialPending}>
                 {createCredentialPending ? "Создаём…" : "Создать"}
               </button>
@@ -8825,43 +8884,16 @@ function SettingsPage({
                     >
                       Заменить
                     </button>
-                    <button
-                      type="button"
-                      disabled={mutationPending || credentialsUnavailable}
-                      aria-busy={activeMutation?.kind === "revoke" || undefined}
-                      onClick={() => {
-                        if (
-                          safeConfirm(
-                            `Отключить ключ «${credential.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
-                          )
-                        ) {
-                          void mutateCredential("revoke", credential);
-                        }
-                      }}
-                    >
-                      {activeMutation?.kind === "revoke"
-                        ? "Отключаем…"
-                        : "Отключить"}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={mutationPending || credentialsUnavailable}
-                      aria-busy={activeMutation?.kind === "delete" || undefined}
-                      onClick={() => {
-                        if (
-                          safeConfirm(
-                            `Удалить ключ «${credential.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
-                          )
-                        ) {
-                          void mutateCredential("delete", credential);
-                        }
-                      }}
-                    >
-                      {activeMutation?.kind === "delete"
-                        ? "Удаляем…"
-                        : "Удалить навсегда"}
-                    </button>
+                    <ActionMenu label={`Другие действия с ключом ${credential.label}`} disabled={mutationPending || credentialsUnavailable}
+                      items={[
+                        { id: "revoke", label: "Отключить", onSelect: () => {
+                          if (safeConfirm(`Отключить ключ «${credential.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`)) void mutateCredential("revoke", credential);
+                        } },
+                        { id: "delete", label: "Удалить навсегда", danger: true, onSelect: () => {
+                          if (safeConfirm(`Удалить ключ «${credential.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`)) void mutateCredential("delete", credential);
+                        } },
+                      ]} />
+                    {mutationPending && <span role="status">Сохраняем изменение ключа…</span>}
                   </div>
                   {replacingCredentialId === credential.id && (
                     <form
@@ -9085,6 +9117,8 @@ function DiagnosticsSettings({
   onRetryAudit,
   auditNextCursor,
   auditLoadingMore,
+  auditPageNumber,
+  onPreviousAudit,
   onLoadMoreAudit,
 }: {
   csrf: string;
@@ -9095,6 +9129,8 @@ function DiagnosticsSettings({
   onRetryAudit: () => void;
   auditNextCursor: string | null;
   auditLoadingMore: boolean;
+  auditPageNumber: number;
+  onPreviousAudit: () => void;
   onLoadMoreAudit: () => void;
 }) {
   const [system, setSystem] = useState<DiagnosticsSystem | null>(null);
@@ -10040,7 +10076,12 @@ function DiagnosticsSettings({
         aria-labelledby="security-audit-title"
         aria-busy={auditState === "loading" || undefined}
       >
-        <h3 id="security-audit-title">Аудит безопасности</h3>
+        <details><summary><h3 id="security-audit-title">Аудит безопасности</h3></summary>
+        <nav className="actions" aria-label="Страницы журнала безопасности">
+          <button type="button" disabled={auditPageNumber === 1 || auditLoadingMore} onClick={onPreviousAudit}>Предыдущая страница аудита</button>
+          <span role="status">Страница журнала {auditPageNumber}</span>
+          <button type="button" disabled={auditLoadingMore} onClick={onRetryAudit}>В начало журнала</button>
+        </nav>
         <p className="muted">Аудит отделён от диагностики транскрибации.</p>
         {auditState === "loading" && (
           <p role="status" className="muted">
@@ -10063,7 +10104,7 @@ function DiagnosticsSettings({
             {visibleAuditEvents.map((event) => (
               <li key={event.id}>
                 {auditLabel(event.type)} · {auditOutcomeLabel(event.outcome)} · {formatTime(event.created_at)}
-                {event.trace_id && <> · <code>{event.trace_id}</code></>}
+                {event.trace_id && <details><summary>Идентификатор для поддержки</summary><code>{event.trace_id}</code></details>}
               </li>
             ))}
           </ul>
@@ -10077,7 +10118,7 @@ function DiagnosticsSettings({
           >
             {auditLoadingMore
               ? "Загружаем события…"
-              : "Показать ещё события аудита"}
+              : "Следующая страница аудита"}
           </button>
         )}
         {auditState === "ready" &&
@@ -10085,11 +10126,13 @@ function DiagnosticsSettings({
           !auditMessage && (
             <p className="notice">Событий аудита нет.</p>
         )}
+        </details>
       </section>
     </div>
   );
 }
 function PlatformShell() {
+  const [resetLinkOpen, setResetLinkOpen] = useState(() => /^#password-reset=[A-Za-z0-9_-]{32,128}$/.test(window.location.hash));
   const [oauthResult] = useState<GoogleOauthResult | null>(() =>
     consumeGoogleOauthResult(),
   );
@@ -10431,6 +10474,7 @@ function PlatformShell() {
     return (
       <Login
         onLogin={(u, t) => {
+          setResetLinkOpen(false);
           invalidateSessionBootstrap();
           logoutPendingRef.current = false;
           setLogoutState({ pending: false, error: "" });
@@ -10442,6 +10486,9 @@ function PlatformShell() {
         }}
       />
     );
+  // A reset link can be opened by a browser with an existing session, too.
+  if (resetLinkOpen)
+    return <main className="auth"><PasswordResetPanel onReset={() => { setResetLinkOpen(false); checkSession(); }} /></main>;
   const user = session.user;
   const csrf = session.csrf;
   const finishAnonymousLogout = () => {

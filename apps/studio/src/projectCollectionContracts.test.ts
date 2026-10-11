@@ -578,3 +578,15 @@ describe("project collection contracts", () => {
     ).toBeNull();
   });
 });
+
+
+it("projects only safe prepared timeline fields and rejects unsafe primary output links", () => {
+  const prepared_audio = { job_id: "123e4567-e89b-42d3-a456-426614174000", input_duration_ms: 12000, output_duration_ms: 8000, pauses_removed: true, secret: "private" };
+  const parsed = parseProjectSourceCollection({ sources: [{ ...source, prepared_audio }] }, "project-safe");
+  expect(parsed?.[0].prepared_audio).toEqual({ job_id: prepared_audio.job_id, input_duration_ms: 12000, output_duration_ms: 8000, pauses_removed: true });
+  const url = "https://docs.google.com/document/d/synthetic/edit";
+  expect(parseJobSummaryResponse({ ...job, primary_output_url: url }, "project-safe", "job-safe")?.primary_output_url).toBe(url);
+  for (const primary_output_url of ["javascript:alert(1)", "https://attacker.example.test/", "https://docs.google.com@attacker.example.test/"]) {
+    expect(parseJobSummaryResponse({ ...job, primary_output_url }, "project-safe", "job-safe")).toBeNull();
+  }
+});

@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 from .client_ip import get_client_ip
 from .config import Settings, get_settings
 from .db import get_db
-from .models import Session as DbSession, User, UserStatus
 from .security import safe_eq, token_hash, utcnow
 from .session_activity import session_activity_write_due
+from .integration_ports import get_authorization_provider, AuthorizationProvider
 
 CSRF_REJECTION_REASON = "csrf_token_invalid"
 
@@ -17,14 +17,15 @@ def origin_ok(request: Request, settings: Settings) -> bool:
 def require_same_origin(request: Request, settings: Settings=Depends(get_settings)):
     if not origin_ok(request, settings): raise HTTPException(403, "Недопустимый источник запроса")
 
-def current_session(request: Request, db: Session=Depends(get_db), settings: Settings=Depends(get_settings)):
+def current_session(request: Request, db: Session=Depends(get_db), settings: Settings=Depends(get_settings), authorization: AuthorizationProvider=Depends(get_authorization_provider)):
     raw=request.cookies.get(settings.cookie_name)
     if not raw: raise HTTPException(401, "Требуется вход")
     now=utcnow()
-    sess=db.query(DbSession).filter_by(token_hash=token_hash(raw), revoked_at=None).first()
-    if not sess or sess.expires_at <= now: raise HTTPException(401, "Требуется вход")
-    user=db.get(User, sess.user_id)
-    if not user or user.status != UserStatus.active: raise HTTPException(401, "Требуется вход")
+    # Direct diagnostic callers also use the default implementation.
+    provider = authorization if hasattr(authorization, "resolve_session") else get_authorization_provider()
+    pair = provider.resolve_session(db, token_hash=token_hash(raw), now=now)
+    if pair is None: raise HTTPException(401, "Требуется вход")
+    sess,user=pair
     request.state.owner_user_id=user.id
     if session_activity_write_due(
         sess.last_seen_at,

@@ -860,17 +860,19 @@ def test_source_retention_preference_allowlist_and_model_constraint():
     from studio_api.source_policy import (
         DEFAULT_SOURCE_RETENTION_TTL_SECONDS,
         SOURCE_RETENTION_TTL_OPTIONS_SECONDS,
+        effective_source_retention_seconds,
     )
 
-    assert DEFAULT_SOURCE_RETENTION_TTL_SECONDS == 86400
+    assert DEFAULT_SOURCE_RETENTION_TTL_SECONDS == 259200
     assert SOURCE_RETENTION_TTL_OPTIONS_SECONDS == (
-        3600,
-        86400,
         259200,
         604800,
         2592000,
     )
     assert User.__table__.c.source_retention_ttl_seconds.nullable is False
+    assert effective_source_retention_seconds(3600) == 259200
+    assert effective_source_retention_seconds(86400) == 259200
+    assert effective_source_retention_seconds(604800) == 604800
     retention_constraint = next(
         constraint
         for constraint in User.__table__.constraints

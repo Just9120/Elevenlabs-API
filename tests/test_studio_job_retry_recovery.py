@@ -67,8 +67,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0040_text_lifecycle"]
-    assert script.get_current_head() == "0040_text_lifecycle"
+    assert script.get_heads() == ["0041_source_retention_default"]
+    assert script.get_current_head() == "0041_source_retention_default"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():
@@ -247,6 +247,25 @@ def test_safe_provider_rejection_retains_user_facing_category(sqlite_db):
     assert readiness.provider_failure_code == "provider_scope_rejected"
 
 
+def test_immutable_media_plan_cannot_be_replaced_or_mismatched_before_provider_start(sqlite_db):
+    import json
+    from studio_api.job_retry_recovery import mark_attempt_provider_started
+    m, now, _user, _project, job, rels = _job_with_sources(sqlite_db, source_count=1)
+    row = _attempt(sqlite_db, m, job, rels[0])
+    plan = json.dumps({"version": 1, "parts": [
+        {"part_index": 0, "start_seconds": 0, "end_seconds": 10},
+        {"part_index": 1, "start_seconds": 8, "end_seconds": 20}]})
+    row.provider_media_plan_json = plan; sqlite_db.commit()
+    kwargs = dict(job_id=job.id, job_source_id=rels[0].id, lease_owner_id="worker", lease_generation=7, now=now)
+    for proposed, count in [(plan, 3), (plan.replace('20', '21'), 2)]:
+        with pytest.raises(RuntimeError, match="media_plan_conflict"):
+            mark_attempt_provider_started(sqlite_db, **kwargs, total_parts=count, media_plan=proposed)
+        assert row.stage == m.SourceAttemptStage.prepared and row.provider_media_plan_json == plan
+    mark_attempt_provider_started(sqlite_db, **kwargs, total_parts=2, media_plan=plan)
+    sqlite_db.commit()
+    assert row.provider_media_plan_json == plan and row.stage == m.SourceAttemptStage.provider_request_started
+
+
 def test_provider_part_progress_is_durable_monotonic_and_bounded(sqlite_db):
     from studio_api.job_retry_recovery import (
         mark_attempt_provider_part_completed,
@@ -406,7 +425,8 @@ def test_cached_restore_does_not_hide_cost_of_an_unstarted_source(sqlite_db, sou
     assert not compute_expired_recovery_readiness(sqlite_db, job, now=now).available
 
 
-def test_legacy_expired_partial_checkpoint_resumes_without_losing_returned_text(sqlite_db):
+@pytest.mark.parametrize("with_plan", [False, True])
+def test_legacy_expired_partial_checkpoint_resumes_without_losing_returned_text(sqlite_db, with_plan):
     from studio_api.job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 
     m, now, _user, _project, job, rels = _job_with_sources(
@@ -429,6 +449,12 @@ def test_legacy_expired_partial_checkpoint_resumes_without_losing_returned_text(
     attempt.provider_failure_code = "provider_rate_limited"
     attempt.provider_total_parts = 2
     attempt.provider_completed_parts = 1
+    if with_plan:
+        import json
+        attempt.provider_media_plan_json = json.dumps({"version": 1, "parts": [
+            {"part_index": 0, "start_seconds": 0, "end_seconds": 10},
+            {"part_index": 1, "start_seconds": 8, "end_seconds": 20},
+        ]})
     sqlite_db.add(
         m.TranscriptionProviderPartCheckpoint(
             owner_user_id=job.owner_user_id,
@@ -455,6 +481,11 @@ def test_legacy_expired_partial_checkpoint_resumes_without_losing_returned_text(
     assert readiness.available is True
     assert readiness.reason.value == "partial_provider_resume_available"
     assert readiness.resumable_provider_part_count == 1
+    if with_plan:
+        assert readiness.payload(job)["missing_provider_parts"] == [{"source_id": rels[0].source_id,
+            "part_index": 1, "start_seconds": 8, "end_seconds": 20}]
+    else:
+        assert "missing_provider_parts" not in readiness.payload(job)
     queued = queue_retry(
         sqlite_db,
         owner_user_id=job.owner_user_id,

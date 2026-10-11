@@ -47,7 +47,7 @@ git diff --check
 
 Для локального API нужны отдельные тестовые PostgreSQL/Redis, migrations и synthetic configuration. Подготовка окружения и запуск `uvicorn studio_api.main:app` описаны в [validation runbook](docs/runbooks/validation.md).
 
-Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Обычные проверки и поставка выполняются по [AGENTS](AGENTS.md), [validation](docs/runbooks/validation.md) и [Studio operations](docs/runbooks/studio-platform-ops.md).
+Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Оба thin launchers закрепляют проверенный полный commit SHA и проверяют SHA-256 скачанных runtime файлов до install/exec. Обновление launcher требует review новой revision и одновременной смены `GITHUB_REF` и expected hashes; скачивание с подвижной ветки не используется. Он поддерживает Drive/local file intake, bounded local-folder intake, `ru`/`en`/auto language modes, speaker diarization, Google Docs output и duplicate-protection manifest; destructive manifest clear вынесен в dry-run-first flow с backup и точным подтверждением. Realtime Colab проверяется по отдельному runbook. Обычные проверки и поставка выполняются по [AGENTS](AGENTS.md), [validation](docs/runbooks/validation.md) и [Studio operations](docs/runbooks/studio-platform-ops.md).
 
 ## Canonical и operational документы
 

@@ -121,7 +121,9 @@ test('authenticated user opens transcriptions and reads a completed job result',
       response.request().method() === 'GET' &&
       response.url().endsWith(`/api/jobs/${resultJobId}/output-reconciliation`),
   );
-  await jobCard.getByRole('button', { name: 'Открыть' }).click();
+  // Primary document access is available before fetching technical details.
+  await expect(jobCard.getByRole('link', { name: 'Открыть документ', exact: true })).toHaveAttribute('href', RESULT_URL);
+  await jobCard.getByRole('button', { name: 'Показать результаты и детали', exact: true }).click();
   const reconciliationResponse = await reconciliationResponsePromise;
   expect(reconciliationResponse.status()).toBe(200);
   const reconciliation = await reconciliationResponse.json();

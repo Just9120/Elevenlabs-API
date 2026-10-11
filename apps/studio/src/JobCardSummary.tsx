@@ -25,6 +25,7 @@ export function JobCardSummary({ job }: { job: TranscriptionJob }) {
         </span>
       )}
       {job.output_folder?.web_view_url &&
+        job.status !== "completed" &&
         isApprovedOutputUrl(job.output_folder.web_view_url) && (
           <ResourceExternalLink
             href={job.output_folder.web_view_url}

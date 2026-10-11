@@ -6,7 +6,7 @@ from sqlalchemy import or_
 
 from .config import Settings, get_settings
 from .db import SessionLocal
-from .models import GoogleOAuthState, LoginContext, Session, TrustedDevice
+from .models import GoogleOAuthState, LoginContext, Session, TrustedDevice, PasswordResetChallenge, SecurityEmailDelivery
 from .security import utcnow
 
 
@@ -21,6 +21,8 @@ class AuthStateCleanupResult:
     google_oauth_states: int = 0
     sessions: int = 0
     trusted_devices: int = 0
+    password_reset_challenges: int = 0
+    security_email_deliveries: int = 0
 
 
 def _utc(value: datetime) -> datetime:
@@ -91,6 +93,10 @@ def cleanup_expired_auth_state(
             or_(TrustedDevice.expires_at <= now_dt, TrustedDevice.revoked_at.is_not(None)),
             limit=limit,
         )
+        password_reset_challenges = _delete_candidates(db, PasswordResetChallenge,
+            or_(PasswordResetChallenge.expires_at <= now_dt, PasswordResetChallenge.used_at.is_not(None)), limit=limit)
+        security_email_deliveries = _delete_candidates(db, SecurityEmailDelivery,
+            SecurityEmailDelivery.expires_at <= now_dt, limit=limit)
         db.commit()
         _LAST_CLEANUP_SUCCESS = now_dt
         return AuthStateCleanupResult(
@@ -99,6 +105,8 @@ def cleanup_expired_auth_state(
             google_oauth_states=google_oauth_states,
             sessions=sessions,
             trusted_devices=trusted_devices,
+            password_reset_challenges=password_reset_challenges,
+            security_email_deliveries=security_email_deliveries,
         )
     except Exception:
         if db is not None:

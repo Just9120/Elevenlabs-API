@@ -2,12 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import shutil
+import pytest
 
 from scripts.test_shell_environment import configure_test_shell
 
 # Before test modules perform shell discovery or build subprocess environments.
 # This affects only this pytest process and its children, never the user's PATH.
 configure_test_shell(os.environ)
+
+
+def pytest_sessionstart(session) -> None:
+    if os.environ.get("STUDIO_REQUIRE_FFMPEG") == "true":
+        missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
+        if missing:
+            raise pytest.UsageError("Required real media profile is unavailable: " + ", ".join(missing))
 
 
 PORTABLE_EXCLUDED_TEST_MODULES = frozenset(

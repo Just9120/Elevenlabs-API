@@ -151,12 +151,15 @@ export function DirectDriveUploadPanel({
 
   async function chooseFolder() {
     if (busy) return;
+    const returnFocusTo = document.activeElement instanceof HTMLElement
+      ? document.activeElement : null;
     setBusy(true);
     setError("");
     try {
       const result = await googlePicker.openGooglePicker(
         "output-folder",
         await pickerSession(),
+        { returnFocusTo },
       );
       if (result.action === "picked" && result.docs.length === 1) {
         setFolder({

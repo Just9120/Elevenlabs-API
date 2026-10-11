@@ -24,6 +24,7 @@ jobs:
       root: ${{ steps.plan.outputs.root }}
       studio: ${{ steps.plan.outputs.studio }}
       mode: ${{ steps.plan.outputs.mode }}
+      rehearsal: ${{ steps.plan.outputs.rehearsal }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,6 +81,7 @@ jobs:
       STUDIO_REDIS_URL: redis://127.0.0.1:6379/0
       STUDIO_APP_ORIGIN: https://studio.test
       STUDIO_COOKIE_SECURE: 'false'
+      STUDIO_REQUIRE_FFMPEG: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,6 +115,15 @@ jobs:
       - name: Run Alembic upgrade
         run: alembic -c apps/studio-api/alembic.ini upgrade head
 
+      - name: Require real media tools for the existing root suite
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install --no-install-recommends -y ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+
       - name: Run lightweight CI checks
         run: python scripts/ci_checks.py
 
@@ -125,10 +136,43 @@ jobs:
       - name: Mark CI success
         run: echo "CI_OK"
 
+  release-rehearsal:
+    needs: selection
+    if: needs.selection.outputs.rehearsal == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      runner: ${{ steps.runner.outputs.runner }}
+    env:
+      STUDIO_DATABASE_URL: 'sqlite+pysqlite:///:memory:'
+      BASELINE: ${{ github.event.pull_request.base.sha }}
+      CANDIDATE: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: runner
+        run: python scripts/ci_validation.py runner-context
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            apps/studio-api/requirements.txt
+            apps/studio-api/constraints.txt
+      - name: Prepare synthetic rehearsal dependencies
+        run: |
+          pip install -r apps/studio-api/requirements.txt -c apps/studio-api/constraints.txt
+          docker pull postgres:17
+          docker pull redis:7-alpine
+      - name: Exercise API web worker schema and credential rollback
+        run: python scripts/rehearse_studio_release.py --baseline "$BASELINE" --candidate "$CANDIDATE"
+
   ci-required:
     name: ci-required
     if: always()
-    needs: [selection, checks, studio-validation]
+    needs: [selection, checks, studio-validation, release-rehearsal]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -139,11 +183,15 @@ jobs:
           ROOT_RESULT: ${{ needs.checks.result }}
           STUDIO_REQUIRED: ${{ needs.selection.outputs.studio }}
           STUDIO_RESULT: ${{ needs.studio-validation.result }}
+          REHEARSAL_REQUIRED: ${{ needs.selection.outputs.rehearsal }}
+          REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}
         run: |
           test "$SELECTION" = success
           case "$ROOT_REQUIRED:$STUDIO_REQUIRED" in true:true|true:false|false:false) ;; *) exit 1 ;; esac
+          case "$REHEARSAL_REQUIRED" in true|false) ;; *) exit 1 ;; esac
           if [ "$ROOT_REQUIRED" = true ]; then test "$ROOT_RESULT" = success; else test "$ROOT_RESULT" = skipped; fi
           if [ "$STUDIO_REQUIRED" = true ]; then test "$STUDIO_RESULT" = success; else test "$STUDIO_RESULT" = skipped; fi
+          if [ "$REHEARSAL_REQUIRED" = true ]; then test "$REHEARSAL_RESULT" = success; else test "$REHEARSAL_RESULT" = skipped; fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -153,6 +201,7 @@ jobs:
           ROOT_RUNNER_JSON: ${{ needs.checks.outputs.runner }}
           STUDIO_RUNNER_JSON: ${{ needs.studio-validation.outputs.studio_runner }}
           BROWSER_RUNNER_JSON: ${{ needs.studio-validation.outputs.browser_runner }}
+          REHEARSAL_RUNNER_JSON: ${{ needs.release-rehearsal.outputs.runner }}
         run: python scripts/ci_validation.py proof --mode "$VALIDATION_MODE"
       - name: Retain bounded non-executable validation identity
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1090,9 +1090,9 @@ describe("Studio PWA", () => {
           const payload = JSON.parse(String(init.body));
           return json({
             source_retention_ttl_seconds:
-              payload.source_retention_ttl_seconds ?? 86400,
+              payload.source_retention_ttl_seconds ?? 259200,
             allowed_source_retention_ttl_seconds: [
-              3600, 86400, 259200, 604800, 2592000,
+              259200, 604800, 2592000,
             ],
             accent_color: payload.accent_color ?? "blue",
             allowed_accent_colors: ["blue", "violet", "teal", "rose"],
@@ -1100,9 +1100,9 @@ describe("Studio PWA", () => {
         }
         if (url.endsWith("/api/account/preferences"))
           return json({
-            source_retention_ttl_seconds: 86400,
+            source_retention_ttl_seconds: 259200,
             allowed_source_retention_ttl_seconds: [
-              3600, 86400, 259200, 604800, 2592000,
+              259200, 604800, 2592000,
             ],
             accent_color: "blue",
             allowed_accent_colors: ["blue", "violet", "teal", "rose"],
@@ -3610,10 +3610,11 @@ describe("Studio PWA", () => {
     ).toHaveTextContent(
       "Ссылки на Google Drive и результаты Google Docs не затрагиваются.",
     );
-    expect(retention).toHaveValue("86400");
+    expect(retention).toHaveValue("259200");
     expect(
-      within(retention).getByRole("option", { name: "1 час" }),
-    ).toBeInTheDocument();
+      within(retention).queryByRole("option", { name: "1 час" }),
+    ).not.toBeInTheDocument();
+    expect(within(retention).getAllByRole("option")).toHaveLength(3);
     expect(
       within(retention).getByRole("option", { name: "30 дней" }),
     ).toBeInTheDocument();
@@ -3691,7 +3692,7 @@ describe("Studio PWA", () => {
     baseFetch.mockImplementation((url: string, init?: RequestInit) =>
       url === "/api/account/preferences" && !init?.method
         ? json({
-            source_retention_ttl_seconds: 86400,
+            source_retention_ttl_seconds: 259200,
             allowed_source_retention_ttl_seconds: [86400],
           })
         : (defaultFetch?.(url, init) ?? json({ ok: true })),
@@ -3715,7 +3716,7 @@ describe("Studio PWA", () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     const mutationSignals: AbortSignal[] = [];
-    let serverTtl = 86400;
+    let serverTtl = 259200;
     let preferenceReads = 0;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/account/preferences" && !init?.method) {
@@ -3723,7 +3724,7 @@ describe("Studio PWA", () => {
         return json({
           source_retention_ttl_seconds: serverTtl,
           allowed_source_retention_ttl_seconds: [
-            3600, 86400, 259200, 604800, 2592000,
+            259200, 604800, 2592000,
           ],
           accent_color: "blue",
           allowed_accent_colors: ["blue", "violet", "teal", "rose"],
@@ -3789,7 +3790,7 @@ describe("Studio PWA", () => {
   it("keeps retention mutation ownership and result across Settings remount", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
-    let serverTtl = 86400;
+    let serverTtl = 259200;
     let preferenceReads = 0;
     let resolvePatch: ((response: Response) => void) | undefined;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -3798,7 +3799,7 @@ describe("Studio PWA", () => {
         return json({
           source_retention_ttl_seconds: serverTtl,
           allowed_source_retention_ttl_seconds: [
-            3600, 86400, 259200, 604800, 2592000,
+            259200, 604800, 2592000,
           ],
           accent_color: "blue",
           allowed_accent_colors: ["blue", "violet", "teal", "rose"],
@@ -3877,9 +3878,9 @@ describe("Studio PWA", () => {
         preferenceReads += 1;
         return json({
           source_retention_ttl_seconds:
-            preferenceReads === 1 ? 86400 : 259200,
+            preferenceReads === 1 ? 2592000 : 259200,
           allowed_source_retention_ttl_seconds: [
-            3600, 86400, 259200, 604800, 2592000,
+            259200, 604800, 2592000,
           ],
           accent_color: "blue",
           allowed_accent_colors: ["blue", "violet", "teal", "rose"],
@@ -3914,9 +3915,9 @@ describe("Studio PWA", () => {
         preferenceReads += 1;
         return preferenceReads === 1
           ? json({
-              source_retention_ttl_seconds: 86400,
+              source_retention_ttl_seconds: 259200,
               allowed_source_retention_ttl_seconds: [
-                3600, 86400, 259200, 604800, 2592000,
+                259200, 604800, 2592000,
               ],
               accent_color: "blue",
               allowed_accent_colors: ["blue", "violet", "teal", "rose"],
@@ -3940,7 +3941,7 @@ describe("Studio PWA", () => {
         "Studio не подтвердила сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
       ),
     ).toBeInTheDocument();
-    expect(retention).toHaveValue("86400");
+    expect(retention).toHaveValue("259200");
     expect(document.body.textContent).not.toContain("raw-retention-read-failure");
     expect(document.body.textContent).not.toContain("raw-retention-write-failure");
   });
@@ -4593,9 +4594,7 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByText(/Отключение запрещает использовать ключ/),
     ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     expect(confirm).toHaveBeenLastCalledWith(
       "Отключить ключ «Primary STT»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.",
     );
@@ -4606,9 +4605,7 @@ describe("Studio PWA", () => {
     ).toBe(false);
 
     confirm.mockReturnValue(true);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/credentials/cred-active/revoke",
@@ -4617,9 +4614,7 @@ describe("Studio PWA", () => {
     );
 
     confirm.mockReturnValue(false);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Удалить навсегда" }),
-    );
+    await clickCredentialAction("Удалить навсегда");
     expect(confirm).toHaveBeenLastCalledWith(
       "Удалить ключ «Primary STT» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.",
     );
@@ -4631,9 +4626,7 @@ describe("Studio PWA", () => {
     ).toBe(false);
 
     confirm.mockReturnValue(true);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Удалить навсегда" }),
-    );
+    await clickCredentialAction("Удалить навсегда");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/credentials/cred-active",
@@ -4904,9 +4897,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await openSettingsSection("Подключения");
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     expect(
       await screen.findByText(
         "Отключение ключа подтверждено по актуальному списку.",
@@ -4951,9 +4942,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await openSettingsSection("Подключения");
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Удалить навсегда" }),
-    );
+    await clickCredentialAction("Удалить навсегда");
     expect(
       await screen.findByText(
         "Удаление ключа подтверждено по актуальному списку.",
@@ -7726,7 +7715,7 @@ describe("Studio PWA", () => {
     await userEvent.click(
       within(
         screen.getByText("A completed job").closest("article") as HTMLElement,
-      ).getByRole("button", { name: "Открыть" }),
+      ).getByRole("button", { name: /^(Открыть|Показать результаты и детали)$/ }),
     );
     expect(
       await screen.findByLabelText("Подробности транскрибации"),
@@ -8710,8 +8699,9 @@ describe("Studio PWA", () => {
     expect(verificationCalls.length).toBeGreaterThanOrEqual(2);
 
     await userEvent.click(
-      within(secondRow).getByRole("button", { name: "Удалить" }),
+      within(secondRow).getByRole("button", { name: "Действия с избранной папкой Favorite Folder" }),
     );
+    await userEvent.click(within(secondRow).getByRole("menuitem", { name: "Убрать из избранного" }));
     await waitFor(() =>
       expect(
         within(secondRow).queryByRole("button", {
@@ -9278,6 +9268,7 @@ describe("Studio PWA", () => {
     });
 
     await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Показать результаты и детали" }));
 
     expect(
       await screen.findByText(
@@ -11687,6 +11678,8 @@ describe("Studio PWA", () => {
     expect(createKey.closest("form")).toHaveAttribute("autocomplete", "off");
     expect(replaceKey.closest("form")).toHaveAttribute("autocomplete", "off");
     const label = screen.getByPlaceholderText("Метка");
+    expect(label).toHaveAccessibleName("Метка ключа");
+    expect(createKey).toHaveAccessibleName("Новый ключ");
     expect(label).toHaveAttribute("name", "credential_label");
     expect(label).toHaveAttribute("autocomplete", "off");
     expect(createKey).toHaveAttribute("name", "credential_raw_value");
@@ -13748,7 +13741,7 @@ describe("settings diagnostics", () => {
     }
   });
 
-  it("renders appended audit cursor pages without hiding rows behind a presentation cap", async () => {
+  it("replaces audit cursor pages without accumulating previously viewed rows", async () => {
     installBasicPlatformSettingsFixture();
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = fetchMock.getMockImplementation();
@@ -13795,20 +13788,22 @@ describe("settings diagnostics", () => {
     const auditRegion = screen.getByRole("region", {
       name: "Аудит безопасности",
     });
+    await userEvent.click(within(auditRegion).getByText("Аудит безопасности"));
     await waitFor(() =>
       expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(50),
     );
 
     await userEvent.click(
       within(auditRegion).getByRole("button", {
-        name: "Показать ещё события аудита",
+        name: "Следующая страница аудита",
       }),
     );
 
     expect(
       await within(auditRegion).findByText(/Ключ отозван/),
     ).toBeInTheDocument();
-    expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(51);
+    expect(within(auditRegion).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(auditRegion).getByRole("button", { name: "Предыдущая страница аудита" })).toBeEnabled();
     expect(auditUrls).toHaveLength(2);
     expect(auditUrls[1]).toContain("page_size=50");
     expect(auditUrls[1]).toContain("cursor=audit-next-page");
@@ -13851,9 +13846,7 @@ describe("settings diagnostics", () => {
     renderApp();
     await openSettingsSection("Подключения");
     await waitFor(() => expect(resolveStale).toBeDefined());
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Отключить" }),
-    );
+    await clickCredentialAction("Отключить");
     await waitFor(() => expect(auditGets).toBe(2));
     expect(staleSignal?.aborted).toBe(true);
     await act(async () =>
@@ -16306,3 +16299,8 @@ describe("Settings DEBUG session controls", () => {
     vi.useRealTimers();
   });
 });
+
+async function clickCredentialAction(label: string) {
+  await userEvent.click(await screen.findByRole("button", { name: "Другие действия с ключом Primary STT" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: label }));
+}
