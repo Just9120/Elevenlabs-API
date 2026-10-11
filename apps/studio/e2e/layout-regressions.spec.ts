@@ -75,12 +75,16 @@ for (const viewport of [{width: 1280, height: 720}, {width: 390, height: 844}]) 
     await page.locator('.recent-jobs > summary').click();
     const search = page.getByLabel('Поиск по названию среди загруженных задач');
     await expect(search).toBeVisible();
+    await expect(search).toBeEmpty();
     await expect(page.locator('.recent-jobs article[data-job-id]')).toHaveCount(10);
     await page.getByRole('button', {name: 'Следующая страница истории', exact: true}).click();
     await expect(page.locator('.recent-jobs article[data-job-id]')).toHaveCount(2);
     await search.fill('Запись 12');
     await expect(page.locator('article[data-job-id]')).toHaveCount(1);
     await expect(page.getByRole('link', {name: 'Открыть документ'})).toBeVisible();
+    await search.clear();
+    await expect(page.locator('.recent-jobs article[data-job-id]')).toHaveCount(10);
+    await expect(page.getByRole('button', {name: 'Предыдущая страница истории', exact: true})).toBeDisabled();
     await noHorizontalOverflow(page);
     await navigation.getByRole('button', {name: 'Подготовка аудио', exact: true}).click();
     await expect(page.getByText(/Копия результата сохранена в Google Drive/)).toBeVisible();
@@ -121,5 +125,6 @@ test('a reset link is usable in an already authenticated browser without retaini
   await page.route('**/api/auth/session', route => route.fulfill({status: 401, json: {detail: 'Synthetic revoked session'}}));
   await page.getByRole('button', {name: 'Изменить пароль', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Войти', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Забыли пароль?', exact: true})).toHaveCount(0);
   expect(await page.evaluate(() => window.location.hash)).toBe('');
 });
