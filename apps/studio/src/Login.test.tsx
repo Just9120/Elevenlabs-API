@@ -82,6 +82,7 @@ describe("Login auth boundary", () => {
         await screen.findByRole("heading", { name: "Вход" }),
       ).toBeInTheDocument();
       expect(bootstrapReads).toBe(3);
+      expect(screen.queryByRole("button", { name: "Забыли пароль?" })).not.toBeInTheDocument();
     } finally {
       timeoutSpy.mockRestore();
     }

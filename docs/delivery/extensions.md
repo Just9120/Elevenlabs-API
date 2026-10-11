@@ -96,7 +96,7 @@
 | `SECX-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `SECX-04` | READY | ✅ | ✅ | ✅ | F52 исправлен #320/a666df1: enable TOTP/rotate recovery atomic revoke other owner sessions/devices, текущая/чужая session сохранены; Linux/main CI 37154958672/37155276745 PASS. |
 | `SECX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `SECX-06` | BLOCKED | ◐ | ◐ | ✅ | F66: outbox/reset/security events реализованы в PR329, CI38141034993 synthetic delivery/auth/PG PASS. Production own-domain sender/SMTP UNSET; default disabled, нужен owner выбор/configuration/readback. Реальные письма не отправлялись. |
+| `SECX-06` | BACKLOG | ◐ | ◐ | ✅ | F66 DEFER: владелец 11Oct2026 отложил почту для personal. Outbox/reset/security events реализованы в PR329, CI38141034993 synthetic delivery/auth/PG PASS; SMTP disabled, реальные письма не отправлялись. Будущее включение — отдельный scope с собственным доменом. Не блокирует текущую Goal; AC сохранён в roadmap. |
 
 ### `RECOVERY-DATA-03`
 

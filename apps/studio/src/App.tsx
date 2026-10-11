@@ -5838,7 +5838,7 @@ function PreparationPanel({
         )}
         <div className="history-filters">
           <label>Поиск по названию среди загруженных задач
-            <input type="search" value={historyQuery} onChange={(event) => { setHistoryQuery(event.target.value); setHistoryPage(0); }} />
+            <input type="search" name="transcription-history-search" autoComplete="off" value={historyQuery} onChange={(event) => { setHistoryQuery(event.target.value); setHistoryPage(0); }} />
           </label>
           <label>Статус в истории
             <select value={historyStatus} onChange={(event) => { setHistoryStatus(event.target.value); setHistoryPage(0); }}>
