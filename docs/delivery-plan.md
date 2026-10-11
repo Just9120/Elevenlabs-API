@@ -2,6 +2,41 @@
 
 ## Current work и checkpoint
 
+### FINDINGS-UX-20261011 — IN_PROGRESS
+
+Основание: владелец поручил взять единой Goal все findings, кроме Яндекса, и все UX/UI правки браузерного ревью 11Oct2026. Последующее решение сохраняет F08/F09 и F62 отложенными. Встроенная Goal текущего чата активирована и проверена инструментом; план не подменяет её.
+
+- Scope: F48, F66..F76; UXR01..UXR13. UXR04/F74 и UXR06/F75 — одни проблемы, закрываются без дублей. F02/F04/F05 (Яндекс), F08/F09 (voice identity/commercial), F62 (аудит лекций/cleaned experiment) исключены. Закрытые findings не переоткрываются без нового нарушения.
+- Branch `codex/findings-ux-20261011`, base/fresh origin/main `8f622994c65649c88857219481274b50aaf4cace`, 11Oct2026. Main/base совпадают, tracked state чистый, один worktree; `codex/audio-upload-confirmation` и существующие ignored материалы сохранены. GitHub connector доступен, открытых PR нет. CLI authentication недействительна; integration не может прочитать administrative branch protection (403). Перед publication/merge восстановить доступ либо подтвердить gates через доступные первичные records; отсутствие доступа не считать PASS.
+- Один основной PR: изменения взаимозависимы через source/job DTO, auth/cloud boundaries и общие UI компоненты. Узкие задачи — локальные commits; initial push только после готовности всего scope PR и применимой local validation. Возможные необходимые hotfix после merge входят в Goal.
+- Non-goals: новые commercial/voice/Yandex функции, изменения общей safety policy, реальные STT/Live/LLM эксперименты, платные security scans, изменение пользовательских Google Docs, destructive production cleanup/restore. F48 теперь выбран владельцем: immutable reviewed Colab source без изменения стабильного batch/realtime назначения.
+- DoD: подтверждены критерии ниже; актуальны связанные AC/findings/Evidence; self-review, required CI/review актуальной revision, merge; exact-revision web/API/worker delivery с действующими gates и safe smoke; безопасная синхронизация main/очистка только принадлежащих Goal веток. Неизвестные production email values — внешний blocker только для соответствующего подключения, не для независимых исправлений.
+
+| Задача / критерии закрытия | Scope / зависимости | Required Evidence |
+|---|---|---|
+| G01: До STT проверены audio stream/container/codec/integrity; part-local speaker IDs не обещают общую identity; UI объясняет prepared timeline и перечисляет конкретные missing parts/ranges | F67/F68/F69/F73; MC-01/06/07, UXN-05; immutable part plan/owner DTO | Реальные synthetic FFmpeg negative/positive fixtures, assembly/plan/API/UI regressions; zero provider calls при invalid media |
+| G02: Новые transcription inputs/preferences используют 3/7/30; existing expiry/legacy reads сохранены | F75/UXR06; STORAG-06; отдельная audio policy | Policy/API/preferences/expiry regressions, legacy readback |
+| G03: Security/access email имеют transactional outbox, bounded transport, anti-enumeration, expiry и dedup; собственный sender domain явно configured либо BLOCKED | F66; SECX-06; domain/SMTP configuration владельца | Synthetic delivery/error/retry/token/auth tests; safe production configuration readback без secrets, без реальных писем в tests |
+| G04: Auth/cloud/document implementations заменяемы через bounded interfaces, существующие routes/ownership/transactions совместимы | F70; EVC-35/41/43/48 | Alternative fake adapters и contract/API isolation/regressions; imports/registry/self-review |
+| G05: Tested compatible API/web/worker rollback после schema/config switch; реальные FFmpeg проверки обязательны в affected CI без дублей workflow | F71/F76; DBLP-08/RELEAS-02; isolated Docker/Linux | Synthetic isolated release rollback rehearsal с identity/health/schema/runtime-role readback, real codec cases FAIL при отсутствии binary в applicable CI, runner-time records |
+| G06: Architecture соответствует действующему lifecycle; Colab launcher исполняет immutable reviewed revision | F72/F48 | Relative links/source routing, launcher/notebook identity regressions, документация совместимости и обновления |
+| G07: Исправлены mobile layout, picker focus/labels, state-dependent copy, history/document navigation, menu grouping, composer density, audit labels/pagination, cost formatting, expired audio fallback | UXR01..05, UXR07..13/F74 | Component regressions и browser desktop/390x844: отсутствие перекрытий, keyboard/focus, безопасные empty/error/result states; основные CTA/recovery видимы |
+
+#### Validation Plan
+
+Canonical commands/сервисы — [validation](runbooks/validation.md); delivery — [operations](runbooks/studio-platform-ops.md). Synthetic config/data и fake external boundaries; production credentials/data не fixtures.
+
+| AC/риск | Проверка / ожидаемый результат | Tool/каталог/environment | Этап / применимость |
+|---|---|---|---|
+| Diff/docs/identity | Без whitespace errors, broken relative links, расхождений ID/scope; bootstrap/source refs проверены | `git diff --check`, repository checks по runbook, root/Windows | Local pre-push REQUIRED |
+| UI/DTO/menus | Typecheck/lint/build и affected component regressions; доступные имена, Escape/focus, disclosure/navigation, retention/timeline/partial states | npm/TypeScript/Vitest canonical commands, apps/studio, synthetic local | Local pre-push REQUIRED; полный прогон — CI |
+| Media/mail/auth/cloud/rollback | Affected Python checks по поведению/границам; invalid source до STT, owner/CSRF, transaction/dedup/expiry, alternative adapters | Focused pytest по runbook, root/synthetic portable; FFmpeg при доступности | Local по риску REQUIRED; PG/Redis/Docker/Linux часть remote-only |
+| Executable integration | Required `ci-required` и все applicable root/Studio/browser jobs на актуальном test merge revision; no unexpected skips | GitHub Actions synthetic PostgreSQL/Redis/Linux/FFmpeg | Pre-merge REQUIRED |
+| Responsive/keyboard | Desktop и 390x844 safe браузерные сценарии в версии изменённого приложения | CUA/browser и существующий isolated browser E2E, без реальных provider calls | Pre-merge REQUIRED; production bounded smoke после CD |
+| Delivery/recovery | Exact merge/artifact web/API/worker; migration/backup gates по фактическому diff; health/version и безопасный smoke | Existing CD/runbooks/VPS | Post-merge REQUIRED; real paid canary N/A без отдельного разрешения |
+
+- Checkpoint: scope и baseline закреплены; реализация/проверки/PR/CD PENDING. Следующий шаг — G01/G02 и независимые UX fixes, затем интерфейсы, mail и release rehearsal; F66 external sender/transport пока UNSET. Readiness snapshot ниже остаётся последней аудиторской оценкой, не прогнозом этой Goal.
+
 ### AUDIT-20261010 — документация подготовлена, PR gates PENDING
 
 Основание: владелец явно поручил выполнить полный аудит по согласованному плану. Scope — Colab, Studio, API/worker, integrations/data/security/operations/CI; requirements→code и code→current requirements. Разрешены только canonical spec/plan и индексируемые разделы, один docs PR→CI→merge. Код, workflows, настройки, deploy, удаления, provider calls и experiments не входят. Implementation Goal не активируется.
