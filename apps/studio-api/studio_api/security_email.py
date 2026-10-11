@@ -1,7 +1,7 @@
 """Transactional access mail. Synthetic transports can replace SMTP in tests.
 
-SMTP is at-least-once: the stable Message-ID and fenced outbox prevent concurrent
-duplicate sends, but a process crash after SMTP acceptance can cause a retry.
+SMTP is at-least-once: the fenced outbox coordinates claims and retries, but a
+crash or an expired claim during a slow send can resend the stable Message-ID.
 Reset tokens remain single-use; plaintext is never persisted or logged.
 """
 import json

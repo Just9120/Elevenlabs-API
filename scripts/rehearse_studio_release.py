@@ -41,10 +41,13 @@ def export_revision(revision, destination):
 
 
 class OwnedReleaseContainer:
-    def __init__(self, image_id, nonce, role, network, *, user="10001:10001"):
+    def __init__(self, image_id, nonce, role, network, *, user="10001:10001", drop_privileges=False):
         if not IMAGE.fullmatch(image_id):
             raise DrillFailure("release_image_identity_invalid")
         self.image_id, self.nonce, self.role, self.network, self.user = image_id, nonce, role, network, user
+        if drop_privileges and (role not in {"api", "worker"} or user != "0:0"):
+            raise DrillFailure("release_privilege_drop_role_invalid")
+        self.drop_privileges = drop_privileges
         self.container_id = None
         self.name = f"studio-release-{nonce}-{role}"
 
@@ -54,10 +57,12 @@ class OwnedReleaseContainer:
             raise DrillFailure("release_container_identity_invalid")
         row = json.loads(_run(["docker", "inspect", self.container_id]))[0]
         host = row["HostConfig"]
+        capabilities = {value.removeprefix("CAP_") for value in (host.get("CapAdd") or [])}
         if (row["Image"] != self.image_id or row["Name"] != "/" + self.name or
             row["Config"].get("Labels", {}).get(LABEL) != self.nonce or row["Config"].get("User") != self.user or
             host["NetworkMode"] != self.network.name or not host["ReadonlyRootfs"] or
             host.get("Binds") or host.get("PortBindings") or "ALL" not in host.get("CapDrop", []) or
+            capabilities != ({"SETUID", "SETGID"} if self.drop_privileges else set()) or
             not any(item.startswith("no-new-privileges") for item in host.get("SecurityOpt", [])) or
             any(mount.get("Type") != "tmpfs" for mount in row.get("Mounts", []))):
             raise DrillFailure("release_container_boundary_invalid")
@@ -68,6 +73,8 @@ class OwnedReleaseContainer:
             "--network", self.network.name, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--user", self.user, "--memory", "768m", "--cpus", "1", "--pids-limit", "128",
             "--tmpfs", "/tmp:rw,size=67108864,mode=1777"]
+        if self.drop_privileges:
+            args += ["--cap-add", "SETUID", "--cap-add", "SETGID"]
         if self.role == "redis":
             args += ["--tmpfs", "/data:rw,size=16777216,uid=999,gid=999,mode=0700"]
         if self.role.endswith("web"):
@@ -94,6 +101,8 @@ class OwnedReleaseContainer:
 
     def exec(self, command, *, timeout=20):
         self.verify()
+        if self.drop_privileges:
+            command = ["python", "-m", "studio_api.container_entrypoint", "--drop-only", *command]
         try:
             result = subprocess.run(["docker", "exec", self.container_id, *command], capture_output=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired):
@@ -123,8 +132,10 @@ class OwnedReleaseContainer:
             self.container_id = None
 
 
-BOOT = """import os,sys,tempfile,pathlib,base64
-d=pathlib.Path(tempfile.mkdtemp(prefix='synthetic-release-'))
+BOOT = """import os,sys,pathlib,base64
+if os.geteuid()==0:
+ os.setgroups([]);os.setgid(10001);os.setuid(10001)
+d=pathlib.Path('/tmp/studio-release-secrets');d.mkdir(mode=0o700)
 for name,value in [('pg',os.environ.pop('DRILL_PASSWORD')),('key',base64.b64encode(b'r'*32).decode())]:
  p=d/name;p.write_text(value);p.chmod(0o600)
 os.environ['STUDIO_POSTGRES_PASSWORD_FILE']=str(d/'pg')
@@ -136,6 +147,8 @@ os.execvp(sys.executable,[sys.executable,*sys.argv[1:]])
 def application_env(database, redis, *, role, password):
     return {"STUDIO_ENVIRONMENT": "test", "STUDIO_DATABASE_HOST": database.name if hasattr(database, "name") else f"studio-recovery-{database.nonce}-{database.role}",
         "STUDIO_DATABASE_NAME": "studio_drill", "STUDIO_DATABASE_USER": role, "DRILL_PASSWORD": password,
+        "STUDIO_POSTGRES_PASSWORD_FILE": "/tmp/studio-release-secrets/pg",
+        "STUDIO_CREDENTIAL_MASTER_KEY_FILE": "/tmp/studio-release-secrets/key",
         "STUDIO_REDIS_URL": f"redis://{redis.name}:6379/0", "STUDIO_APP_ORIGIN": "https://studio.example.test",
         "STUDIO_RUNTIME_WORKER_HEARTBEAT_INTERVAL_SECONDS": "5", "STUDIO_WORKER_POLL_INTERVAL_SECONDS": "1"}
 
@@ -174,7 +187,7 @@ def start_release(images, revision, network, database, redis, password):
     try:
         for component in ("api", "worker", "web"):
             container = OwnedReleaseContainer(images[component][1], network.nonce, component, network,
-                user="101:101" if component == "web" else "10001:10001")
+                user="101:101" if component == "web" else "0:0", drop_privileges=component != "web")
             containers.append(container)
             if component == "web":
                 container.start(entrypoint="nginx", command=["-g", "daemon off;"])
@@ -196,6 +209,8 @@ def start_release(images, revision, network, database, redis, password):
                     raise DrillFailure("release_web_identity_mismatch")
                 for container in containers[:2]:
                     check = f"{container.role}_identity"
+                    container.exec(["python", "-c",
+                        "from pathlib import Path; s=dict(line.split(':',1) for line in Path('/proc/1/status').read_text().splitlines() if ':' in line); assert s['Uid'].split()==['10001']*4 and s['Gid'].split()==['10001']*4 and not s['Groups'].split() and int(s['CapEff'].strip(),16)==0"])
                     baked = container.exec(["python", "-c", "import os,json;print(json.dumps({k:os.environ[k] for k in ['STUDIO_RUNTIME_COMMIT_SHA','STUDIO_RUNTIME_COMPONENT']}))"])
                     identity = json.loads(baked)
                     if identity["STUDIO_RUNTIME_COMMIT_SHA"] != revision or identity["STUDIO_RUNTIME_COMPONENT"] != container.role:

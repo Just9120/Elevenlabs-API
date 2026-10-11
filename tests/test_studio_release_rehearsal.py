@@ -78,6 +78,12 @@ def test_runtime_roles_never_receive_schema_admin_credentials():
         assert not any("/opt" in value or "production" in value for value in env.values())
 
 
+@pytest.mark.parametrize("role,user", [("redis", "0:0"), ("web", "0:0"), ("worker", "10001:10001")])
+def test_privilege_drop_bootstrap_is_bounded_to_root_api_and_worker(role, user):
+    with pytest.raises(drill.DrillFailure, match="privilege_drop_role_invalid"):
+        drill.OwnedReleaseContainer("sha256:" + "a" * 64, "nonce", role, SimpleNamespace(), user=user, drop_privileges=True)
+
+
 def test_rehearsal_selection_is_scoped_to_release_risk():
     spec = importlib.util.spec_from_file_location("ci_rehearsal_selection", ROOT / "scripts/ci_validation.py")
     ci = importlib.util.module_from_spec(spec); spec.loader.exec_module(ci)

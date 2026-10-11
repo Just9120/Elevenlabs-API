@@ -722,7 +722,7 @@ link invalidates earlier challenges and pending mail. Successful reset revokes
 sessions and trusted browsers; account security changes create separate
 deduplicated notifications. Delivery claims expire after60 seconds, retries
 are bounded to3 with backoff, expired/reset-cancelled payloads are erased.
-SMTP may accept a message immediately before worker failure: a retry can
+SMTP may accept a message before worker failure or an expired slow-send claim: a retry can
 resend its stable Message-ID, but the reset token still works once.
 
 Synthetic transport/transaction/expiry checks run without real mail. An
