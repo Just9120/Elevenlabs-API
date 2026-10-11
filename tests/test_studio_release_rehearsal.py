@@ -15,6 +15,17 @@ drill = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(drill)
 
 
+def test_release_probe_error_exposes_only_allowlisted_health_enum(monkeypatch):
+    container = drill.OwnedReleaseContainer("sha256:" + "a" * 64, "nonce", "worker", SimpleNamespace())
+    container.container_id = "b" * 64
+    monkeypatch.setattr(container, "verify", lambda: None)
+    monkeypatch.setattr(drill.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1,
+        stdout=b"synthetic-sensitive-body", stderr=b"synthetic-sensitive-secret STUDIO_WORKER_HEALTH_FAIL reason=runtime_identity_invalid"))
+    with pytest.raises(drill.DrillFailure) as failure:
+        container.exec(["python", "-m", "studio_api.worker_health"])
+    assert str(failure.value) == "worker_probe_runtime_identity_invalid"
+
+
 def test_both_role_manifests_target_only_the_owned_synthetic_database(tmp_path):
     manifest = tmp_path / "deploy/studio"
     manifest.mkdir(parents=True)

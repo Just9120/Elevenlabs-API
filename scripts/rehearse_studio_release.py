@@ -94,7 +94,21 @@ class OwnedReleaseContainer:
 
     def exec(self, command, *, timeout=20):
         self.verify()
-        return _run(["docker", "exec", self.container_id, *command], timeout=timeout)
+        try:
+            result = subprocess.run(["docker", "exec", self.container_id, *command], capture_output=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired):
+            raise DrillFailure(f"{self.role}_probe_unavailable_or_timeout") from None
+        if result.returncode:
+            # Expose only documented worker-health enums, never command text,
+            # traceback, environment, fixture contents or credentials.
+            match = re.search(rb"STUDIO_WORKER_HEALTH_FAIL reason=([a-z_]+)", result.stderr)
+            allowed = {b"invalid_mode", b"pid1_not_worker", b"runtime_identity_invalid",
+                       b"configuration_invalid", b"runtime_heartbeat_unavailable", b"dependency_unavailable"}
+            reason = match[1].decode() if match and match[1] in allowed else f"exit_{result.returncode}"
+            raise DrillFailure(f"{self.role}_probe_{reason}")
+        if len(result.stdout) > 64 * 1024 * 1024:
+            raise DrillFailure("release_probe_output_budget_exceeded")
+        return result.stdout
 
     def close(self):
         if self.container_id:
@@ -170,22 +184,26 @@ def start_release(images, revision, network, database, redis, password):
                     entrypoint="python", command=["-c", BOOT, *command])
         deadline = time.monotonic() + 45
         while True:
+            check = "api_readiness"
             try:
                 response = containers[0].exec(["python", "-c",
                     "import json,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/readyz',timeout=2)); assert r['ok'] is True; print(r['schema_revision'])"])
+                check = "worker_readiness"
                 containers[1].exec(["python", "-m", "studio_api.worker_health", "--mode", "readiness"])
+                check = "web_identity"
                 meta = json.loads(containers[2].exec(["wget", "-qO-", "http://127.0.0.1:8080/build-meta.json"]))
                 if meta.get("commit_sha") != revision or meta.get("component") != "web":
                     raise DrillFailure("release_web_identity_mismatch")
                 for container in containers[:2]:
+                    check = f"{container.role}_identity"
                     baked = container.exec(["python", "-c", "import os,json;print(json.dumps({k:os.environ[k] for k in ['STUDIO_RUNTIME_COMMIT_SHA','STUDIO_RUNTIME_COMPONENT']}))"])
                     identity = json.loads(baked)
                     if identity["STUDIO_RUNTIME_COMMIT_SHA"] != revision or identity["STUDIO_RUNTIME_COMPONENT"] != container.role:
                         raise DrillFailure("release_runtime_identity_mismatch")
                 return containers, response.decode().strip()
-            except DrillFailure:
+            except DrillFailure as error:
                 if time.monotonic() >= deadline:
-                    raise
+                    raise DrillFailure(f"{check}:{error}") from None
                 time.sleep(1)
     except Exception:
         for container in reversed(containers):
