@@ -59,7 +59,7 @@
 | `UXN-02` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Authoritative known UTC metadata naming без fabricated date; fragment bounds по measured whole source; parser/API/worker/UI checks PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `UXN-03` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Authoritative known UTC metadata naming без fabricated date; fragment bounds по measured whole source; parser/API/worker/UI checks PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `UXN-04` | IN_PROGRESS | ◐ | ◐ | ✅ | F02: Google destination реализован; optional Yandex Disk folder/DOCX adapter отсутствует. A20261010-CODE/CI. |
-| `UXN-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F69: prepared-result DTO/provenance есть, но composer не обозначает явно версию шкалы интервалов после сокращения пауз. App.tsx/AudioPreparationPage.tsx, A20261010-CODE; component tests не проверяют эту подпись. |
+| `UXN-05` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F69: owner-safe prepared context и composer/preflight явно показывают timeline/changed duration; API/UI PASS. |
 | `UXN-06` | READY | ✅ | ✅ | ✅ | PR327: unknown recording date omitted, no job/export/current-time fallback; focused document regressions PASS. PR327 mergedbc5150e; exact-main CI37502013651 и web/API CD37502621690/worker37504355706 SUCCESS06Oct; runtime identity/health10Oct PASS (A20261010-RUNTIME). |
 | `UXN-07` | READY | ✅ | ✅ | ✅ | PR327: owned original sources/ordered preparation recipe/source clip provenance retained through document standardization; foreign-owner/lifecycle regressions PASS. PR327 mergedbc5150e; exact-main CI37502013651 и web/API CD37502621690/worker37504355706 SUCCESS06Oct; runtime identity/health10Oct PASS (A20261010-RUNTIME). |
 | `UXN-09` | ALIAS | — | — | — | Вне denominator; актуальные AC: UXPOL-07 |
@@ -68,12 +68,12 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `MC-01` | IN_PROGRESS | ◐ | ◐ | ✅ | F67: ffprobe проверяет format.duration, но не audio stream/реальный codec/полную целостность. Synthetic video-only MP4 с audio/mp4 проходит prepare_elevenlabs_media_parts до STT. A20261010-CODE; 92 focused PASS не обнаруживают этот случай. |
+| `MC-01` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F67: real stream/container/codec/integrity preflight до STT; valid/video-only/mislabeled/truncated FFmpeg regressions PASS, invalid media zero provider calls. |
 | `MC-03` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Whole-source4h warning/12h max до clip/split, exact measured duration/source/clip/tariff consent token; negative/concurrent/legacy quote tests PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `MC-04` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Whole-source4h warning/12h max до clip/split, exact measured duration/source/clip/tariff consent token; negative/concurrent/legacy quote tests PASS. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `MC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `MC-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F68: merge_elevenlabs_transcript_results корректирует timeline, но сохраняет part-local speaker_id; отсутствует явное предупреждение о межчастном сопоставлении в UI/документе. A20261010-CODE. |
-| `MC-07` | IN_PROGRESS | ◐ | ◐ | ✅ | F73: durable prefix checkpoints и total/completed counts есть; UI не перечисляет конкретные оставшиеся интервалы/части. JobDetailSection.tsx/JobProgressPipeline.tsx, A20261010-CODE. |
+| `MC-06` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F68: part-local speakers namespaced, warning in UI/document; boundary/assembly regressions PASS, voice identity не обещается. |
+| `MC-07` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F73: immutable plan recorded before provider I/O, owner-safe exact missing parts/ranges; checkpoint/API/UI regressions PASS. |
 | `MC-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 остаётся: официальный REST numeric-string/nested channel fixture теряет timing/speaker (synthetic readback10Oct). Provider/model/date/provenance часть исправлена PR327 и проверена A20261010-CI. |
 | `MC-09` | IN_PROGRESS | ◐ | ◐ | ✅ | F05: catalog заявляет diarization=true для Yandex Live, relay REAL_TIME явно выключает speaker labeling. Indexed correction/reconnect уже исправлены PR326; A20261010-CODE/CI. |
 
@@ -96,7 +96,7 @@
 | `SECX-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `SECX-04` | READY | ✅ | ✅ | ✅ | F52 исправлен #320/a666df1: enable TOTP/rotate recovery atomic revoke other owner sessions/devices, текущая/чужая session сохранены; Linux/main CI 37154958672/37155276745 PASS. |
 | `SECX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `SECX-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F66: access/security email delivery не реализован; password reset request возвращает delivery=not_configured. Job email — другой сценарий. main.py/account_security.py, A20261010-CODE. |
+| `SECX-06` | BLOCKED | ◐ | ◐ | ✅ | F66: outbox/reset/security events реализованы в PR329, CI38141034993 synthetic delivery/auth/PG PASS. Production own-domain sender/SMTP UNSET; default disabled, нужен owner выбор/configuration/readback. Реальные письма не отправлялись. |
 
 ### `RECOVERY-DATA-03`
 

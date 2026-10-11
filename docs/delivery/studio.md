@@ -34,7 +34,7 @@
 | `PUX-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-06` | READY | ✅ | ✅ | ✅ | PR #309 merge 0d41180: local audio validation раскрывает настройки, фокусирует неверное поле и показывает inline/ARIA error; Vitest 751/751, Studio CI и browser-e2e PASS, web/API CD 35962179284 PASS. |
 | `PUX-07` | READY | ✅ | ✅ | ✅ | PR #310 доставил `source_names`, PR #311 убрал второе отображение имени внутри группы; targeted/full Vitest 239/752 PASS, PR CI 35967620882/35967621016 и main CI 35967953699/35967953526 PASS. Web CD 35967953684, live web `02fc21d`: имя ровно один раз, номер элемента сохранён. |
-| `PUX-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F74: Live disclosure отрицает automatic reconnect, хотя realtimeSession реализует bounded reconnect/replay. Browser10Oct на bc5150eb189b44867101ca45b9da201921a99227; код RTC остаётся READY, объяснение требует исправления. |
+| `PUX-08` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F74/UXR04: Live reconnect и diarization copy соответствуют состоянию; component/browser PASS. |
 | `PUX-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -316,7 +316,7 @@
 | `STORAG-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STORAG-05` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
-| `STORAG-06` | IN_PROGRESS | ◐ | ◐ | ✅ | F75: Q162 требует 3/7/30; account preferences и source_policy всё ещё принимают 1h/24h для новых transcription uploads. API/UI/production settings10Oct на bc5150eb189b44867101ca45b9da201921a99227. Audio retention3/7/30 реализован отдельно. |
+| `STORAG-06` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F75/UXR06: future uploads/preferences3/7/30; legacy reads/expiry сохранены; migration/API/policy/UI PASS. |
 | `STORAG-07` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-08` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). Selected originals3/7/30, отсутствие finished S3 writer, fenced leases/all-full-docs retirement, bounded version cleanup/readback и page membership; storage/API/PG/lifecycle checks PASS. External production deletion не выполнялась. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
 | `STORAG-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -388,7 +388,7 @@
 | `DBLP-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `DBLP-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `DBLP-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `DBLP-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F71: role/preflight/backup и synthetic restore есть; compatible rollback полной API/web/worker topology после credential/schema switch не подтверждён воспроизводимым drill. A20261010-CODE/CI; bootstrap credential не возвращать. |
+| `DBLP-08` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F71: existing protected backup/role gates сохранены; isolated full API/web/worker schema/credential switch и compatible rollback PASS205.66s; no bootstrap credentials in runtime. Production switch данного PR ещё PENDING. |
 
 ### `JOB-RELIABILITY-02`
 
@@ -497,7 +497,7 @@
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `RELEAS-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `RELEAS-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F71: worker rollback и synthetic dump/restore/API decrypt проверены; полного application release rollback с совместимостью schema/config нет в доступном drill Evidence. A20261010-CI; production restore не запускался. |
+| `RELEAS-02` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F71: tested full application compatible rollback procedure PASS на isolated synthetic Docker topology; production rollback не запускался. |
 | `RELEAS-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `RELEAS-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `RELEAS-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
