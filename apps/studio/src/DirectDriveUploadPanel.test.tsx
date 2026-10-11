@@ -84,6 +84,20 @@ describe("DirectDriveUploadPanel", () => {
     vi.unstubAllGlobals();
   });
 
+  it("preserves the folder launcher across the asynchronous picker session request", async () => {
+    const requests: Array<{ path: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", mockApi(requests));
+    const picker = vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({ action: "cancel" });
+    render(<DirectDriveUploadPanel projectId="project-id" csrf="csrf" onCsrf={() => undefined} />);
+    const launcher = screen.getByRole("button", { name: "Выбрать целевую папку" });
+    await userEvent.click(launcher);
+    await waitFor(() => expect(picker).toHaveBeenCalledWith(
+      "output-folder", expect.any(Object), { returnFocusTo: launcher },
+    ));
+    await waitFor(() => expect(launcher).toBeEnabled());
+    expect(requests.every(({ path }) => path === "/api/google/picker/session")).toBe(true);
+  });
+
   it("keeps partial failures isolated and retries the same operation safely", async () => {
     const requestBodies: Array<{ path: string; body: unknown }> = [];
     vi.stubGlobal("fetch", mockApi(requestBodies));

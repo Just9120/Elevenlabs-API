@@ -5,8 +5,15 @@ from enum import Enum
 
 SUPPORTED_SOURCE_MIME_PREFIXES = ("audio/", "video/")
 SUPPORTED_SOURCE_MIME_TYPES = {"application/ogg"}
-DEFAULT_SOURCE_RETENTION_TTL_SECONDS = 86400
-SOURCE_RETENTION_TTL_OPTIONS_SECONDS = (3600, 86400, 259200, 604800, 2592000)
+DEFAULT_SOURCE_RETENTION_TTL_SECONDS = 259200
+SOURCE_RETENTION_TTL_OPTIONS_SECONDS = (259200, 604800, 2592000)
+
+
+def effective_source_retention_seconds(stored_seconds: int) -> int:
+    """Apply the current policy only to future uploads, retaining legacy rows."""
+    if stored_seconds in SOURCE_RETENTION_TTL_OPTIONS_SECONDS:
+        return stored_seconds
+    return DEFAULT_SOURCE_RETENTION_TTL_SECONDS
 
 
 def browser_source_upload_policy(

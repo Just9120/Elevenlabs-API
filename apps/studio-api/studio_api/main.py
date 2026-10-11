@@ -29,7 +29,7 @@ from .source_storage import (
     source_reference_class,
 )
 from .source_creation import parse_authoritative_source_created_at
-from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
+from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, effective_source_retention_seconds, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
@@ -1031,7 +1031,7 @@ def confirm_password_reset(data: PasswordResetConfirmIn,request: Request,respons
 
 def account_preferences_payload(user: User):
     return {
-        "source_retention_ttl_seconds": user.source_retention_ttl_seconds,
+        "source_retention_ttl_seconds": effective_source_retention_seconds(user.source_retention_ttl_seconds),
         "allowed_source_retention_ttl_seconds": list(SOURCE_RETENTION_TTL_OPTIONS_SECONDS),
         "accent_color": user.accent_color,
         "allowed_accent_colors": ["blue", "violet", "teal", "rose"],
@@ -1254,7 +1254,7 @@ def _completed_source_retention_seconds(source: Source, user: User) -> int:
         if days not in (3, 7, 30):
             raise HTTPException(409, "Срок хранения исходника аудио не подтверждён")
         return days * 86400
-    return user.source_retention_ttl_seconds
+    return effective_source_retention_seconds(user.source_retention_ttl_seconds)
 
 def output_folder_favorite_payload(row: OutputFolderFavorite):
     return {"id": row.id, "drive_folder_id": row.drive_folder_id, "name": row.name, "web_view_url": row.web_view_url, "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat()}

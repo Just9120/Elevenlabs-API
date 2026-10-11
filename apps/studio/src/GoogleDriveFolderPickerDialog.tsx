@@ -1193,7 +1193,22 @@ export function openGoogleDrivePicker(
         resolve(result);
         if (returnFocusTo) {
           window.setTimeout(() => {
-            if (returnFocusTo.isConnected && !returnFocusTo.matches(":disabled")) returnFocusTo.focus();
+            if (!returnFocusTo.isConnected) return;
+            if (!returnFocusTo.matches(":disabled")) {
+              returnFocusTo.focus();
+              return;
+            }
+            // The caller may release its busy state after React commits.
+            const observer = new MutationObserver(() => {
+              if (!returnFocusTo.isConnected) {
+                observer.disconnect();
+              } else if (!returnFocusTo.matches(":disabled")) {
+                observer.disconnect();
+                returnFocusTo.focus();
+              }
+            });
+            observer.observe(returnFocusTo, { attributes: true, attributeFilter: ["disabled"] });
+            window.setTimeout(() => observer.disconnect(), 1000);
           }, 0);
         }
       });

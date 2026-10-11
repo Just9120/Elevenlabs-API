@@ -1111,17 +1111,19 @@ def test_account_source_retention_preferences_are_server_authoritative():
     c = TestClient(app)
     csrf = login(c, pw, email)
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
-    expected_options = [3600, 86400, 259200, 604800, 2592000]
+    expected_options = [259200, 604800, 2592000]
     current = c.get("/api/account/preferences")
     assert current.status_code == 200
     assert current.json() == {
-        "source_retention_ttl_seconds": 86400,
+        "source_retention_ttl_seconds": 259200,
         "allowed_source_retention_ttl_seconds": expected_options,
         "accent_color": "blue",
         "allowed_accent_colors": ["blue", "violet", "teal", "rose"],
     }
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}).status_code == 403
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 7200}, headers=headers).status_code == 422
+    for legacy_seconds in (3600, 86400):
+        assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": legacy_seconds}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800, "unknown": True}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={"accent_color": "orange"}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={}, headers=headers).status_code == 422
@@ -3479,11 +3481,38 @@ def test_complete_local_upload_replay_returns_same_verified_source_without_exten
     assert replay.json()["expires_at"] == first_body["expires_at"]
 
 
+@pytest.mark.parametrize("legacy_seconds", [3600, 86400])
+def test_new_upload_normalizes_legacy_preference_without_rewriting_existing_expiry(monkeypatch, legacy_seconds):
+    enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project(f"legacy-retention-{legacy_seconds}@example.com")
+    with SessionLocal() as db:
+        user = db.get(User, db.get(Project, pid).owner_user_id)
+        user.source_retention_ttl_seconds = legacy_seconds
+        db.commit()
+    prefs = c.get("/api/account/preferences").json()
+    assert prefs["source_retention_ttl_seconds"] == 259200
+    initiated = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={
+        "original_filename": "legacy.mp3", "mime_type": "audio/mpeg", "size_bytes": 10,
+        "reference_class": "transcription",
+    }, headers=headers)
+    sid = initiated.json()["source_id"]
+    completed = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers).json()
+    assert datetime.fromisoformat(completed["expires_at"]) - datetime.fromisoformat(completed["uploaded_at"]) == timedelta(days=3)
+    legacy_expiry = datetime.now(timezone.utc) + timedelta(seconds=legacy_seconds)
+    with SessionLocal() as db:
+        db.get(Source, sid).expires_at = legacy_expiry
+        db.commit()
+    replay = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers).json()
+    assert datetime.fromisoformat(replay["expires_at"]) == legacy_expiry
+    with SessionLocal() as db:
+        assert db.get(User, db.get(Project, pid).owner_user_id).source_retention_ttl_seconds == legacy_seconds
+
+
 @pytest.mark.parametrize("days", [3, 7, 30, None])
 def test_audio_upload_has_separate_selected_retention_after_completion(monkeypatch, days):
     enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project(f"audio-retention-{days}@example.com".lower())
-    preference = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 3600}, headers=headers)
+    preference = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 2592000}, headers=headers)
     assert preference.status_code == 200
     payload = {"original_filename": "audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 10, "reference_class": "audio_processing"}
     if days is not None:

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import * as googlePicker from "./googlePicker";
+import { ActionMenu } from "./ActionMenu";
 import { diagnosticsTimeZoneLabel, formatDiagnosticsTime } from "./diagnosticsTime";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
@@ -214,7 +215,7 @@ import {
 import "./styles.css";
 
 const SOURCE_RETENTION_TTL_OPTIONS_SECONDS = [
-  3600, 86400, 259200, 604800, 2592000,
+  259200, 604800, 2592000,
 ] as const;
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
@@ -3509,20 +3510,12 @@ function PreparationPanel({
             >
               Выбрать: {favorite.name}
             </button>
-            <ResourceExternalLink
-              href={favorite.web_view_url}
-              label="Открыть"
-              ariaLabel={`Открыть избранную папку ${favorite.name} в Google Drive`}
-            />
-            <button
-              type="button"
-              className="secondary danger"
+            <ActionMenu label={`Действия с избранной папкой ${favorite.name}`}
               disabled={folderFavoriteMutation !== null}
-              aria-busy={folderFavoriteMutation === `delete:${favorite.id}`}
-              onClick={() => void deleteFolderFavorite(favorite)}
-            >
-              Удалить
-            </button>
+              items={[
+                { id: "open", label: "Открыть в Google Drive", href: favorite.web_view_url },
+                { id: "remove", label: "Убрать из избранного", danger: true, onSelect: () => void deleteFolderFavorite(favorite) },
+              ]} />
           </div>
         ))}
         {folderFavoritesError && !folderFavoritesLoading && (
@@ -4858,8 +4851,9 @@ function PreparationPanel({
                 {diarizationEnabled ? "включено" : "выключено"}
               </span>
               <small>
-                В документе появятся последовательные блоки Speaker 1,
-                Speaker 2 и далее.
+                {diarizationEnabled
+                  ? "В документе появятся последовательные блоки Speaker 1, Speaker 2 и далее. Метки разных частей длинной записи не подтверждают личность одного и того же человека."
+                  : "Документ будет без разделения на спикеров."}
               </small>
             </span>
           </label>
@@ -7645,7 +7639,7 @@ function SettingsPage({
   const retentionRequestControllersRef = useRef(
     new Map<string, AbortController>(),
   );
-  const [retentionSelection, setRetentionSelection] = useState("86400");
+  const [retentionSelection, setRetentionSelection] = useState("259200");
   const [retentionState, setRetentionState] = useState<
     "loading" | "ready" | "error"
   >("loading");
@@ -8754,14 +8748,14 @@ function SettingsPage({
                   required
                 />
               )}
-              <input
+              <label>Метка ключа<input
                 name="credential_label"
                 autoComplete="off"
                 placeholder="Метка"
                 disabled={createCredentialPending}
                 required
-              />
-              <input
+              /></label>
+              <label>Новый ключ<input
                 name="credential_raw_value"
                 type="password"
                 autoComplete="new-password"
@@ -8772,7 +8766,7 @@ function SettingsPage({
                 placeholder="Новый ключ"
                 disabled={createCredentialPending}
                 required
-              />
+              /></label>
               <button className="primary" disabled={createCredentialPending}>
                 {createCredentialPending ? "Создаём…" : "Создать"}
               </button>

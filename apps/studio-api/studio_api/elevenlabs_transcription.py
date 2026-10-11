@@ -301,7 +301,7 @@ def merge_elevenlabs_transcript_results(
                 start=word.start,
                 end=word.end,
                 type=word.type,
-                speaker_id=word.speaker_id,
+                speaker_id=(f"part_{index + 1}:{word.speaker_id}" if len(parts) > 1 and word.speaker_id else word.speaker_id),
             )
             for word in result.words
         )

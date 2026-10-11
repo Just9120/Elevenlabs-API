@@ -35,7 +35,7 @@ Canonical commands/сервисы — [validation](runbooks/validation.md); deli
 | Responsive/keyboard | Desktop и 390x844 safe браузерные сценарии в версии изменённого приложения | CUA/browser и существующий isolated browser E2E, без реальных provider calls | Pre-merge REQUIRED; production bounded smoke после CD |
 | Delivery/recovery | Exact merge/artifact web/API/worker; migration/backup gates по фактическому diff; health/version и безопасный smoke | Existing CD/runbooks/VPS | Post-merge REQUIRED; real paid canary N/A без отдельного разрешения |
 
-- Checkpoint: scope и baseline закреплены; реализация/проверки/PR/CD PENDING. Следующий шаг — G01/G02 и независимые UX fixes, затем интерфейсы, mail и release rehearsal; F66 external sender/transport пока UNSET. Readiness snapshot ниже остаётся последней аудиторской оценкой, не прогнозом этой Goal.
+- Checkpoint11Oct: G02 реализован локально (3/7/30 для новых uploads, legacy expiry/read compatibility, default migration0041); G01 part-aware speaker labels реализованы; G07 частично: mobile overview/Live layout, picker cancellation focus, visible credential labels, conditional diarization/Live copy, favorites action menu. Local PASS:72 source-availability tests,131 ElevenLabs/output tests,17 Drive picker/direct-upload tests,7 targeted App tests,2 menu keyboard/safe-link tests, TypeScript build. PostgreSQL API/migration checks remote-only PENDING; browser verification, остальной scope, PR/CI/CD PENDING. F66 sender/transport запрошены у владельца, пока UNSET. Следующий шаг — media integrity, timeline/missing ranges и оставшиеся UX fixes, затем интерфейсы/mail/release rehearsal. Readiness snapshot ниже остаётся последней аудиторской оценкой.
 
 ### AUDIT-20261010 — документация подготовлена, PR gates PENDING
 
