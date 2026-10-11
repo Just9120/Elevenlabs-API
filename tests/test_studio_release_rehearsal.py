@@ -58,6 +58,6 @@ def test_runtime_roles_never_receive_schema_admin_credentials():
 def test_rehearsal_selection_is_scoped_to_release_risk():
     spec = importlib.util.spec_from_file_location("ci_rehearsal_selection", ROOT / "scripts/ci_validation.py")
     ci = importlib.util.module_from_spec(spec); spec.loader.exec_module(ci)
-    assert ci.requires_release_rehearsal(["apps/studio-api/alembic/versions/0043_security_email.py"])
+    assert ci.requires_release_rehearsal(["apps/studio-api/alembic/versions/0041_source_retention_default.py"])
     assert ci.requires_release_rehearsal(["deploy/studio/worker-db-role.sql"])
     assert not ci.requires_release_rehearsal(["apps/studio/src/App.tsx", "docs/delivery-plan.md"])

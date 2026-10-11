@@ -160,7 +160,7 @@ def test_database_role_manifest_lets_real_migrator_extend_existing_enum(tmp_path
                 conn.execute(text("ALTER ROLE studio_migrator NOLOGIN"))
 
         with temp_engine.connect() as conn:
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0043_security_email"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
             assert conn.execute(
                 text(
                     "SELECT count(*) FROM pg_enum e "
@@ -466,7 +466,7 @@ def test_configured_password_reset_is_uniform_single_use_and_revokes_sessions(mo
     body = {"token": token, "new_password": "Synthetic-new-password-123"}
     assert anonymous.post("/api/auth/password-reset/confirm", json=body, headers=headers).status_code == 200
     assert anonymous.post("/api/auth/password-reset/confirm", json=body, headers=headers).status_code == 422
-    assert owner.get("/api/account/security").status_code == 401
+    assert owner.get("/api/auth/security").status_code == 401
     with SessionLocal() as db:
         assert db.query(SecurityEmailDelivery).filter_by(kind="auth.password_reset_completed").count() == 1
 
@@ -475,7 +475,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0043_security_email", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0041_source_retention_default", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -4520,7 +4520,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0043_security_email"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
 
 
 
@@ -4584,7 +4584,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0043_security_email"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
 
 
 
@@ -8838,7 +8838,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0043_security_email"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0041_source_retention_default"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

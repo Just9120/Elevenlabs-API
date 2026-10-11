@@ -14,7 +14,7 @@ spec.loader.exec_module(ci)
 TARGET, BASE, HEAD, CHECKOUT, TREE = [c * 40 for c in "abcde"]
 
 
-@pytest.mark.parametrize("path", ["apps/studio-api/alembic/versions/0043_security_email.py", "deploy/studio/worker-db-role.sql", "scripts/rehearse_studio_release.py"])
+@pytest.mark.parametrize("path", ["apps/studio-api/alembic/versions/0041_source_retention_default.py", "deploy/studio/worker-db-role.sql", "scripts/rehearse_studio_release.py"])
 def test_release_rehearsal_is_selected_for_schema_roles_and_procedure_changes(path):
     assert ci.requires_release_rehearsal([path])
 

@@ -709,7 +709,7 @@ file. Reuse of a job-notification SMTP account needs explicit owner approval;
 security delivery does not enable job notifications or change owner opt-ins.
 Do not put SMTP passwords into `.env` or test fixtures.
 
-Migration `0043_security_email` adds the encrypted transactional outbox.
+Migration `0041_source_retention_default` adds the encrypted transactional outbox.
 Apply and verify the reviewed worker role manifest after migration: mail
 dispatch needs SELECT/UPDATE only; reset challenges remain API-owned. Rollout
 follows the existing backup/migration → API/web → stopped-worker config/role

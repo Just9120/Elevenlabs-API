@@ -11,6 +11,7 @@ import io
 import json
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -128,6 +129,7 @@ def application_env(database, redis, *, role, password):
 def build_images(tree, revision, nonce, artifact_tags):
     images = {}
     for component in ("api", "worker", "web"):
+        print(f"release_phase=build component={component} revision={revision}", file=sys.stderr, flush=True)
         tag = f"studio-release-drill:{nonce}-{revision[:12]}-{component}"
         artifact_tags.append(tag)
         directory = tree / "apps" / ("studio" if component == "web" else "studio-api")
@@ -208,6 +210,7 @@ def rehearse(*, baseline, candidate):
     redis = OwnedReleaseContainer(redis_image, nonce, "redis", network, user="999:999")
     releases, containers, artifact_tags = [], [], []
     started = time.monotonic()
+    phase = "build"
     try:
         with tempfile.TemporaryDirectory(prefix="studio-release-rehearsal-") as temporary:
             trees = []
@@ -215,30 +218,48 @@ def rehearse(*, baseline, candidate):
                 tree = Path(temporary) / revision
                 tree.mkdir(); export_revision(revision, tree); trees.append(tree)
                 releases.append(build_images(tree, revision, nonce, artifact_tags))
+            phase = "isolated_services"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             network.start(); database.start()
             redis.start(entrypoint="redis-server", command=["--save", "", "--appendonly", "no"])
             # Local socket administration is restricted to the owned database;
             # application TCP connections require the switched credentials.
             database.exec(["sh", "-c", "printf 'local all all trust\nhost all all 0.0.0.0/0 scram-sha-256\nhost all all ::/0 scram-sha-256\n' > /var/lib/postgresql/data/pg_hba.conf; pg_ctl reload -D /var/lib/postgresql/data"])
             database.sql(b"ALTER ROLE studio_drill PASSWORD 'synthetic-old';")
+            phase = "baseline_migration"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             migration(releases[0], baseline, network, database, redis, "synthetic-old", "head")
+            phase = "baseline_roles"
             apply_roles(database, trees[0], password="synthetic-old")
+            phase = "baseline_runtime"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             containers, old_schema = start_release(releases[0], baseline, network, database, redis, "synthetic-old")
+            phase = "baseline_metadata"
             containers[0].exec(["python", "-c", "from datetime import datetime,timedelta,timezone;from studio_api.db import SessionLocal;from studio_api.models import User,Project,Source,SourceType,SourceUploadStatus; db=SessionLocal();u=User(email='release-drill@example.test');db.add(u);db.flush();p=Project(owner_user_id=u.id,title='Synthetic release');db.add(p);db.flush();db.add(Source(project_id=p.id,source_type=SourceType.local_upload,original_filename='synthetic.wav',mime_type='audio/wav',size_bytes=42,upload_status=SourceUploadStatus.uploaded,expires_at=datetime.now(timezone.utc)+timedelta(days=1)));db.commit()"])
             snapshot_sql = b"SELECT u.email,s.original_filename,s.size_bytes,s.expires_at FROM sources s JOIN projects p ON p.id=s.project_id JOIN users u ON u.id=p.owner_user_id WHERE u.email='release-drill@example.test';"
             metadata = database.sql(snapshot_sql)
             for container in reversed(containers): container.close()
             containers = []
+            phase = "candidate_migration"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             migration(releases[1], candidate, network, database, redis, "synthetic-old", "head")
+            phase = "candidate_roles"
             apply_roles(database, trees[1], password="synthetic-new")
+            phase = "candidate_runtime"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             containers, new_schema = start_release(releases[1], candidate, network, database, redis, "synthetic-new")
             if database.sql(snapshot_sql) != metadata:
                 raise DrillFailure("release_upgrade_changed_source_metadata")
             assert_rejected_credential(containers[0], "synthetic-old")
             for container in reversed(containers): container.close()
             containers = []
+            phase = "rollback_migration"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             migration(releases[1], candidate, network, database, redis, "synthetic-old", old_schema)
+            phase = "rollback_roles"
             apply_roles(database, trees[0], password="synthetic-old")
+            phase = "rollback_runtime"
+            print(f"release_phase={phase}", file=sys.stderr, flush=True)
             containers, restored_schema = start_release(releases[0], baseline, network, database, redis, "synthetic-old")
             if database.sql(snapshot_sql) != metadata:
                 raise DrillFailure("release_rollback_changed_source_metadata")
@@ -253,6 +274,8 @@ def rehearse(*, baseline, candidate):
                 "seconds": round(time.monotonic() - started, 2), "environment": "isolated_synthetic_internal_network",
                 "production_rollback_verified": False,
                 "limits": "No production data, migrations or providers. Synthetic secret initialization substitutes production secret staging; bootstrap credentials never enter API/worker."}
+    except DrillFailure as error:
+        raise DrillFailure(f"{phase}:{error}") from None
     finally:
         for container in reversed(containers): container.close()
         redis.close(); database.close(); network.close()

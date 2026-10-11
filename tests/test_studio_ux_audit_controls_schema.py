@@ -39,7 +39,7 @@ def _run_upgrade(revision, connection) -> None:
 def test_ux_audit_controls_migration_is_additive_single_head():
     script, revision = _revision()
 
-    assert script.get_heads() == ["0043_security_email"]
+    assert script.get_heads() == ["0041_source_retention_default"]
     assert revision.down_revision == "0036_stt_multiprovider"
     assert revision.module.release_safety == "additive"
     assert {
