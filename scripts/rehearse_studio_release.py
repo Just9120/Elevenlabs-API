@@ -195,7 +195,7 @@ def start_release(images, revision, network, database, redis, password):
 
 def apply_roles(database, tree, *, password):
     database.sql((tree / "deploy/studio/database-roles.sql").read_bytes().replace(b"DATABASE studio TO", b"DATABASE studio_drill TO"))
-    database.sql((tree / "deploy/studio/worker-db-role.sql").read_bytes())
+    database.sql((tree / "deploy/studio/worker-db-role.sql").read_bytes().replace(b"DATABASE studio TO", b"DATABASE studio_drill TO"))
     database.sql(f"ALTER ROLE studio_api LOGIN PASSWORD '{password}'; ALTER ROLE studio_worker LOGIN PASSWORD '{password}';".encode())
 
 

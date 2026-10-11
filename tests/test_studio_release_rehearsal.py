@@ -15,6 +15,18 @@ drill = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(drill)
 
 
+def test_both_role_manifests_target_only_the_owned_synthetic_database(tmp_path):
+    manifest = tmp_path / "deploy/studio"
+    manifest.mkdir(parents=True)
+    for name, role in [("database-roles.sql", "studio_api"), ("worker-db-role.sql", "studio_worker")]:
+        (manifest / name).write_text(f"GRANT CONNECT ON DATABASE studio TO {role};", encoding="utf-8")
+    statements = []
+    drill.apply_roles(SimpleNamespace(sql=statements.append), tmp_path, password="synthetic-old")
+    assert b"DATABASE studio_drill TO studio_api" in statements[0]
+    assert b"DATABASE studio_drill TO studio_worker" in statements[1]
+    assert not any(b"DATABASE studio TO" in value for value in statements)
+
+
 @pytest.mark.parametrize("baseline,candidate", [("main", "b"*40), ("a"*40, "HEAD"), ("a"*40, "a"*40)])
 def test_release_drill_refuses_mutable_or_identical_revisions_before_docker(baseline, candidate, monkeypatch):
     monkeypatch.setattr(drill, "_run", lambda *a, **k: pytest.fail("Docker called before admission"))

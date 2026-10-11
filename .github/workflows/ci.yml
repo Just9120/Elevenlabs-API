@@ -188,6 +188,7 @@ jobs:
         run: |
           test "$SELECTION" = success
           case "$ROOT_REQUIRED:$STUDIO_REQUIRED" in true:true|true:false|false:false) ;; *) exit 1 ;; esac
+          case "$REHEARSAL_REQUIRED" in true|false) ;; *) exit 1 ;; esac
           if [ "$ROOT_REQUIRED" = true ]; then test "$ROOT_RESULT" = success; else test "$ROOT_RESULT" = skipped; fi
           if [ "$STUDIO_REQUIRED" = true ]; then test "$STUDIO_RESULT" = success; else test "$STUDIO_RESULT" = skipped; fi
           if [ "$REHEARSAL_REQUIRED" = true ]; then test "$REHEARSAL_RESULT" = success; else test "$REHEARSAL_RESULT" = skipped; fi
