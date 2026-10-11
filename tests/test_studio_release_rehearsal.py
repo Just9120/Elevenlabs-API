@@ -15,6 +15,27 @@ drill = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(drill)
 
 
+@pytest.mark.parametrize("failure,accepted", [("password authentication failed for user synthetic", True), ("timeout expired", False), (None, False)])
+def test_superseded_credential_probe_requires_actual_authentication_rejection(monkeypatch, capsys, failure, accepted):
+    class DriverError(Exception):
+        sqlstate = None
+    def connect(**kwargs):
+        assert kwargs['password'] == 'synthetic-old'
+        if failure:
+            raise DriverError(failure)
+        return SimpleNamespace(close=lambda: None)
+    monkeypatch.setitem(sys.modules, 'psycopg', SimpleNamespace(connect=connect, OperationalError=DriverError))
+    monkeypatch.setenv('STUDIO_DATABASE_HOST', 'owned-database')
+    monkeypatch.setattr(sys, 'argv', ['probe', 'synthetic-old'])
+    if accepted:
+        exec(compile(drill.REJECTED_CREDENTIAL_PROBE, 'synthetic-probe', 'exec'), {})
+        assert capsys.readouterr().out == 'superseded_credential_rejected\n'
+    else:
+        with pytest.raises(SystemExit, match='1'):
+            exec(compile(drill.REJECTED_CREDENTIAL_PROBE, 'synthetic-probe', 'exec'), {})
+        assert capsys.readouterr().out == ''
+
+
 def test_release_probe_error_exposes_only_allowlisted_health_enum(monkeypatch):
     container = drill.OwnedReleaseContainer("sha256:" + "a" * 64, "nonce", "worker", SimpleNamespace())
     container.container_id = "b" * 64

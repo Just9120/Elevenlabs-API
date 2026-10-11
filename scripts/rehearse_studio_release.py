@@ -283,6 +283,7 @@ def rehearse(*, baseline, candidate):
             containers, new_schema = start_release(releases[1], candidate, network, database, redis, "synthetic-new")
             if database.sql(snapshot_sql) != metadata:
                 raise DrillFailure("release_upgrade_changed_source_metadata")
+            phase = "candidate_credential_fence"
             assert_rejected_credential(containers[0], "synthetic-old")
             for container in reversed(containers): container.close()
             containers = []
@@ -296,6 +297,7 @@ def rehearse(*, baseline, candidate):
             containers, restored_schema = start_release(releases[0], baseline, network, database, redis, "synthetic-old")
             if database.sql(snapshot_sql) != metadata:
                 raise DrillFailure("release_rollback_changed_source_metadata")
+            phase = "rollback_credential_fence"
             assert_rejected_credential(containers[0], "synthetic-new")
             if restored_schema != old_schema:
                 raise DrillFailure("release_rollback_schema_mismatch")
@@ -322,9 +324,21 @@ def rehearse(*, baseline, candidate):
             _run(["docker", "image", "rm", tag], timeout=30)
 
 
+REJECTED_CREDENTIAL_PROBE = """import os,psycopg,sys
+try:
+ c=psycopg.connect(host=os.environ['STUDIO_DATABASE_HOST'],dbname='studio_drill',user='studio_api',password=sys.argv[1],connect_timeout=3)
+except psycopg.OperationalError as error:
+ # libpq startup authentication errors need not carry a SQLSTATE subclass.
+ if error.sqlstate != '28P01' and 'password authentication failed' not in str(error).lower():
+  raise SystemExit(1)
+ print('superseded_credential_rejected')
+else:
+ c.close();raise SystemExit(1)
+"""
+
+
 def assert_rejected_credential(container, password):
-    container.exec(["python", "-c",
-        "import os,psycopg,sys;\ntry:\n c=psycopg.connect(host=os.environ['STUDIO_DATABASE_HOST'],dbname='studio_drill',user='studio_api',password=sys.argv[1],connect_timeout=3)\nexcept psycopg.errors.InvalidPassword:\n print('superseded_credential_rejected')\nelse:\n c.close();raise SystemExit(1)", password])
+    container.exec(["python", "-c", REJECTED_CREDENTIAL_PROBE, password])
 
 
 if __name__ == "__main__":
