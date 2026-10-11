@@ -224,6 +224,27 @@ describe("LiveTranscriptionPanel", () => {
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
   });
 
+  it("keeps external secrets out of inactive panels and preserves deliberate endpoint input", async () => {
+    const props = { projectId: "project-safe", csrf: "csrf-safe", onCsrf: vi.fn() };
+    const { rerender, container } = render(<LiveTranscriptionPanel {...props} active={false} />);
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+
+    rerender(<LiveTranscriptionPanel {...props} active />);
+    await userEvent.click(screen.getByText("Субтитры и внешние получатели"));
+    const endpoint = await screen.findByLabelText(/YouTube Live closed-caption ingestion URL/);
+    await userEvent.type(endpoint, "https://example.test/synthetic-caption");
+    await userEvent.click(screen.getByText("Субтитры и внешние получатели"));
+    await waitFor(() => expect(container.querySelector('input[type="password"]')).toBeNull());
+    await userEvent.click(screen.getByText("Субтитры и внешние получатели"));
+    expect(await screen.findByLabelText(/YouTube Live closed-caption ingestion URL/)).toHaveValue("https://example.test/synthetic-caption");
+
+    rerender(<LiveTranscriptionPanel {...props} active={false} />);
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    rerender(<LiveTranscriptionPanel {...props} active />);
+    expect(await screen.findByLabelText(/YouTube Live closed-caption ingestion URL/)).toHaveValue("https://example.test/synthetic-caption");
+    for (const controller of controllerState.instances) expect(controller.start).not.toHaveBeenCalled();
+  });
+
   it("uses provider capability metadata to hide disabled Live BYOK choices", async () => {
     render(
       <LiveTranscriptionPanel

@@ -197,6 +197,7 @@ export function LiveTranscriptionPanel({
   >("idle");
   const [youtubeEndpoint, setYoutubeEndpoint] = useState("");
   const [webhookEndpoint, setWebhookEndpoint] = useState("");
+  const [consumersOpen, setConsumersOpen] = useState(false);
   const [consumerStatus, setConsumerStatus] = useState<Record<string, string>>(
     {},
   );
@@ -1354,7 +1355,7 @@ export function LiveTranscriptionPanel({
         </section>
       </div>
 
-      <details className="live-config-card realtime-consumers">
+      <details className="live-config-card realtime-consumers" onToggle={(event) => setConsumersOpen(event.currentTarget.open)}>
         <summary>Субтитры и внешние получатели</summary>
         <p className="muted">
           Каждый получатель работает независимо. Ошибка overlay, YouTube или
@@ -1374,40 +1375,51 @@ export function LiveTranscriptionPanel({
             Открыть overlay для браузера / OBS
           </button>
         </div>
-        <label>
-          YouTube Live closed-caption ingestion URL
-          <input
-            type="password"
+        {active && consumersOpen && (
+          <form
+            className="realtime-consumer-endpoints"
+            aria-label="Адреса внешних получателей Live"
             autoComplete="off"
-            value={youtubeEndpoint}
-            disabled={running}
-            placeholder="https://upload.youtube.com/closedcaption?..."
-            onChange={(event) => setYoutubeEndpoint(event.target.value)}
-          />
-          <small>
-            Адрес действует только в этой вкладке и не сохраняется в Studio.
-          </small>
-          {consumerStatus.youtube_live && (
-            <span role="status">{consumerStatus.youtube_live}</span>
-          )}
-        </label>
-        <label>
-          HTTPS webhook
-          <input
-            type="password"
-            autoComplete="off"
-            value={webhookEndpoint}
-            disabled={running}
-            placeholder="Разрешённый оператором HTTPS endpoint"
-            onChange={(event) => setWebhookEndpoint(event.target.value)}
-          />
-          <small>
-            Хост должен быть заранее добавлен оператором в allowlist Studio.
-          </small>
-          {consumerStatus.webhook && (
-            <span role="status">{consumerStatus.webhook}</span>
-          )}
-        </label>
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <label>
+              YouTube Live closed-caption ingestion URL
+              <input
+                type="password"
+                name="youtube-caption-ingestion-url"
+                autoComplete="new-password"
+                value={youtubeEndpoint}
+                disabled={running}
+                placeholder="https://upload.youtube.com/closedcaption?..."
+                onChange={(event) => setYoutubeEndpoint(event.target.value)}
+              />
+              <small>
+                Адрес действует только в этой вкладке и не сохраняется в Studio.
+              </small>
+              {consumerStatus.youtube_live && (
+                <span role="status">{consumerStatus.youtube_live}</span>
+              )}
+            </label>
+            <label>
+              HTTPS webhook
+              <input
+                type="password"
+                name="live-webhook-endpoint"
+                autoComplete="new-password"
+                value={webhookEndpoint}
+                disabled={running}
+                placeholder="Разрешённый оператором HTTPS endpoint"
+                onChange={(event) => setWebhookEndpoint(event.target.value)}
+              />
+              <small>
+                Хост должен быть заранее добавлен оператором в allowlist Studio.
+              </small>
+              {consumerStatus.webhook && (
+                <span role="status">{consumerStatus.webhook}</span>
+              )}
+            </label>
+          </form>
+        )}
       </details>
 
       {displayAudio && microphone && !running && (

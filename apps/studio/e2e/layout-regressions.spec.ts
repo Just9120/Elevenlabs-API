@@ -76,6 +76,7 @@ for (const viewport of [{width: 1280, height: 720}, {width: 390, height: 844}]) 
     const search = page.getByLabel('Поиск по названию среди загруженных задач');
     await expect(search).toBeVisible();
     await expect(search).toBeEmpty();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
     await expect(page.locator('.recent-jobs article[data-job-id]')).toHaveCount(10);
     await page.getByRole('button', {name: 'Следующая страница истории', exact: true}).click();
     await expect(page.locator('.recent-jobs article[data-job-id]')).toHaveCount(2);

@@ -42,8 +42,11 @@ Canonical commands/сервисы — [validation](runbooks/validation.md); deli
 - Hotfix branch `codex/history-autofill-hotfix`, base5601f1a2567569a9578e8eeb01f079d518d8605b, main/remote/protections/open PR readback11Oct PASS. Production browser UXR07 regression: история автоматически заполнена сохранённым логином, search autocomplete/name отсутствуют и browser autofill=true. Scope hotfix: специализированное имя/отключение autocomplete у поиска; regression проверяет возврат на первую страницу после очистки фильтра; убрать недоступную personal email recovery из Login по решению F66. Reset link processing и inactive backend/schema сохраняются.
 - Hotfix Validation Plan: local lint/build, Login/PasswordResetPanel components, existing isolated desktop390x844/history/picker/reset-link E2E и docs/ID/diff checks REQUIRED; актуальный required CI/review перед merge; web-only exact revision CD и production browser empty search/autofill readback REQUIRED. API/worker/schema не меняются — их повторная поставка N/A. No new external/mail/provider calls. Local11Oct2026 dirty hotfix diff PASS: npm lint/build, Vitest Login/PasswordResetPanel8/8, existing browser E2E3/3 (1280×720,390×844, reset-link), lightweight ci_checks, ID/registry reconciliation и git diff --check. Npm argument forwarding отклонён локальным CLI; тот же Vitest из installed node_modules выполнен напрямую. Browser tests не содержат saved credentials: реальное отсутствие autofill проверяется после web CD. Self-review: изменены только search semantics, Login CTA, существующие regressions и scope/evidence документы; backend/schema неизменны. Remote CI/merge/web CD PENDING.
 - Осталось: hotfix local validation/self-review → push/PR → required current-head CI/review → merge → web CD → bounded browser readback → safe owned branches cleanup. Ни ожидаемые gates, ни browser autofill исправление пока не объявлены PASS.
+- Hotfix330 MERGED/main622430328681e39f62a2a45a6c141d4e520387b8; CI38150165849/main38150503042 и web38150544078 PASS. Production browser readback FAIL для UXR07: autocomplete=off/name уже применены, но сохранённый логин по-прежнему вставлен. Причина подтверждена DOM: неактивная Live-панель оставляет два password-input для external endpoint в общем документе без form owner; в один из них также вставлен сохранённый пароль. Содержимое не выгружалось и не отправлялось; caption/webhook calls не запускались.
+- Следующий hotfix `codex/live-endpoint-autofill-hotfix`, base622430328681e39f62a2a45a6c141d4e520387b8: монтировать external secret inputs только в активной раскрытой Live-панели, сохранить их значения в памяти панели при закрытии/смене вкладки; изолировать их в отдельной non-login форме с именами и new-password semantics. Маскирование сохраняется. Это regression UXR07; backend/API/storage не меняются. Также исправить старые агрегаты эпиков по актуальному AC registry, без добавления AC/scope.
+- Validation нового hotfix: local lint/build, affected Live component (отсутствие скрытых secrets, сохранение ввода при переключении), existing desktop/mobile E2E, docs/registry/diff REQUIRED; current-head CI/review → merge → exact web CD → actual saved-login browser readback REQUIRED. Платные/внешние calls, изменение сохранённых паролей или settings не выполняются. Local11Oct dirty diff PASS: lint/build, Live component33/33 включая сохранение ввода/zero start, desktop/mobile/reset-link E2E3/3 включая отсутствие password inputs в batch, lightweight checks/relative paths/ID/epic aggregates/diff. Self-review PASS: secret values остаются React state, новые form submit preventDefault и masking не запускают transport; вкладки/recording lifecycle сохраняются. Remote CI/merge/web delivery и actual saved-login browser readback PENDING; предыдущее autocomplete=off readback FAIL не скрыто.
 
-#### Finding Evidence — PR329 merge/delivery PASS; UXR07 hotfix PENDING
+#### Finding Evidence — PR329/330 merge/delivery PASS; UXR07 root-cause hotfix PENDING
 
 PR329 интегрирован и поставлен на main5601f1a; AC и findings сверены с CI и delivery records выше. UXR07 требует narrow browser autofill hotfix. Реестр сохраняет audit Evidence и стабильные ID.
 
@@ -78,7 +81,7 @@ PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбра
 
 ## Готовность — main после PR329, 2026-10-11
 
-Основание: проверенный origin/main `5601f1a2567569a9578e8eeb01f079d518d8605b`, исходный audit A20261010-CODE/CI и проверенные изменения PR329/CI38141779639. READY — выполнено в коде и подходящих автоматических проверках; dogfooding ad-hoc. F66 отложен, его AC сохранён в полном roadmap; readiness denominator не сокращён ради закрытия Goal.
+Основание: проверенный origin/main `622430328681e39f62a2a45a6c141d4e520387b8`, исходный audit A20261010-CODE/CI и проверенные изменения PR329/CI38141779639. READY — выполнено в коде и подходящих автоматических проверках; dogfooding ad-hoc. F66 отложен, его AC сохранён в полном roadmap; readiness denominator не сокращён ради закрытия Goal.
 
 - **Current personal: 427/444 = 96.2%.** Colab + текущие Studio/extensions +17 общих technical EVC; исключены224 future commercial и9 voice identity AC.
 - **Полный roadmap: 432/677 = 63.8%.** Будущие контуры не блокируют personal; это другой denominator.
@@ -95,7 +98,7 @@ PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбра
 | `COLAB-BATCH-01` | 24/24 = 100.0% | текущий personal | — |
 | `COLAB-REALTIME-01` | 6/6 = 100.0% | текущий personal | — |
 | `COLAB-LIFECYCLE-02` | 2/2 = 100.0% | текущий personal | — |
-| `ENVIRONMENT-CAPABILITIES-01` | 13/50 = 26.0% | будущий commercial / общие technical отдельно | BACKLOG:33, IN_PROGRESS:4 |
+| `ENVIRONMENT-CAPABILITIES-01` | 17/50 = 34.0% | будущий commercial / общие technical отдельно | BACKLOG:33 |
 | `COMMERCIAL-INFRA-DATA-01` | 0/15 = 0.0% | будущий commercial / общие technical отдельно | BACKLOG:15 |
 | `COMMERCIAL-IDENTITY-01` | 0/18 = 0.0% | будущий commercial / общие technical отдельно | BACKLOG:18 |
 | `COMMERCIAL-DATA-GOVERNANCE-01` | 0/26 = 0.0% | будущий commercial / общие technical отдельно | BACKLOG:26 |
@@ -112,13 +115,13 @@ PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбра
 | `RESULTS-STUDIO-02` | 9/9 = 100.0% | текущий personal | — |
 | `YANDEX-DISK-01` | 0/8 = 0.0% | текущий personal | BACKLOG:8 |
 | `REALTIME-RECOVERY-03` | 6/6 = 100.0% | текущий personal | — |
-| `PWA-REQUIREMENTS-05` | 4/6 = 66.7% | текущий personal | IN_PROGRESS:2 |
-| `MEDIA-CONTRACT-03` | 3/8 = 37.5% | текущий personal | IN_PROGRESS:5 |
+| `PWA-REQUIREMENTS-05` | 5/6 = 83.3% | текущий personal | IN_PROGRESS:1 |
+| `MEDIA-CONTRACT-03` | 6/8 = 75.0% | текущий personal | IN_PROGRESS:2 |
 | `PERSONAL-VOICE-02` | 1/5 = 20.0% | текущий и отложенный voice scope | IN_PROGRESS:4 |
-| `SECURITY-LIFECYCLE-03` | 5/6 = 83.3% | текущий personal | IN_PROGRESS:1 |
+| `SECURITY-LIFECYCLE-03` | 5/6 = 83.3% | текущий personal | BACKLOG:1 |
 | `RECOVERY-DATA-03` | 7/7 = 100.0% | текущий personal | — |
 | `PWA-CORE-01` | 16/16 = 100.0% | текущий personal | — |
-| `PWA-USER-EXPERIENCE-02` | 12/13 = 92.3% | текущий personal | IN_PROGRESS:1 |
+| `PWA-USER-EXPERIENCE-02` | 13/13 = 100.0% | текущий personal | — |
 | `PWA-UX-POLISH-03` | 7/7 = 100.0% | текущий personal | — |
 | `PWA-UX-CONTROLS-04` | 14/14 = 100.0% | текущий personal | — |
 | `PWA-TRANSCRIPTIONS-UX-01` | 4/4 = 100.0% | текущий personal | — |
@@ -135,19 +138,19 @@ PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбра
 | `PWA-OPERABILITY-01` | 18/18 = 100.0% | текущий personal | — |
 | `PWA-SECURITY-HARDENING-02` | 21/21 = 100.0% | текущий personal | — |
 | `GOOGLE-DRIVE-RELIABILITY-02` | 6/6 = 100.0% | текущий personal | — |
-| `STORAGE-LIFECYCLE-02` | 21/22 = 95.5% | текущий personal | IN_PROGRESS:1 |
+| `STORAGE-LIFECYCLE-02` | 22/22 = 100.0% | текущий personal | — |
 | `STT-PROVIDER-ABSTRACTION-01` | 13/14 = 92.9% | текущий personal | IN_PROGRESS:1 |
 | `YANDEX-STT-01` | 2/5 = 40.0% | текущий personal | IN_PROGRESS:3 |
 | `PWA-DICTIONARIES-01` | 1/1 = 100.0% | текущий personal | — |
 | `PWA-WORKER-ISOLATION-02` | 3/3 = 100.0% | текущий personal | — |
-| `PWA-DATABASE-LEAST-PRIVILEGE-03` | 7/8 = 87.5% | текущий personal | IN_PROGRESS:1 |
+| `PWA-DATABASE-LEAST-PRIVILEGE-03` | 8/8 = 100.0% | текущий personal | — |
 | `JOB-RELIABILITY-02` | 17/17 = 100.0% | текущий personal | — |
 | `JOB-NOTIFICATIONS-01` | 6/6 = 100.0% | текущий personal | — |
 | `REALTIME-CONTINUITY-02` | 5/5 = 100.0% | текущий personal | — |
 | `TRANSCRIPT-EXPORTS-02` | 3/3 = 100.0% | текущий personal | — |
 | `USAGE-COST-ACCOUNTING-01` | 6/6 = 100.0% | текущий personal | — |
 | `OBSERVABILITY-AUDIT-02` | 35/35 = 100.0% | текущий personal | — |
-| `RELEASE-SAFETY-02` | 4/5 = 80.0% | текущий personal | IN_PROGRESS:1 |
+| `RELEASE-SAFETY-02` | 5/5 = 100.0% | текущий personal | — |
 | `PERSONAL-TECHNICAL-01` | 5/5 = 100.0% | текущий personal | — |
 
 ## Validation Plan и Evidence

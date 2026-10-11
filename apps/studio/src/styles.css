@@ -2441,7 +2441,7 @@ code {
 .composer-row-grid > label,
 .composer-document-title,
 .row-source-cell > label,
-.realtime-consumers > label,
+.realtime-consumer-endpoints > label,
 .stack > label {
   display: grid;
   gap: 0.35rem;
