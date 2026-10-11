@@ -14,6 +14,16 @@ spec.loader.exec_module(ci)
 TARGET, BASE, HEAD, CHECKOUT, TREE = [c * 40 for c in "abcde"]
 
 
+@pytest.mark.parametrize("path", ["apps/studio-api/alembic/versions/0043_security_email.py", "deploy/studio/worker-db-role.sql", "scripts/rehearse_studio_release.py"])
+def test_release_rehearsal_is_selected_for_schema_roles_and_procedure_changes(path):
+    assert ci.requires_release_rehearsal([path])
+
+
+@pytest.mark.parametrize("path", ["docs/architecture.md", "apps/studio/src/App.tsx", "apps/studio/src/styles.css"])
+def test_release_rehearsal_is_not_duplicated_for_docs_or_ui_only_changes(path):
+    assert not ci.requires_release_rehearsal([path])
+
+
 @pytest.fixture(autouse=True)
 def known_runner_context(monkeypatch):
     for key, value in {"RUNNER_OS": "Linux", "RUNNER_ARCH": "X64", "ImageOS": "ubuntu24", "ImageVersion": "20261006.1"}.items():

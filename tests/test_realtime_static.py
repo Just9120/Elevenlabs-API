@@ -41,7 +41,8 @@ def test_realtime_notebook_is_thin_launcher_without_outputs() -> None:
     assert nb_path.stat().st_size < 20_000
     assert "GITHUB_REF" in code
     assert "raw.githubusercontent.com" in code
-    assert "urllib.request.urlretrieve" in code
+    assert "download_verified" in code
+    assert "hashlib.sha256" in code
     assert "elevenlabs_realtime.py" in code
     assert "elevenlabs_api.py" not in code
     for cell in notebook.get("cells", []):

@@ -1,0 +1,63 @@
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+spec = importlib.util.spec_from_file_location("release_drill", ROOT / "scripts/rehearse_studio_release.py")
+drill = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(drill)
+
+
+@pytest.mark.parametrize("baseline,candidate", [("main", "b"*40), ("a"*40, "HEAD"), ("a"*40, "a"*40)])
+def test_release_drill_refuses_mutable_or_identical_revisions_before_docker(baseline, candidate, monkeypatch):
+    monkeypatch.setattr(drill, "_run", lambda *a, **k: pytest.fail("Docker called before admission"))
+    with pytest.raises(drill.DrillFailure, match="revision_pair_invalid"):
+        drill.rehearse(baseline=baseline, candidate=candidate)
+
+
+@pytest.mark.parametrize("violation", [None, "foreign-image", "foreign-label", "public-port", "bind", "wrong-user", "writable", "foreign-network"])
+def test_release_container_operations_require_exact_owned_isolated_target(violation, monkeypatch):
+    network = SimpleNamespace(nonce="nonce", name="owned-network", verify=lambda: None)
+    container = drill.OwnedReleaseContainer("sha256:" + "a"*64, "nonce", "api", network)
+    container.container_id = "b"*64
+    row = {"Image": container.image_id, "Name": "/"+container.name,
+        "Config": {"Labels": {drill.LABEL: "nonce"}, "User": "10001:10001"},
+        "HostConfig": {"ReadonlyRootfs": True, "NetworkMode": network.name, "Binds": [], "PortBindings": {},
+            "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"]}, "Mounts": [{"Type": "tmpfs"}]}
+    if violation == "foreign-image": row["Image"] = "sha256:"+"c"*64
+    if violation == "foreign-label": row["Config"]["Labels"][drill.LABEL] = "other"
+    if violation == "public-port": row["HostConfig"]["PortBindings"] = {"8000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8000"}]}
+    if violation == "bind": row["HostConfig"]["Binds"] = ["/production:/data"]
+    if violation == "wrong-user": row["Config"]["User"] = "0:0"
+    if violation == "writable": row["HostConfig"]["ReadonlyRootfs"] = False
+    if violation == "foreign-network": row["HostConfig"]["NetworkMode"] = "bridge"
+    monkeypatch.setattr(drill, "_run", lambda *a, **k: json.dumps([row]).encode())
+    if violation:
+        with pytest.raises(drill.DrillFailure, match="boundary_invalid"): container.verify()
+    else:
+        assert container.verify() == row
+
+
+def test_runtime_roles_never_receive_schema_admin_credentials():
+    database = SimpleNamespace(nonce="nonce", role="release")
+    redis = SimpleNamespace(name="owned-redis")
+    for role in ("studio_api", "studio_worker"):
+        env = drill.application_env(database, redis, role=role, password="synthetic-new")
+        assert env["STUDIO_DATABASE_USER"] == role
+        assert env["STUDIO_DATABASE_NAME"] == "studio_drill"
+        assert not any("/opt" in value or "production" in value for value in env.values())
+
+
+def test_rehearsal_selection_is_scoped_to_release_risk():
+    spec = importlib.util.spec_from_file_location("ci_rehearsal_selection", ROOT / "scripts/ci_validation.py")
+    ci = importlib.util.module_from_spec(spec); spec.loader.exec_module(ci)
+    assert ci.requires_release_rehearsal(["apps/studio-api/alembic/versions/0043_security_email.py"])
+    assert ci.requires_release_rehearsal(["deploy/studio/worker-db-role.sql"])
+    assert not ci.requires_release_rehearsal(["apps/studio/src/App.tsx", "docs/delivery-plan.md"])
