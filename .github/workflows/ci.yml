@@ -144,7 +144,7 @@ jobs:
     outputs:
       runner: ${{ steps.runner.outputs.runner }}
     env:
-      STUDIO_DATABASE_URL: sqlite+pysqlite:///:memory:
+      STUDIO_DATABASE_URL: 'sqlite+pysqlite:///:memory:'
       BASELINE: ${{ github.event.pull_request.base.sha }}
       CANDIDATE: ${{ github.sha }}
     steps:
