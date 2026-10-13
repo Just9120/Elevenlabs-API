@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { JobCardActions } from "./JobCardActions";
 import { JobCardSummary } from "./JobCardSummary";
@@ -21,6 +21,7 @@ import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
 import { JobProgressPipeline } from "./JobProgressPipeline";
 import type { JobProgressState } from "./jobProgressModel";
 import { SpeakerIdentityPanel } from "./SpeakerIdentityPanel";
+import { DetailDrawer } from "./DetailDrawer";
 
 export function JobCard({
   job,
@@ -44,6 +45,8 @@ export function JobCard({
   csrf,
   onCsrf,
   onSpeakerUpdated,
+  selected = false,
+  onSelect,
 }: {
   job: TranscriptionJob;
   detail: JobDetailState | undefined;
@@ -70,14 +73,43 @@ export function JobCard({
   csrf?: string;
   onCsrf?: (csrf: string) => void;
   onSpeakerUpdated?: (jobId: string) => void | Promise<void>;
+  selected?: boolean;
+  onSelect?: (selected: boolean) => void;
 }) {
   const detailedJob = detail?.job;
   const terminal = ["completed", "failed", "cancelled"].includes(job.status);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const openRef = useRef(onOpen);
+  openRef.current = onOpen;
+  useEffect(() => {
+    let frame = 0;
+    const openRequested = () => {
+      if (window.location.hash !== `#job-${job.id}`) return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (window.location.hash !== `#job-${job.id}`) return;
+        const card = Array.from(document.querySelectorAll<HTMLElement>("[data-job-id]")).find((node) => node.dataset.jobId === job.id);
+        if (!card?.isConnected) return;
+        for (let parent=card.parentElement; parent; parent=parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open=true;
+        card.tabIndex=-1;
+        (card.querySelector<HTMLButtonElement>("button[aria-expanded]") ?? card).focus({preventScroll:true});
+        card.scrollIntoView?.({block:"start"});
+        setDetailsOpen(true);
+        void openRef.current(job.id);
+      });
+    };
+    openRequested();
+    window.addEventListener("hashchange", openRequested);
+    return () => { window.cancelAnimationFrame(frame); window.removeEventListener("hashchange", openRequested); };
+  }, [job.id]);
   const ready = job.status === "completed";
   const primaryUrl = job.primary_output_url ?? outputs?.data?.outputs.find((output) => output.link_available)?.web_view_url ?? null;
   const [linkedJobId, setLinkedJobId] = useState("");
   const selectedCandidate = attentionCandidates.some((candidate) => candidate.id === linkedJobId);
+  const closeDetails = () => {
+    if (window.location.hash === `#job-${job.id}`) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    setDetailsOpen(false);
+  };
   const confirmNoResult = () => {
     if (window.confirm(
       "Закрыть ошибку и убрать задачу в историю? Вы подтверждаете, что готового документа нет. Провайдер мог уже списать средства. Новая транскрибация не запустится автоматически: её можно будет создать отдельно. Решение сохранится в журнале.",
@@ -87,7 +119,7 @@ export function JobCard({
   };
   const body = (
     <>
-      <JobProgressPipeline jobId={job.id} state={progress} />
+      {!terminal && <JobProgressPipeline jobId={job.id} state={progress} />}
       {!ready && <JobCardActions
         job={job}
         onOpen={onOpen}
@@ -134,9 +166,10 @@ export function JobCard({
       }`}
       data-job-id={job.id}
     >
+      {onSelect && <label className="check-row"><input type="checkbox" checked={selected} onChange={(e) => onSelect(e.target.checked)} aria-label={`Выбрать задачу: ${jobTitle(job)}`} />Выбрать</label>}
       <JobCardSummary job={job} />
       {ready && <div className="job-actions">
-        {isApprovedOutputUrl(primaryUrl) && <ResourceExternalLink href={primaryUrl!} label="Открыть документ" ariaLabel="Открыть документ" />}
+        {!detailsOpen && isApprovedOutputUrl(primaryUrl) && <ResourceExternalLink href={primaryUrl!} label="Открыть документ" ariaLabel="Открыть документ" />}
         <button type="button" aria-expanded={detailsOpen} onClick={() => {
           setDetailsOpen(!detailsOpen);
           if (!detailsOpen && (!detail?.job || !outputs?.data) && !detail?.loading) void onOpen(job.id);
@@ -155,7 +188,7 @@ export function JobCard({
             {attentionRequired
               ? "Эта задача требует решения и сохранена после очистки истории."
               : job.status === "completed"
-              ? "Задача завершена на 100% — результат доступен ниже."
+              ? "Задача завершена — документ доступен по кнопке результата."
               : job.status === "failed"
                 ? "Задача завершилась ошибкой."
                 : "Задача отменена."}
@@ -254,7 +287,10 @@ export function JobCard({
           <summary>Показать детали старой ошибки</summary>
           {body}
         </details>
-      ) : ready ? detailsOpen && body : body}
+      ) : ready ? detailsOpen && <DetailDrawer title={jobTitle(job)} onClose={closeDetails}>
+        {isApprovedOutputUrl(primaryUrl) && <ResourceExternalLink href={primaryUrl!} label="Открыть документ" ariaLabel="Открыть документ" />}
+        {body}
+      </DetailDrawer> : body}
     </article>
   );
 }

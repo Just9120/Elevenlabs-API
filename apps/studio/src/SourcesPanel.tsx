@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import { runBoundedRequest } from "./jobMutationRequest";
@@ -147,16 +147,27 @@ export function SourcesPanel({
   const [bulkPreview, setBulkPreview] = useState<BulkSourceDeletionPreview | null>(null);
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkMessage, setBulkMessage] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkTargetIds, setBulkTargetIds] = useState<string[] | null>(null);
+  const activeProject = useRef(project.id);
+  activeProject.current = project.id;
+  useEffect(() => { setSelectedIds(new Set()); setBulkTargetIds(null); setBulkPreview(null); setBulkMessage(""); }, [project.id]);
+  const selectedSources = sources.items.filter((source) => selectedIds.has(source.id));
 
-  async function previewBulkDeletion() {
+  async function previewBulkDeletion(selection: string[] | null = null) {
     if (bulkPending) return;
+    const projectId = project.id;
     setBulkPending(true);
+    setBulkTargetIds(selection);
     setBulkMessage("");
     try {
-      const value = await api<BulkSourceDeletionPreview>(
-        `/projects/${project.id}/sources/bulk-deletion/preview`,
-        { cache: "no-store" },
-      );
+      const bounded = await runBoundedRequest((signal) => api<BulkSourceDeletionPreview>(
+        `/projects/${project.id}/sources/bulk-deletion/preview${selection ? `?${new URLSearchParams(selection.map((id) => ["source_ids", id]))}` : ""}`,
+        { cache: "no-store", signal },
+      ));
+      if (activeProject.current !== projectId) return;
+      if (bounded.status === "timed_out") throw new Error("bulk_preview_timeout");
+      const value = bounded.value;
       if (
         !value ||
         !/^[a-f0-9]{64}$/.test(value.preview_token) ||
@@ -171,7 +182,7 @@ export function SourcesPanel({
       }
       setBulkPreview(value);
     } catch {
-      setBulkMessage("Не удалось подготовить безопасный план очистки.");
+      if (activeProject.current === projectId) setBulkMessage("Не удалось подготовить безопасный план очистки.");
     } finally {
       setBulkPending(false);
     }
@@ -179,23 +190,29 @@ export function SourcesPanel({
 
   async function applyBulkDeletion() {
     if (!bulkPreview || bulkPending || bulkPreview.eligible_count === 0) return;
+    const projectId = project.id;
     setBulkPending(true);
     setBulkMessage("");
     try {
-      const value = await mutateWithCsrfRetry<BulkSourceDeletionResponse>(
+      const bounded = await runBoundedRequest((signal) => mutateWithCsrfRetry<BulkSourceDeletionResponse>(
         `/projects/${project.id}/sources/bulk-deletion`,
         csrf,
         onCsrf,
         {
           method: "POST",
+          signal,
           body: JSON.stringify({
             confirm_delete: true,
             expected_preview_token: bulkPreview.preview_token,
             expected_eligible_count: bulkPreview.eligible_count,
             expected_blocked_count: bulkPreview.blocked_count,
+            ...(bulkTargetIds ? { source_ids: bulkTargetIds } : {}),
           }),
         },
-      );
+      ));
+      if (bounded.status === "timed_out") throw new Error("bulk_deletion_unconfirmed");
+      if (activeProject.current !== projectId) return;
+      const value = bounded.value;
       if (!value || value.ok !== true || value.google_drive_files_deleted !== 0) {
         throw new Error("invalid_bulk_result");
       }
@@ -205,6 +222,7 @@ export function SourcesPanel({
       );
       onReload(project.id);
     } catch (error) {
+      if (activeProject.current !== projectId) return;
       if (apiErrorDetailReason(error) === "recent_reauthentication_required") {
         setBulkMessage(
           "Сначала подтвердите личность в разделе «Аккаунт», затем повторите очистку.",
@@ -213,8 +231,9 @@ export function SourcesPanel({
         setBulkMessage("Для очистки войдите в аккаунт заново и повторите проверку.");
       } else if (error instanceof ApiError && error.status === 409) {
         setBulkPreview(null);
-        setBulkMessage("Состояние файлов изменилось. Нажмите «Очистить все файлы», чтобы проверить новый план.");
+        setBulkMessage(bulkTargetIds ? "Состояние выбранных файлов изменилось. Проверьте выбор и нажмите «Убрать выбранные», чтобы получить новый план." : "Состояние файлов изменилось. Нажмите «Очистить все файлы», чтобы проверить новый план.");
       } else {
+        setBulkPreview(null);
         setBulkMessage("Studio не подтвердила массовую очистку. Обновите список и повторите проверку.");
         onReload(project.id);
       }
@@ -271,12 +290,12 @@ export function SourcesPanel({
 
   async function deleteSource(id: string) {
     const source = sources.items.find((item) => item.id === id);
-    if (!source || pendingDeletionIds.has(id)) return;
+    if (!source || pendingDeletionIds.has(id)) return false;
     const message =
       source.source_type === "google_drive"
         ? "Источник будет убран только из Studio. Файл останется на Google Drive."
         : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
-    if (!safeConfirm(`${message} Старые неудачные задачи сохранятся в истории, но повтор с этим источником станет недоступен.`) || !beginDeletion(id)) return;
+    if (!safeConfirm(`${message} Старые неудачные задачи сохранятся в истории, но повтор с этим источником станет недоступен.`) || !beginDeletion(id)) return false;
     let notice: SourceDeletionNotice | null = null;
     try {
       const bounded = await runBoundedRequest((signal) =>
@@ -297,7 +316,7 @@ export function SourcesPanel({
             : "Studio не подтвердила удаление файла. Список обновлён; подождите и повторите при необходимости.",
           tone: confirmed ? "notice" : "error",
         };
-        return;
+        return confirmed;
       }
       const result = bounded.value;
       if (!isExpectedDeletionResponse(result, source)) {
@@ -309,7 +328,7 @@ export function SourcesPanel({
             "Studio вернула несогласованное подтверждение удаления. Список файлов обновлён.",
           tone: "error",
         };
-        return;
+        return false;
       }
       applyConfirmedDeletion(source, result.storage_cleanup);
       notice = {
@@ -329,7 +348,7 @@ export function SourcesPanel({
             : "Studio не подтвердила удаление файла. Список обновлён; подождите и повторите при необходимости.",
           tone: confirmed ? "notice" : "error",
         };
-        return;
+        return confirmed;
       }
       const detail =
         error instanceof ApiError &&
@@ -372,6 +391,7 @@ export function SourcesPanel({
         },
       );
     }
+    return notice?.tone === "notice";
   }
   return (
     <section className="sources" aria-label="Сохранённые файлы Studio">
@@ -380,17 +400,21 @@ export function SourcesPanel({
         <button
           type="button"
           className="danger"
-          disabled={bulkPending}
+          disabled={bulkPending || Boolean(bulkPreview)}
           aria-busy={bulkPending || undefined}
           onClick={() => void previewBulkDeletion()}
         >
           {bulkPending ? "Проверяем…" : "Очистить все файлы"}
         </button>
       </div>
+      {sources.items.length > 0 && <div className="bulk-selection-actions" aria-label="Выбор файлов">
+        <button type="button" disabled={bulkPending || Boolean(bulkPreview)} onClick={() => setSelectedIds(new Set(sources.items.slice(0,50).map((source) => source.id)))}>Выбрать загруженные файлы (до 50)</button>
+        {selectedSources.length > 0 && <><span>Выбрано: {selectedSources.length}</span><button className="danger" type="button" disabled={bulkPending || Boolean(bulkPreview) || pendingDeletionIds.size > 0} onClick={() => void previewBulkDeletion(selectedSources.map((source) => source.id))}>{`Убрать выбранные (${selectedSources.length})`}</button><button type="button" disabled={bulkPending || Boolean(bulkPreview)} onClick={() => setSelectedIds(new Set())}>Снять выбор</button></>}
+      </div>}
       {bulkMessage && <p className="notice" role="status">{bulkMessage}</p>}
       {bulkPreview && (
         <section className="bulk-deletion-preview" aria-label="План очистки файлов Studio">
-          <h4>План очистки</h4>
+          <h4>{bulkTargetIds ? "План очистки выбранных файлов" : "План очистки"}</h4>
           <p>
             Сейчас в списке файлов: <b>{bulkPreview.listed_count}</b>.
             {bulkPreview.hidden_expired_count > 0
@@ -446,10 +470,11 @@ export function SourcesPanel({
       {sources.loading && <p role="status">Загрузка файлов…</p>}
       {sources.error && <p className="error">{sources.error}</p>}
       {sources.loaded && !sources.loading && sources.items.length === 0 && (
-        <p className="notice">Источники пока не добавлены.</p>
+        <div><p className="notice">Источники пока не добавлены.</p><button type="button" onClick={() => window.dispatchEvent(new Event("studio:navigate-audio"))}>Добавить файлы для обработки</button></div>
       )}
       {sources.items.map((source) => (
         <article className="source-card" key={source.id}>
+          <label className="check-row"><input type="checkbox" aria-label={`Выбрать файл: ${source.original_filename}`} disabled={bulkPending || Boolean(bulkPreview) || pendingDeletionIds.has(source.id) || (!selectedIds.has(source.id) && selectedSources.length >= 50)} checked={selectedIds.has(source.id)} onChange={(event) => setSelectedIds((current) => {const next=new Set(current);if(event.target.checked)next.add(source.id);else next.delete(source.id);return next;})} />Выбрать</label>
           <b>{source.original_filename}</b>
           <span>
             {source.source_type === "google_drive"
@@ -486,7 +511,7 @@ export function SourcesPanel({
               type="button"
               onClick={() => deleteSource(source.id)}
               aria-label={`Убрать из Studio: ${source.original_filename}`}
-              disabled={pendingDeletionIds.has(source.id)}
+              disabled={pendingDeletionIds.has(source.id) || bulkPending || Boolean(bulkPreview)}
               aria-busy={pendingDeletionIds.has(source.id)}
             >
               {pendingDeletionIds.has(source.id)

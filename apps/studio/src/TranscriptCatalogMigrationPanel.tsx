@@ -1316,6 +1316,17 @@ export function TranscriptCatalogMigrationPanel({
   onOpenWorkspace?: () => void;
   onOpenConnections?: () => void;
 }) {
+  useEffect(() => {
+    if (view !== "connections") return;
+    const reveal = () => {
+      if (window.location.hash !== "#google-maintenance-access") return;
+      const panel=document.getElementById("google-maintenance-access") as HTMLDetailsElement | null;
+      if (panel) { panel.open=true; panel.scrollIntoView?.({block:"start"}); panel.querySelector<HTMLElement>("summary")?.focus(); }
+    };
+    reveal();
+    window.addEventListener("studio:maintenance-access",reveal);
+    return () => window.removeEventListener("studio:maintenance-access",reveal);
+  }, [view]);
   const mutate: Mutate = <T,>(path: string, options: RequestInit) =>
     mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
   const [maintenanceConnection, setMaintenanceConnection] =

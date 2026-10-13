@@ -172,7 +172,7 @@ describe("JobCard", () => {
     });
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Задача завершена на 100% — результат доступен ниже.",
+      "Задача завершена — документ доступен по кнопке результата.",
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать в историю" }),
@@ -290,7 +290,9 @@ describe("JobCard", () => {
   renderCard({ job: { ...job, status: "completed", primary_output_url: "https://docs.google.com/document/d/synthetic/edit" }, onOpen });
   expect(screen.getByRole("link", { name: "Открыть документ" })).toHaveAttribute("href", "https://docs.google.com/document/d/synthetic/edit");
   await userEvent.click(screen.getByRole("button", { name: "Показать результаты и детали" }));
-  await userEvent.click(screen.getByRole("button", { name: "Скрыть детали" }));
+  expect(screen.getByRole("dialog", { name: "Interview" })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Закрыть детали" }));
+  expect(screen.getByRole("button", { name: "Показать результаты и детали" })).toHaveFocus();
   await userEvent.click(screen.getByRole("button", { name: "Показать результаты и детали" }));
   expect(onOpen).not.toHaveBeenCalled();
  });

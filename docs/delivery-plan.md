@@ -11,19 +11,37 @@
 | Критерий Goal | Scope / результат | Статус |
 |---|---|---|
 | G01 | UXR20: HTML audio допускает same-origin и локальный blob, остальные CSP ограничения сохранены; реальная проверка плеера | IN_PROGRESS |
-| G02 | UXR14: owner-scoped audio/batch drafts восстанавливают параметры/строки после reload; File/blob, ключи/токены и секретные адреса не сохраняются; logout изолирует данные | BACKLOG |
-| G03 | UXR15: удалённую незапущенную строку можно вернуть с параметрами и позицией; feedback соответствует действию | BACKLOG |
-| G04 | UXR16/21: локальная и серверная ошибки видимы рядом с действием, доступный recovery; сервер указывает проблемный источник, не раскрывая private paths | BACKLOG |
-| G05 | UXR07: pagination/filter переводят focus к новым результатам; видимые chips, счётчики и reset; выбранные завершённые задачи можно убрать в историю с учётом partial failures | BACKLOG |
-| G06 | UXR17: точный переход к раскрытому maintenance-access, возврат к обслуживанию без автоматического OAuth grant | BACKLOG |
-| G07 | UXR18: документ открывается прямо из обзора, задача — в своих деталях; URL validation/ownership сохраняются | BACKLOG |
-| G08 | UXR10: компактная история, drawer деталей с Escape/focus return, отдельный mobile presentation; primary/cancel/recovery остаются видимыми | BACKLOG |
-| G09 | UXR12/19: читаемая стоимость с exact disclosure, ненулевые доли секунды не показываются нулём | BACKLOG |
-| G10 | Дополнительные правки: массовые действия только для поддерживаемых безопасных операций; inline title для незапущенных строк; sticky action bar без перекрытий; mobile sheet для вторичных действий; empty CTA файлов/словарей | BACKLOG |
+| G02 | UXR14: owner-scoped audio/batch drafts восстанавливают параметры/строки после reload; File/blob, ключи/токены и секретные адреса не сохраняются; logout изолирует данные | IN_PROGRESS |
+| G03 | UXR15: удалённую незапущенную строку можно вернуть с параметрами и позицией; feedback соответствует действию | IN_PROGRESS |
+| G04 | UXR16/21: локальная и серверная ошибки видимы рядом с действием, доступный recovery; показаны известные исходники без private paths; при нескольких файлах точный виновник не выдумывается | IN_PROGRESS |
+| G05 | UXR07: pagination/filter переводят focus к новым результатам; видимые chips, счётчики и reset; выбранные завершённые задачи можно убрать в историю с учётом partial failures | IN_PROGRESS |
+| G06 | UXR17: точный переход к раскрытому maintenance-access, возврат к обслуживанию без автоматического OAuth grant | IN_PROGRESS |
+| G07 | UXR18: документ открывается прямо из обзора, задача — в своих деталях; URL validation/ownership сохраняются | IN_PROGRESS |
+| G08 | UXR10: компактная история, drawer деталей с Escape/focus return, отдельный mobile presentation; primary/cancel/recovery остаются видимыми | IN_PROGRESS |
+| G09 | UXR12/19: читаемая стоимость с exact disclosure, ненулевые доли секунды не показываются нулём | IN_PROGRESS |
+| G10 | Дополнительные правки: массовые действия только для поддерживаемых безопасных операций; inline title для незапущенных строк; sticky action bar без перекрытий; mobile sheet для вторичных действий; empty CTA файлов/словарей | IN_PROGRESS |
 
 Non-goals: уже исправленные findings, commercial/Яндекс/voice identity/personal email/cleaned experiment, палитра команд, новые платные scans, установка PWA и speculative deployment. Сетевые/offline/standalone ограничения остаются Evidence gaps, не выдуманными дефектами. Destructive production tests не выполняются; synthetic проверки используют существующее изолированное окружение. Provider canary только в ранее согласованном бюджете и с точечным удалением собственных test bytes/docs, metadata/расход сохраняются.
 
 DoD: G01..G10 выполнены; применимые local checks/self-review; current revision required CI/review; merge; web/API/worker/edge только по затронутым units, exact identity/health/прикладные smoke и required Environment approval; безопасная очистка своих веток. CSP edge поставка требует действующего reviewer gate, не bypass. Миграция без необходимости не добавляется.
+
+Актуальный реестр UX findings (Evidence: production browser11–13Oct2026/web99f174e; synthetic UI/API tests14Oct в текущем dirty branch; без raw logs/данных):
+
+| ID | Область / влияние | Приоритет / действие | Confidence / зависимость |
+|---|---|---|---|
+| UXR20 | AP-31: CSP запрещает исправный same-origin/blob audio; ложная подсказка повторной сборки | P1 FIX, G01 | HIGH: policy+runtime header+валидный WAV; protected edge delivery |
+| UXR14 | Audio/batch ввод теряется при reload/PWA update | P2 FIX, PUX-14/G02 | HIGH: browser reload; safe draft whitelist |
+| UXR15 | Нет Undo строки, stale добавление после удаления | P2 FIX, PUX-15/G03 | HIGH: browser; только незапущенная форма |
+| UXR16 | Local decode error вне viewport | P2 FIX, PUX-06/G04 | HIGH: browser; focus только user-triggered errors |
+| UXR21 | Audio failure не показывает известные исходники/следующее действие | P2 FIX, PUX-06/G04 | HIGH: invalid synthetic WAV; при нескольких файлах неизвестную точную причину не выдумывать |
+| UXR07 (дополнение) | History page остаётся внизу нового набора | P2 FIX, PUX-16/G05 | HIGH: browser pagination; исходный search/autofill исправлен |
+| UXR17 | Maintenance recovery не раскрывает нужную настройку | P2 FIX, PUX-17/G06 | HIGH: browser; existing Google authority/consent |
+| UXR18 | Нет прямой ссылки на конкретный результат из overview | P2 FIX, PUX-18/G07 | HIGH: browser; validated DTO URLs/project ownership |
+| UXR10 (дополнение) | Избыточная вложенность/около700px деталей | P2 REFACTOR, PUX-19/G08 | HIGH наблюдение; MEDIUM ожидаемая польза; измеримый mobile/desktop review |
+| UXR12 (дополнение) | Восемь знаков стоимости затрудняют чтение | P3 FIX, G09 | HIGH: browser; exact scalar disclosure сохраняется |
+| UXR19 | Ненулевая subsecond reduction показана0:00 | P3 FIX, AP-31/G09 | HIGH:3s→2.2s synthetic output; readable duration |
+
+PUX-14..23 —10 новых AC по явному owner scope, не автоматическое превращение findings в требования. Baseline main99f174e, прежний snapshot427/444 personal и432/677 full относится к прежнему составу; незамерженные10 AC показываются отдельно. Новый main denominator и readiness пересчитываются после merge. Existing AP-31 имеет известное нарушение плеера на baseline; candidate fix требует обязательной проверки и поставки.
 
 Validation Plan:
 
@@ -36,7 +54,12 @@ Validation Plan:
 | Repository conventions | `python scripts/ci_checks.py`, ID/link/diff/self-review | Local REQUIRED до initial push |
 | Delivery | Existing platform/edge workflows и runbook, current main/artifact identity, readiness и bounded smoke | GitHub/VPS REQUIRED; remaining included minutes UNSET, speculative reruns запрещены |
 
-Checkpoint14Oct: scope/Validation Plan закреплены до изменения кода. G01/G09 code/targeted validation PASS: security-header contracts8/8, waveform/download/detail UI23/23; media-src допускает только self/blob, сокращение менее секунды показано точно, основная стоимость округлена с exact disclosure. Initial sandbox Vitest EPERM относится к temp cache; тот же synthetic прогон вне sandbox PASS. Реальная проверка плеера/remote CI/merge/CD PENDING. Остальные UX изменения в работе; initial push только после всего scope и local validation.
+Checkpoint14Oct: G01..G10 реализованы в candidate branch, local checks PASS; статус IN_PROGRESS до required CI/review, merge и applicable CD. Local commit58c3b41 — media/cost; следующий согласованный batch — drafts/Undo/recovery/navigation/drawer/bulk UX и scoped API preview. До initial push завершены self-review и локальные проверки, remote CI/merge/CD PENDING.
+
+- Local Evidence14Oct2026: affected UI suite322 cases (nine files; финальные App/JobCard reruns после изменения текста), security-header/source-deletion Python57/57; реальные Chromium media+desktop1280×720/mobile390×844/reset-link4/4. Lint/typecheck/build, lightweight repository checks и diff PASS. PG API integration локально не подтверждена: Windows portable не заменяет Linux PostgreSQL/Redis CI; явный запуск service module прерван до результата, не PASS. Required remote suite остаётся gate.
+- Self-review: sessionStorage содержит только bounded owner/project metadata, повторное платное bypass-confirmation сбрасывается; File/blob/keys/tokens/transcript bodies/transport URLs не сохраняются. Undo не создаёт job. Bulk source selection1..50 проверяется API; token связан с точным набором и fresh locked snapshot; CSRF/recent auth и занятые источники сохраняют existing gates. Unknown mutation не повторяется вслепую. Single/all deletion совместимы с прежним API. Drawer освобождает native inertness до возврата focus; mobile меню не скрывает primary/recovery.
+- Delivery scope: web и API автоматически после main CI; source_deletion.py — shared worker dependency, требуется existing drain/worker manual lane и exact main identity. Schema0041 unchanged, migration N/A. Edge lane для одного CSP snippet, reviewer Environment gate обязателен; release-enable false до согласованного release window и возвращается false после поставки. Новые paid scans и provider calls не запускались.
+- Осталось: initial push/один PR → required exact-revision CI/review → merge → web/API и совместимый worker → protected edge → bounded runtime/UI smoke → cleanup своих веток. Test objects на production в этой Goal не создавались.
 
 ### FINDINGS-UX-20261011 — DONE по первичным records
 

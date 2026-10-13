@@ -355,6 +355,15 @@ function progressStages(
     };
   });
 }
+function expectOnlySafeFormDrafts() {
+  for (const key of Object.keys(sessionStorage)) {
+    expect(key.startsWith("studio-form-draft:v1:")).toBe(true);
+    const value=sessionStorage.getItem(key) ?? "";
+    expect(value).not.toMatch(/"(?:password|secret|csrf|access_token|refresh_token|presigned_url)"\s*:/);
+    expect(value).not.toContain("https://upload.example/leak");
+    expect(value).not.toContain("secret-key");
+  }
+}
 function renderApp() {
   render(<App />);
 }
@@ -1568,6 +1577,89 @@ describe("Studio PWA", () => {
       "/api/auth/session",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+  });
+
+  it("undo restores an unstarted row, its title and position without creating jobs", async () => {
+    renderApp();
+    await openSelectedProjectJobs();
+    await userEvent.type(screen.getByLabelText("Название документа задачи 1"), "Synthetic title");
+    await userEvent.click(screen.getByRole("button", {name:"Добавить задачу",exact:true}));
+    await userEvent.click(screen.getByRole("button", {name:"Удалить задачу 1",exact:true}));
+    expect(screen.getByLabelText("Название документа задачи 1")).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", {name:"Отменить удаление задачи",exact:true}));
+    expect(screen.getByLabelText("Название документа задачи 1")).toHaveValue("Synthetic title");
+    expect(screen.getByLabelText("Название документа задачи 2")).toHaveValue("");
+    const calls=(fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.filter(([url,init]) => String(url).endsWith("/jobs/batch") && init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("selected cleanup keeps preview/confirmation gates and blocked selections", async () => {
+    const mock=fetch as ReturnType<typeof vi.fn>;
+    const original=mock.getMockImplementation();
+    let removed=false;
+    mock.mockImplementation((url:string,init?:RequestInit) => {
+      if(url.includes("/sources/bulk-deletion/preview?")) {
+        expect(new URL(url,"https://synthetic.test").searchParams.getAll("source_ids")).toEqual(["s1","s-local"]);
+        return json({preview_token:"a".repeat(64),eligible_count:1,blocked_count:1,listed_count:2,hidden_expired_count:0,eligible_bytes:1024,blocked_bytes:1024,eligible_unknown_size_count:0,blocked_unknown_size_count:0,blocked_reasons:{processing_job_uses_source:1},google_drive_files_deleted:0});
+      }
+      if(url.endsWith("/sources/bulk-deletion") && init?.method === "POST") {
+        expect(JSON.parse(String(init.body))).toEqual({confirm_delete:true,expected_preview_token:"a".repeat(64),expected_eligible_count:1,expected_blocked_count:1,source_ids:["s1","s-local"]});
+        removed=true;
+        return json({ok:true,deleted_count:1,blocked_count:1,blocked_reasons:{processing_job_uses_source:1},cleanup_counts:{not_applicable:1},google_drive_files_deleted:0});
+      }
+      if(removed && url.endsWith("/projects/p1/sources") && !init?.method) return Promise.resolve(original?.(url,init)).then(async response => {const value=await response.json(); return json({...value,sources:value.sources.filter((source:{id:string}) => source.id !== "s1")});});
+      return original?.(url,init) ?? json({ok:true});
+    });
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(await screen.findByRole("button",{name:"Выбрать загруженные файлы (до 50)",exact:true}));
+    await userEvent.click(screen.getByRole("button",{name:"Убрать выбранные (2)",exact:true}));
+    await screen.findByText("План очистки выбранных файлов");
+    expect(mock.mock.calls.filter(([url,init]) => String(url).endsWith("/sources/bulk-deletion") && init?.method === "POST")).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button",{name:"Подтвердить очистку (1)",exact:true}));
+    expect(await screen.findByText(/Из Studio убрано файлов: 1\. Пропущено: 1/)).toBeVisible();
+    expect(screen.getByRole("checkbox",{name:"Выбрать файл: local-temp.ogg",exact:true})).toBeChecked();
+    expect(mock.mock.calls.filter(([,init]) => init?.method === "DELETE")).toHaveLength(0);
+  });
+
+  it("selected terminal dismissal confirms readback without starting transcription", async () => {
+    installFocusedOutputFixture({jobStatus:"completed"});
+    const mock=fetch as ReturnType<typeof vi.fn>;
+    const original=mock.getMockImplementation();
+    let dismissed=false;
+    mock.mockImplementation((url:string,init?:RequestInit) => {
+      if(url.endsWith("/jobs/job-focused/dismiss") && init?.method === "POST") {
+        dismissed=true;
+        return Promise.resolve(original?.("/api/jobs/job-focused")).then(async response => json({...await response.json(),terminal_dismissed_at:"2026-10-14T00:00:00Z"}));
+      }
+      if(dismissed && url.endsWith("/jobs/job-focused") && !init?.method) return Promise.resolve(original?.(url,init)).then(async response => json({...await response.json(),terminal_dismissed_at:"2026-10-14T00:00:00Z"}));
+      return original?.(url,init) ?? json({});
+    });
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button",{name:"Выбрать завершённые (до 50)",exact:true}));
+    await userEvent.click(screen.getByRole("button",{name:"Убрать выбранные в историю (1)",exact:true}));
+    expect(await screen.findByText("Убрано в историю: 1 из 1. Не подтверждено: 0. Документы и расход сохранены.")).toBeVisible();
+    expect(mock.mock.calls.filter(([url,init]) => String(url).endsWith("/dismiss") && init?.method === "POST")).toHaveLength(1);
+    expect(mock.mock.calls.filter(([url,init]) => String(url).endsWith("/jobs/batch") && init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("maintenance recovery reveals exact settings without granting OAuth", async () => {
+    const mock=fetch as ReturnType<typeof vi.fn>;
+    const original=mock.getMockImplementation();
+    mock.mockImplementation((url:string,init?:RequestInit) => {
+      if(url.endsWith("/google/maintenance/connection")) return json({connected:false,configured:true,status:"disconnected",google_email:null,scopes:null,connected_at:null,revoked_at:null,ready:false,scope_ready:false,account_match:false,reconnect_required:false});
+      if(url.includes("/transcript-maintenance/runs?")) return json({run:null});
+      return original?.(url,init) ?? json({});
+    });
+    renderApp();
+    await openSelectedProjectJobs();
+    await userEvent.click(screen.getByRole("tab",{name:"Обслуживание",exact:true}));
+    await userEvent.click(await screen.findByRole("button",{name:"Настроить доступ Google",exact:true}));
+    const panel=document.getElementById("google-maintenance-access") as HTMLDetailsElement;
+    await waitFor(() => expect(panel.open).toBe(true));
+    await waitFor(() => expect(within(panel).getByText("Расширенный доступ к готовым Google Docs")).toHaveFocus());
+    const calls=(fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.filter(([url,init]) => String(url).includes("oauth/start") && init?.method === "POST")).toHaveLength(0);
   });
 
   it("keeps batch transcription intact and opens Live inside the selected project", async () => {
@@ -3563,7 +3655,7 @@ describe("Studio PWA", () => {
     expect(screen.getByText(/Транскрибации → Обслуживание/)).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("opens transcript maintenance as a dedicated Transcriptions workspace", async () => {
@@ -3637,7 +3729,7 @@ describe("Studio PWA", () => {
     );
     expect(retention).toHaveValue("604800");
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("bounds a stalled retention read and fails closed with retry", async () => {
@@ -4032,7 +4124,7 @@ describe("Studio PWA", () => {
       screen.queryByText("raw-refresh-token-never-render"),
     ).not.toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("starts Google OAuth with CSRF and navigates without storing OAuth data", async () => {
@@ -4070,7 +4162,7 @@ describe("Studio PWA", () => {
     );
     expect(document.body).not.toHaveTextContent("secret-state");
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("disconnects Google Drive with CSRF", async () => {
@@ -6722,7 +6814,7 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("cred-active");
     expect(document.body.textContent).not.toContain("cred-revoked");
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("uses Google Picker actions instead of manual Drive ID forms in platform projects", async () => {
@@ -6739,7 +6831,7 @@ describe("Studio PWA", () => {
       screen.queryByPlaceholderText("Drive folder ID"),
     ).not.toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("Google multiselect seeds one shared target and preserves independent folder overrides", async () => {
@@ -6860,7 +6952,7 @@ describe("Studio PWA", () => {
       { source_id: "s-picker-2", output_folder_id: "folder-2" },
     ]);
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
     expect(document.body.textContent).not.toContain("ya29.test-access-token");
   });
 
@@ -7165,6 +7257,7 @@ describe("Studio PWA", () => {
     ];
     for (const scenario of scenarios) {
       cleanup();
+    sessionStorage.clear();
       googlePicker.resetGooglePickerLoaderForTests();
       vi.restoreAllMocks();
       let verifyCalls = 0;
@@ -7276,6 +7369,7 @@ describe("Studio PWA", () => {
     }
 
     cleanup();
+    sessionStorage.clear();
     googlePicker.resetGooglePickerLoaderForTests();
     vi.restoreAllMocks();
     let verifyCalls = 0;
@@ -7447,7 +7541,7 @@ describe("Studio PWA", () => {
       within(rows[1]).getByLabelText("Название документа задачи 2"),
     ).toHaveValue("Second draft title");
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("isolates composer state and preserves ambiguous batch recovery across project switches", async () => {
@@ -7819,7 +7913,7 @@ describe("Studio PWA", () => {
     });
     expect(aCreateCalls[1]?.[1]?.body).toBe(firstACreateCall?.[1]?.body);
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("source Picker cancel/error and duplicate clicks do not create source mutations", async () => {
@@ -9088,7 +9182,7 @@ describe("Studio PWA", () => {
       ),
     ).toBe(false);
     expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    expectOnlySafeFormDrafts();
   });
 
   it("bounds stalled project source and job collection reads", async () => {
@@ -9272,7 +9366,7 @@ describe("Studio PWA", () => {
 
     expect(
       await screen.findByText(
-        "Задача завершена на 100% — результат доступен ниже.",
+        "Задача завершена — документ доступен по кнопке результата.",
       ),
     ).toBeInTheDocument();
     expect(await screen.findByText("Язык: Английский")).toBeInTheDocument();
