@@ -215,6 +215,15 @@ def deletion_readiness(db: Session, source: Source, *, now: datetime, locked_job
     return SourceDeletionReason.available
 
 
+def validate_bulk_source_selection(source_ids: list[str] | None) -> list[str] | None:
+    if source_ids is None:
+        return None
+    if (not 1 <= len(source_ids) <= 50 or any(not isinstance(value, str) or not 1 <= len(value) <= 36 for value in source_ids)
+            or len(set(source_ids)) != len(source_ids)):
+        raise ValueError("invalid_source_selection")
+    return sorted(source_ids)
+
+
 def bulk_source_deletion_preview(
     db: Session,
     *,
@@ -222,6 +231,7 @@ def bulk_source_deletion_preview(
     project_id: str,
     now: datetime,
     lock_sources: bool = False,
+    source_ids: list[str] | None = None,
 ) -> BulkSourceDeletionPreview | None:
     project = db.get(Project, project_id)
     if project is None or project.owner_user_id != owner_user_id or project.archived_at is not None:
@@ -235,6 +245,9 @@ def bulk_source_deletion_preview(
         )
         .order_by(Source.created_at.asc(), Source.id.asc())
     )
+    selection = validate_bulk_source_selection(source_ids)
+    if selection is not None:
+        stmt = stmt.where(Source.id.in_(selection))
     if lock_sources:
         stmt = stmt.with_for_update()
     sources = list(db.execute(stmt).scalars().all())
@@ -281,6 +294,7 @@ def bulk_source_deletion_preview(
                     "owner_user_id": owner_user_id,
                     "project_id": project_id,
                     "entries": preview_entries,
+                    **({"source_ids": selection} if selection is not None else {}),
                 },
                 sort_keys=True,
                 separators=(",", ":"),

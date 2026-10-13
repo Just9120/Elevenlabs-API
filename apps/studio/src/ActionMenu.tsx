@@ -18,10 +18,18 @@ export function ActionMenu({ label, items, disabled = false }: {
   const [open, setOpen] = useState(false);
   const [alignLeft, setAlignLeft] = useState(false);
   const [above, setAbove] = useState(false);
+  const [mobile, setMobile] = useState(() => window.matchMedia?.("(max-width: 620px)").matches ?? false);
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const query = window.matchMedia?.("(max-width: 620px)");
+    if (!query) return;
+    const update = () => setMobile(query.matches);
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
   const show = () => {
     const edge = trigger.current?.getBoundingClientRect().right ?? 0;
     setAlignLeft(edge < Math.min(280, window.innerWidth - 32) + 8);
@@ -57,7 +65,7 @@ export function ActionMenu({ label, items, disabled = false }: {
           event.preventDefault(); show();
         }
       }}><span aria-hidden="true">⋮</span></button>
-    {open && !disabled && <div id={id} className="action-menu-items" style={{ ...(alignLeft ? { left: 0, right: "auto" } : {}), ...(above ? { top: "auto", bottom: "calc(100% + .25rem)" } : {}) }} role="menu" aria-label={label} ref={menu}
+    {open && !disabled && <div id={id} className="action-menu-items" style={mobile ? { position: "fixed", top: "auto", bottom: 0, left: ".5rem", right: ".5rem", width: "auto" } : { ...(alignLeft ? { left: 0, right: "auto" } : {}), ...(above ? { top: "auto", bottom: "calc(100% + .25rem)" } : {}) }} role="menu" aria-label={label} ref={menu}
       onKeyDown={(event) => {
         if (event.key === "Tab") { close(true); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); return; }
@@ -75,6 +83,7 @@ export function ActionMenu({ label, items, disabled = false }: {
         return <button key={item.id} type="button" role="menuitem" tabIndex={-1} className={className}
           disabled={item.disabled || Boolean(item.href)} onClick={() => { close(true); item.onSelect?.(); }}>{item.label}</button>;
       })}
+      {mobile && <button type="button" role="menuitem" tabIndex={-1} onClick={() => close(true)}>Закрыть меню</button>}
     </div>}
   </div>;
 }

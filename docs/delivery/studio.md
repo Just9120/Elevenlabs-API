@@ -40,6 +40,19 @@
 | `PUX-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PUX-14` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-15` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-16` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-17` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-18` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-19` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-20` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-21` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-22` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-23` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+
+Основание PUX-14..23: owner decision14Oct2026 — все правки повторного UX/UI-ревью выбраны единой Goal. Исправления UXR20/21/12/19 уточняют existing AP/PUX/cost AC, сами findings denominator не увеличивают. Черновики хранятся только в текущей browser session; полного восстановления File после закрытия приложения не обещают.
+
 
 ### `PWA-UX-POLISH-03`
 
@@ -171,7 +184,7 @@
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-31` | READY | ✅ | ✅ | ✅ | PR326 code f20ce3e; Linux CI37428475481, Studio/E2E37428475455 PASS06Oct (test-merge6b9e752). metadata-only output, worker regeneration из retained originals без STT/S3; independent download/Drive/handoff, selected retention и512-point waveform/sample. Audio/API/lease/cleanup/component regressions PASS; real synthetic FFmpeg local PASS,5 Linux FFmpeg skips без binary. PR326 merged1937658; current main bc5150eb189b44867101ca45b9da201921a99227, web/API CD37502621690 и worker37504355706 SUCCESS06Oct; A20261010-CODE/CI/RUNTIME. Непроверенные реальные provider/storage/restore условия остаются ограничением Evidence. |
+| `AP-31` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014: baseline99f174e нарушает прослушивание из-за media-src none (UXR20), прежний READY пересмотрен. Candidate58c3b41 допускает self/blob; security-header contracts и реальный Chromium WAV playback PASS14Oct. Остальное прежнее processing Evidence сохраняется; current revision CI/merge/edge/runtime PENDING. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`

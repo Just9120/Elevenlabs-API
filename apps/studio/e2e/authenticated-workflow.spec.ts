@@ -138,12 +138,14 @@ test('authenticated user opens transcriptions and reads a completed job result',
   });
   expect(reconciliation).toMatchObject({ job_id: resultJobId });
 
-  await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
-  await expect(jobCard.getByRole('link', { name: 'Открыть документ' })).toHaveAttribute(
+  const resultDrawer = page.getByRole('dialog');
+  await expect(resultDrawer).toBeVisible();
+  await expect(resultDrawer.getByRole('heading', { name: 'Результаты' })).toBeVisible();
+  await expect(resultDrawer.getByRole('link', { name: 'Открыть документ' })).toHaveAttribute(
     'href',
     RESULT_URL,
   );
-  const jobDetail = jobCard.getByRole('region', {
+  const jobDetail = resultDrawer.getByRole('region', {
     name: 'Подробности транскрибации',
   });
   await expect(jobDetail.getByRole('heading', { name: 'Файлы задачи' })).toBeVisible();
@@ -159,6 +161,8 @@ test('authenticated user opens transcriptions and reads a completed job result',
     }),
   ).toHaveCount(0);
 
+  await resultDrawer.getByRole('button', { name: 'Закрыть детали' }).click();
+  await expect(jobCard.getByRole('button', { name: 'Показать результаты и детали' })).toBeFocused();
   await navigation
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();

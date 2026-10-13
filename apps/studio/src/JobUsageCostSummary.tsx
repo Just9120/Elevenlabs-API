@@ -24,6 +24,13 @@ function formatFixedUsd(value: string) {
   return `${whole},${fraction} USD`;
 }
 
+function formatReadableUsd(value: string) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return formatFixedUsd(value);
+  if (number > 0 && number < 0.01) return "менее 0,01 USD";
+  return `${number.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+}
+
 export function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost }) {
   if (!usageCost || usageCost.accounting_status === "unavailable") {
     return (
@@ -54,7 +61,7 @@ export function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost })
         Подтверждённая длительность: <strong>{formatConfirmedDuration(duration)}</strong>
       </span>
       <span>
-        Номинальная стоимость: <strong>{formatFixedUsd(cost)}</strong>
+        Номинальная стоимость: <strong>{formatReadableUsd(cost)}</strong>
       </span>
       {incompleteMessage && <p className="notice">{incompleteMessage}</p>}
       <p className="muted">
@@ -62,6 +69,10 @@ export function JobUsageCostSummary({ usageCost }: { usageCost?: JobUsageCost })
         а не фактическое списание. Остаток на счёте, расходы сверх лимита и счета
         показаны отдельно в Настройки → Подключения.
       </p>
+      <details className="technical-details">
+        <summary>Точное значение</summary>
+        <p>Номинальная стоимость: {formatFixedUsd(cost)}</p>
+      </details>
       {usageCost.rate_snapshot && (
         <details className="technical-details">
           <summary>Основание расчёта</summary>

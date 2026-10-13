@@ -1,3 +1,5 @@
+import { useFormDraft, readFormDraft, clearFormDrafts } from "./formDrafts";
+import { composerDraftRows } from "./composerDraft";
 import {
   ChangeEvent,
   FormEvent,
@@ -1736,8 +1738,14 @@ function PreparationPanel({
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyStatus, setHistoryStatus] = useState("all");
   const [historyPage, setHistoryPage] = useState(0);
+  const [selectedTerminalIds,setSelectedTerminalIds]=useState<Set<string>>(() => new Set());
+  const [terminalBatchPending,setTerminalBatchPending]=useState(false);
+  const terminalBatchRef=useRef(false);
+  const terminalBatchProject=useRef(project.id);
+  terminalBatchProject.current=project.id;
+  const [terminalBatchMessage,setTerminalBatchMessage]=useState("");
   useEffect(() => {
-    setHistoryQuery(""); setHistoryStatus("all"); setHistoryPage(0);
+    setHistoryQuery(""); setHistoryStatus("all"); setHistoryPage(0); setSelectedTerminalIds(new Set()); setTerminalBatchMessage("");
   }, [project.id]);
   const historyClearPendingRef = useRef(false);
 
@@ -1806,7 +1814,8 @@ function PreparationPanel({
     [],
   );
   useEffect(() => {
-    setRows([newComposerRow()]);
+    const saved = readFormDraft(`batch:${project.id}`) as { rows?: unknown } | null;
+    setRows(composerDraftRows(saved?.rows) ?? [newComposerRow()]);
     setCreatedSources([]);
     setRemovedSourceIds(new Set());
     setRowIntakeStatus({});
@@ -1830,7 +1839,40 @@ function PreparationPanel({
     setSelectedDictionaryIds([]);
     setRecentlyAddedRow(null);
     setRowAdditionStatus("");
+    setRemovedRow(null);
+    setComposerRestored(false);
+    titleBeforeEdit.current.clear();
   }, [project.id]);
+  const [removedRow, setRemovedRow] = useState<{ row: ComposerRow; index: number } | null>(null);
+  const titleBeforeEdit = useRef(new Map<string, string>());
+  const [composerRestored, setComposerRestored] = useState(false);
+  useFormDraft(`batch:${project.id}`, { rows: composerDraftRows(rows), selectedProvider, operatingMode, languageMode, diarizationEnabled }, (value) => {
+    if (!value || typeof value !== "object") return;
+    const draft = value as Record<string, unknown>;
+    const restored = composerDraftRows(draft.rows);
+    if (!restored) return;
+    setRows(restored);
+    if (draft.selectedProvider === "elevenlabs" || draft.selectedProvider === "yandex") setSelectedProvider(draft.selectedProvider);
+    if (["economic", "standard", "premium"].includes(String(draft.operatingMode))) setOperatingMode(draft.operatingMode as SttOperatingMode);
+    if (["ru", "en", "detect"].includes(String(draft.languageMode))) setLanguageMode(draft.languageMode as TranscriptionLanguageMode);
+    if (typeof draft.diarizationEnabled === "boolean") setDiarizationEnabled(draft.diarizationEnabled);
+    setComposerRestored(true);
+  });
+  function removeComposerRow(rowId: string) {
+    const index = rows.findIndex((row) => row.id === rowId);
+    if (index < 0 || rows.length <= 1 || localUploadIsBusy(rowId)) return;
+    setRemovedRow({ row: rows[index], index });
+    setRows((current) => current.filter((row) => row.id !== rowId));
+    setRecentlyAddedRow(null);
+    setRowAdditionStatus(`Задача ${index + 1} убрана.`);
+  }
+  function undoComposerRemoval() {
+    if (!removedRow || rows.length >= 50) return;
+    const { row, index } = removedRow;
+    setRows((current) => { if (current.some((item) => item.id === row.id)) return current; const next=[...current]; next.splice(Math.min(index,next.length),0,row); return next; });
+    setRowAdditionStatus("Задача восстановлена.");
+    setRemovedRow(null);
+  }
   useEffect(() => {
     if (!recentlyAddedRow) return;
     const rowElement = rowElementRefs.current.get(recentlyAddedRow.id);
@@ -4268,8 +4310,35 @@ function PreparationPanel({
     jobTitle(job).toLocaleLowerCase("ru-RU").includes(historyQuery.trim().toLocaleLowerCase("ru-RU")) &&
     (historyStatus === "all" || job.status === historyStatus),
   ));
+  const eligibleTerminalJobs=pinnedTerminalTranscriptions.flatMap((group) => group.jobs).filter((job) => job.history_attention_required !== true);
+  async function dismissSelectedTerminal() {
+    if (terminalBatchRef.current) return;
+    const targets=eligibleTerminalJobs.filter((job) => selectedTerminalIds.has(job.id)).slice(0,50);
+    if (!targets.length) return;
+    const projectId=project.id;
+    terminalBatchRef.current=true;setTerminalBatchPending(true);setTerminalBatchMessage("");
+    let confirmed=0;
+    try {
+      for (const job of targets) {
+        if (terminalBatchProject.current !== projectId) break;
+        await dismissTerminalJob(job.id);
+        const observed=await runBoundedRequest((signal) => requestJobDetail(job.id,project.id,signal));
+        if (terminalBatchProject.current === projectId && observed.status !== "timed_out" && dismissalIsConfirmed(observed.value)) {
+          confirmed+=1;setSelectedTerminalIds((current) => {const next=new Set(current);next.delete(job.id);return next;});
+        }
+      }
+    } catch { /* Keep unresolved selections; never retry a mutation blindly. */ }
+    finally {
+      if (terminalBatchProject.current === projectId) setTerminalBatchMessage(`Убрано в историю: ${confirmed} из ${targets.length}. Не подтверждено: ${targets.length-confirmed}. Документы и расход сохранены.`);
+      terminalBatchRef.current=false;setTerminalBatchPending(false);
+    }
+  }
   const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / 10));
   const currentHistoryPage = Math.min(historyPage, historyPageCount - 1);
+  function changeHistoryPage(page: number) {
+    setHistoryPage(page);
+    requestAnimationFrame(() => { const heading=document.getElementById("history-results"); heading?.focus({preventScroll:true}); heading?.scrollIntoView?.({block:"start"}); });
+  }
   useEffect(() => {
     for (const job of displayJobs) {
       if (
@@ -4538,6 +4607,8 @@ function PreparationPanel({
           jobMutationKey("dismiss", job.id),
         )}
         onDismissTerminal={dismissTerminalJob}
+        selected={selectedTerminalIds.has(job.id)}
+        onSelect={pinnedTerminal && job.history_attention_required !== true ? (checked) => setSelectedTerminalIds((current) => {const next=new Set(current);if(checked)next.add(job.id);else next.delete(job.id);return next;}) : undefined}
         attentionResolutionPending={pendingJobMutations.has(
           jobMutationKey("attention", job.id),
         )}
@@ -4657,8 +4728,10 @@ function PreparationPanel({
             >
               {rowAdditionStatus}
             </span>
+            {removedRow && <button type="button" disabled={rows.length >= 50} onClick={undoComposerRemoval}>Отменить удаление задачи</button>}
           </div>
         </div>
+        {composerRestored && <p role="status" className="notice">Черновик задач восстановлен. Перед запуском проверьте доступность файлов и папок; повторная транскрибация требует нового подтверждения.</p>}
         <fieldset className="composer-rows">
           <legend>Задачи подготовки</legend>
           {!sources.loaded && (
@@ -4735,13 +4808,8 @@ function PreparationPanel({
                         <button
                           type="button"
                           className="secondary danger"
-                          onClick={() =>
-                            setRows((current) =>
-                              current.length > 1
-                                ? current.filter((item) => item.id !== row.id)
-                                : current,
-                            )
-                          }
+                          onClick={() => removeComposerRow(row.id)}
+                          disabled={localUploadIsBusy(row.id)}
                           aria-label={`Удалить задачу ${index + 1}`}
                         >
                           Удалить
@@ -5021,6 +5089,12 @@ function PreparationPanel({
                       Название документа
                       <input
                         value={row.segments[0]?.title ?? ""}
+                        onFocus={() => titleBeforeEdit.current.set(row.id, row.segments[0]?.title ?? "")}
+                        onKeyDown={(event) => {
+                          if (event.nativeEvent.isComposing) return;
+                          if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                          if (event.key === "Escape") { event.preventDefault(); const first=row.segments[0]; if (first) updateSegment(row.id, first.id, {title:titleBeforeEdit.current.get(row.id) ?? ""}); event.currentTarget.blur(); }
+                        }}
                         onChange={(event) => {
                           const first = row.segments[0];
                           if (first) {
@@ -5467,7 +5541,7 @@ function PreparationPanel({
             ) : dictionariesError ? (
               <p className="error">{dictionariesError}</p>
             ) : dictionaries.length === 0 ? (
-              <p className="muted">Словари пока не созданы.</p>
+              <div><p className="muted">Словари пока не созданы.</p><button type="button" onClick={() => window.dispatchEvent(new CustomEvent("studio:navigate-settings", {detail:{section:"connections"}}))}>Добавить словарь в настройках</button></div>
             ) : (
               <div className="dictionary-selector">
                 {dictionaries.map((dictionary) => (
@@ -5816,11 +5890,16 @@ function PreparationPanel({
           pinnedTerminalTranscriptions.length === 0 && (
           <p className="notice">Текущих транскрибаций нет.</p>
         )}
+        {eligibleTerminalJobs.length > 0 && <div className="bulk-selection-actions" aria-label="Завершённые задачи">
+          <button type="button" disabled={terminalBatchPending} onClick={() => setSelectedTerminalIds(new Set(eligibleTerminalJobs.slice(0,50).map((job) => job.id)))}>Выбрать завершённые (до 50)</button>
+          {selectedTerminalIds.size > 0 && <><button type="button" disabled={terminalBatchPending} onClick={() => void dismissSelectedTerminal()}>{terminalBatchPending ? "Убираем в историю…" : `Убрать выбранные в историю (${selectedTerminalIds.size})`}</button><button type="button" disabled={terminalBatchPending} onClick={() => setSelectedTerminalIds(new Set())}>Снять выбор задач</button></>}
+        </div>}
+        {terminalBatchMessage && <p role="status">{terminalBatchMessage}</p>}
         {currentTranscriptions.map(renderTranscriptionPresentation)}
         {pinnedTerminalTranscriptions.map(renderTranscriptionPresentation)}
       </section>
-      <details className="recent-jobs">
-        <summary>Недавние транскрибации · {recentTranscriptions.length}</summary>
+      <details className="recent-jobs history-transcriptions">
+        <summary id="history-results">Недавние транскрибации · {recentTranscriptions.length}</summary>
         {hasClearableHistory && (
           <button
             type="button"
@@ -5847,12 +5926,18 @@ function PreparationPanel({
             </select>
           </label>
         </div>
+        {(historyQuery || historyStatus !== "all") && <div className="filter-chips" aria-label="Активные фильтры истории">
+          {historyQuery && <button type="button" onClick={() => {setHistoryQuery(""); changeHistoryPage(0);}}>Поиск: {historyQuery} ×</button>}
+          {historyStatus !== "all" && <button type="button" onClick={() => {setHistoryStatus("all"); changeHistoryPage(0);}}>Статус: {({completed:"Готово",failed:"Ошибка",cancelled:"Отменено"} as Record<string,string>)[historyStatus] ?? historyStatus} ×</button>}
+          <button type="button" onClick={() => {setHistoryQuery("");setHistoryStatus("all");changeHistoryPage(0);}}>Сбросить фильтры</button>
+        </div>}
+        <p className="muted" role="status">Найдено групп: {filteredHistory.length} · среди загруженных: {recentTranscriptions.length}</p>
         {filteredHistory.length === 0 && <p role="status">Среди загруженных задач совпадений нет.</p>}
         {filteredHistory.slice(currentHistoryPage * 10, (currentHistoryPage + 1) * 10).map(renderTranscriptionPresentation)}
         {filteredHistory.length > 10 && <nav className="actions" aria-label="Страницы истории">
-          <button type="button" disabled={currentHistoryPage === 0} onClick={() => setHistoryPage(currentHistoryPage - 1)}>Предыдущая страница истории</button>
+          <button type="button" disabled={currentHistoryPage === 0} onClick={() => changeHistoryPage(currentHistoryPage - 1)}>Предыдущая страница истории</button>
           <span role="status">Страница {currentHistoryPage + 1} из {historyPageCount}</span>
-          <button type="button" disabled={currentHistoryPage + 1 === historyPageCount} onClick={() => setHistoryPage(currentHistoryPage + 1)}>Следующая страница истории</button>
+          <button type="button" disabled={currentHistoryPage + 1 === historyPageCount} onClick={() => changeHistoryPage(currentHistoryPage + 1)}>Следующая страница истории</button>
         </nav>}
         {jobs.nextCursor && (
           <button
@@ -5956,9 +6041,11 @@ function isProjectClearResponse(value: unknown): value is {
 function OverviewPage({
   onNavigate,
   onOpenTranscriptions,
+  onOpenJob,
 }: {
   onNavigate: (page: Page) => void;
   onOpenTranscriptions: () => void;
+  onOpenJob: (job: TranscriptionJob) => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -6214,7 +6301,7 @@ function OverviewPage({
             <ul className="dashboard-recent-list">
               {recentJobs.map((job) => (
                 <li key={job.id}>
-                  <span><strong>{jobTitle(job)}</strong><small>{formatTime(job.updated_at)}</small></span>
+                  <span><button type="button" className="text-link" onClick={() => onOpenJob(job)}>{jobTitle(job)}</button><small>{formatTime(job.updated_at)}</small></span>
                   <span className={`tag job-${job.status}`}>{jobСтатусLabel(job.status)}</span>
                 </li>
               ))}
@@ -6235,7 +6322,7 @@ function OverviewPage({
             <ul className="dashboard-recent-list">
               {recentDocuments.map((job) => (
                 <li key={job.id}>
-                  <span><strong>{jobTitle(job)}</strong><small>{formatTime(job.finished_at ?? job.updated_at)}</small></span>
+                  <span>{isApprovedOutputUrl(job.primary_output_url ?? null) ? <ResourceExternalLink href={job.primary_output_url!} label={jobTitle(job)} ariaLabel={`Открыть документ: ${jobTitle(job)}`} /> : <button type="button" className="text-link" onClick={() => onOpenJob(job)}>{jobTitle(job)} — открыть задачу</button>}<small>{formatTime(job.finished_at ?? job.updated_at)}</small></span>
                   <span className="tag job-completed">Готов</span>
                 </li>
               ))}
@@ -6287,7 +6374,7 @@ function ProjectsPage({
   onRequestedProjectHandled: () => void;
   requestedSourceId: string | null;
   onRequestedSourceHandled: () => void;
-  requestedTranscriptionMode: "maintenance" | null;
+  requestedTranscriptionMode: "maintenance" | "batch" | null;
   onRequestedTranscriptionModeHandled: () => void;
   maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
   onOpenMaintenanceConnections: () => void;
@@ -6772,10 +6859,10 @@ function ProjectsPage({
   }, [active, selectedProject?.id]);
   useEffect(() => setTranscriptionMode("batch"), [selectedProject?.id]);
   useEffect(() => {
-    if (!selectedProject || requestedTranscriptionMode !== "maintenance") {
+    if (!selectedProject || !requestedTranscriptionMode) {
       return;
     }
-    setTranscriptionMode("maintenance");
+    setTranscriptionMode(requestedTranscriptionMode);
     onRequestedTranscriptionModeHandled();
   }, [requestedTranscriptionMode, selectedProject?.id]);
   return (
@@ -9057,7 +9144,7 @@ function SettingsPage({
               <button type="button" onClick={() => onSectionChange("account")}>Подтвердить личность для Google Drive</button>
             )}
           </article>
-          <details className="card technical-details">
+          <details id="google-maintenance-access" className="card technical-details" onToggle={(event) => { if (event.currentTarget.open && window.location.hash === "#google-maintenance-access") { event.currentTarget.scrollIntoView?.({block:"start"}); event.currentTarget.querySelector<HTMLElement>("summary")?.focus(); } }}>
             <summary className="summary-row">
               Расширенный доступ к готовым Google Docs
             </summary>
@@ -10156,7 +10243,7 @@ function PlatformShell() {
     null,
   );
   const [requestedTranscriptionMode, setRequestedTranscriptionMode] =
-    useState<"maintenance" | null>(null);
+    useState<"maintenance" | "batch" | null>(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const [audioOpened, setAudioOpened] = useState(page === "audio");
   const focusNextPageRef = useRef(false);
@@ -10345,6 +10432,11 @@ function PlatformShell() {
       window.removeEventListener("studio:navigate-settings", handler);
   }, []);
   useEffect(() => {
+    const handler = () => navigate("audio");
+    window.addEventListener("studio:navigate-audio", handler);
+    return () => window.removeEventListener("studio:navigate-audio", handler);
+  }, []);
+  useEffect(() => {
     const handler = (event: Event) => {
       const sourceId = (event as CustomEvent<{ sourceId?: unknown }>).detail
         ?.sourceId;
@@ -10497,6 +10589,7 @@ function PlatformShell() {
     setLogoutState({ pending: false, error: "" });
     navigate("dashboard");
     clearSettingsMutationSession();
+    clearFormDrafts();
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
   };
@@ -10583,6 +10676,13 @@ function PlatformShell() {
               }
               navigate(nextPage);
             }}
+            onOpenJob={(job) => {
+              setRequestedProjectId(job.project_id);
+              setRequestedTranscriptionMode("batch");
+              navigate("projects");
+              window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#job-${job.id}`);
+              window.dispatchEvent(new Event("hashchange"));
+            }}
             onOpenTranscriptions={() => {
               setRequestedProjectId(null);
               navigate("projects");
@@ -10608,9 +10708,11 @@ function PlatformShell() {
                 setRequestedTranscriptionMode(null)
               }
               maintenanceOauthResult={maintenanceOauthResult}
-              onOpenMaintenanceConnections={() =>
-                navigate("settings", "connections")
-              }
+              onOpenMaintenanceConnections={() => {
+                navigate("settings", "connections");
+                window.history.replaceState(null, "", `${window.location.pathname}#google-maintenance-access`);
+                window.dispatchEvent(new Event("studio:maintenance-access"));
+              }}
             />
           </div>
         )}

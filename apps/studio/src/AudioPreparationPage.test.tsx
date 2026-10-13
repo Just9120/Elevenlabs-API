@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as googlePicker from "./googlePicker";
 import { AudioPreparationPage } from "./AudioPreparationPage";
+beforeEach(() => sessionStorage.clear());
 
 function json(value: unknown) {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });

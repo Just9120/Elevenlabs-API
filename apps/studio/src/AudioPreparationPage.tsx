@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import { ActionMenu } from "./ActionMenu";
+import { useFormDraft } from "./formDrafts";
 import { AudioResultDownload } from "./AudioResultDownload";
 import { AudioWaveform } from "./AudioWaveform";
 import { audioSourceTitle, audioNamedTitle, audioNamingTemplates, type AudioNamingStyle } from "./audioOutputNaming";
@@ -153,7 +154,7 @@ function localErrorLabel(reason: unknown) {
   if (message === "local_audio_size_limit") return `Общий размер локальных файлов не должен превышать ${formatBytes(LOCAL_AUDIO_MAX_INPUT_BYTES)}.`;
   if (message === "local_audio_memory_limit") return "Для декодирования этих файлов недостаточно безопасного объёма памяти браузера. Используйте обработку через Studio.";
   if (message === "local_audio_unsupported") return "Этот браузер не поддерживает локальную обработку аудио. Используйте обработку через Studio.";
-  if (message.startsWith("local_audio_decode_failed:")) return `Браузер не смог прочитать ${message.split(":").slice(1).join(":")}. Выберите «Загрузить в Studio» и повторите обработку.`;
+  if (message.startsWith("local_audio_decode_failed:")) return `Браузер не смог прочитать ${message.split(":").slice(1).join(":")}. Проверьте файл или выберите другой. Обработка через Studio может помочь с форматом, но не исправляет повреждённые данные.`;
   if (message === "local_audio_right_channel_unavailable") return "В одном из файлов нет правого звукового канала.";
   if (message === "local_audio_sample_rate_mismatch") return "Браузер декодировал файлы с разной частотой. Обработайте их через Studio.";
   if (reason instanceof DOMException && reason.name === "AbortError") return "Локальная обработка отменена.";
@@ -211,6 +212,46 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   const thresholdInput = useRef<HTMLInputElement>(null);
   const minimumInput = useRef<HTMLInputElement>(null);
   const keepInput = useRef<HTMLInputElement>(null);
+  const inputSection = useRef<HTMLElement>(null);
+  const errorAlert = useRef<HTMLDivElement>(null);
+  const focusOperationError = useRef(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  useFormDraft(project ? `audio:${project.id}` : null,
+    { title, namingStyle, preset, format, mono, silenceEnabled, threshold, minimum, keep,
+      sourceMode, operationMode, audioRetentionDays, selected, saveToDrive,
+      driveFolder, localFileCount: localFiles.length },
+    (value) => {
+      if (!value || typeof value !== "object") return;
+      const draft = value as Record<string, unknown>;
+      const strings: [string, (value: string) => void, number][] = [
+        ["title", setTitle, 160], ["threshold", setThreshold, 20], ["minimum", setMinimum, 20], ["keep", setKeep, 20],
+      ];
+      for (const [key, set, length] of strings) if (typeof draft[key] === "string" && draft[key].length <= length) set(draft[key]);
+      if (["processing_only", "lecture", "call"].includes(String(draft.preset))) setPreset(String(draft.preset));
+      if (["copy", "flac", "wav"].includes(String(draft.format))) setFormat(String(draft.format));
+      if (["preserve", "mixdown", "left", "right"].includes(String(draft.mono))) setMono(String(draft.mono));
+      if (["title", "date", "dateTime"].includes(String(draft.namingStyle))) setNamingStyle(draft.namingStyle as AudioNamingStyle);
+      if (["drive", "local", "studio", "direct-drive"].includes(String(draft.sourceMode))) setSourceMode(draft.sourceMode as SourceMode);
+      if (["separate", "concat"].includes(String(draft.operationMode))) setOperationMode(draft.operationMode as OperationMode);
+      if ([3, 7, 30].includes(Number(draft.audioRetentionDays))) setAudioRetentionDays(Number(draft.audioRetentionDays));
+      if (typeof draft.silenceEnabled === "boolean") setSilenceEnabled(draft.silenceEnabled);
+      if (typeof draft.saveToDrive === "boolean") setSaveToDrive(draft.saveToDrive);
+      if (Array.isArray(draft.selected) && draft.selected.length <= 50 && draft.selected.every((id) => typeof id === "string" && id.length <= 100)) setSelected(draft.selected);
+      const folder = draft.driveFolder as { id?: unknown; name?: unknown } | null;
+      if (folder && typeof folder.id === "string" && folder.id.length <= 256 && typeof folder.name === "string" && folder.name.length <= 512) setDriveFolder({ id: folder.id, name: folder.name });
+      setDraftRestored(true);
+    });
+  useEffect(() => {
+    if (!error || !focusOperationError.current) return;
+    focusOperationError.current = false;
+    errorAlert.current?.focus();
+    errorAlert.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
+  const chooseDifferentSource = () => {
+    setSelected([]);
+    inputSection.current?.focus();
+    inputSection.current?.scrollIntoView?.({ block: "start" });
+  };
 
   const usable = useMemo(() => sources.filter(isUsableJobSource), [sources]);
   const orderedSelected = useMemo(() => {
@@ -681,6 +722,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   }
 
   async function createPreview() {
+    focusOperationError.current = true;
     if (!project || selected.length === 0) return;
     const values = silenceValues();
     if (!values) return;
@@ -752,6 +794,7 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   }
 
   async function processLocally() {
+    focusOperationError.current = true;
     if (localFiles.length === 0 || busy) return;
     const values = silenceValues();
     if (!values) return;
@@ -821,8 +864,9 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
   return (
     <div className="audio-preparation-page">
       <section className="hero"><div><p className="eyebrow">ПОДГОТОВКА ЗАПИСИ</p><h1>Подготовка аудио</h1><p>Склейте записи, сократите длинные паузы, настройте каналы или просто сохраните исходные файлы в Google Drive.</p></div></section>
-      {error && <div role="alert"><p className="error">{error}</p>{errorState.googleRecovery && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("studio:navigate-settings", { detail: { section: "connections" } }))}>Открыть настройки Google Drive</button>}</div>}
-      <section className="card audio-preparation-card">
+      {draftRestored && <p role="status" className="notice">Параметры черновика восстановлены. Файлы с устройства при необходимости выберите заново.</p>}
+      {error && <div role="alert" tabIndex={-1} ref={errorAlert}><p className="error">{error}</p>{errorState.googleRecovery && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("studio:navigate-settings", { detail: { section: "connections" } }))}>Открыть настройки Google Drive</button>}</div>}
+      <section className="card audio-preparation-card" ref={inputSection} tabIndex={-1}>
         <h2>1. Исходные файлы</h2>
         <div className="tabs audio-source-tabs" role="tablist" aria-label="Способ получения исходных файлов">
           <button id="audio-source-tab-drive" type="button" role="tab" aria-selected={sourceMode === "drive"} aria-controls="audio-source-panel-drive" tabIndex={sourceMode === "drive" ? 0 : -1} className={sourceMode === "drive" ? "active" : ""} onClick={() => selectSourceMode("drive")} onKeyDown={(event) => sourceTabKeyDown(event, "drive")}>Из Google Drive</button>
@@ -903,13 +947,13 @@ export function AudioPreparationPage({ csrf, onCsrf }: Props) {
         {silenceEnabled && <details ref={silenceDetailsRef} className="audio-advanced-settings"><summary>Дополнительные настройки пауз</summary><div className="audio-settings-grid"><label>Что считать тишиной, dB<input ref={thresholdInput} type="text" inputMode="text" value={threshold} aria-invalid={silenceError?.field === "threshold"} aria-describedby={silenceError?.field === "threshold" ? "audio-threshold-error" : undefined} onChange={(e) => { setThreshold(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} /><small>Порог от −60 до −10 dB.</small>{silenceError?.field === "threshold" && <small id="audio-threshold-error" className="error" role="alert">{silenceError.message}</small>}</label><label>Минимальная пауза, сек<input ref={minimumInput} type="text" inputMode="decimal" value={minimum} aria-invalid={silenceError?.field === "minimum"} aria-describedby={silenceError?.field === "minimum" ? "audio-minimum-error" : undefined} onChange={(e) => { setMinimum(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} />{silenceError?.field === "minimum" && <small id="audio-minimum-error" className="error" role="alert">{silenceError.message}</small>}</label><label>Сколько паузы оставить, сек<input ref={keepInput} type="text" inputMode="decimal" value={keep} aria-invalid={silenceError?.field === "keep"} aria-describedby={silenceError?.field === "keep" ? "audio-keep-error" : undefined} onChange={(e) => { setKeep(e.target.value.replaceAll(".", ",")); setSilenceError(null); }} />{silenceError?.field === "keep" && <small id="audio-keep-error" className="error" role="alert">{silenceError.message}</small>}</label></div></details>}
         {processingPath === "studio" ? <fieldset className="audio-drive-save"><legend>Сохранение</legend><label><input type="checkbox" checked={saveToDrive} onChange={(e) => setSaveToDrive(e.target.checked)} /> Автоматически сохранить копию в Google Drive</label>{saveToDrive && <div className="actions"><button type="button" onClick={chooseOutputFolder} disabled={busy}>Выбрать папку</button>{driveFolder && <span>{driveFolder.name}</span>}</div>}<small>Скачать результат и передать его в транскрибацию можно будет после обработки независимо от этой настройки.</small></fieldset> : <p className="notice">Локальный результат останется в браузере до закрытия или перезагрузки вкладки. После обработки его можно скачать либо явно загрузить в Studio для Google Drive или транскрибации.</p>}
         {localProgress && <div className="upload-progress" aria-live="polite"><p><strong>{localProgress.stage === "decoding" ? "Декодируем" : localProgress.stage === "processing" ? "Обрабатываем" : localProgress.stage === "encoding" ? "Создаём WAV" : "Читаем файл"}</strong>{localProgress.filename ? `: ${localProgress.filename}` : ""}</p><progress aria-label="Прогресс локальной обработки" max="100" value={localProgress.percent}>{localProgress.percent}%</progress><small>{localProgress.percent}% · исходные файлы не отправляются в сеть</small><button type="button" onClick={() => localAbort.current?.abort()}>Отменить локальную обработку</button></div>}
-        <button className="primary" type="button" disabled={busy || planCount === 0 || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button>
+        <div className="audio-settings-action"><button className="primary" type="button" disabled={busy || planCount === 0 || (processingPath === "studio" && saveToDrive && !driveFolder)} onClick={() => processingPath === "local" ? void processLocally() : void createPreview()}>{processingPath === "local" ? "Обработать на устройстве" : "Проверить файлы и рассчитать"}</button></div>
       </section>}
       {sourceMode !== "direct-drive" && localResults.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Локальные результаты</h2>{localResults.map((result, index) => <article className="audio-job-result" key={result.url}><h3>{localResults.length > 1 ? `Результат ${index + 1}: ${result.filename}` : result.filename}</h3><p>Исходно: {duration(result.inputDurationSeconds)} · результат: {duration(result.outputDurationSeconds)}</p><AudioWaveform visual={result.visual} before={result.inputDurationSeconds} after={result.outputDurationSeconds} /><audio controls preload="none" aria-label={`Прослушать ${result.filename}`} src={result.url} /><div className="actions"><a className="button-like primary" href={result.url} download={result.filename}>Скачать файл</a><button type="button" onClick={() => void uploadLocalResult(result)} disabled={busy}>Загрузить в Studio для Drive или транскрибации</button></div></article>)}</section>}
       {sourceMode !== "direct-drive" && jobs.length > 0 && <section className="card audio-preparation-card" aria-live="polite"><h2>3. Выполнение</h2>{jobs.map((job, index) => <article className="audio-job-result" key={job.id}><h3>{jobs.length > 1 ? `Результат ${index + 1}: ${job.title}` : job.title}</h3><p><strong>{stageLabel(job.progress.stage)}</strong> · {job.progress.percent}%</p><progress max="100" value={job.progress.percent}>{job.progress.percent}%</progress>{job.preview && <p>Исходно: {duration(job.preview.input_duration_seconds)} · ожидаемый результат: {duration(job.preview.estimated_output_duration_seconds)}{job.options?.output_format === "copy" && !job.preview.copy_compatible ? " · требуется WAV или FLAC для объединения этих файлов" : ""}</p>}{job.preview && <AudioWaveform visual={job.preview.visual} before={job.preview.input_duration_seconds} after={job.preview.estimated_output_duration_seconds} />}{job.status === "preview_ready" && <AudioResultDownload key="preview" preview jobId={job.id} csrf={csrf} onCsrf={onCsrf} initialActive={job.download_active} onActiveChange={onDownloadActiveChange} />}{job.status === "preview_ready" && <button className="primary" type="button" onClick={() => void start(job)} disabled={busy || job.download_active || activeDownloads.has(job.id) || (job.options?.output_format === "copy" && job.preview?.copy_compatible === false)}>Запустить обработку</button>}{(!terminal.has(job.status) || driveExportActive(job)) && <button type="button" onClick={() => void cancel(job)} disabled={busy}>Отменить</button>}{job.recoverable_output && <button type="button" onClick={() => void recoverOutput(job)} disabled={busy}>Восстановить готовый файл</button>}{job.status === "completed" && <div className="actions">{job.output?.download_ready && (job.output.regeneration_required ? <AudioResultDownload jobId={job.id} csrf={csrf} onCsrf={onCsrf} initialActive={job.download_active} onActiveChange={onDownloadActiveChange} /> : <a className="button-like primary" href={`/api/audio-preparations/${job.id}/download`}>Скачать файл</a>)}{job.output && ((job.output.export_ready ?? job.output.download_ready) || job.output.google_drive_url) && <button className="primary" type="button" disabled={busy || pendingHandoff !== null || ((driveExportActive(job) || job.download_active || activeDownloads.has(job.id)) && !job.output?.source_id && !job.output?.google_drive_url)} onClick={() => void useOutput(job, "transcribe")}>Использовать для транскрибации</button>}{job.output && (job.output.export_ready ?? job.output.download_ready) && !job.output.google_drive_url && <button type="button" onClick={() => void saveResultToDrive(job)} disabled={busy || driveExportActive(job) || job.download_active || activeDownloads.has(job.id)}>{driveExportActive(job) ? "Сохраняем в Google Drive…" : job.output_folder ? "Повторить сохранение в Google Drive" : "Сохранить в Google Drive"}</button>}{job.output?.google_drive_url && !job.output.download_ready && <a className="button-like primary" href={job.output.google_drive_url} target="_blank" rel="noreferrer">Открыть в Google Drive</a>}{job.output && ((job.output.export_ready ?? job.output.download_ready) || job.output.google_drive_url) && <ActionMenu label={`Другие действия: ${job.title}`} disabled={busy || pendingHandoff !== null} items={[
 { id: "reuse", label: "Использовать в новой обработке", disabled: ((driveExportActive(job) || job.download_active || activeDownloads.has(job.id)) && !job.output.source_id && !job.output.google_drive_url), onSelect: () => { void useOutput(job, "reuse"); } },
 ...(job.output.google_drive_url && job.output.download_ready ? [{ id: "drive", label: "Открыть в Google Drive", href: job.output.google_drive_url }] : [])
-]} />}</div>}{job.progress.stage === "google_drive_export_failed" && <p className="error">{job.error_code === "source_unavailable" ? "Готовый файл недоступен для сохранения. Проверьте срок хранения файла или повторите позже." : "Сохранение не подтверждено. Проверьте подключение Google Drive и повторите: Studio проверит существующую копию перед загрузкой. Готовый файл можно скачать."}</p>}{job.status === "completed" && (job.download_active || activeDownloads.has(job.id)) && <p className="muted">Скачайте файл или закройте скачивание, чтобы начать сохранение в Google Drive.</p>}{job.output_folder && job.output && <p className="muted">Папка копии: {job.output_folder.name}</p>}{job.output?.regeneration_required && <p className="muted">Для скачивания и сохранения файл собирается из исходников по сохранённым параметрам. Доступен, пока исходники хранятся в Studio или доступны в Google Drive. Повторное использование передаёт копию из Google Drive; если её нет, выберите папку для сохранения.</p>}{pendingHandoff?.jobId === job.id && <p role="status">Сохраняем копию в Google Drive для передачи результата…</p>}{job.output && !job.output.download_ready && (job.output.google_drive_url ? <p className="notice">Копия результата сохранена в Google Drive. Откройте её или используйте для транскрибации. Срок хранения исходников в Studio истёк; повторная сборка для скачивания недоступна.</p> : <p className="error">Исходники больше недоступны. Добавьте файлы заново, чтобы собрать результат.</p>)}{job.status === "failed" && <p className="error">{errorLabel(job.error_code)}</p>}</article>)}</section>}
+]} />}</div>}{job.progress.stage === "google_drive_export_failed" && <p className="error">{job.error_code === "source_unavailable" ? "Готовый файл недоступен для сохранения. Проверьте срок хранения файла или повторите позже." : "Сохранение не подтверждено. Проверьте подключение Google Drive и повторите: Studio проверит существующую копию перед загрузкой. Готовый файл можно скачать."}</p>}{job.status === "completed" && (job.download_active || activeDownloads.has(job.id)) && <p className="muted">Скачайте файл или закройте скачивание, чтобы начать сохранение в Google Drive.</p>}{job.output_folder && job.output && <p className="muted">Папка копии: {job.output_folder.name}</p>}{job.output?.regeneration_required && <p className="muted">Для скачивания и сохранения файл собирается из исходников по сохранённым параметрам. Доступен, пока исходники хранятся в Studio или доступны в Google Drive. Повторное использование передаёт копию из Google Drive; если её нет, выберите папку для сохранения.</p>}{pendingHandoff?.jobId === job.id && <p role="status">Сохраняем копию в Google Drive для передачи результата…</p>}{job.output && !job.output.download_ready && (job.output.google_drive_url ? <p className="notice">Копия результата сохранена в Google Drive. Откройте её или используйте для транскрибации. Срок хранения исходников в Studio истёк; повторная сборка для скачивания недоступна.</p> : <p className="error">Исходники больше недоступны. Добавьте файлы заново, чтобы собрать результат.</p>)}{job.status === "failed" && <div className="audio-recovery" role="alert"><p className="error">{errorLabel(job.error_code)}</p><p>Исходные файлы: {job.inputs.map((input) => input.filename).join(", ") || "выбранные записи"}. Если файлов несколько, точный повреждённый файл не установлен: проверьте их по отдельности.</p><button type="button" disabled={busy} onClick={chooseDifferentSource}>Выбрать другой файл</button></div>}</article>)}</section>}
     </div>
   );
 }

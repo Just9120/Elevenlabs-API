@@ -143,6 +143,7 @@ describe("JobDetailSection", () => {
     const usage = screen.getByLabelText("Расход сервиса распознавания по задаче");
     expect(usage).toHaveTextContent("Подтверждённая длительность: 12,612 с");
     expect(usage).toHaveTextContent("Номинальная стоимость: 0,00077073 USD");
+    expect(within(usage).getByText("менее 0,01 USD")).toBeVisible();
     expect(usage).toHaveTextContent("а не фактическое списание");
     expect(usage).toHaveTextContent("Настройки → Подключения");
     expect(usage).toHaveTextContent("Тариф: 0,22 USD/ч");
