@@ -104,6 +104,7 @@ from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import (
     SourceDeletionReason,
     bulk_source_deletion_preview,
+    validate_bulk_source_selection,
     is_source_expired,
     request_source_deletion,
 )
@@ -571,6 +572,12 @@ class ConfirmedBulkSourceDeletionIn(BaseModel):
     expected_preview_token: str = Field(pattern="^[a-f0-9]{64}$")
     expected_eligible_count: StrictInt = Field(ge=0)
     expected_blocked_count: StrictInt = Field(ge=0)
+    source_ids: list[str] | None = Field(default=None, min_length=1, max_length=50)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_selection(cls, value):
+        return validate_bulk_source_selection(value)
 
     @field_validator("confirm_delete")
     @classmethod
@@ -3087,16 +3094,22 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
 @app.get("/api/projects/{project_id}/sources/bulk-deletion/preview")
 def preview_bulk_source_deletion(
     project_id: str,
+    source_ids: list[str] | None = Query(default=None, min_length=1, max_length=50),
     pair=Depends(current_session),
     db: Session=Depends(get_db),
 ):
     _, user = pair
     limiter.check("source:bulk-delete:preview:" + user.id, 60, 3600)
+    try:
+        selection = validate_bulk_source_selection(source_ids)
+    except ValueError:
+        raise HTTPException(422, "Недопустимый набор выбранных файлов")
     preview = bulk_source_deletion_preview(
         db,
         owner_user_id=user.id,
         project_id=project_id,
         now=utcnow(),
+        source_ids=selection,
     )
     if preview is None:
         raise HTTPException(404, "Не найдено")
@@ -3121,6 +3134,7 @@ def apply_bulk_source_deletion(
         project_id=project_id,
         now=now,
         lock_sources=True,
+        source_ids=data.source_ids,
     )
     if preview is None:
         raise HTTPException(404, "Не найдено")

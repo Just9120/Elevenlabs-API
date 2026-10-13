@@ -61,6 +61,48 @@ def _local_source(db, m, project, now, *, key="k", bucket="b", status=None, expi
     return src
 
 
+def test_selected_preview_is_subset_bound_and_rechecks_active_jobs(sqlite_db):
+    from studio_api.source_deletion import bulk_source_deletion_preview
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    selected = _local_source(sqlite_db, m, project, now, key="selected")
+    untouched = _local_source(sqlite_db, m, project, now, key="untouched")
+    sqlite_db.commit()
+    subset = bulk_source_deletion_preview(sqlite_db, owner_user_id=user.id, project_id=project.id, now=now, source_ids=[selected.id])
+    whole = bulk_source_deletion_preview(sqlite_db, owner_user_id=user.id, project_id=project.id, now=now)
+    assert subset.eligible_ids == (selected.id,)
+    assert subset.preview_token != whole.preview_token
+    assert subset.payload()["listed_count"] == 1
+    _job_for_source(sqlite_db, m, user, project, selected, status=m.JobStatus.processing)
+    sqlite_db.commit()
+    changed = bulk_source_deletion_preview(sqlite_db, owner_user_id=user.id, project_id=project.id, now=now, lock_sources=True, source_ids=[selected.id])
+    assert changed.eligible_ids == ()
+    assert changed.blocked_reasons == {"processing_job_uses_source": 1}
+    assert changed.preview_token != subset.preview_token
+    assert untouched.deleted_at is None
+
+
+def test_selected_preview_never_includes_a_different_project_source(sqlite_db):
+    from studio_api.source_deletion import bulk_source_deletion_preview
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    foreign_user=m.User(email="foreign-synthetic@example.test", role=m.UserRole.user, status=m.UserStatus.active)
+    sqlite_db.add(foreign_user);sqlite_db.flush()
+    foreign_project=m.Project(owner_user_id=foreign_user.id,title="foreign")
+    sqlite_db.add(foreign_project);sqlite_db.flush()
+    foreign=_local_source(sqlite_db,m,foreign_project,now,key="foreign")
+    preview=bulk_source_deletion_preview(sqlite_db,owner_user_id=user.id,project_id=project.id,now=now,source_ids=[foreign.id])
+    assert preview.eligible_ids == () and preview.payload()["listed_count"] == 0
+    assert foreign.deleted_at is None
+
+
+@pytest.mark.parametrize("selection", [[], ["same", "same"], ["x" * 37], list(map(str, range(51)))])
+def test_invalid_selection_never_falls_back_to_whole_project(selection):
+    from studio_api.source_deletion import validate_bulk_source_selection
+    with pytest.raises(ValueError, match="invalid_source_selection"):
+        validate_bulk_source_selection(selection)
+
+
 class FakeStorageSettings:
     source_s3_endpoint_url = "https://r2.test"
     source_s3_region = "auto"

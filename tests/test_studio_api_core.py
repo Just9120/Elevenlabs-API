@@ -3002,6 +3002,27 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
 
 
+def test_selected_bulk_cleanup_deletes_only_confirmed_subset_and_rejects_replay():
+    client, headers, project_id = create_logged_in_project("selected-cleanup@example.com")
+    selected_id=create_gdrive_source(client,headers,project_id,"selected-synthetic.mp4")
+    untouched_id=create_gdrive_source(client,headers,project_id,"untouched-synthetic.mp4")
+    path=f"/api/projects/{project_id}/sources/bulk-deletion"
+    preview=client.get(f"{path}/preview",params={"source_ids":[selected_id]})
+    assert preview.status_code==200
+    payload=preview.json()
+    assert payload["eligible_count"]==1 and payload["listed_count"]==1
+    body={"confirm_delete":True,"source_ids":[selected_id],"expected_preview_token":payload["preview_token"],"expected_eligible_count":1,"expected_blocked_count":0}
+    assert client.post(path,json=body).status_code==403
+    applied=client.post(path,json=body,headers=headers)
+    assert applied.status_code==200
+    assert applied.json()["deleted_count"]==1 and applied.json()["google_drive_files_deleted"]==0
+    with SessionLocal() as db:
+        assert db.get(Source,selected_id).deleted_at is not None
+        assert db.get(Source,untouched_id).deleted_at is None
+        assert db.get(Source,selected_id).drive_file_id is not None
+    assert client.post(path,json=body,headers=headers).status_code==409
+
+
 def test_bulk_source_deletion_is_owner_scoped_confirmed_and_drive_safe():
     client, headers, project_id = create_logged_in_project(
         "bulk-source-delete@example.com"
@@ -3060,6 +3081,20 @@ def test_bulk_source_deletion_is_owner_scoped_confirmed_and_drive_safe():
         "expected_eligible_count": 2,
         "expected_blocked_count": 1,
     }
+    selected = client.get(f"{path}/preview", params={"source_ids": [drive_source_id]})
+    assert selected.status_code == 200
+    assert selected.json()["eligible_count"] == 1
+    assert selected.json()["blocked_count"] == 0
+    assert selected.json()["preview_token"] != confirmation["expected_preview_token"]
+    # A selected preview must not authorize a whole-project mutation.
+    widened = client.post(path, json={
+        "confirm_delete": True,
+        "expected_preview_token": selected.json()["preview_token"],
+        "expected_eligible_count": 1,
+        "expected_blocked_count": 0,
+    }, headers=headers)
+    assert widened.status_code == 409
+    assert client.get(f"{path}/preview", params=[("source_ids", drive_source_id), ("source_ids", drive_source_id)]).status_code == 422
     assert client.post(path, json=confirmation).status_code == 403
     assert client.post(
         path,
