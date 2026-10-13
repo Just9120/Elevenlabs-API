@@ -74,6 +74,7 @@ class BulkSourceDeletionPreview:
     eligible_unknown_size_count: int
     blocked_bytes: int
     blocked_unknown_size_count: int
+    selection_ids: tuple[str, ...] | None = None
 
     def payload(self) -> dict:
         return {
@@ -88,6 +89,7 @@ class BulkSourceDeletionPreview:
             "blocked_unknown_size_count": self.blocked_unknown_size_count,
             "blocked_reasons": dict(sorted(self.blocked_reasons.items())),
             "google_drive_files_deleted": 0,
+            **({"selection_ids": list(self.selection_ids)} if self.selection_ids is not None else {}),
         }
 
 
@@ -307,6 +309,7 @@ def bulk_source_deletion_preview(
         eligible_unknown,
         blocked_bytes,
         blocked_unknown,
+        tuple(selection) if selection is not None else None,
     )
 
 

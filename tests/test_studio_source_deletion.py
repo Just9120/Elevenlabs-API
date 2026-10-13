@@ -73,6 +73,8 @@ def test_selected_preview_is_subset_bound_and_rechecks_active_jobs(sqlite_db):
     assert subset.eligible_ids == (selected.id,)
     assert subset.preview_token != whole.preview_token
     assert subset.payload()["listed_count"] == 1
+    assert subset.payload()["selection_ids"] == [selected.id]
+    assert "selection_ids" not in whole.payload()
     _job_for_source(sqlite_db, m, user, project, selected, status=m.JobStatus.processing)
     sqlite_db.commit()
     changed = bulk_source_deletion_preview(sqlite_db, owner_user_id=user.id, project_id=project.id, now=now, lock_sources=True, source_ids=[selected.id])

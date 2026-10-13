@@ -1600,7 +1600,7 @@ describe("Studio PWA", () => {
     mock.mockImplementation((url:string,init?:RequestInit) => {
       if(url.includes("/sources/bulk-deletion/preview?")) {
         expect(new URL(url,"https://synthetic.test").searchParams.getAll("source_ids")).toEqual(["s1","s-local"]);
-        return json({preview_token:"a".repeat(64),eligible_count:1,blocked_count:1,listed_count:2,hidden_expired_count:0,eligible_bytes:1024,blocked_bytes:1024,eligible_unknown_size_count:0,blocked_unknown_size_count:0,blocked_reasons:{processing_job_uses_source:1},google_drive_files_deleted:0});
+        return json({selection_ids:["s-local","s1"],preview_token:"a".repeat(64),eligible_count:1,blocked_count:1,listed_count:2,hidden_expired_count:0,eligible_bytes:1024,blocked_bytes:1024,eligible_unknown_size_count:0,blocked_unknown_size_count:0,blocked_reasons:{processing_job_uses_source:1},google_drive_files_deleted:0});
       }
       if(url.endsWith("/sources/bulk-deletion") && init?.method === "POST") {
         expect(JSON.parse(String(init.body))).toEqual({confirm_delete:true,expected_preview_token:"a".repeat(64),expected_eligible_count:1,expected_blocked_count:1,source_ids:["s1","s-local"]});
@@ -1620,6 +1620,22 @@ describe("Studio PWA", () => {
     expect(await screen.findByText(/Из Studio убрано файлов: 1\. Пропущено: 1/)).toBeVisible();
     expect(screen.getByRole("checkbox",{name:"Выбрать файл: local-temp.ogg",exact:true})).toBeChecked();
     expect(mock.mock.calls.filter(([,init]) => init?.method === "DELETE")).toHaveLength(0);
+  });
+
+  it.each([undefined, ["other-source"]])("selected cleanup fails closed for legacy or mismatched API selection %s", async (selection) => {
+    const mock=fetch as ReturnType<typeof vi.fn>;
+    const original=mock.getMockImplementation();
+    mock.mockImplementation((url:string,init?:RequestInit) => {
+      if(url.includes("/sources/bulk-deletion/preview?")) return json({selection_ids:selection,preview_token:"a".repeat(64),eligible_count:1,blocked_count:1,listed_count:2,hidden_expired_count:0,eligible_bytes:1024,blocked_bytes:1024,eligible_unknown_size_count:0,blocked_unknown_size_count:0,blocked_reasons:{processing_job_uses_source:1},google_drive_files_deleted:0});
+      return original?.(url,init) ?? json({});
+    });
+    renderApp();
+    await openSettingsSection("Файлы и хранилище");
+    await userEvent.click(await screen.findByRole("button",{name:"Выбрать загруженные файлы (до 50)",exact:true}));
+    await userEvent.click(screen.getByRole("button",{name:"Убрать выбранные (2)",exact:true}));
+    expect(await screen.findByText(/Studio не подтвердила выбранные файлы/)).toBeVisible();
+    expect(screen.queryByRole("button",{name:/Подтвердить очистку/})).not.toBeInTheDocument();
+    expect(mock.mock.calls.filter(([,init]) => init?.method === "DELETE" || (init?.method === "POST" && String(init.body).includes("confirm_delete")))).toHaveLength(0);
   });
 
   it("selected terminal dismissal confirms readback without starting transcription", async () => {
