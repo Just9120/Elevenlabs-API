@@ -25,6 +25,9 @@ export function parseAudioVisual(value: unknown): AudioVisual | null {
 }
 
 const timestamp = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const reductionLabel = (seconds: number) => seconds > 0 && seconds < 1
+  ? seconds < 0.01 ? "менее 0,01 с" : `${seconds.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} с`
+  : timestamp(seconds);
 
 export function AudioWaveform({ visual: value, before, after }: { visual: unknown; before: number; after: number }) {
   const pattern = useId().replaceAll(":", "");
@@ -38,7 +41,7 @@ export function AudioWaveform({ visual: value, before, after }: { visual: unknow
   const truncated = visual.sources.some((source) => source.intervals_truncated);
   const hasWaveform = visual.sources.some((source) => source.peaks.length > 0);
   return <section className="audio-waveform" aria-label="Анализ звука и пауз">
-    <p>До: {timestamp(before)} · после сокращения: {timestamp(after)} · сокращение: {timestamp(Math.max(0, before - after))}</p>
+    <p>До: {timestamp(before)} · после сокращения: {timestamp(after)} · сокращение: {reductionLabel(Math.max(0, before - after))}</p>
     {hasWaveform ? <svg viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label={`Звуковая огибающая. Найдено пауз: ${count}. Штриховкой отмечены сокращаемые участки.`}>
       <defs><pattern id={pattern} width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8L8 0" stroke="currentColor" strokeWidth="2" /></pattern></defs>
       {intervals.map((part, index) => <g key={index}>

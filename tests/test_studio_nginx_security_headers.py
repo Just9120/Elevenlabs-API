@@ -94,6 +94,8 @@ def test_csp_is_picker_compatible_without_script_wildcards_or_eval():
     ]
     assert directives["worker-src"] == ["'self'", "blob:"]
     assert directives["manifest-src"] == ["'self'"]
+    # API preview is same-origin; local audio uses blob URLs, never remote media.
+    assert directives["media-src"] == ["'self'", "blob:"]
     assert "upgrade-insecure-requests" in directives
 
 

@@ -2,7 +2,45 @@
 
 ## Current work и checkpoint
 
-### FINDINGS-UX-20261011 — IN_PROGRESS
+### UX-STUDIO-20261014 — IN_PROGRESS
+
+Основание: владелец 14Oct2026 поручил все правки итогового UX/UI-ревью как единую Goal. Built-in Goal активирована и проверена. Base/fresh origin/main `99f174ea4337570ef042bdd8764fbbd4ec4e7478`; отдельная ветка `codex/ux-studio-20261014`, один worktree, tracked state чистый до подготовки. GitHub: открытых PR нет, main требует `ci-required`, approvals0. Unrelated branch/stash/ignored материалы сохраняются.
+
+Результат: рабочее прослушивание аудио, сохраняемые безопасные черновики, понятные ошибки/recovery, удобные списки и мобильные действия. Один основной PR; узкие изменения — локальные commits. Старые исправленные UXR01..13 не реализуются повторно; новые проявления UXR07/10/12 входят в текущий scope.
+
+| Критерий Goal | Scope / результат | Статус |
+|---|---|---|
+| G01 | UXR20: HTML audio допускает same-origin и локальный blob, остальные CSP ограничения сохранены; реальная проверка плеера | IN_PROGRESS |
+| G02 | UXR14: owner-scoped audio/batch drafts восстанавливают параметры/строки после reload; File/blob, ключи/токены и секретные адреса не сохраняются; logout изолирует данные | BACKLOG |
+| G03 | UXR15: удалённую незапущенную строку можно вернуть с параметрами и позицией; feedback соответствует действию | BACKLOG |
+| G04 | UXR16/21: локальная и серверная ошибки видимы рядом с действием, доступный recovery; сервер указывает проблемный источник, не раскрывая private paths | BACKLOG |
+| G05 | UXR07: pagination/filter переводят focus к новым результатам; видимые chips, счётчики и reset; выбранные завершённые задачи можно убрать в историю с учётом partial failures | BACKLOG |
+| G06 | UXR17: точный переход к раскрытому maintenance-access, возврат к обслуживанию без автоматического OAuth grant | BACKLOG |
+| G07 | UXR18: документ открывается прямо из обзора, задача — в своих деталях; URL validation/ownership сохраняются | BACKLOG |
+| G08 | UXR10: компактная история, drawer деталей с Escape/focus return, отдельный mobile presentation; primary/cancel/recovery остаются видимыми | BACKLOG |
+| G09 | UXR12/19: читаемая стоимость с exact disclosure, ненулевые доли секунды не показываются нулём | BACKLOG |
+| G10 | Дополнительные правки: массовые действия только для поддерживаемых безопасных операций; inline title для незапущенных строк; sticky action bar без перекрытий; mobile sheet для вторичных действий; empty CTA файлов/словарей | BACKLOG |
+
+Non-goals: уже исправленные findings, commercial/Яндекс/voice identity/personal email/cleaned experiment, палитра команд, новые платные scans, установка PWA и speculative deployment. Сетевые/offline/standalone ограничения остаются Evidence gaps, не выдуманными дефектами. Destructive production tests не выполняются; synthetic проверки используют существующее изолированное окружение. Provider canary только в ранее согласованном бюджете и с точечным удалением собственных test bytes/docs, metadata/расход сохраняются.
+
+DoD: G01..G10 выполнены; применимые local checks/self-review; current revision required CI/review; merge; web/API/worker/edge только по затронутым units, exact identity/health/прикладные smoke и required Environment approval; безопасная очистка своих веток. CSP edge поставка требует действующего reviewer gate, не bypass. Миграция без необходимости не добавляется.
+
+Validation Plan:
+
+| Риск / критерий | Проверка / команда и каталог | Environment / этап / применимость |
+|---|---|---|
+| CSP/audio | Existing security-header contracts; реальный browser playback same-origin/blob | Root targeted Python и Studio browser; REQUIRED до merge/после edge |
+| Draft isolation, Undo, errors, drawer, filters, links, costs | Affected Vitest из `apps/studio`; `npm run lint`, `npm run build`; `git diff --check` | Synthetic local REQUIRED до initial push |
+| Mobile/keyboard/media | Existing `STUDIO_BROWSER_LAYOUT_ONLY=1 npm run test:e2e` + meaningful regression scenarios | Local isolated desktop1280x720/mobile390x844 REQUIRED; реальные permissions/standalone отдельно PARTIAL |
+| API/source error DTO и compatibility | Affected Python tests; полная applicable suite в существующем CI | Synthetic PG/Redis/FFmpeg в Linux CI REQUIRED; Windows portable не заменяет CI |
+| Repository conventions | `python scripts/ci_checks.py`, ID/link/diff/self-review | Local REQUIRED до initial push |
+| Delivery | Existing platform/edge workflows и runbook, current main/artifact identity, readiness и bounded smoke | GitHub/VPS REQUIRED; remaining included minutes UNSET, speculative reruns запрещены |
+
+Checkpoint14Oct: scope/Validation Plan закреплены до изменения кода. G01/G09 code/targeted validation PASS: security-header contracts8/8, waveform/download/detail UI23/23; media-src допускает только self/blob, сокращение менее секунды показано точно, основная стоимость округлена с exact disclosure. Initial sandbox Vitest EPERM относится к temp cache; тот же synthetic прогон вне sandbox PASS. Реальная проверка плеера/remote CI/merge/CD PENDING. Остальные UX изменения в работе; initial push только после всего scope и local validation.
+
+### FINDINGS-UX-20261011 — DONE по первичным records
+
+PR329/330/331, main99f174e и поставка завершены11Oct; source evidence и ограничения ниже сохраняются как previous checkpoint. Старые PENDING строки относятся к моменту подготовки; итог восстановлен по primary records и `.tmp/findings-ux-release-checkpoint.md` вне canonical реестра. Новая Goal не возобновляет старую.
 
 Основание: владелец поручил взять единой Goal все findings, кроме Яндекса, и все UX/UI правки браузерного ревью 11Oct2026. Последующие решения сохраняют F08/F09, F62 и personal email F66 отложенными. Встроенная Goal текущего чата создана и проверена инструментом; ранее BLOCKED на reviewer gate, теперь gate одобрен владельцем и работа продолжается. Инструмент не предоставляет resume; новую Goal не создаём.
 

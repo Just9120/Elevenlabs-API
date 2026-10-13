@@ -8,6 +8,10 @@ const visual: AudioVisual = { removed_seconds: 2.5, sources: [{ position: 0, dur
   silence_count: 1, silences: [{ start: 2, end: 5, removed_seconds: 2.5 }], intervals_truncated: false }] };
 
 describe("audio waveform and pause comparison", () => {
+  it("does not describe a positive subsecond reduction as zero", () => {
+    render(<AudioWaveform visual={visual} before={3} after={2.2} />);
+    expect(screen.getByText(/сокращение: 0,8 с/)).toBeVisible();
+  });
   it("renders truthful duration, waveform and accessible interval details", async () => {
     render(<AudioWaveform visual={visual} before={10} after={7.5} />);
     expect(screen.getByRole("img")).toHaveAccessibleName(/Найдено пауз: 1/);
