@@ -66,15 +66,9 @@ Colab batch запускается вручную через `notebooks/elevenla
 | [docs/runbooks/studio-platform-ops.md](docs/runbooks/studio-platform-ops.md) | Studio rollout и production operations. |
 | [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype, диагностика и ограничения runtime-проверок. |
 
-## Historical и supporting evidence
+## Проверенное состояние проекта
 
-Dated audits фиксируют состояние на указанный revision/date. Они не являются current source of truth, readiness input или implementation authorization.
-
-| Документ | Назначение |
-|---|---|
-| [docs/audits/repository-audit-2026-08-27.md](docs/audits/repository-audit-2026-08-27.md) | Evidence-based audit на pre-PR `#245` baseline; findings и gaps. |
-| [docs/audits/repository-audit-2026-07-26.md](docs/audits/repository-audit-2026-07-26.md) | Исторический audit supporting evidence. |
-| [docs/audits/repository-audit-2026-07-21.md](docs/audits/repository-audit-2026-07-21.md) | Более ранний historical audit, перенесённый из operational runbooks. |
+Актуальные findings, readiness snapshots и Evidence находятся в [плане поставки](docs/delivery-plan.md). Старые отдельные аудиты июля–августа удалены из рабочего дерева; предыдущие revisions остаются в Git history.
 
 Опциональные `docs/utility/context-bundle-builder.md` и `docs/ai-delivery-infrastructure-plan.md` в текущем repository отсутствуют; их содержание не предполагается.
 
