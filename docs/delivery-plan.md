@@ -10,15 +10,15 @@
 
 | Критерий Goal | Scope / результат | Статус |
 |---|---|---|
-| G01 | UXR20: HTML audio допускает same-origin и локальный blob, остальные CSP ограничения сохранены; реальная проверка плеера | IN_PROGRESS |
-| G02 | UXR14: owner-scoped audio/batch drafts восстанавливают параметры/строки после reload; File/blob, ключи/токены и секретные адреса не сохраняются; logout изолирует данные | IN_PROGRESS |
-| G03 | UXR15: удалённую незапущенную строку можно вернуть с параметрами и позицией; feedback соответствует действию | IN_PROGRESS |
-| G04 | UXR16/21: локальная и серверная ошибки видимы рядом с действием, доступный recovery; показаны известные исходники без private paths; при нескольких файлах точный виновник не выдумывается | IN_PROGRESS |
-| G05 | UXR07: pagination/filter переводят focus к новым результатам; видимые chips, счётчики и reset; выбранные завершённые задачи можно убрать в историю с учётом partial failures | IN_PROGRESS |
-| G06 | UXR17: точный переход к раскрытому maintenance-access, возврат к обслуживанию без автоматического OAuth grant | IN_PROGRESS |
-| G07 | UXR18: документ открывается прямо из обзора, задача — в своих деталях; URL validation/ownership сохраняются | IN_PROGRESS |
-| G08 | UXR10: компактная история, drawer деталей с Escape/focus return, отдельный mobile presentation; primary/cancel/recovery остаются видимыми | IN_PROGRESS |
-| G09 | UXR12/19: читаемая стоимость с exact disclosure, ненулевые доли секунды не показываются нулём | IN_PROGRESS |
+| G01 | UXR20: HTML audio допускает same-origin и локальный blob, остальные CSP ограничения сохранены; реальная проверка плеера | READY |
+| G02 | UXR14: owner-scoped audio/batch drafts восстанавливают параметры/строки после reload; File/blob, ключи/токены и секретные адреса не сохраняются; logout изолирует данные | READY |
+| G03 | UXR15: удалённую незапущенную строку можно вернуть с параметрами и позицией; feedback соответствует действию | READY |
+| G04 | UXR16/21: локальная и серверная ошибки видимы рядом с действием, доступный recovery; показаны известные исходники без private paths; при нескольких файлах точный виновник не выдумывается | READY |
+| G05 | UXR07: pagination/filter переводят focus к новым результатам; видимые chips, счётчики и reset; выбранные завершённые задачи можно убрать в историю с учётом partial failures | READY |
+| G06 | UXR17: точный переход к раскрытому maintenance-access, возврат к обслуживанию без автоматического OAuth grant | READY |
+| G07 | UXR18: документ открывается прямо из обзора, задача — в своих деталях; URL validation/ownership сохраняются | READY |
+| G08 | UXR10: компактная история, drawer деталей с Escape/focus return, отдельный mobile presentation; primary/cancel/recovery остаются видимыми | READY |
+| G09 | UXR12/19: читаемая стоимость с exact disclosure, ненулевые доли секунды не показываются нулём | READY |
 | G10 | Дополнительные правки: массовые действия только для поддерживаемых безопасных операций; inline title для незапущенных строк; sticky action bar без перекрытий; mobile sheet для вторичных действий; empty CTA файлов/словарей | IN_PROGRESS |
 
 Non-goals: уже исправленные findings, commercial/Яндекс/voice identity/personal email/cleaned experiment, палитра команд, новые платные scans, установка PWA и speculative deployment. Сетевые/offline/standalone ограничения остаются Evidence gaps, не выдуманными дефектами. Destructive production tests не выполняются; synthetic проверки используют существующее изолированное окружение. Provider canary только в ранее согласованном бюджете и с точечным удалением собственных test bytes/docs, metadata/расход сохраняются.
@@ -60,6 +60,15 @@ Checkpoint14Oct: G01..G10 реализованы в candidate branch, local chec
 - Self-review: sessionStorage содержит только bounded owner/project metadata, повторное платное bypass-confirmation сбрасывается; File/blob/keys/tokens/transcript bodies/transport URLs не сохраняются. Undo не создаёт job. Bulk source selection1..50 проверяется API; token связан с точным набором и fresh locked snapshot; CSRF/recent auth и занятые источники сохраняют existing gates. Unknown mutation не повторяется вслепую. Single/all deletion совместимы с прежним API. Drawer освобождает native inertness до возврата focus; mobile меню не скрывает primary/recovery.
 - Delivery scope: web и API автоматически после main CI; source_deletion.py — shared worker dependency, требуется existing drain/worker manual lane и exact main identity. Schema0041 unchanged, migration N/A. Edge lane для одного CSP snippet, reviewer Environment gate обязателен; release-enable false до согласованного release window и возвращается false после поставки. Новые paid scans и provider calls не запускались.
 - Осталось: initial push/один PR → required exact-revision CI/review → merge → web/API и совместимый worker → protected edge → bounded runtime/UI smoke → cleanup своих веток. Test objects на production в этой Goal не создавались.
+
+
+Hotfix compatibility14Oct: основной PR332 MERGED/main206c579d77f282e9ada1135d49a2ee807593e51b. CI38477514519 SUCCESS: Python2135, Studio819, authenticated/layout browser17; exact main CI38478146748 SUCCESS с immutable full-PR validation reuse, без дублирования suite. Platform CD38478199729 web/API SUCCESS, worker38478822427 в работе; edge38478332090 фактически ждёт Just9120 approval. Schema0041 unchanged. G01..G09 READY по реализации/CI, delivery Goal ещё не DONE.
+
+При проверке rollout найден UXR22: старый API игнорирует неизвестные query/body source_ids, поэтому web-before-API или rollback может показать global preview как выбранный набор. FIX/P1 в G10/PUX-20; HIGH: static contract и regression legacy/mismatched response. Hotfix делает explicit selection echo, fail-closed клиент до POST; extra поле только для selected preview, прежний all-files payload сохраняется. Миграция/API бизнес-правила удаления не меняются, новый AC не добавляется.
+
+Branch `codex/ux-selected-cleanup-compat`, fresh base206c579, main чистый до начала; необходимый hotfix сверх одного основного PR разрешён владельцем. Local49 source-deletion tests и3 UI selected scenarios PASS, lint/typecheck/diff PASS. Required exact-head CI/review, merge и affected web/API/worker CD PENDING. Merge hotfix только после завершения первой применимой поставки, включая pending edge gate: current-main recheck старого edge run сохраняется. Source headers не меняются в hotfix; повторная edge поставка после него N/A при подтверждённой неизменности snippet.
+
+Validation hotfix REQUIRED: legacy/mismatched preview даёт zero mutation, correct selection подтверждается; old global payload совместим; affected unit/contract/UI + lint/typecheck/build/diff/self-review; полный remote CI; exact-main component delivery/health и bounded safe browser smoke. PostgreSQL/Redis/Linux остаются remote-only, никаких paid/transcript calls, deletion или новых production test objects.
 
 ### FINDINGS-UX-20261011 — DONE по первичным records
 
@@ -140,15 +149,15 @@ PR329 интегрирован и поставлен на main5601f1a; AC и fin
 
 PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбранных AC READY на момент closure; CI37430070244/37430070238, protected web/API/migration37430070252, worker37431465267 и status37432061023 SUCCESS. Старые pre-merge PENDING в реестрах заменены primary results; вновь выявленные независимые нарушения F74/F75 возвращают соответствующие AC в работу. Closure предыдущей Goal не доказывает отсутствие новых findings.
 
-## Готовность — main после PR329, 2026-10-11
+## Готовность — main после PR332, 2026-10-14
 
 Основание: проверенный origin/main `622430328681e39f62a2a45a6c141d4e520387b8`, исходный audit A20261010-CODE/CI и проверенные изменения PR329/CI38141779639. READY — выполнено в коде и подходящих автоматических проверках; dogfooding ad-hoc. F66 отложен, его AC сохранён в полном roadmap; readiness denominator не сокращён ради закрытия Goal.
 
-- **Current personal: 427/444 = 96.2%.** Colab + текущие Studio/extensions +17 общих technical EVC; исключены224 future commercial и9 voice identity AC.
-- **Полный roadmap: 432/677 = 63.8%.** Будущие контуры не блокируют personal; это другой denominator.
+- **Current personal: 436/454 = 96.0%.** Colab + текущие Studio/extensions +17 общих technical EVC; исключены224 future commercial и9 voice identity AC.
+- **Полный roadmap: 441/687 = 64.2%.** Будущие контуры не блокируют personal; это другой denominator.
 - Состав неизменён:701 стабильный ID,677 active,24 ALIAS/SUPERSEDED. STORAG-06 уточнён по уже согласованному Q162..164 для transcription inputs; новый продуктовый scope/AC не добавлен. PUX-08/STORAG-06 READY→IN_PROGRESS по F74/F75; нарушения denominator не меняют.
-- **Предыдущий snapshot10Oct наbc5150e: personal415/444=93.5%; full420/677=62.0%.** 12 AC стали READY по PR329/CI; состав AC неизменён. Полный повторный аудит не проводился.
-- Незавершённые current personal AC (17): `PM-05`, `STTPRO-05`, `YANDEX-01`, `YANDEX-02`, `YANDEX-05`, `YD-01`, `YD-02`, `YD-03`, `YD-04`, `YD-05`, `YD-07`, `YD-08`, `YD-09`, `UXN-04`, `MC-08`, `MC-09` (исключённый Yandex scope); `SECX-06` BACKLOG (personal email отложен владельцем).
+- **Предыдущий snapshot11Oct на99f174e: personal427/444=96.2%; full432/677=63.8%.** Добавлены10 owner-approved UX AC;9 READY, PUX-20 требует compatibility hotfix. AP-31 восстановлен после исправления CSP в коде/CI; delivery отдельно pending. Пересчёт на origin/main206c579 по registry и primary PR/CI records; текущий denominator включает10 новых AC.
+- Незавершённые current personal AC (18): `PUX-20` (compatibility hotfix); `PM-05`, `STTPRO-05`, `YANDEX-01`, `YANDEX-02`, `YANDEX-05`, `YD-01`, `YD-02`, `YD-03`, `YD-04`, `YD-05`, `YD-07`, `YD-08`, `YD-09`, `UXN-04`, `MC-08`, `MC-09` (исключённый Yandex scope); `SECX-06` BACKLOG (personal email отложен владельцем).
 
 ### Эпики / features на проверенном main
 

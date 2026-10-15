@@ -40,16 +40,16 @@
 | `PUX-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PUX-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PUX-14` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-15` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-16` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-17` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-18` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-19` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-20` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-21` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-22` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
-| `PUX-23` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014 candidate branch; local component/browser/contract checks14Oct PASS по Validation Plan; current revision CI/merge/CD PENDING. |
+| `PUX-14` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-15` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-16` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-17` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-18` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-19` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-20` | IN_PROGRESS | ✅ | ✅ | PENDING | PR332 implementation/CI PASS; UXR22 web-before-API compatibility gap. Candidate hotfix local49 server contracts/3 UI scenarios PASS; current-head CI/merge/component delivery PENDING. |
+| `PUX-21` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-22` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
+| `PUX-23` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
 
 Основание PUX-14..23: owner decision14Oct2026 — все правки повторного UX/UI-ревью выбраны единой Goal. Исправления UXR20/21/12/19 уточняют existing AP/PUX/cost AC, сами findings denominator не увеличивают. Черновики хранятся только в текущей browser session; полного восстановления File после закрытия приложения не обещают.
 
@@ -184,7 +184,7 @@
 | `AP-27` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-28` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `AP-29` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `AP-31` | IN_PROGRESS | ✅ | ✅ | PENDING | UX-STUDIO-20261014: baseline99f174e нарушает прослушивание из-за media-src none (UXR20), прежний READY пересмотрен. Candidate58c3b41 допускает self/blob; security-header contracts и реальный Chromium WAV playback PASS14Oct. Остальное прежнее processing Evidence сохраняется; current revision CI/merge/edge/runtime PENDING. |
+| `AP-31` | READY | ✅ | ✅ | ✅ | PR332/main206c579: media-src self/blob, security-header contracts и реальный Chromium WAV playback PASS; CI38477514519/exact main38478146748 SUCCESS14Oct. Прежнее processing Evidence сохраняется. Edge38478332090 ждёт owner gate; production playback ещё не подтверждён. |
 | `AP-30` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-SPEAKER-IDENTITY-01`

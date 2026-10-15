@@ -34,6 +34,7 @@ type SourceDeletionResponse = {
 };
 
 type BulkSourceDeletionPreview = {
+  selection_ids?: string[];
   preview_token: string;
   eligible_count: number;
   listed_count: number;
@@ -168,6 +169,10 @@ export function SourcesPanel({
       if (activeProject.current !== projectId) return;
       if (bounded.status === "timed_out") throw new Error("bulk_preview_timeout");
       const value = bounded.value;
+      if (selection && (!Array.isArray(value?.selection_ids) ||
+        JSON.stringify([...selection].sort()) !== JSON.stringify(value.selection_ids))) {
+        throw new Error("unconfirmed_selection");
+      }
       if (
         !value ||
         !/^[a-f0-9]{64}$/.test(value.preview_token) ||
@@ -181,8 +186,10 @@ export function SourcesPanel({
         throw new Error("invalid_bulk_preview");
       }
       setBulkPreview(value);
-    } catch {
-      if (activeProject.current === projectId) setBulkMessage("Не удалось подготовить безопасный план очистки.");
+    } catch (error) {
+      if (activeProject.current === projectId) setBulkMessage(error instanceof Error && error.message === "unconfirmed_selection"
+        ? "Studio не подтвердила выбранные файлы. Обновите приложение и повторите проверку. Ничего не удалено."
+        : "Не удалось подготовить безопасный план очистки.");
     } finally {
       setBulkPending(false);
     }
