@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # The PostgreSQL password is read from a mounted secret file, not stored in the source tree.
     postgres_password_file: str = "/run/secrets/studio_postgres_password"
     redis_url: str = "redis://redis:6379/0"
-    app_origin: str = "https://studio.librechat.online"
+    app_origin: str = "https://studio.cloud-nodes.net"
     cookie_name: str = "__Host-studio_session"
     cookie_secure: bool = True
     session_days: int = 14

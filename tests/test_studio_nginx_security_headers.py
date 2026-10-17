@@ -3,9 +3,10 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HOST_NGINX = ROOT / "deploy/studio/studio.librechat.online.nginx.conf"
+HOST_NGINX = ROOT / "deploy/studio/studio.cloud-nodes.net.nginx.conf"
 HOST_HEADERS = ROOT / "deploy/studio/studio-security-headers.conf"
 CONTAINER_NGINX = ROOT / "apps/studio/nginx.conf"
+OLD_ORIGIN_REDIRECT = ROOT / "deploy/studio/studio.librechat.online.redirect.conf"
 
 
 def _normalized_config(path: Path) -> str:
@@ -139,3 +140,32 @@ def test_edge_stops_raw_query_logs_and_does_not_append_untrusted_forwarding():
     assert "$proxy_add_x_forwarded_for" not in site
     assert site.count("proxy_set_header X-Forwarded-For $remote_addr;") == 3
     assert "client_max_body_size 4m;" in site
+
+
+def test_domain_move_never_replays_api_mutations_or_oauth_query_credentials():
+    redirect = _normalized_config(OLD_ORIGIN_REDIRECT)
+    assert "proxy_pass" not in redirect
+    assert "$request_uri" not in redirect
+    assert "$args" not in redirect
+    assert "$query_string" not in redirect
+    assert redirect.count('if ($request_method !~ ^(GET|HEAD)$) { return 410; }') == 2
+    assert "location /api/" in redirect
+    assert 'return 410' in redirect
+    assert "location = /api/google/oauth/callback" in redirect
+    assert "return 302 https://studio.cloud-nodes.net/settings/connections;" in redirect
+    assert "return 302 https://studio.cloud-nodes.net$uri;" in redirect
+    assert "return 307" not in redirect and "return 308" not in redirect
+    assert "access_log off;" in redirect
+    assert 'add_header Cache-Control "no-store" always;' in redirect
+
+
+def test_new_origin_has_independent_tls_and_renewable_acme_route():
+    config = _normalized_config(HOST_NGINX)
+    assert "server_name studio.cloud-nodes.net;" in config
+    assert "listen 443 ssl;" in config
+    assert "ssl_certificate /etc/letsencrypt/live/studio.cloud-nodes.net/fullchain.pem;" in config
+    assert "ssl_certificate_key /etc/letsencrypt/live/studio.cloud-nodes.net/privkey.pem;" in config
+    for site in (config, _normalized_config(OLD_ORIGIN_REDIRECT)):
+        assert "location ^~ /.well-known/acme-challenge/" in site
+        assert "root /var/lib/letsencrypt;" in site
+        assert "try_files $uri =404;" in site

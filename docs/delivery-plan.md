@@ -2,6 +2,26 @@
 
 ## Current work и checkpoint
 
+### DOMAIN-STUDIO-20261017 — IN_PROGRESS
+
+Основание: владелец 17Oct2026 поручил перенос на `studio.cloud-nodes.net`; тот же VPS167.86.68.98 и Google-проект, DNS A уже подготовлен через Cloudflare proxy. Built-in Goal активирована. Fresh base/main `def1750df518dbe269fa20a532900bd63e2dac68`, clean branch `codex/studio-domain-20261017`, один основной PR; GitHub main требует `ci-required`, approvals0, открытых PR нет. Предыдущая UX Goal завершена PR332/333 и поставками: web/API38735693476, worker38736484985, edge38478332090; устаревший нижний checkpoint не означает незавершённую поставку.
+
+Результат: новый canonical HTTPS origin с рабочими API/Google/хранилищем и безопасным переходом со старого адреса. Non-goals: смена VPS/Google-клиентов, перенос/удаление данных, изменение permissions/scopes, миграции БД, платные provider calls, коммерческие функции. Куки/локальные PWA данные между origin не переносятся; нужен новый вход и установка PWA.
+
+| Критерий Goal | Результат / validation | Статус |
+|---|---|---|
+| D01 | Новый TLS/vhost изолирован от соседних проектов; exact host/headers/health/build identity | IN_PROGRESS |
+| D02 | APP_PUBLIC_URL и оба OAuth callback на новом origin; старые Google grants сохраняются; Picker и CORS exact allowlists | BACKLOG |
+| D03 | Canonical deployment defaults/examples/probes и эксплуатационная процедура отражают новый адрес | BACKLOG |
+| D04 | Старый адрес безопасно направляет пользователя на новый без replay mutation/OAuth credential query; rollback сохраняется | BACKLOG |
+| D05 | Applicable local/CI/review, merge, runtime identity/health и browser smoke; сохранены gates/данные/чужие изменения | BACKLOG |
+
+Validation Plan: local `python scripts/ci_checks.py`, affected deployment/header tests и `git diff --check` REQUIRED; Linux shell/CI REQUIRED по impact. Remote: nginx syntax/TLS/headers, origin-only CORS preflight двух buckets, primary/maintenance callback/Picker settings readback, публичные health/build и безопасный browser вход/navigation REQUIRED. Никаких реальных STT/Live, удаления файлов или OAuth scope expansion. Перед переключением — backup exact vhost/runtime config, подтверждение external settings; при fail stop и восстановление прежней конфигурации, без blind retry. Защищённая snippet lane остаётся с Environment reviewer gate, её полномочия не расширяются на vhost. Смена host/origin — отдельно разрешённая операторская процедура этой Goal с точным target.
+
+Checkpoint17Oct: новый адрес DNS/Cloudflare доступен; выделенный HTTP ACME vhost staged, прочие HTTP paths503, старый runtime/main def1750 не изменён и здоров. Выпущен независимый TLS certificate нового host с webroot renewal, expires15Jan2027. Linux nginx syntax обеих candidate-конфигураций и bash syntax release/wrapper PASS; lightweight checks PASS. Windows affected tests44 PASS/6 platform skips; один syntax case локально недоступен из-за отсутствующего Git usr/bin/bash.exe, реальный Linux syntax подтверждён отдельно; полный required CI PENDING. Никакие assertions/gates не ослаблены.
+
+External gates: владелец получил точные project476316429029/client IDs и инструкции добавить новый origin/callback обоим Google clients, website Picker и root authorized domain. Автоматический доступ к Chrome отклонён; владелец выполняет изменения сам. Рабочие R2 credentials не имеют get/put CORS permission; scopes ключей не расширяются. Безопасные OPTIONS обоих buckets пока403/no Allow-Origin, пользователь получил инструкцию append origin без изменения других policy fields/backup bucket. Ни объектов, ни STT/Live вызовов не создавалось. Следующий шаг: source PR/required CI; после owner settings — повторный OPTIONS и staged TLS → проверка/worker drain → точная замена3 runtime settings → API/worker CD → проверка нового origin → старый redirect. До external evidence cutover не выполнять. Readiness baseline personal437/454/full442/687 на def1750, denominator не меняется: только deployment hostname/config этой Goal.
+
 ### UX-STUDIO-20261014 — IN_PROGRESS
 
 Основание: владелец 14Oct2026 поручил все правки итогового UX/UI-ревью как единую Goal. Built-in Goal активирована и проверена. Base/fresh origin/main `99f174ea4337570ef042bdd8764fbbd4ec4e7478`; отдельная ветка `codex/ux-studio-20261014`, один worktree, tracked state чистый до подготовки. GitHub: открытых PR нет, main требует `ci-required`, approvals0. Unrelated branch/stash/ignored материалы сохраняются.

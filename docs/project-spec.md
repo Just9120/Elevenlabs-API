@@ -38,6 +38,8 @@ READY = исполняемый код и подходящие автоматич
 
 Стек Q275..292: React/TypeScript/Vite PWA, Python/FastAPI, PostgreSQL/SQLAlchemy/Alembic, Redis для shared limits, FFmpeg/browser processing, S3-compatible storage, Docker Compose/Nginx. Проверяемые TECH-01..05 восстановлены отдельными атомарными AC. Least privilege/resource boundaries — DBLP/PWAWOR/PWASEC; backup/RPO/RTO/deletion restore — REC/RELEAS/STORAG. Конкретные commands/versions/config владельцы — [README](../README.md), [validation](runbooks/validation.md), [operations](runbooks/studio-platform-ops.md), [processing contract](studio-processing-contract.md), [architecture](architecture.md); найденный drift этих документов — findings, не новые политики.
 
+Решение владельца17Oct2026: canonical Studio hostname меняется с `studio.librechat.online` на `studio.cloud-nodes.net`, VPS и Google-проект сохраняются. Это смена deployment configuration, без миграции пользовательских данных/новых продуктовых AC. Cookie sessions, доверие браузеру, локальные drafts и installed PWA между origins автоматически не переносятся. Процедура, external preconditions и recovery — [domain cutover](runbooks/studio-platform-ops.md#studio-domain-cutover-domain-studio-20261017); фактическое выполнение — в плане/первичных delivery records.
+
 Яндекс Disk export/permissions зависят от отдельного adapter; timed Live exports — от сегментной модели и provider corrections. Изменение retention требует совместимой миграции existing drafts/checkpoints и recovery, а не очистки пользовательского текста. Утверждения runtime требуют primary deployment records и versioned smoke.
 
 ## Owner-triggered процедуры и открытые вопросы

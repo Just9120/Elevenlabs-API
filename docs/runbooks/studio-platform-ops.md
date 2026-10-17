@@ -6,7 +6,7 @@ This is the main Studio operations runbook. It covers platform bootstrap, runtim
 
 Перенесено из прежнего Project profile при внедрении правил 2026-09-07. Источники: `.github/workflows/*.yml`, `deploy/studio/compose.platform.yml`, repository scripts на origin/main `3e65322e12ba3d1ac2bc9f3ec7ecc412a6e3090b`; настройки доступа — snapshot 2026-09-06, branch/rulesets повторно 2026-09-07. Это описание действующих процедур, не authorization на privileged operations. Перед поставкой заново проверь settings/target и выбранную revision.
 
-CD используется для Studio; Colab не получает VPS deployment автоматически. Public entrypoint — `studio.librechat.online`; SSH target identity определяется соответствующими secret references и known-hosts, не догадкой по публичному домену. Directory `/opt/elevenlabs-studio`, repository `Just9120/Elevenlabs-API`, branch `main`, Compose project `elevenlabs-studio-platform`, compose `deploy/studio/compose.platform.yml`. Config owner — оператор: target-host `deploy/studio/.env` и отдельные root/operator-owned secret files. Не печатай resolved config и не заменяй `.env` шаблоном.
+CD используется для Studio; Colab не получает VPS deployment автоматически. Public entrypoint — `studio.cloud-nodes.net` (до cutover DOMAIN-STUDIO-20261017 работает прежний `studio.librechat.online`); SSH target identity определяется соответствующими secret references и known-hosts, не догадкой по публичному домену. Directory `/opt/elevenlabs-studio`, repository `Just9120/Elevenlabs-API`, branch `main`, Compose project `elevenlabs-studio-platform`, compose `deploy/studio/compose.platform.yml`. Config owner — оператор: target-host `deploy/studio/.env` и отдельные root/operator-owned secret files. Не печатай resolved config и не заменяй `.env` шаблоном.
 
 Deployment units: `studio-web`, `studio-api`, `studio-worker`; отдельно один direct additive Alembic successor и allowlisted host security-header snippet. Обычный component CD не использует GitHub Environment. Migration/edge используют единственный Environment `studio-production-migration`, branch policy main, одного reviewer (Just9120), `prevent_self_review=false`. Admin bypass в свежем scoped ответе не перепроверен; не используй bypass. Dedicated forced-command SSH identities/known-hosts разделяют migration/edge boundaries.
 
@@ -497,6 +497,75 @@ The Files & Storage reconciliation control is owner-scoped and dry-run by defaul
 Before enabling the release, an operator must confirm without recording names or secrets: two distinct private buckets exist; each independently scoped credential can access only its intended bucket; each declared lifecycle rule exists and is enabled; both safe runtime health boundaries are `ready`. Missing evidence is `PENDING_EXTERNAL_GATE`, not authority to reuse the legacy bucket or credential.
 
 ## Google OAuth runtime configuration
+
+### Studio domain cutover (DOMAIN-STUDIO-20261017)
+
+Canonical host: `studio.cloud-nodes.net`; previous host: `studio.librechat.online`.
+Same VPS167.86.68.98, deployment checkout, database, storage buckets and Google
+project; no schema or data migration. The host change is an explicitly authorized
+operator task, not an extension of the header-only forced-command release lane.
+That lane keeps its existing Environment approval and only changes the snippet.
+
+Preconditions and order:
+
+1. Check exact current main/CI and absence of overlapping deploy/edge activity.
+   Preserve the old working site. Back up only the two named vhost files and the
+   operator-managed runtime `.env` into a root-only timestamped directory; record
+   hashes/modes, never their secret contents. Do not recreate persistent volumes.
+2. Add the new host's DNS to the same VPS; retain the existing Cloudflare proxy
+   protection. Stage a dedicated HTTP vhost serving only the ACME webroot
+   `/var/lib/letsencrypt`; other paths return503. Use the existing ACME account to
+   issue the new named certificate. Keep both hosts' HTTP challenge locations for
+   renewal. Validate TLS normally; do not bypass certificate verification.
+3. In the existing Google project, add the new exact HTTPS origin and
+   `/api/google/oauth/callback` URI to both existing primary/maintenance clients.
+   Add the new host's `/*` website restriction to the existing Picker key. Preserve
+   old origins, scopes, clients, keys and API restrictions during the transition.
+   Add the root domain to OAuth authorized domains if Google requires it; any
+   domain-verification/publication gate must be satisfied, not bypassed.
+4. For each of the two input buckets, append only the new HTTPS origin to the
+   existing CORS allowlist. Preserve methods, headers, expose headers and lifecycle
+   rules. Do not change backup buckets or expand runtime key permissions. Verify
+   actual OPTIONS responses for PUT from the new origin; a policy screenshot alone
+   does not prove the browser response. Never retain signed capabilities in logs.
+5. Install the merged [new vhost](../../deploy/studio/studio.cloud-nodes.net.nginx.conf)
+   as the root-owned enabled site `studio.cloud-nodes.net`. Syntax-test before
+   reload; verify local/public TLS, exact security headers and web/API identity.
+   Retain the old site until external settings have been confirmed. New-origin
+   browser mutations are not ready until the API origin is switched.
+6. Check active jobs and gracefully drain the worker through the existing lifecycle
+   procedure. Set only `APP_PUBLIC_URL`, `STUDIO_GOOGLE_OAUTH_REDIRECT_URI` and
+   `STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI` to the new origin/callback in the
+   protected runtime file, with an atomic update and readback of those three safe
+   values. Keep all secrets, config ownership and permissions unchanged. Deploy API
+   through the existing exact-main component lane; deploy the compatible stopped
+   worker afterwards. No migration, key rotation or grant revocation is required.
+7. After new-origin health/auth/navigation, both Google connection states,
+   folder selection and bounded upload checks, install the merged
+   [old-host redirect](../../deploy/studio/studio.librechat.online.redirect.conf).
+   It redirects safe page requests temporarily with302 and drops query strings;
+   old API calls return410 instead of replaying mutations or cookies cross-origin.
+   Old OAuth callbacks return to the new connection settings without forwarding
+   code/state; pending authorization must be started again on the new site.
+8. Users sign in on the new origin and optionally trust that browser again.
+   Browser-local drafts, cached offline pages, notification subscriptions and the
+   installed old-origin PWA do not migrate with DNS. Reinstall the PWA from the new
+   site and grant notifications again if desired; do not clear old local data until
+   any needed draft inputs are recovered. Never promise session/cookie transfer.
+
+Post-checks: local/public certificate verification, exact headers (including no
+raw-query logging), health/readiness/schema, current web/API/worker revision/image,
+new-origin authenticated navigation and OAuth/Picker/upload behavior; old root
+redirect, old API mutation410 and old callback query stripping. No STT/Live call or
+user-file deletion is needed. A blocked owner-console or browser check stays
+PENDING and the cutover must not be reported complete.
+
+Recovery: on failure, stop the rollout; restore only the backed-up old vhost and
+three runtime settings, syntax-test/reload nginx, redeploy API and stopped worker
+with the verified previous configuration and recheck the old origin. Do not roll
+back the database, remove certificates, clear browser storage or delete files.
+Keep new external allowlists for diagnosis until explicitly cleaned up. Do not
+blindly retry an ambiguous config update or provider call.
 
 Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavailable or reject safely until required non-secret settings and a non-empty client secret file are present.
 
