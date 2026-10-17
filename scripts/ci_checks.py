@@ -207,12 +207,12 @@ def check_studio_google_oauth_compose_wiring() -> None:
     required_env_markers = [
         "STUDIO_GOOGLE_OAUTH_CLIENT_ID=__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__",
         "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=",
-        "STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://studio.librechat.online/api/google/oauth/callback",
+        "STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://studio.cloud-nodes.net/api/google/oauth/callback",
         "STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly",
         "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600",
         "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID=__REQUIRED_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID__",
         "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=",
-        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI=https://studio.librechat.online/api/google/oauth/callback",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI=https://studio.cloud-nodes.net/api/google/oauth/callback",
         "STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents",
     ]
     for marker in required_env_markers:

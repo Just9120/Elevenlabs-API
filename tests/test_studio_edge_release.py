@@ -110,7 +110,7 @@ def test_release_is_limited_to_host_edge_headers() -> None:
     release = RELEASE_SCRIPT.read_text(encoding="utf-8")
 
     assert 'SOURCE_HEADERS="deploy/studio/studio-security-headers.conf"' in release
-    assert "/etc/nginx/sites-enabled/studio.librechat.online" in release
+    assert "/etc/nginx/sites-enabled/studio.cloud-nodes.net" in release
     assert "/etc/nginx/snippets/studio-security-headers.conf" in release
     assert "/var/backups/elevenlabs-studio/nginx" in release
     assert "nginx -t" in release
@@ -343,8 +343,8 @@ def test_active_site_resolver_preserves_narrow_root_owned_boundary(tmp_path, lay
     enabled.mkdir(mode=0o755)
     available.mkdir(mode=0o755)
     tmp_path.chmod(0o755)
-    site = enabled / "studio.librechat.online"
-    target = available / "studio.librechat.online"
+    site = enabled / "studio.cloud-nodes.net"
+    target = available / "studio.cloud-nodes.net"
     target.write_text("synthetic site config")
     if layout == "regular":
         site.write_text("synthetic site config")
