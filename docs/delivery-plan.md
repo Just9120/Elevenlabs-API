@@ -2,7 +2,47 @@
 
 ## Current work и checkpoint
 
-### DOMAIN-STUDIO-20261017 — IN_PROGRESS
+### PERSONAL-REVIEW-FIXES-20261018 — IN_PROGRESS
+
+Основание: владелец 18Oct2026 поручил исправить все проблемы последнего personal review единой Goal, одним PR, начиная с backup и фрагментов. Built-in Goal ACTIVE. Fresh base `b7f9d48136e07d6bcd92eba6f8fba9bd42871b1a`, clean branch `codex/studio-review-fixes-20261018`, один существующий worktree. GitHub readback18Oct: open PR0; main strict `ci-required`, admins enforced, approvals0. Unrelated branch/stash/ignored материалы сохранены. Baseline API/worker b7f9d48, web def1750 (source unchanged), schema0041; runtime healthy. Реальные задачи владельца не изменяются.
+
+Результат: регулярный проверяемый backup с обнаружением просрочки; фрагменты по Q065/Q066; понятные состояния, подтверждение результатов и компактный доступный personal UI. Все14 критериев ниже входят в один основной PR. Non-goals: commercial/Яндекс/voice identity/personal email/cleaned experiment, платные STT/Live/scans, изменение OAuth permissions, production restore/fault injection и удаление пользовательских данных. Новые кебаб-меню не добавляются без подтверждённой пользы; primary/cancel/recovery остаются видимыми.
+
+| Критерий | Finding / scope и критерий закрытия | Статус |
+|---|---|---|
+| G01 | F77 · P1 FIX · REC-02/04, OBSERV-18: действующий10h backup timer, актуальный подтверждённый snapshot, отсутствие запусков/просрочка12h дают безопасное предупреждение; recovery не запускается | IN_PROGRESS |
+| G02 | UXR26 · P1 FIX · PS-04/05: каждый фрагмент валиден независимо; пересечения, пропуски и произвольная последовательность разрешены, end-of-file доступен каждому; UI/API/tests согласованы | BACKLOG |
+| G03 | UXR27 · P2 FIX · PS-03..05: известная длительность подготовленной версии проверяется до подтверждения; неизвестная не выдаётся за проверенную | BACKLOG |
+| G04 | UXR23 · P2 FIX · PUX-14: восстановленный недоступный источник явно обозначен, не позволяет расчёт и имеет понятное исправление | BACKLOG |
+| G05 | UXR25 · P2 FIX · AP/PUX-06: после успешного Drive export есть явный статус и прямое открытие; дополнительное меню не скрывает подтверждение | BACKLOG |
+| G06 | UXR28 · P2 FIX · Q069: preflight показывает конечное название, фрагмент и целевую папку каждого документа | BACKLOG |
+| G07 | UXR29 · P2 FIX · PUX-14: выбранная batch/Live/maintenance вкладка восстанавливается после reload и back/forward через URL | BACKLOG |
+| G08 | UXR30 · P2 FIX · UX accessibility: ошибки фрагментов связаны с полями, invalid состояние и keyboard feedback согласованы | BACKLOG |
+| G09 | UXR31 · P2 REFACTOR · PUX-19: компактная mobile навигация/settings без потери пунктов/focus, поля выше в390×844, нет overflow в390/768/desktop | BACKLOG |
+| G10 | UXR24 · P2 FIX · PT-02: overview показывает полезную сводку транскрибаций/результатов вместо количества технических Project | BACKLOG |
+| G11 | UXR11 · P2 FIX: понятные названия действующих audit events и очевидный переход из краткого account journal в полный owner-scoped журнал | BACKLOG |
+| G12 | UXR10 · P2 REFACTOR: компактные fragment rows с видимыми границами/именем/папкой; дополнительные параметры раскрываются без лишней вложенности | BACKLOG |
+| G13 | UXR32 · P3 FIX: Live readiness и disabled Start используют одинаковые условия и объяснение | BACKLOG |
+| G14 | UXR19 · P3 FIX: единое округление кратких duration/reduction и доступные точные значения; ненулевой выигрыш не становится0 | BACKLOG |
+
+Evidence findings: browser review18Oct/webdef1750/APIb7, synthetic15s audio→13.226208s, Drive upload/export bytes readback, reload/fragment/keyboard проверки; F77 — host timer LoadState=not-found, root/studio-deploy cron0 и проектные restic snapshots: latest pre-migration11Oct2026/a08b3847 (~160h), scheduled17Jul2026. UI мониторинг не сигнализирует отсутствие расписания; operational_alerts проверяет только последний failed outcome. UXR26 воспроизведён в UI и pure backend validator; Q065 явно допускает пересечения. Confidence фактов HIGH; предполагаемый выигрыш перекомпоновки UXR10/24/31 MEDIUM. Остальные рекомендации приняты владельцем в scope этой Goal, не являются новыми business features.
+
+DoD: G01..G14 выполнены и подтверждены; локальные applicable checks/self-review; один PR, current-head required CI/review, merge, web/API и совместимый worker CD, узкая host backup установка/проверка по существующей процедуре. Секреты/retention/backup repository не заменяются. Никаких migrations без необходимости, обхода Environment gates или metadata-only follow-up PR. После applicable delivery — exact revision/health, bounded read-only UI smoke, safe branch cleanup. Ручная приёмка не gate.
+
+| Validation Plan / риск | Проверка и каталог | Этап / применимость |
+|---|---|---|
+| Backup/monitoring | Root: affected backup/operational-alert tests; syntax/systemd verification; synthetic no/missing/stale/failure/success и recovery transitions | REQUIRED local до initial push; Linux shell в существующем CI REQUIRED |
+| Фрагменты/длительность | Root: affected media_clip/schema/batch_preflight/processor tests; Studio: composer/App component regressions; никаких provider calls | REQUIRED local focused и существующий Linux CI |
+| Draft/feedback/navigation/a11y/layout | Studio: affected Vitest, `npm run lint`, `npm run build`; isolated Playwright390×844/768×1024/desktop; menu/focus/reload/negative states | REQUIRED local до initial push; production safe smoke после CD |
+| Repository | Root: `python scripts/ci_checks.py`, `git diff --check`, ID/link/diff/self-review | REQUIRED до initial push |
+| GitHub/delivery | Existing required `ci-required` exact revision; platform/worker runbooks; backup timer/actual snapshot readback и health | REQUIRED remote; ручные Environment approvals только при фактическом applicable gate |
+| Платные/production restore/real phone | STT/Live запрещены последним решением владельца; restore/fault injection вне scope; IAB resize/standalone недоступны | N/A для реализации этих исправлений; ограничения Evidence сохраняются |
+
+Checkpoint18Oct: scope/DoD/Validation Plan закреплены до реализации. Следующий шаг — backup freshness/host installation и независимые фрагменты. Push/PR/CI/CD PENDING; готовность текущей Goal0/14, это не пересчёт проекта. Предыдущая аудиторская готовность остаётся snapshot указанной там revision; известные нарушения PS-04/05 и REC-02/04 требуют нового Evidence и отражены ниже.
+
+### DOMAIN-STUDIO-20261017 — DONE по первичным records
+
+PR335 merged/b7f9d48; main CI39064461850 SUCCESS; component CD39064494660/39065299870/39065490787 SUCCESS. Readback18Oct: API/workerb7f9d48, webdef1750 с новым origin, healthy; Google Picker/export/direct upload и обоих storage boundaries подтверждены безопасным synthetic review. Старый checkpoint ниже отражает подготовку, не незавершённую Goal.
 
 Основание: владелец 17Oct2026 поручил перенос на `studio.cloud-nodes.net`; тот же VPS167.86.68.98 и Google-проект, DNS A уже подготовлен через Cloudflare proxy. Built-in Goal активирована. Fresh base/main `def1750df518dbe269fa20a532900bd63e2dac68`, clean branch `codex/studio-domain-20261017`, один основной PR; GitHub main требует `ci-required`, approvals0, открытых PR нет. Предыдущая UX Goal завершена PR332/333 и поставками: web/API38735693476, worker38736484985, edge38478332090; устаревший нижний checkpoint не означает незавершённую поставку.
 
@@ -22,7 +62,7 @@ Checkpoint17Oct: новый адрес DNS/Cloudflare доступен; выде
 
 External gates: владелец получил точные project476316429029/client IDs и инструкции добавить новый origin/callback обоим Google clients, website Picker и root authorized domain. Автоматический доступ к Chrome отклонён; владелец выполняет изменения сам. Рабочие R2 credentials не имеют get/put CORS permission; scopes ключей не расширяются. Безопасные OPTIONS обоих buckets пока403/no Allow-Origin, пользователь получил инструкцию append origin без изменения других policy fields/backup bucket. Ни объектов, ни STT/Live вызовов не создавалось. Следующий шаг: source PR/required CI; после owner settings — повторный OPTIONS и staged TLS → проверка/worker drain → точная замена3 runtime settings → API/worker CD → проверка нового origin → старый redirect. До external evidence cutover не выполнять. Readiness baseline personal437/454/full442/687 на def1750, denominator не меняется: только deployment hostname/config этой Goal.
 
-### UX-STUDIO-20261014 — IN_PROGRESS
+### UX-STUDIO-20261014 — DONE по первичным records
 
 Основание: владелец 14Oct2026 поручил все правки итогового UX/UI-ревью как единую Goal. Built-in Goal активирована и проверена. Base/fresh origin/main `99f174ea4337570ef042bdd8764fbbd4ec4e7478`; отдельная ветка `codex/ux-studio-20261014`, один worktree, tracked state чистый до подготовки. GitHub: открытых PR нет, main требует `ci-required`, approvals0. Unrelated branch/stash/ignored материалы сохраняются.
 
