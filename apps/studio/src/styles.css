@@ -596,6 +596,7 @@ code {
   margin: 0;
   padding: clamp(1rem, 2vw, 2rem);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 1.25rem;
 }
@@ -1418,8 +1419,10 @@ code {
     position: static;
   }
   .app-nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+  .settings-section-tabs { display: flex; max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
+  .settings-section-tabs button { flex: 0 0 auto; white-space: nowrap; }
   .shell > main {
     padding: 1rem;
   }
@@ -1448,7 +1451,7 @@ code {
     padding: 1rem;
   }
   .brand {
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
   }
   .app-nav button {
     flex-direction: column;
@@ -1627,18 +1630,26 @@ code {
 }
 .segment-editor {
   display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 0.65rem;
   padding: 0.75rem;
   border: 1px solid var(--studio-border);
   border-radius: 12px;
   background: var(--studio-surface);
 }
+.segment-editor > b,
+.segment-editor > .segment-folder-control,
+.segment-editor > .segment-error { grid-column: 1 / -1; }
+.segment-editor > * { min-width: 0; }
+.segment-folder-control > summary { cursor: pointer; min-height: 2.75rem; overflow-wrap: anywhere; }
 .segment-boundaries {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(10rem, auto);
   gap: 0.65rem;
   align-items: end;
 }
+.segment-boundaries > label { min-width: 0; }
+.segment-boundaries input:not([type="checkbox"]) { min-width: 0; max-width: 100%; }
 .segment-end-toggle {
   display: flex;
   flex-direction: row;
@@ -1747,9 +1758,9 @@ code {
   .composer-row-grid {
     grid-template-columns: 1fr;
   }
-  .segment-boundaries {
-    grid-template-columns: 1fr;
-  }
+  .segment-editor { grid-template-columns: minmax(0, 1fr); }
+  .segment-boundaries { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .segment-end-toggle { grid-column: 1 / -1; }
   .composer-add-row {
     justify-items: start;
     text-align: left;

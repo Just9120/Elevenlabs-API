@@ -1,3 +1,4 @@
+import { auditLabel } from "./auditLabels";
 import { useFormDraft, readFormDraft, clearFormDrafts } from "./formDrafts";
 import { composerDraftRows } from "./composerDraft";
 import {
@@ -34,6 +35,8 @@ import {
 } from "./latestRequest";
 import {
   parsePlatformRoute,
+  parseTranscriptionMode,
+  pushTranscriptionMode,
   pushPlatformRoute,
   type Page,
   type PlatformRoute,
@@ -76,6 +79,7 @@ import {
   isUsableJobSource,
   reconcileOptimisticSources,
   preparedAudioContext,
+  knownSourceDurationSeconds,
   sourceСтатусLabel,
   type Source,
 } from "./sourceModel";
@@ -2169,7 +2173,7 @@ function PreparationPanel({
       };
     }
     const segmentIssue = row.segmentation_enabled
-      ? composerSegmentPlanIssue(row.segments)
+      ? composerSegmentPlanIssue(row.segments, knownSourceDurationSeconds(sourceById(row.source_id)))
       : null;
     if (segmentIssue) {
       return {
@@ -2215,6 +2219,9 @@ function PreparationPanel({
     submissionStage !== null || batchSubmission?.status === "pending";
   const activePreflight =
     preflight?.signature === signature ? preflight.data : null;
+  const preflightDurationPending = Boolean(activePreflight?.items.some(
+    item => item.media_clip !== null && item.source.duration_seconds === null,
+  ));
   const expandedComposerItems = (() => {
     try {
       return expandComposerRows(rows);
@@ -5171,6 +5178,9 @@ function PreparationPanel({
                     </label>
                     <ol className="segment-editor-list">
                       {row.segments.map((segment, segmentIndex) => {
+                        const segmentIssue = composerSegmentPlanIssue([segment], knownSourceDurationSeconds(selectedSource))
+                          ?.replace("фрагмент 1:", `фрагмент ${segmentIndex + 1}:`);
+                        const segmentErrorId = `segment-error-${row.id}-${segment.id}`;
                         return (
                           <li className="segment-editor" key={segment.id}>
                             <b>Фрагмент {segmentIndex + 1}</b>
@@ -5185,6 +5195,8 @@ function PreparationPanel({
                                       reprocess_existing: false,
                                     })
                                   }
+                                  aria-invalid={Boolean(segmentIssue) || undefined}
+                                  aria-describedby={segmentIssue ? segmentErrorId : undefined}
                                   inputMode="numeric"
                                   placeholder="0:00"
                                   aria-label={`Начало фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
@@ -5201,6 +5213,8 @@ function PreparationPanel({
                                       reprocess_existing: false,
                                     })
                                   }
+                                  aria-invalid={Boolean(segmentIssue) || undefined}
+                                  aria-describedby={segmentIssue ? segmentErrorId : undefined}
                                   inputMode="numeric"
                                   placeholder="10:10"
                                   aria-label={`Конец фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
@@ -5236,18 +5250,10 @@ function PreparationPanel({
                                 placeholder="Необязательно"
                                 aria-label={`Название фрагмента ${segmentIndex + 1} задачи ${index + 1}`}
                               />
-                              <small className="muted">
-                                Необязательно. Если оставить пустым, Google Docs
-                                получит имя исходного файла.
-                              </small>
                             </label>
-                            <div className="segment-folder-control">
-                              <span className="field-label">Папка фрагмента</span>
-                              <span>
-                                {segment.output_folder?.name ??
-                                  row.output_folder?.name ??
-                                  "Папка не выбрана"}
-                              </span>
+                            {segmentIssue && <p id={segmentErrorId} className="error segment-error">{segmentIssue}</p>}
+                            <details className="segment-folder-control" open={(!segment.output_folder && !row.output_folder) || undefined}>
+                              <summary>{segment.output_folder || row.output_folder ? "Папка: " : ""}<span>{segment.output_folder?.name ?? row.output_folder?.name ?? "Папка не выбрана"}</span>{segment.output_folder ? " · собственная" : row.output_folder ? " · общая" : ""}</summary>
                               <small className="muted">
                                 {segment.output_folder
                                   ? "Собственная папка этого фрагмента."
@@ -5288,16 +5294,11 @@ function PreparationPanel({
                                 `Избранные папки фрагмента ${segmentIndex + 1} задачи ${index + 1}`,
                                 segment.id,
                               )}
-                            </div>
+                            </details>
                           </li>
                         );
                       })}
                     </ol>
-                    {composerSegmentPlanIssue(row.segments) && (
-                      <p className="error">
-                        {composerSegmentPlanIssue(row.segments)}
-                      </p>
-                    )}
                     </div>
                     )}
                   </section>
@@ -5539,7 +5540,7 @@ function PreparationPanel({
             ) : dictionariesError ? (
               <p className="error">{dictionariesError}</p>
             ) : dictionaries.length === 0 ? (
-              <div><p className="muted">Словари пока не созданы.</p><button type="button" onClick={() => window.dispatchEvent(new CustomEvent("studio:navigate-settings", {detail:{section:"connections"}}))}>Добавить словарь в настройках</button></div>
+              <div><p className="muted">Словари пока не созданы.</p><button type="button" onClick={() => window.dispatchEvent(new CustomEvent("studio:navigate-settings", {detail:{section:"connections",anchor:"stt-dictionaries-title"}}))}>Добавить словарь в настройках</button></div>
             ) : (
               <div className="dictionary-selector">
                 {dictionaries.map((dictionary) => (
@@ -5633,7 +5634,7 @@ function PreparationPanel({
                     ? activeProviderAuthorityBlocked
                       ? "План временно заблокирован"
                       : "План требует решения"
-                    : "План готов к подтверждению"}
+                    : preflightDurationPending ? "План требует проверки длительности" : "План готов к подтверждению"}
                 </h3>
                 <p className="muted batch-preflight-provider">
                   {activePreflight.provider === "yandex"
@@ -5670,6 +5671,7 @@ function PreparationPanel({
                 Изменить план
               </button>
             </div>
+            {preflightDurationPending && <p className="notice" role="status">Длительность части исходников ещё не проверена. После подтверждения Studio проверит границы до распознавания; некорректные фрагменты не отправятся провайдеру.</p>}
             <ol>
               {activePreflight.items.map((item) => {
                 const matchLabel =
@@ -5743,7 +5745,8 @@ function PreparationPanel({
                       )}
                     </div>
                     <div>
-                      <span>Результат: {item.output_destination.name}</span>
+                      <span>Документ: {item.title || item.source.name}</span>
+                      <span>Папка: {item.output_destination.name}</span>
                       <strong>
                         {item.planned_outcome === "process"
                           ? item.existing_result_match.resolution ===
@@ -5824,7 +5827,7 @@ function PreparationPanel({
               : submissionStage === "create"
                 ? "Создание задач…"
                 : activePreflight
-                  ? `Подтвердить и создать (${plannedJobCount})`
+                  ? preflightDurationPending ? `Подтвердить и подготовить (${plannedJobCount})` : `Подтвердить и создать (${plannedJobCount})`
                   : `Проверить задачи (${plannedJobCount})`}
           </button>
         </div>
@@ -6211,17 +6214,17 @@ function OverviewPage({
         <article className="card summary-card" aria-label="Последние результаты">
           <span className="summary-label">Транскрибации и результаты</span>
           <strong className="summary-value">
-            {projectsLoading
+            {projectsLoading || recentJobsLoading
               ? "Загрузка…"
-              : projectsError
+              : projectsError || recentJobsError
                 ? "Недоступно"
                 : projects.length > 0
-                  ? "Открыть рабочую область"
+                  ? `Последних задач: ${recentJobs.length}`
                   : "Начните с первой записи"}
           </strong>
           {!projectsLoading && !projectsError && projects.length > 0 && (
             <>
-              <small className="muted">Рабочих областей: {projects.length}</small>
+              {!recentJobsLoading && !recentJobsError && <small className="muted">Среди последних: в работе {recentJobs.filter(job => job.status === "queued" || job.status === "processing").length}, документов {recentDocuments.length}.</small>}
               <button type="button" onClick={onOpenTranscriptions}>Открыть</button>
             </>
           )}
@@ -6400,7 +6403,7 @@ function ProjectsPage({
   >({});
   const [transcriptionMode, setTranscriptionMode] = useState<
     "batch" | "live" | "maintenance"
-  >("batch");
+  >(parseTranscriptionMode);
   const [liveTranscripts, setLiveTranscripts] = useState<
     Record<string, string[]>
   >({});
@@ -6855,12 +6858,32 @@ function ProjectsPage({
     if (!becameActive || !selectedProject) return;
     loadSources(selectedProject.id);
   }, [active, selectedProject?.id]);
-  useEffect(() => setTranscriptionMode("batch"), [selectedProject?.id]);
+  const selectTranscriptionMode = (mode: "batch" | "live" | "maintenance") => {
+    setTranscriptionMode(mode);
+    pushTranscriptionMode(mode);
+  };
+  useEffect(() => {
+    if (!active) return;
+    if (requestedTranscriptionMode) {
+      setTranscriptionMode(requestedTranscriptionMode);
+      pushTranscriptionMode(requestedTranscriptionMode, true);
+    } else if (new URLSearchParams(window.location.search).has("mode")) {
+      setTranscriptionMode(parseTranscriptionMode());
+    } else {
+      // Returning through the main navigation keeps the mounted workspace view.
+      pushTranscriptionMode(transcriptionMode, true);
+    }
+  }, [active, selectedProject?.id]);
+  useEffect(() => {
+    const restoreMode = () => { if (parsePlatformRoute().page === "projects") setTranscriptionMode(parseTranscriptionMode()); };
+    window.addEventListener("popstate", restoreMode);
+    return () => window.removeEventListener("popstate", restoreMode);
+  }, []);
   useEffect(() => {
     if (!selectedProject || !requestedTranscriptionMode) {
       return;
     }
-    setTranscriptionMode(requestedTranscriptionMode);
+    selectTranscriptionMode(requestedTranscriptionMode);
     onRequestedTranscriptionModeHandled();
   }, [requestedTranscriptionMode, selectedProject?.id]);
   return (
@@ -6950,12 +6973,12 @@ function ProjectsPage({
                   aria-controls="transcription-panel-batch"
                   aria-selected={transcriptionMode === "batch"}
                   tabIndex={transcriptionMode === "batch" ? 0 : -1}
-                  onClick={() => setTranscriptionMode("batch")}
+                  onClick={() => selectTranscriptionMode("batch")}
                   onKeyDown={(event) =>
                     navigateTabList(
                       event,
                       ["batch", "live", "maintenance"] as const,
-                      setTranscriptionMode,
+                      selectTranscriptionMode,
                     )
                   }
                 >
@@ -6968,12 +6991,12 @@ function ProjectsPage({
                   aria-controls="transcription-panel-live"
                   aria-selected={transcriptionMode === "live"}
                   tabIndex={transcriptionMode === "live" ? 0 : -1}
-                  onClick={() => setTranscriptionMode("live")}
+                  onClick={() => selectTranscriptionMode("live")}
                   onKeyDown={(event) =>
                     navigateTabList(
                       event,
                       ["batch", "live", "maintenance"] as const,
-                      setTranscriptionMode,
+                      selectTranscriptionMode,
                     )
                   }
                 >
@@ -6986,12 +7009,12 @@ function ProjectsPage({
                   aria-controls="transcription-panel-maintenance"
                   aria-selected={transcriptionMode === "maintenance"}
                   tabIndex={transcriptionMode === "maintenance" ? 0 : -1}
-                  onClick={() => setTranscriptionMode("maintenance")}
+                  onClick={() => selectTranscriptionMode("maintenance")}
                   onKeyDown={(event) =>
                     navigateTabList(
                       event,
                       ["batch", "live", "maintenance"] as const,
-                      setTranscriptionMode,
+                      selectTranscriptionMode,
                     )
                   }
                 >
@@ -7381,84 +7404,6 @@ function debugRemainingText(expiresAt?: string | null) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function auditLabel(type: string) {
-  const labels: Record<string, string> = {
-    "google.connected": "Google Drive подключён",
-    "google.disconnected": "Google Drive отключён",
-    "google.oauth_started": "Начато подключение Google Drive",
-    "credential.created": "Ключ создан",
-    "credential.replaced": "Ключ заменён",
-    "credential.revoked": "Ключ отозван",
-    "credential.deleted": "Ключ удалён",
-    "admin.bootstrap_created": "Администратор создан",
-    "auth.login": "Вход выполнен",
-    "auth.login_failed": "Неудачная попытка входа",
-    "auth.logout": "Выход выполнен",
-    "auth.session_revoked": "Отдельная сессия завершена",
-    "auth.sessions_revoked": "Другие сеансы завершены",
-    "auth.csrf_refreshed": "Подтверждение сессии обновлено",
-    "auth.reauthenticated": "Личность подтверждена для чувствительных операций",
-    "auth.reauthentication_failed": "Подтвердить личность не удалось",
-    "auth.trusted_device_created": "Этот браузер добавлен в доверенные",
-    "auth.trusted_device_revoked": "Доверие к браузеру отозвано",
-    "auth.totp_enrollment_started": "Начата настройка двухфакторной защиты",
-    "auth.totp_enabled": "Двухфакторная защита включена",
-    "auth.totp_disabled": "Двухфакторная защита отключена",
-    "auth.totp_recovery_rotated": "Резервные коды защиты заменены",
-    "auth.password_reset_requested": "Запрошено восстановление пароля",
-    "auth.password_reset_completed": "Пароль восстановлен",
-    "notifications.preferences_updated": "Настройки уведомлений изменены",
-    "notifications.web_push_subscribed": "Уведомления браузера подключены",
-    "notifications.web_push_unsubscribed": "Уведомления браузера отключены",
-    "audio_preparation.created": "Задача подготовки аудио создана",
-    "audio_preparation.reused": "Подготовленное аудио передано в новую задачу",
-    "account.preferences_updated": "Настройки хранения обновлены",
-    "project.created": "Проект создан",
-    "project.updated": "Проект обновлён",
-    "project.archived": "Проект архивирован",
-    "project.output_folder.google_picker_set":
-      "Папка проекта выбрана через Google Drive",
-    "source.google_drive.created": "Источник Google Drive добавлен",
-    "source.google_picker.created": "Источники выбраны через Google Drive",
-    "source.local_upload.initiated": "Загрузка локального источника начата",
-    "source.local_upload.completed": "Локальный источник загружен",
-    "source.local_upload.multipart_abort_requested":
-      "Остановка загрузки большого файла запрошена",
-    "storage.reconciliation_applied":
-      "Очистка временного хранилища подтверждена",
-    "source.deleted": "Источник удалён",
-    "job.created": "Задача создана",
-    "job.batch_created": "Пакет задач создан",
-    "job.cancelled": "Задача отменена",
-    "job.cancel_requested": "Запрошена отмена задачи",
-    "google.oauth_failed": "Подключение Google Drive не удалось",
-    "google.maintenance_oauth_started":
-      "Запрошено подключение доступа Google для обслуживания",
-    "google.maintenance_oauth_failed":
-      "Подключение доступа Google для обслуживания не удалось",
-    "google.maintenance_connected":
-      "Доступ Google для обслуживания подключён",
-    "google.maintenance_disconnected":
-      "Доступ Google для обслуживания отключён",
-    "transcript_catalog.migration_applied":
-      "Миграция каталога транскриптов применена",
-    "transcript_standardization.applied":
-      "Стандартизация Google Docs применена",
-    "transcript_catalog.import_applied":
-      "Метаданные добавлены в манифест Studio",
-    "transcript_maintenance.queued":
-      "Операция обслуживания поставлена в очередь",
-    "transcript_maintenance.completed":
-      "Операция обслуживания завершена",
-    "transcript_maintenance.failed":
-      "Операция обслуживания остановлена",
-    "transcript_catalog.cleared": "Манифест Studio очищен",
-    "transcript_catalog.exported": "Манифест Studio сохранён",
-    "history.cleared": "История транскрибаций очищена",
-    "analytics.cleared": "Аналитика транскрибаций очищена",
-  };
-  return labels[type] ?? "Событие безопасности";
-}
 
 function auditOutcomeLabel(outcome: AuditOutcome) {
   return {
@@ -7677,6 +7622,20 @@ const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   appearance: "Оформление",
   diagnostics: "Для поддержки",
 };
+
+function focusSettingsAnchor(section: SettingsSection) {
+  const anchor = window.location.hash.slice(1);
+  if (!((section === "diagnostics" && anchor === "security-audit-title") ||
+        (section === "connections" && anchor === "stt-dictionaries-title"))) return false;
+  const target = document.getElementById(anchor);
+  if (!target) return false;
+  const disclosure = target.closest("details");
+  if (disclosure) disclosure.open = true;
+  target.tabIndex = -1;
+  target.scrollIntoView?.({ block: "start" });
+  target.focus();
+  return true;
+}
 
 function SettingsPage({
   user,
@@ -8013,6 +7972,7 @@ function SettingsPage({
     acknowledgeGoogleConnectionMutationRefresh();
     void loadGoogleConnection({ reportFailure: false });
   }, [googleConnectionMutation, googleConnectionMutationNotice]);
+  useEffect(() => { focusSettingsAnchor(section); }, [section]);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
     csrfMutate<T>(path, csrf, onCsrf, options);
   async function save(e: FormEvent<HTMLFormElement>) {
@@ -9175,6 +9135,10 @@ function SettingsPage({
                   </li>
                 ))}
             </ul>
+            <a href="/settings/diagnostics#security-audit-title" onClick={event => {
+              event.preventDefault();
+              window.dispatchEvent(new CustomEvent("studio:navigate-settings", {detail:{section:"diagnostics",anchor:"security-audit-title"}}));
+            }}>Открыть полный журнал</a>
             <details>
               <summary>Технические события</summary>
               <ul>
@@ -10415,15 +10379,17 @@ function PlatformShell() {
   };
   useEffect(() => {
     const handler = (event: Event) => {
-      const requestedSection = (
-        event as CustomEvent<{ section?: SettingsSection }>
-      ).detail?.section;
+      const detail = (event as CustomEvent<{section?: SettingsSection;anchor?: string}>).detail;
+      const requestedSection = detail?.section;
       navigate(
         "settings",
         requestedSection && SETTINGS_SECTION_IDS.includes(requestedSection)
           ? requestedSection
           : "account",
       );
+      const allowedAnchor = (requestedSection === "diagnostics" && detail?.anchor === "security-audit-title")
+        || (requestedSection === "connections" && detail?.anchor === "stt-dictionaries-title");
+      if (allowedAnchor) window.history.replaceState(window.history.state, "", `${window.location.pathname}#${detail.anchor}`);
     };
     window.addEventListener("studio:navigate-settings", handler);
     return () =>
@@ -10441,6 +10407,7 @@ function PlatformShell() {
       if (typeof sourceId !== "string" || sourceId.length === 0) return;
       setRequestedSourceId(sourceId);
       setRequestedProjectId(null);
+      setRequestedTranscriptionMode("batch");
       navigate("projects");
     };
     window.addEventListener("studio:transcribe-source", handler);
@@ -10462,6 +10429,10 @@ function PlatformShell() {
   useEffect(() => {
     if (!scrollNextPageRef.current) return;
     scrollNextPageRef.current = false;
+    if (page === "settings" && focusSettingsAnchor(settingsSection)) {
+      focusNextPageRef.current = false;
+      return;
+    }
     if (window.scrollY !== 0) window.scrollTo(0, 0);
     if (!focusNextPageRef.current) return;
     focusNextPageRef.current = false;

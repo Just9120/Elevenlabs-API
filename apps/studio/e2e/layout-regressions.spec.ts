@@ -28,7 +28,7 @@ async function fixtures(page: Page) {
     else if (path.endsWith('/outputs')) value = {job_id:path.split('/')[2], job_status:'completed', output_count:0, outputs:[]};
     else if (path === '/credentials') value = {credentials: [{id: 'synthetic-key', provider: 'elevenlabs', label: 'Тестовый ключ', status: 'active', masked_value: '••••1234', active_version: 1}]};
     else if (path === '/account/preferences') value = {source_retention_ttl_seconds: 259200, allowed_source_retention_ttl_seconds: [259200, 604800, 2592000], accent_color: 'blue', allowed_accent_colors: ['blue','violet','teal','rose']};
-    else if (path === '/google/connection') value = {connected: true, status: 'active', email: 'layout@example.test', scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'};
+    else if (path === '/google/connection') value = {connected: true, status: 'active', google_email: 'layout@example.test', scopes: 'openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly', connected_at:'2026-10-11T12:00:00Z', revoked_at:null, picker_ready:true, picker_configured:true, picker_scope_ready:true, reconnect_required:false};
     else if (path === '/google/picker/session') value = {access_token: 'synthetic-token', api_key: 'synthetic-key', app_id: 'synthetic-id', scope_ready: true};
     else if (path === '/google/output-folder-favorites') value = {favorites: []};
     else if (path === '/stt/providers') value = {providers: [{provider: 'elevenlabs', display_name: 'ElevenLabs', byok_enabled: true, modes: [{mode: 'standard', model: 'scribe_v2', transport: 'batch', languages: ['ru','en','detect'], diarization: true, dictionaries: true, file_constraints: {max_bytes: 26214400, max_duration_seconds: 14400, audio_channels: [1,2]}, health: {available: true, consecutive_failures: 0, retry_after_seconds: null}}]}]};
@@ -56,7 +56,15 @@ async function fixtures(page: Page) {
 }
 
 async function noHorizontalOverflow(page: Page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  const overflow = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    width: document.documentElement.scrollWidth,
+    outside: Array.from(document.querySelectorAll('main *')).filter(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.width && rect.right > window.innerWidth + 1 && !node.closest('.settings-section-tabs');
+    }).slice(0, 8).map(node => `${node.tagName}.${node.className}`),
+  }));
+  expect(overflow.width, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.viewport + 1);
 }
 
 test('production media policy permits same-origin and local blob playback', async ({page}) => {
@@ -77,11 +85,50 @@ test('production media policy permits same-origin and local blob playback', asyn
   }
 });
 
-for (const viewport of [{width: 1280, height: 720}, {width: 390, height: 844}]) {
+for (const viewport of [{width: 1280, height: 720}, {width: 768, height: 1024}, {width: 390, height: 844}]) {
+  test(`fragment boundaries and folder disclosure ${viewport.width}`, async ({page}) => {
+    await page.addInitScript(() => sessionStorage.setItem('studio-form-draft:v1:batch:synthetic-layout', JSON.stringify({rows:[{
+      id:'synthetic-row', source_id:'', output_folder:{folder_id:'synthetic-root',name:'Мой диск'}, segmentation_enabled:false,
+      segments:[{id:'synthetic-segment',title:'',start_boundary:'0:00',end_boundary:'',ends_at_source_end:true,output_folder:null}],
+    }]})));
+    await page.setViewportSize(viewport); await fixtures(page); await page.goto('/transcriptions');
+    await page.getByRole('checkbox', {name:/Разделить файл на фрагменты/}).check();
+    await page.getByLabel('Количество фрагментов задачи 1').fill('3');
+    await page.getByRole('checkbox', {name:'До конца файла', exact:true}).first().uncheck();
+    await page.getByLabel('Конец фрагмента 1 задачи 1').fill('0:10');
+    await page.getByLabel('Начало фрагмента 2 задачи 1').fill('0:05');
+    await page.getByLabel('Конец фрагмента 2 задачи 1').fill('0:12');
+    await page.getByLabel('Начало фрагмента 3 задачи 1').fill('0:01');
+    const cards = page.locator('.segment-editor');
+    await expect(cards).toHaveCount(3);
+    for (const card of await cards.all()) {
+      await expect(card.locator('.segment-folder-control')).not.toHaveAttribute('open', '');
+      await expect(card.locator('.segment-folder-control > summary')).toContainText('Мой диск');
+      await expect(card.getByRole('textbox', {name:/Название фрагмента/})).toBeVisible();
+      const fields = await card.locator('.segment-boundaries input:not([type="checkbox"])').evaluateAll(nodes =>
+        nodes.map(node => ({width: node.getBoundingClientRect().width, right: node.getBoundingClientRect().right})));
+      for (const field of fields) { expect(field.width).toBeGreaterThan(60); expect(field.right).toBeLessThanOrEqual(viewport.width); }
+    }
+    const sizes = await cards.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().height)));
+    test.info().annotations.push({type:'fragment-heights', description:JSON.stringify(sizes)});
+    await cards.first().locator('.segment-folder-control > summary').click();
+    await expect(page.getByRole('button', {name:'Выбрать папку фрагмента 1 задачи 1', exact:true})).toBeVisible();
+    await noHorizontalOverflow(page);
+    await page.screenshot({path:`../../.tmp/review-fixes-20261018/fragments-${viewport.width}.png`, fullPage:true});
+  });
+
   test(`layout overview history audio and menus ${viewport.width}`, async ({page}) => {
     await page.setViewportSize(viewport); await fixtures(page); await page.goto('/');
     const navigation = page.getByRole('navigation', {name: 'Основная навигация'});
     await expect(navigation).toBeVisible();
+    if (viewport.width <= 900) {
+      const navigationRows = await navigation.getByRole('button').evaluateAll(nodes =>
+        nodes.map(node => Math.round(node.getBoundingClientRect().top)));
+      expect(new Set(navigationRows).size).toBe(1);
+      expect((await navigation.boundingBox())!.height).toBeLessThan(100);
+    }
+    await expect(page.getByText('Последних задач: 3', {exact: true})).toBeVisible();
+    await expect(page.getByText('Среди последних: в работе 0, документов 3.', {exact: true})).toBeVisible();
     await expect(page.locator('.dashboard-workspace-grid')).toBeVisible();
     await noHorizontalOverflow(page);
     if (viewport.width === 390) {
@@ -108,7 +155,8 @@ for (const viewport of [{width: 1280, height: 720}, {width: 390, height: 844}]) 
     await page.getByRole('button', {name: 'Следующая страница истории', exact: true}).click();
     await expect(page.locator('.recent-jobs article[data-job-id]')).toHaveCount(2);
     await expect(page.locator('#history-results')).toBeFocused();
-    expect((await page.locator('#history-results').boundingBox())!.y).toBeGreaterThanOrEqual(0);
+    // Scroll positions are integer CSS pixels; layout bounds can be fractional.
+    expect(Math.ceil((await page.locator('#history-results').boundingBox())!.y)).toBeGreaterThanOrEqual(0);
     await search.fill('Запись 12');
     await expect(page.locator('article[data-job-id]')).toHaveCount(1);
     await expect(page.getByRole('link', {name: 'Открыть документ'})).toBeVisible();
@@ -155,6 +203,38 @@ for (const viewport of [{width: 1280, height: 720}, {width: 390, height: 844}]) 
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     await dialog.getByRole('button', {name: 'Закрыть выбор папки', exact: true}).click();
     await expect(page.getByRole('button', {name: 'Выбрать папку', exact: true})).toBeFocused();
+    await navigation.getByRole('button', {name:'Настройки', exact:true}).click();
+    const settingsTabs = page.locator('.settings-section-tabs');
+    await expect(settingsTabs.getByRole('tab')).toHaveCount(6);
+    if (viewport.width <= 900) {
+      expect((await settingsTabs.boundingBox())!.height).toBeLessThan(100);
+      expect(new Set(await settingsTabs.getByRole('tab').evaluateAll(nodes =>
+        nodes.map(node => Math.round(node.getBoundingClientRect().top)))).size).toBe(1);
+    }
+    await page.getByText('Журнал безопасности', {exact:true}).click();
+    await page.getByRole('link', {name:'Открыть полный журнал', exact:true}).click();
+    await expect(page).toHaveURL(/\/settings\/diagnostics#security-audit-title$/);
+    await expect(page.locator('#security-audit-title')).toBeFocused();
+    await expect(page.locator('#security-audit-title').locator('..').locator('..')).toHaveAttribute('open', '');
+    for (const label of ['Подключения', 'Уведомления', 'Файлы и хранилище', 'Оформление', 'Для поддержки', 'Аккаунт']) {
+      await settingsTabs.getByRole('tab', {name:label, exact:true}).click();
+      await expect(settingsTabs.getByRole('tab', {name:label, exact:true})).toHaveAttribute('aria-selected', 'true');
+      await noHorizontalOverflow(page);
+    }
+    for (const mode of ['live', 'maintenance']) {
+      await page.goto(`/transcriptions?mode=${mode}`);
+      const tabName = mode === 'live' ? 'Live-транскрибация' : 'Обслуживание';
+      await expect(page.getByRole('tab', {name:tabName, exact:true})).toHaveAttribute('aria-selected', 'true');
+      await page.reload();
+      await expect(page.getByRole('tab', {name:tabName, exact:true})).toHaveAttribute('aria-selected', 'true');
+      await navigation.getByRole('button', {name:'Обзор', exact:true}).click();
+      await navigation.getByRole('button', {name:'Транскрибации', exact:true}).click();
+      await expect(page.getByRole('tab', {name:tabName, exact:true})).toHaveAttribute('aria-selected', 'true');
+      await page.getByRole('tab', {name:'Обычная транскрибация', exact:true}).click();
+      await page.goBack();
+      await expect(page.getByRole('tab', {name:tabName, exact:true})).toHaveAttribute('aria-selected', 'true');
+      await noHorizontalOverflow(page);
+    }
     await page.screenshot({path: `../../.tmp/goal-audio-${viewport.width}.png`, fullPage: true});
   });
 }

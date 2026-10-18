@@ -7,6 +7,20 @@ export type SettingsSection =
   | "appearance"
   | "diagnostics";
 export type PlatformRoute = { page: Page; settingsSection: SettingsSection };
+export type TranscriptionMode = "batch" | "live" | "maintenance";
+
+export function parseTranscriptionMode(search = window.location.search): TranscriptionMode {
+  const mode = new URLSearchParams(search).get("mode");
+  return mode === "live" || mode === "maintenance" ? mode : "batch";
+}
+
+export function pushTranscriptionMode(mode: TranscriptionMode, replace = false) {
+  const path = mode === "batch" ? "/transcriptions" : `/transcriptions?mode=${mode}`;
+  if (window.location.pathname + window.location.search !== path) {
+    if (replace) window.history.replaceState(window.history.state, "", path);
+    else window.history.pushState(window.history.state, "", path);
+  }
+}
 
 export function parsePlatformRoute(
   pathname = window.location.pathname,
