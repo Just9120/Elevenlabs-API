@@ -429,6 +429,28 @@ The owner selected a 12-hour personal RPO (43200 seconds) and a 4-hour RTO
 10-hour interval is not itself a verified RPO; actual snapshot age and recovery
 measurements must be checked against the selected targets.
 
+Host installation is an explicit operator step, not a consequence of component
+CD. From the verified current-main checkout at `/opt/elevenlabs-studio`, verify
+the two unit files with `systemd-analyze verify`, install them root-owned0644
+into `/etc/systemd/system`, run `systemctl daemon-reload` and
+`systemctl enable --now studio-postgres-backup.timer`. Read back enabled/active,
+the timer's next activation, the service's actual outcome and the latest
+project-tagged restic snapshot. Do not dispatch a second backup while one is
+running; the script also holds its existing flock. If first activation fails,
+stop the timer and diagnose before retrying; never report enabled as backup
+success. Preserve the existing repository, credentials, snapshots and retention.
+
+Configure `STUDIO_ALERT_OWNER_USER_ID` in root0600 host
+`/etc/elevenlabs-studio/backup.env` to the verified active personal administrator.
+The same non-secret UUID goes in runtime `.env` as
+`STUDIO_BACKUP_MONITOR_OWNER_USER_ID` for API and worker. Backup credentials
+remain host-only. Only this explicitly selected owner receives a missing-backup
+incident; an existing owner's backup audit stream also detects stale success
+or latest failure. A missing success or age of12h triggers the existing
+`backup_failure` incident without disclosing repository/credential data; a fresh
+successful backup clears the condition through the normal incident lifecycle.
+An empty recipient means unassigned, not proof that backups are healthy.
+
 The bounded automated rehearsal is
 [rehearse_studio_restore.py](../../scripts/rehearse_studio_restore.py), run from
 the repository root with the normal Python test dependencies and a running
