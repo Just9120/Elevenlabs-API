@@ -245,6 +245,20 @@ describe("batch composer model", () => {
     ).toBeNull();
   });
 
+  it("checks bounds against the selected prepared duration and preserves a full-source fragment among others", () => {
+    const row = newComposerRow();
+    const segments = resizeComposerSegments(row.segments, 2).map((segment, i) => ({
+      ...segment, start_boundary: i ? "0:05" : "0:00", end_boundary: "0:20", ends_at_source_end: i === 0,
+    }));
+    expect(composerSegmentPlanIssue(segments, 13.226)).toContain("длительность");
+    expect(composerSegmentPlanIssue(segments, null)).toBeNull();
+    const request = buildBatchCreateRequest([{...row, source_id:"source", segmentation_enabled:true,
+      output_folder:{folder_id:"folder",name:"Folder",web_view_url:null},segments}], "credential", "ru", false);
+    expect(request.items[0].media_clip_start_seconds).toBeUndefined();
+    expect(request.items[0].media_clip_end_seconds).toBeUndefined();
+    expect(request.items[1].media_clip_start_seconds).toBe(5);
+  });
+
   it("enforces both per-row and total batch segment limits", () => {
     const row = newComposerRow();
     expect(() => resizeComposerSegments(row.segments, 0)).toThrow(

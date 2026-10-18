@@ -7326,6 +7326,27 @@ def test_batch_segments_accept_independently_valid_mixed_overlapping_open_ended_
     assert _count_batch_rows() == (0, 0)
 
 
+@pytest.mark.parametrize("endpoint", ["preflight", "create"])
+def test_batch_rejects_out_of_bounds_known_prepared_version_before_creating_jobs(monkeypatch, endpoint):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(f"prepared-boundary-{endpoint}@example.com")
+    with SessionLocal() as db:
+        source = db.get(Source, source_a)
+        source.prepared_audio_context_json = json.dumps({
+            "job_id": str(uuid.uuid4()), "input_duration_ms": 15000,
+            "output_duration_ms": 13226, "pauses_removed": True,
+        })
+        db.commit()
+    suffix = "/preflight" if endpoint == "preflight" else ""
+    response = c.post(f"/api/projects/{pid}/jobs/batch{suffix}", json={
+        "provider_credential_id": cred_id,
+        "items": [{"source_id": source_a, "output_folder_id": "one", "media_clip_start_seconds": 0, "media_clip_end_seconds": 20}],
+    }, headers={"origin": "https://studio.test", "x-csrf-token": csrf, "Idempotency-Key": "prepared-boundary-regression-0001"})
+    assert response.status_code == 422
+    assert "длительность" in response.json()["detail"]
+    assert _count_batch_rows() == (0, 0)
+
+
 def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessing(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(

@@ -52,3 +52,11 @@ def prepared_audio_context_payload(value: str | None):
         return {key: item[key] for key in ("job_id", "input_duration_ms", "output_duration_ms", "pauses_removed")}
     except (ValueError, TypeError, KeyError):
         return None
+
+
+def known_prepared_duration_seconds(source) -> float | None:
+    """Duration of the selected prepared version, never the original timeline."""
+    context = prepared_audio_context_payload(getattr(source, "prepared_audio_context_json", None))
+    if context is None or context["output_duration_ms"] > 604800000:
+        return None
+    return context["output_duration_ms"] / 1000

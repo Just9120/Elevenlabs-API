@@ -253,7 +253,7 @@ type ParsedComposerSegment = {
   end_seconds: number | null;
 };
 
-function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
+function inspectComposerSegmentPlan(segments: ComposerSegment[], durationSeconds: number | null = null): {
   issue: string | null;
   clips: ParsedComposerSegment[];
 } {
@@ -289,6 +289,12 @@ function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
         clips: [],
       };
     }
+    if (durationSeconds !== null && (start >= durationSeconds || (end !== null && end > durationSeconds))) {
+      return {
+        issue: `фрагмент ${number}: границы выходят за длительность выбранной записи (${durationSeconds.toLocaleString("ru-RU")} сек.)`,
+        clips: [],
+      };
+    }
     clips.push({ start_seconds: start, end_seconds: end });
   }
   return { issue: null, clips };
@@ -296,8 +302,9 @@ function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
 
 export function composerSegmentPlanIssue(
   segments: ComposerSegment[],
+  durationSeconds: number | null = null,
 ): string | null {
-  return inspectComposerSegmentPlan(segments).issue;
+  return inspectComposerSegmentPlan(segments, durationSeconds).issue;
 }
 
 export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] {

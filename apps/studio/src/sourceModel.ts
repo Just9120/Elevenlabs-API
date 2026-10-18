@@ -25,6 +25,12 @@ export function preparedAudioContext(source: Source) {
   return parsePreparedAudioContext(source.prepared_audio);
 }
 
+export function knownSourceDurationSeconds(source: Source | null | undefined): number | null {
+  const context = source ? preparedAudioContext(source) : null;
+  return context && context.output_duration_ms <= 604800000
+    ? context.output_duration_ms / 1000 : null;
+}
+
 export function parsePreparedAudioContext(candidate: unknown): Source["prepared_audio"] | null {
   if (!candidate || typeof candidate !== "object") return null;
   const value = candidate as Record<string, unknown>;

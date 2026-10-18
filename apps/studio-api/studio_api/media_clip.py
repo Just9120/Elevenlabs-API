@@ -36,6 +36,15 @@ def normalize_media_clip_range(
     return MediaClipRange(start_seconds=start, end_seconds=end)
 
 
+def validate_known_clip_duration(clip: MediaClipRange, duration_seconds: float | None) -> None:
+    if duration_seconds is None:
+        return
+    if (clip.start_seconds or 0) >= duration_seconds or (
+        clip.end_seconds is not None and clip.end_seconds > duration_seconds
+    ):
+        raise MediaClipRangeError("clip is outside the selected prepared recording")
+
+
 def _optional_second(value: object, label: str) -> int | None:
     if value is None:
         return None

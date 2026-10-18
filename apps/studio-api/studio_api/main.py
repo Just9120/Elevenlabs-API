@@ -30,7 +30,7 @@ from .source_storage import (
     source_reference_class,
 )
 from .source_creation import parse_authoritative_source_created_at
-from .media_context import prepared_audio_context_payload
+from .media_context import prepared_audio_context_payload, known_prepared_duration_seconds
 from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, effective_source_retention_seconds, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
@@ -99,7 +99,7 @@ from .job_notifications import (
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
-from .media_clip import MediaClipRangeError, normalize_media_clip_range
+from .media_clip import MediaClipRangeError, normalize_media_clip_range, validate_known_clip_duration
 from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import (
     SourceDeletionReason,
@@ -2612,7 +2612,7 @@ def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
         hash_items.append(hash_item)
     return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, media_clips, hash_items
 
-def _validate_new_batch_targets(db: Session, user: User, project: Project, *, provider, operating_mode, language, diarization_enabled, dictionary_ids, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
+def _validate_new_batch_targets(db: Session, user: User, project: Project, *, provider, operating_mode, language, diarization_enabled, dictionary_ids, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, media_clips):
     try:
         capability=validate_selection(settings,provider=provider,mode=operating_mode,language=language,diarization=diarization_enabled,dictionary_count=len(dictionary_ids))
     except SttCapabilityError as exc:
@@ -2634,10 +2634,18 @@ def _validate_new_batch_targets(db: Session, user: User, project: Project, *, pr
     if duplicate_pair_found:
         raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
     sources=validate_job_sources(db, project.id, source_ids)
+    _require_known_batch_clip_bounds(sources, media_clips)
     unique_folders=list(dict.fromkeys(folder_ids))
     access_token=refreshed_google_drive_access_token(db, user)
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     return provider_credential_id, sources, verified_by_id, capability, snapshot_dictionary_terms(dictionaries)
+
+def _require_known_batch_clip_bounds(sources, media_clips):
+    for source, clip in zip(sources, media_clips, strict=True):
+        try:
+            validate_known_clip_duration(clip, known_prepared_duration_seconds(source))
+        except MediaClipRangeError:
+            raise HTTPException(422, "Границы фрагмента выходят за длительность выбранной подготовленной записи") from None
 
 def _batch_target_settings(*, provider: str, model: str, language: str, diarization_enabled: bool, media_clip):
     return current_effective_settings(
@@ -2709,7 +2717,7 @@ def _require_batch_preflight_decisions(sources, media_clips, matches, provider_a
 def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:batch:preflight:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
     language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, media_clips, _hash_items=_normalize_batch_creation_input(data)
-    _provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    _provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids,media_clips=media_clips)
     existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
     include_attention_job_id=request.headers.get("x-studio-preflight-recovery") == "1"
     attention_job_ids={} if include_attention_job_id else None
@@ -2745,12 +2753,13 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
-    provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    provider_credential_id, sources, verified_by_id, capability, dictionary_terms=_validate_new_batch_targets(db,user,p,provider=data.provider,operating_mode=data.operating_mode,language=language,diarization_enabled=data.options.diarize,dictionary_ids=data.options.dictionary_ids,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids,media_clips=media_clips)
     request_hash=_batch_hash(p.id,provider_credential_id,language,options_json,hash_items,provider=data.provider.value,operating_mode=data.operating_mode.value)
     try:
         jobs=[]
         _require_catalog_identity_locks(db, user, sources)
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
+        _require_known_batch_clip_bounds(sources, media_clips)
         existing_result_matches=_load_batch_existing_result_matches(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
         provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,media_clips,provider=data.provider.value,model=capability.model,language=language,diarization_enabled=data.options.diarize)
         _require_batch_preflight_decisions(sources,media_clips,existing_result_matches,provider_attempt_authorities,reprocess_existing)

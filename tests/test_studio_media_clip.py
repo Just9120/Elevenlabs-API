@@ -42,3 +42,17 @@ def test_manual_clip_range_rejects_ambiguous_or_invalid_values(start, end):
     with pytest.raises(MediaClipRangeError):
         normalize_media_clip_range(start, end)
 
+
+@pytest.mark.parametrize("start,end,duration,invalid", [
+    (0, 13, 13.226, False), (13, None, 13.226, False),
+    (0, 20, 13.226, True), (14, None, 13.226, True),
+    (13, None, 13, True), (0, 20, None, False),
+])
+def test_known_selected_duration_limits_each_clip(start, end, duration, invalid):
+    from studio_api.media_clip import MediaClipRange, MediaClipRangeError, validate_known_clip_duration
+    clip = MediaClipRange(start, end)
+    if invalid:
+        with pytest.raises(MediaClipRangeError):
+            validate_known_clip_duration(clip, duration)
+    else:
+        validate_known_clip_duration(clip, duration)

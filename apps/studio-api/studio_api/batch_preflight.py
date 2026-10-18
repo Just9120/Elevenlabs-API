@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Sequence
+from .media_context import known_prepared_duration_seconds
 
 from .transcript_catalog import (
     CURRENT_TRANSCRIPTION_MODEL,
@@ -107,9 +108,7 @@ def build_batch_preflight_payload(
                     and not isinstance(size_bytes, bool)
                     and size_bytes >= 0
                     else None,
-                    # Duration is established by the media-preparation probe. The
-                    # current Source authority does not persist it before a job.
-                    "duration_seconds": None,
+                    "duration_seconds": known_prepared_duration_seconds(source),
                 },
                 "output_destination": {
                     "name": _optional_text(getattr(folder, "name", None), 512)
