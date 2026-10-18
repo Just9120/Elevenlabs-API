@@ -213,19 +213,20 @@ describe("batch composer model", () => {
     ]);
   });
 
-  it("resizes a plan and rejects malformed, overlapping, or open middle fragments", () => {
+  it("preserves independently valid overlapping and open-ended fragments when resizing", () => {
     const row = newComposerRow();
     const resized = resizeComposerSegments(row.segments, 3);
 
     expect(resized).toHaveLength(3);
-    expect(resized[0].ends_at_source_end).toBe(false);
+    expect(resized[0].ends_at_source_end).toBe(true);
     expect(resized[2].ends_at_source_end).toBe(true);
-    expect(composerSegmentPlanIssue(resized)).toContain("фрагмент 1");
+    expect(composerSegmentPlanIssue(resized)).toContain("фрагмент 2");
 
     const valid = resized.map((segment, index) => ({
       ...segment,
       start_boundary: ["0:00", "10:10", "15:20"][index],
       end_boundary: ["10:10", "15:15", ""][index],
+      ends_at_source_end: index === 2,
     }));
     expect(composerSegmentPlanIssue(valid)).toBeNull();
     expect(
@@ -234,14 +235,14 @@ describe("batch composer model", () => {
         { ...valid[1], start_boundary: "10:10" },
         valid[2],
       ]),
-    ).toContain("не пересекаться");
+    ).toBeNull();
     expect(
       composerSegmentPlanIssue([
         { ...valid[0], ends_at_source_end: true },
         valid[1],
         valid[2],
       ]),
-    ).toContain("только последний");
+    ).toBeNull();
   });
 
   it("enforces both per-row and total batch segment limits", () => {

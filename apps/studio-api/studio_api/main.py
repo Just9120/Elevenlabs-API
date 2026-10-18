@@ -99,7 +99,7 @@ from .job_notifications import (
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
-from .media_clip import MediaClipPlanError, MediaClipRangeError, normalize_media_clip_range, validate_ordered_media_clip_plan
+from .media_clip import MediaClipRangeError, normalize_media_clip_range
 from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import (
     SourceDeletionReason,
@@ -2610,18 +2610,7 @@ def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
             hash_item["media_clip_start_seconds"]=clip.start_seconds
             hash_item["media_clip_end_seconds"]=clip.end_seconds
         hash_items.append(hash_item)
-    _validate_manual_segment_groups(source_ids,media_clips)
     return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, media_clips, hash_items
-
-def _validate_manual_segment_groups(source_ids,media_clips):
-    grouped={}
-    for sid,clip in zip(source_ids,media_clips,strict=True):
-        grouped.setdefault(sid,[]).append(clip)
-    for entries in grouped.values():
-        try:
-            validate_ordered_media_clip_plan(entries)
-        except MediaClipPlanError as exc:
-            raise HTTPException(422,"Некорректный план фрагментов файла") from exc
 
 def _validate_new_batch_targets(db: Session, user: User, project: Project, *, provider, operating_mode, language, diarization_enabled, dictionary_ids, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
     try:

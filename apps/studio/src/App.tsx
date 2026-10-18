@@ -5171,7 +5171,6 @@ function PreparationPanel({
                     </label>
                     <ol className="segment-editor-list">
                       {row.segments.map((segment, segmentIndex) => {
-                        const isLast = segmentIndex === row.segments.length - 1;
                         return (
                           <li className="segment-editor" key={segment.id}>
                             <b>Фрагмент {segmentIndex + 1}</b>
@@ -5211,7 +5210,6 @@ function PreparationPanel({
                                 <input
                                   type="checkbox"
                                   checked={segment.ends_at_source_end}
-                                  disabled={!isLast}
                                   onChange={(event) =>
                                     updateSegment(row.id, segment.id, {
                                       ends_at_source_end: event.target.checked,
@@ -7478,7 +7476,7 @@ function incidentSummaryLabel(code: OperationalIncident["summary_code"]) {
     queue_stuck: "Очередь обработки не продвигается",
     provider_unavailable: "STT provider временно недоступен",
     maintenance_failure: "Ошибка обслуживания или очистки",
-    backup_failure: "Ошибка резервного копирования PostgreSQL",
+    backup_failure: "Резервная копия PostgreSQL отсутствует, просрочена или завершилась ошибкой",
     storage_limit_near: "Временное хранилище близко к лимиту",
     api_limit_near: "API credits близки к лимиту",
     operator_canary_ok: "Проверка контура предупреждений завершена",

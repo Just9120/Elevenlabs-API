@@ -7305,7 +7305,7 @@ def test_batch_arbitrary_segments_preflight_and_persist_ordered_jobs(monkeypatch
         ],
     ],
 )
-def test_batch_segments_reject_mixed_overlapping_open_ended_or_out_of_order_plan(monkeypatch, items):
+def test_batch_segments_accept_independently_valid_mixed_overlapping_open_ended_or_out_of_order_plan(monkeypatch, items):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
         f"batch-invalid-split-{len(items)}-{items[-1]['output_folder_id']}@example.com"
@@ -7319,7 +7319,10 @@ def test_batch_segments_reject_mixed_overlapping_open_ended_or_out_of_order_plan
         headers={"origin": "https://studio.test", "x-csrf-token": csrf},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == len(items)
+    assert response.json()["summary"]["blocked_count"] == 0
+    assert response.json()["summary"]["process_count"] == len(items)
     assert _count_batch_rows() == (0, 0)
 
 

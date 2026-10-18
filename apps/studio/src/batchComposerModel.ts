@@ -152,11 +152,6 @@ export function resizeComposerSegments(
   while (next.length < requestedCount) {
     next.push(newComposerSegment(next.length, requestedCount));
   }
-  for (let index = 0; index < next.length - 1; index += 1) {
-    if (next[index].ends_at_source_end) {
-      next[index] = { ...next[index], ends_at_source_end: false };
-    }
-  }
   if (requestedCount > segments.length) {
     next[next.length - 1] = {
       ...next[next.length - 1],
@@ -269,7 +264,6 @@ function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
     };
   }
   const clips: ParsedComposerSegment[] = [];
-  let previousEnd: number | null = null;
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     const number = index + 1;
@@ -277,12 +271,6 @@ function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
     if (start === null) {
       return {
         issue: `фрагмент ${number}: укажите начало в формате ММ:СС или ЧЧ:ММ:СС`,
-        clips: [],
-      };
-    }
-    if (segment.ends_at_source_end && index !== segments.length - 1) {
-      return {
-        issue: `фрагмент ${number}: только последний фрагмент может продолжаться до конца файла`,
         clips: [],
       };
     }
@@ -301,14 +289,7 @@ function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
         clips: [],
       };
     }
-    if (index > 0 && (previousEnd === null || start < previousEnd)) {
-      return {
-        issue: `фрагмент ${number}: фрагменты должны идти по порядку и не пересекаться`,
-        clips: [],
-      };
-    }
     clips.push({ start_seconds: start, end_seconds: end });
-    previousEnd = end;
   }
   return { issue: null, clips };
 }
@@ -340,7 +321,6 @@ export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] 
     return row.segments.map((segment, segmentIndex) => {
       const clip = inspected.clips[segmentIndex];
       const fullSource =
-        row.segments.length === 1 &&
         clip.start_seconds === 0 &&
         clip.end_seconds === null;
       return {
