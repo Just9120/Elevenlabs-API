@@ -2675,7 +2675,7 @@ describe("Studio PWA", () => {
     renderApp();
     await waitForPlatformOverview();
     expect(screen.getByLabelText("Последние результаты")).toHaveTextContent(
-      "Открыть рабочую область",
+      "Недоступно",
     );
     expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
       "Подключён",
@@ -2737,7 +2737,7 @@ describe("Studio PWA", () => {
     renderApp();
     await waitForPlatformOverview();
     expect(screen.getByLabelText("Последние результаты")).toHaveTextContent(
-      "Открыть рабочую область",
+      "Последних задач: 0",
     );
     expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
       "Недоступно",
@@ -2962,7 +2962,7 @@ describe("Studio PWA", () => {
       await userEvent.click(
         within(credentialsCard).getByRole("button", { name: "Повторить" }),
       );
-      await waitFor(() => expect(projectsCard).toHaveTextContent("Открыть рабочую область"));
+      await waitFor(() => expect(projectsCard).toHaveTextContent("Последних задач: 0"));
       await waitFor(() => expect(credentialsCard).toHaveTextContent("Можно начинать"));
       expect(projectReads).toBe(2);
       expect(credentialReads).toBe(2);
@@ -3020,7 +3020,7 @@ describe("Studio PWA", () => {
     await userEvent.click(
       within(credentialsCard).getByRole("button", { name: "Повторить" }),
     );
-    await waitFor(() => expect(projectsCard).toHaveTextContent("Открыть рабочую область"));
+    await waitFor(() => expect(projectsCard).toHaveTextContent("Последних задач: 0"));
     await waitFor(() => expect(credentialsCard).toHaveTextContent("Можно начинать"));
   });
 
@@ -3070,7 +3070,7 @@ describe("Studio PWA", () => {
     await waitForPlatformOverview();
     const currentProjectsCard = screen.getByLabelText("Последние результаты");
     await waitFor(() =>
-      expect(currentProjectsCard).toHaveTextContent("Открыть рабочую область"),
+      expect(currentProjectsCard).toHaveTextContent("Недоступно"),
     );
     expect(screen.queryByText("Newest one")).not.toBeInTheDocument();
     expect(projectReads).toBe(4);
@@ -3082,7 +3082,7 @@ describe("Studio PWA", () => {
         }),
       ),
     );
-    expect(currentProjectsCard).toHaveTextContent("Открыть рабочую область");
+    expect(currentProjectsCard).toHaveTextContent("Недоступно");
     expect(screen.queryByText("Late older result")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-project-failure");
   });
@@ -5504,6 +5504,7 @@ describe("Studio PWA", () => {
     expect(
       screen.getByRole("button", { name: "Проверить задачи (3)" }),
     ).toBeDisabled();
+    await userEvent.click(screen.getAllByRole("checkbox", {name:"До конца файла"})[0]);
     await userEvent.type(
       screen.getByLabelText("Конец фрагмента 1 задачи 1"),
       "10:10",
@@ -5547,6 +5548,13 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название фрагмента 2 задачи 1"),
     ).toHaveValue("Часть два");
 
+    const endField=screen.getByLabelText("Конец фрагмента 1 задачи 1");
+    fireEvent.change(endField,{target:{value:"0:00"}});
+    expect(endField).toHaveAttribute("aria-invalid","true");
+    const errorId=endField.getAttribute("aria-describedby");
+    expect(errorId && document.getElementById(errorId)).toHaveTextContent("конец должен быть позже начала");
+    fireEvent.change(endField,{target:{value:"10:10"}});
+    expect(endField).not.toHaveAttribute("aria-invalid");
     await userEvent.click(
       screen.getByRole("button", { name: "Проверить задачи (3)" }),
     );
@@ -5554,6 +5562,9 @@ describe("Studio PWA", () => {
       "Проверка перед созданием задач",
     );
     expect(preview).toHaveTextContent("Часть файла: Начало — 10:10");
+    expect(preview).toHaveTextContent("Документ: Часть один");
+    expect(preview).toHaveTextContent("Папка: Safe folder 2");
+    expect(preview).toHaveTextContent("План требует проверки длительности");
     expect(preview).toHaveTextContent("Часть файла: 10:10 — 15:15");
     expect(preview).toHaveTextContent("Часть файла: 15:20 — конец");
     const preflightCall = (
@@ -11817,7 +11828,7 @@ describe("Studio PWA", () => {
       "summary-label",
     );
     await waitFor(() =>
-      expect(within(projectsCard).getByText("Открыть рабочую область")).toHaveClass(
+      expect(within(projectsCard).getByText("Последних задач: 0")).toHaveClass(
         "summary-value",
       ),
     );
@@ -13687,7 +13698,7 @@ describe("Studio PWA", () => {
       /\.meta\s*\{[^}]*grid-template-columns:\s*minmax\(8rem, 0\.35fr\) minmax\(0, 1fr\)/s,
     );
     expect(css).toMatch(
-      /@media \(max-width: 900px\)[\s\S]*?\.app-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/,
+      /@media \(max-width: 900px\)[\s\S]*?\.app-nav\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/,
     );
     expect(css).toMatch(
       /@media \(max-width: 620px\)[\s\S]*?\.meta\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
@@ -14446,7 +14457,7 @@ describe("settings diagnostics", () => {
     cleanup();
     expect(
       removeSpy.mock.calls.filter(([type]) => type === "popstate"),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
 
     window.history.replaceState({}, "", "/settings/diagnostics");
     renderApp();
@@ -14479,7 +14490,7 @@ describe("settings diagnostics", () => {
     ).toBeInTheDocument();
     expect(
       addSpy.mock.calls.filter(([type]) => type === "popstate"),
-    ).toHaveLength(5);
+    ).toHaveLength(7);
     expect(
       localGet.mock.calls.every(([key]) => key === "studio-theme-preference"),
     ).toBe(true);
@@ -15306,7 +15317,7 @@ describe("settings diagnostics", () => {
     ]) {
       expect(screen.getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
-    expect(screen.getByText(/Событие безопасности/)).toBeInTheDocument();
+    expect(screen.getByText(/Действие Studio/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("unknown.private_event");
     expect(document.body.textContent).not.toContain("job.cancelled");
     expect(document.body.textContent).not.toContain("job.cancel_requested");

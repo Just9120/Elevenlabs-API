@@ -7305,7 +7305,7 @@ def test_batch_arbitrary_segments_preflight_and_persist_ordered_jobs(monkeypatch
         ],
     ],
 )
-def test_batch_segments_reject_mixed_overlapping_open_ended_or_out_of_order_plan(monkeypatch, items):
+def test_batch_segments_accept_independently_valid_mixed_overlapping_open_ended_or_out_of_order_plan(monkeypatch, items):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
         f"batch-invalid-split-{len(items)}-{items[-1]['output_folder_id']}@example.com"
@@ -7319,7 +7319,31 @@ def test_batch_segments_reject_mixed_overlapping_open_ended_or_out_of_order_plan
         headers={"origin": "https://studio.test", "x-csrf-token": csrf},
     )
 
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == len(items)
+    assert response.json()["summary"]["blocked_count"] == 0
+    assert response.json()["summary"]["process_count"] == len(items)
+    assert _count_batch_rows() == (0, 0)
+
+
+@pytest.mark.parametrize("endpoint", ["preflight", "create"])
+def test_batch_rejects_out_of_bounds_known_prepared_version_before_creating_jobs(monkeypatch, endpoint):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(f"prepared-boundary-{endpoint}@example.com")
+    with SessionLocal() as db:
+        source = db.get(Source, source_a)
+        source.prepared_audio_context_json = json.dumps({
+            "job_id": str(uuid.uuid4()), "input_duration_ms": 15000,
+            "output_duration_ms": 13226, "pauses_removed": True,
+        })
+        db.commit()
+    suffix = "/preflight" if endpoint == "preflight" else ""
+    response = c.post(f"/api/projects/{pid}/jobs/batch{suffix}", json={
+        "provider_credential_id": cred_id,
+        "items": [{"source_id": source_a, "output_folder_id": "one", "media_clip_start_seconds": 0, "media_clip_end_seconds": 20}],
+    }, headers={"origin": "https://studio.test", "x-csrf-token": csrf, "Idempotency-Key": "prepared-boundary-regression-0001"})
     assert response.status_code == 422
+    assert "длительность" in response.json()["detail"]
     assert _count_batch_rows() == (0, 0)
 
 

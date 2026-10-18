@@ -1,3 +1,4 @@
+import { formatAudioDuration } from "./formatters";
 import { useId } from "react";
 
 export type AudioVisual = { sources: { position: number; duration_seconds: number; bin_duration_seconds?: number; peaks: number[];
@@ -24,7 +25,7 @@ export function parseAudioVisual(value: unknown): AudioVisual | null {
   return visual;
 }
 
-const timestamp = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const timestamp = formatAudioDuration;
 const reductionLabel = (seconds: number) => seconds > 0 && seconds < 1
   ? seconds < 0.01 ? "менее 0,01 с" : `${seconds.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} с`
   : timestamp(seconds);

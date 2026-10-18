@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -85,6 +86,60 @@ def settings(*, telegram=False):
 def test_blank_optional_storage_limit_uses_not_configured_state(monkeypatch):
     monkeypatch.setenv("STUDIO_ALERT_STORAGE_LIMIT_BYTES", "")
     assert Settings(_env_file=None).alert_storage_limit_bytes is None
+
+
+def test_backup_monitor_owner_configuration_is_optional_but_bounded():
+    assert Settings(_env_file=None, backup_monitor_owner_user_id="").backup_monitor_owner_user_id is None
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, backup_monitor_owner_user_id="arbitrary-recipient")
+
+
+@pytest.mark.parametrize("events,configured,expected", [
+    ([], True, True),
+    ([], False, False),
+    ([(3600, "success")], True, False),
+    ([(43199, "success")], True, False),
+    ([(43200, "success")], True, True),
+    ([(46800, "success")], False, True),
+    ([(3600, "success"), (60, "failed")], True, True),
+    ([(3600, "failed"), (60, "success")], True, False),
+])
+def test_backup_missing_stale_failure_and_recovery(events, configured, expected):
+    engine, _factory, db, owner = database()
+    now = datetime(2026, 10, 18, 12)
+    config = settings()
+    config.backup_monitor_owner_user_id = owner.id if configured else None
+    for age, outcome in events:
+        db.add(AuditEvent(actor_user_id=owner.id, subject_user_id=owner.id,
+                          event_type="ops.postgres_backup", outcome=outcome,
+                          metadata_json="{}", created_at=now - timedelta(seconds=age)))
+    db.flush()
+    observation = next(o for o in collect_rule_observations(
+        db, owner_user_id=owner.id, settings=config, now=now
+    ) if o.incident_kind == "backup_failure")
+    assert observation.firing is expected
+    assert observation.evidence_count == int(expected)
+    db.close()
+    engine.dispose()
+
+
+def test_another_owners_fresh_backup_does_not_mask_missing_backup():
+    engine, _factory, db, owner = database()
+    now = datetime(2026, 10, 18, 12)
+    other = User(email="backup-other@example.test", status=UserStatus.active)
+    db.add(other); db.flush()
+    db.add(AuditEvent(actor_user_id=other.id, subject_user_id=other.id,
+                      event_type="ops.postgres_backup", outcome="success",
+                      metadata_json="{}", created_at=now))
+    db.flush()
+    config = settings()
+    config.backup_monitor_owner_user_id = owner.id
+    observation = next(o for o in collect_rule_observations(
+        db, owner_user_id=owner.id, settings=config, now=now
+    ) if o.incident_kind == "backup_failure")
+    assert observation.firing is True
+    db.close()
+    engine.dispose()
 
 
 def database():

@@ -184,6 +184,27 @@ def collect_rule_observations(
         .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
         .first()
     )
+    # An absent timer produces no failure event. Check freshness independently
+    # of the short diagnostics window, retaining the existing owner boundary.
+    backup_required = (
+        getattr(settings, "backup_monitor_owner_user_id", None) == owner_user_id
+        or latest_backup is not None
+    )
+    latest_successful_backup = (
+        db.query(AuditEvent)
+        .filter(
+            AuditEvent.subject_user_id == owner_user_id,
+            AuditEvent.event_type == "ops.postgres_backup",
+            AuditEvent.outcome == "success",
+        )
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+        .first()
+    ) if backup_required else None
+    backup_unhealthy = bool(backup_required and (
+        latest_backup is None or latest_backup.outcome == "failed"
+        or latest_successful_backup is None
+        or _utc_naive(latest_successful_backup.created_at) <= now_dt - timedelta(hours=12)
+    ))
 
     storage_firing = False
     storage_evidence = 0
@@ -232,7 +253,7 @@ def collect_rule_observations(
         RuleObservation("stuck_queue", bool(stuck_jobs), "critical", "queue_stuck", len(stuck_jobs), next((job.trace_id for job in stuck_jobs if valid_trace_id(job.trace_id)), None)),
         RuleObservation("provider_unavailable", provider_count >= int(settings.alert_provider_failure_threshold), "warning", "provider_unavailable", provider_count, latest_trace(provider_events)),
         RuleObservation("maintenance_failure", maintenance_count > 0, "warning", "maintenance_failure", maintenance_count, latest_trace(maintenance_events)),
-        RuleObservation("backup_failure", bool(latest_backup and latest_backup.outcome == "failed"), "critical", "backup_failure", 1 if latest_backup and latest_backup.outcome == "failed" else 0, latest_backup.trace_id if latest_backup and valid_trace_id(latest_backup.trace_id) else None),
+        RuleObservation("backup_failure", backup_unhealthy, "critical", "backup_failure", int(backup_unhealthy), latest_backup.trace_id if latest_backup and valid_trace_id(latest_backup.trace_id) else None),
         RuleObservation("storage_limit", storage_firing, "warning", "storage_limit_near", storage_evidence),
         RuleObservation("api_limit", api_firing, "warning", "api_limit_near", 100 - api_remaining_percent),
     ]
@@ -666,7 +687,7 @@ def _telegram_text(claim: DeliveryClaim) -> str:
         "queue_stuck": "очередь обработки не продвигается",
         "provider_unavailable": "STT provider временно недоступен",
         "maintenance_failure": "ошибка обслуживания или очистки",
-        "backup_failure": "ошибка резервного копирования PostgreSQL",
+        "backup_failure": "резервная копия PostgreSQL отсутствует, просрочена или завершилась ошибкой",
         "storage_limit_near": "временное хранилище близко к лимиту",
         "api_limit_near": "API credits близки к лимиту",
         "operator_canary_ok": "проверка контура предупреждений завершена",

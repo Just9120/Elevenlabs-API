@@ -8,6 +8,19 @@ from types import SimpleNamespace
 import pytest
 
 
+def test_preflight_duration_uses_selected_prepared_version_not_original():
+    from studio_api.media_context import known_prepared_duration_seconds
+    source = SimpleNamespace(prepared_audio_context_json=json.dumps({
+        "job_id": "00000000-0000-0000-0000-000000000001",
+        "input_duration_ms": 15000, "output_duration_ms": 13226,
+        "pauses_removed": True,
+    }))
+    assert known_prepared_duration_seconds(source) == 13.226
+    assert known_prepared_duration_seconds(SimpleNamespace()) is None
+    source.prepared_audio_context_json = "malformed"
+    assert known_prepared_duration_seconds(source) is None
+
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
 

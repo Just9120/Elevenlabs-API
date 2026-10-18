@@ -43,42 +43,16 @@ def test_manual_clip_range_rejects_ambiguous_or_invalid_values(start, end):
         normalize_media_clip_range(start, end)
 
 
-def test_ordered_media_clip_plan_accepts_arbitrary_non_overlapping_fragments():
-    from studio_api.media_clip import (
-        MediaClipRange,
-        validate_ordered_media_clip_plan,
-    )
-
-    validate_ordered_media_clip_plan(
-        (
-            MediaClipRange(start_seconds=0, end_seconds=610),
-            MediaClipRange(start_seconds=610, end_seconds=915),
-            MediaClipRange(start_seconds=920, end_seconds=None),
-        )
-    )
-    validate_ordered_media_clip_plan(
-        (MediaClipRange(start_seconds=30, end_seconds=45),)
-    )
-    validate_ordered_media_clip_plan((MediaClipRange(),))
-
-
-@pytest.mark.parametrize(
-    "clips",
-    [
-        ((None, None), (0, 10)),
-        ((0, 10), (9, 20)),
-        ((10, 20), (0, 9)),
-        ((0, None), (10, 20)),
-    ],
-)
-def test_ordered_media_clip_plan_rejects_mixed_overlapping_or_open_middle(clips):
-    from studio_api.media_clip import (
-        MediaClipPlanError,
-        MediaClipRange,
-        validate_ordered_media_clip_plan,
-    )
-
-    with pytest.raises(MediaClipPlanError):
-        validate_ordered_media_clip_plan(
-            tuple(MediaClipRange(start_seconds=start, end_seconds=end) for start, end in clips)
-        )
+@pytest.mark.parametrize("start,end,duration,invalid", [
+    (0, 13, 13.226, False), (13, None, 13.226, False),
+    (0, 20, 13.226, True), (14, None, 13.226, True),
+    (13, None, 13, True), (0, 20, None, False),
+])
+def test_known_selected_duration_limits_each_clip(start, end, duration, invalid):
+    from studio_api.media_clip import MediaClipRange, MediaClipRangeError, validate_known_clip_duration
+    clip = MediaClipRange(start, end)
+    if invalid:
+        with pytest.raises(MediaClipRangeError):
+            validate_known_clip_duration(clip, duration)
+    else:
+        validate_known_clip_duration(clip, duration)
