@@ -46,7 +46,7 @@
 | `PUX-17` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
 | `PUX-18` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
 | `PUX-19` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
-| `PUX-20` | IN_PROGRESS | ✅ | ✅ | PENDING | PR332 implementation/CI PASS; UXR22 web-before-API compatibility gap. Candidate hotfix local49 server contracts/3 UI scenarios PASS; current-head CI/merge/component delivery PENDING. |
+| `PUX-20` | READY | ✅ | ✅ | ✅ | Восстановлено18Oct по primary records PR333/def1750: current-head CI38735119529, platform38735693476 и worker38736484985 SUCCESS. Selected preview compatibility fail-closed исправлен; прежний pre-merge checkpoint устарел. |
 | `PUX-21` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
 | `PUX-22` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
 | `PUX-23` | READY | ✅ | ✅ | ✅ | PR332/main206c579; CI38477514519 (Python2135, UI819, browser17) и exact-main CI38478146748 SUCCESS14Oct. Delivery Goal отдельно pending; production UI проверки ограниченные. |
@@ -132,8 +132,8 @@
 | `PS-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PS-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PS-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PS-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PS-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PS-04` | READY | ✅ | ✅ | PENDING | V-REVIEW-FIXES-18 candidate: независимый EOF каждого фрагмента, per-field errors, known prepared duration до подтверждения; unknown duration явно pending до probe. Local focused tests PASS; REQUIRED API/DB Linux CI до merge. На baseline b7f9d48 — IN_PROGRESS по UXR26/27. |
+| `PS-05` | READY | ✅ | ✅ | PENDING | V-REVIEW-FIXES-18 candidate: removed cross-fragment ordering/overlap/EOF restriction, preserved individual range/owner/idempotency constraints. Model/unit PASS; API persistence/negative tests REQUIRED Linux CI. На baseline b7f9d48 — IN_PROGRESS по UXR26. |
 
 ### `PWA-BATCH-01`
 
