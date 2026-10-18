@@ -69,6 +69,15 @@ const response = (body: unknown, ok = true, status = 200) =>
   } as Response);
 
 describe("LiveTranscriptionPanel", () => {
+  it("does not announce readiness when no audio source is selected", async () => {
+    render(<LiveTranscriptionPanel projectId="project" csrf="csrf" onCsrf={vi.fn()} active />);
+    await waitFor(() => expect(screen.getByRole("button",{name:"Начать",exact:true})).toBeEnabled());
+    await userEvent.click(screen.getByLabelText("Звук вкладки или экрана"));
+    expect(screen.getByRole("button",{name:"Начать",exact:true})).toBeDisabled();
+    expect(screen.getByText("Выберите источник звука")).toBeInTheDocument();
+    expect(screen.queryByText("Готово к запуску")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     controllerState.instances.length = 0;
     vi.stubGlobal(

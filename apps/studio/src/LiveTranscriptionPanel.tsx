@@ -1026,6 +1026,17 @@ export function LiveTranscriptionPanel({
   const sourceReady =
     (displayAudio && displayAudioSupported) ||
     (microphone && microphoneSupported);
+  const startDisabled = running ||
+                credentialsState !== "ready" ||
+                recoveryState === "loading" ||
+                recoveryCandidate !== null ||
+                !sourceReady ||
+                !credentialId ||
+                Boolean(providerBlocker);
+  const startReadinessLabel = !sourceReady ? "Выберите источник звука"
+    : recoveryCandidate ? "Сначала выберите действие с черновиком"
+    : !credentialId ? "Выберите ключ провайдера"
+    : "Проверяем настройки и готовность провайдера";
   const inputPercent = Math.round(inputLevel * 100);
   const displayInputPercent = Math.round(displayInputLevel * 100);
   const microphoneInputPercent = Math.round(microphoneInputLevel * 100);
@@ -1048,10 +1059,10 @@ export function LiveTranscriptionPanel({
             до ручной очистки; звук не сохраняется.
           </p>
         </div>
-        <span className={`live-status live-status-${status}`} role="status">
+        <span className={`live-status live-status-${status === "ready" && startDisabled ? "not-ready" : status}`} role="status">
           {status === "connecting"
             ? `Подключаемся к ${providerName}`
-            : STATUS_LABELS[status]}
+            : status === "ready" && startDisabled ? startReadinessLabel : STATUS_LABELS[status]}
         </span>
       </header>
 
@@ -1335,15 +1346,7 @@ export function LiveTranscriptionPanel({
             <button
               className="primary"
               type="button"
-              disabled={
-                running ||
-                credentialsState !== "ready" ||
-                recoveryState === "loading" ||
-                recoveryCandidate !== null ||
-                !sourceReady ||
-                !credentialId ||
-                Boolean(providerBlocker)
-              }
+              disabled={startDisabled}
               onClick={() => void start()}
             >
               Начать
