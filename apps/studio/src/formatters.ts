@@ -7,6 +7,14 @@ export function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("ru-RU") : "—";
 }
 
+export function formatAudioDuration(seconds: number) {
+  if (!Number.isFinite(seconds)) return "—";
+  const hundredths = Math.max(0, Math.round(seconds * 100));
+  const minutes = Math.floor(hundredths / 6000);
+  const remainder = (hundredths % 6000) / 100;
+  return `${minutes}:${remainder.toLocaleString("ru-RU", {minimumIntegerDigits: 2, maximumFractionDigits: 2, useGrouping: false})}`;
+}
+
 export function formatMediaTimestamp(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(total / 3600);

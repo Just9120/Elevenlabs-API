@@ -45,6 +45,24 @@ function previewJob(id: string, title: string, sourceIds: string[]) {
 }
 
 describe("AudioPreparationPage", () => {
+  it("blocks a restored removed source and lets the user clear only unavailable selections", async () => {
+    sessionStorage.setItem("studio-form-draft:v1:audio:project-id", JSON.stringify({sourceMode:"studio",selected:["removed-source"]}));
+    const fetchMock = vi.fn(async(input: RequestInfo | URL, init?: RequestInit) => {
+      const url=String(input);
+      if(url.endsWith("/workspace")) return json({project:{id:"project-id",title:"Studio"}});
+      if(url.endsWith("/sources")) return json({sources:[]});
+      if(url.endsWith("/audio-preparations") && (init?.method ?? "GET") === "GET") return json({jobs:[]});
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    render(<AudioPreparationPage csrf="csrf" onCsrf={vi.fn()}/>);
+    const clear = await screen.findByRole("button",{name:"Убрать недоступные файлы из плана"});
+    expect(screen.getByRole("button",{name:"Проверить файлы и рассчитать"})).toBeDisabled();
+    expect(screen.getByText("Недоступный файл")).toBeInTheDocument();
+    await userEvent.click(clear);
+    expect(screen.queryByText("Недоступный файл")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([,init])=>(init as RequestInit|undefined)?.method==="POST" && String((init as RequestInit)?.body).includes("removed-source"))).toBe(false);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it.each(["source", "folder", "result"])("offers Google recovery after rejected authorization in the %s flow", async (flow) => {
@@ -525,6 +543,7 @@ describe("audio UX regression", () => {
     expect(screen.getByRole("link", { name: "Скачать файл" })).toHaveAttribute("href", "/api/audio-preparations/ready/download");
     expect(screen.getByRole("button", { name: "Сохраняем в Google Drive…" })).toBeDisabled();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Сохраняем в Google Drive…" })).not.toBeInTheDocument(), { timeout: 3000 });
+    expect(screen.getByRole("link", { name: "Открыть копию в Google Drive" })).toHaveAttribute("href", "https://drive.google.com/file/d/result/view");
     await userEvent.click(screen.getByRole("button", { name: "Другие действия: Готовое аудио" }));
     expect(screen.getByRole("menuitem", { name: "Открыть в Google Drive" })).toHaveAttribute("href", "https://drive.google.com/file/d/result/view");
   });

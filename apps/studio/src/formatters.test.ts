@@ -1,5 +1,6 @@
 import {
   formatBytes,
+  formatAudioDuration,
   formatDurationLimit,
   formatTime,
   formatUploadLimit,
@@ -51,4 +52,11 @@ describe("Studio formatters", () => {
   ] as const)("formats duration policy %s", (value, expected) => {
     expect(formatDurationLimit(value)).toBe(expected);
   });
+});
+
+it.each([
+  [15, "0:15"], [13.226208, "0:13,23"], [1.773792, "0:01,77"],
+  [59.999, "1:00"], [60, "1:00"], [0, "0:00"],
+])("formats audio duration %s consistently including minute carry", (seconds, expected) => {
+  expect(formatAudioDuration(seconds)).toBe(expected);
 });
