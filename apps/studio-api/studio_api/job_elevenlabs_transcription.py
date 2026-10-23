@@ -36,7 +36,7 @@ from .media_preparation import (
     PreparedMediaInput,
     prepare_elevenlabs_media_parts,
 )
-from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob, TranscriptionJobSource
+from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob, TranscriptionJobSource, TranscriptionJobSourceAttempt
 from .security import utcnow
 from .provider_part_checkpoints import (
     ProviderPartCheckpointError,
@@ -209,6 +209,16 @@ def transcribe_processing_job_source_with_elevenlabs(
                     media_clip = initial_job_snapshot["catalog_settings"]
                     from .long_media_preflight import confirmed_source_duration
                     confirmed_duration = confirmed_source_duration(db.get(TranscriptionJob, job_id), job_source_id)
+                    # Preserve an existing multipart checkpoint/usage plan on recovery.
+                    prior_part_count = db.scalar(
+                        select(TranscriptionJobSourceAttempt.provider_total_parts)
+                        .where(
+                            TranscriptionJobSourceAttempt.job_source_id == job_source_id,
+                            TranscriptionJobSourceAttempt.provider_total_parts.is_not(None),
+                        )
+                        .order_by(TranscriptionJobSourceAttempt.attempt_number.desc())
+                        .limit(1)
+                    ) if expected_provider == "elevenlabs" and media_clip.diarization_enabled else None
                     _close_read_transaction_before_media_preparation(db)
                     prepared_cm = media_preparer(
                         stream=source.stream,
@@ -216,6 +226,9 @@ def transcribe_processing_job_source_with_elevenlabs(
                         mime_type=source.mime_type,
                         byte_count=source.byte_count,
                         max_output_bytes=settings.source_max_upload_bytes,
+                        **({"prefer_whole_recording": (
+                            media_clip.diarization_enabled and (prior_part_count is None or prior_part_count == 1)
+                        )} if expected_provider == "elevenlabs" else {}),
                         media_clip_start_seconds=media_clip.media_clip_start_seconds,
                         media_clip_end_seconds=media_clip.media_clip_end_seconds,
                         duration_warning_seconds=settings.media_duration_warning_seconds,

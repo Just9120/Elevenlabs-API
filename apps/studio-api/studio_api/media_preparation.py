@@ -28,6 +28,9 @@ ELEVENLABS_PART_TARGET_DURATION_SECONDS = 1320.0
 ELEVENLABS_PART_MIN_DURATION_SECONDS = 30.0
 ELEVENLABS_PART_OVERLAP_SECONDS = 2.0
 ELEVENLABS_MAX_PARTS = 256
+# Standard single-channel STT request limits; source/resource guards still apply.
+ELEVENLABS_WHOLE_MAX_BYTES = 5_000_000_000 - 1
+ELEVENLABS_WHOLE_MAX_DURATION_SECONDS = 36_000
 YANDEX_MAX_BYTES = 60 * 1024 * 1024
 YANDEX_MAX_DURATION_SECONDS = 14400
 YANDEX_AUDIO_BITRATE = "24k"
@@ -191,6 +194,7 @@ def prepare_elevenlabs_media_parts(
     max_duration_seconds: int = 43200,
     long_duration_confirmed: bool = False,
     confirmed_source_duration_seconds: float | None = None,
+    prefer_whole_recording: bool = False,
 ) -> Iterator[PreparedMediaBatch]:
     with prepare_elevenlabs_media_input(
         stream=stream,
@@ -238,7 +242,9 @@ def prepare_elevenlabs_media_parts(
                     )
                     prepared_path = clip_path
                     duration = _probe_duration_seconds(runner, prepared_path)
-                split_reason = _split_reason(prepared_size, duration)
+                split_reason = _split_reason(
+                    prepared_size, duration, prefer_whole_recording=prefer_whole_recording,
+                )
                 if split_reason is None:
                     if clip_requested:
                         prepared_stream = prepared_path.open("rb")
@@ -644,7 +650,15 @@ def _probe_source_creation_time(
     return None
 
 
-def _split_reason(size_bytes: int, duration_seconds: float) -> str | None:
+def _split_reason(
+    size_bytes: int, duration_seconds: float, *, prefer_whole_recording: bool = False,
+) -> str | None:
+    if (
+        prefer_whole_recording
+        and size_bytes <= ELEVENLABS_WHOLE_MAX_BYTES
+        and duration_seconds <= ELEVENLABS_WHOLE_MAX_DURATION_SECONDS
+    ):
+        return None
     size_exceeded = size_bytes > ELEVENLABS_PART_MAX_BYTES
     duration_exceeded = duration_seconds > ELEVENLABS_PART_TARGET_DURATION_SECONDS
     if size_exceeded and duration_exceeded:
