@@ -70,6 +70,14 @@ def claim_next_and_process_audio_preparation(
 
 
 def claim_next_studio_work(db: Session, **kwargs):
+    from .worker_recovery import recover_expired_worker_jobs
+
+    try:
+        recover_expired_worker_jobs(db, now=utcnow())
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     audio_result = claim_next_and_process_audio_preparation(db, **kwargs)
     if audio_result is not None:
         return audio_result

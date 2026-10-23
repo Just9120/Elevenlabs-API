@@ -341,6 +341,27 @@ def test_multisource_prepared_rows_allow_recovery_and_explicit_retry(sqlite_db):
     assert retry.job.terminal_dismissed_at is None
 
 
+@pytest.mark.parametrize("state", ["safe", "uncertain", "cancelled", "active"])
+def test_real_worker_entry_recovers_expired_jobs_without_dispatch(sqlite_db, monkeypatch, state):
+    from studio_api import audio_preparation_worker as worker
+    from studio_api import job_processing_runner, transcript_maintenance_worker
+    m, now, _user, _project, job, rels = _job_with_sources(sqlite_db, source_count=1, expired=state != "active")
+    _attempt(sqlite_db, m, job, rels[0], started=state == "uncertain",
+             stage=m.SourceAttemptStage.provider_request_started if state == "uncertain" else None)
+    if state == "cancelled":
+        job.cancel_requested_at = now
+        sqlite_db.commit()
+    monkeypatch.setattr(worker, "utcnow", lambda: now)
+    monkeypatch.setattr(worker, "claim_next_and_process_audio_preparation", lambda *a, **k: None)
+    monkeypatch.setattr(job_processing_runner, "claim_next_and_orchestrate_processing_job", lambda *a, **k: None)
+    monkeypatch.setattr(transcript_maintenance_worker, "claim_next_and_process_transcript_maintenance", lambda *a, **k: None)
+    worker.claim_next_studio_work(sqlite_db)
+    assert job.status.value == {"safe": "queued", "uncertain": "failed", "cancelled": "cancelled", "active": "processing"}[state]
+    if state == "uncertain":
+        assert job.error_code == "provider_outcome_uncertain"
+    assert job.attempt_count == 1
+
+
 def test_expired_yandex_attempt_with_durable_operation_recovers_without_new_submit_authority(sqlite_db):
     from studio_api.job_processing_lifecycle import recover_expired_processing_job
 

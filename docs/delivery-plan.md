@@ -2,6 +2,34 @@
 
 ## Current work и checkpoint
 
+### WORKER-RELIABILITY-20261024 — IN_PROGRESS
+
+Основание: владелец24Oct2026 выбрал WK-01..WK-06 единой узкой Goal, один PR и поставка на Contabo; Cloudflare исключён. Built-in Goal ACTIVE. Fresh base/main `8c25efa627b6eeebf13e87e26161e65a96975942`, clean branch `codex/worker-reliability-wk01-wk06-20261024`, existing worktree. GitHub: open PR0, main strict `ci-required`, admins enforced, approvals0; unrelated branch/materials сохраняются.
+
+| Finding / приоритет | Критерий закрытия / AC | Статус / Evidence |
+|---|---|---|
+| WK-01 · FIX P1 · HIGH | JOBREL-04: bounded locked sweep expired processing leases реально вызывается worker; безопасное requeue либо completed/cancelled/attention required по durable evidence; uncertainty никогда не разрешает новый STT/Google create | IN_PROGRESS; base isolated reproduction: recovery available, restarted worker claim absent, retry job_not_failed, cancel остаётся processing |
+| WK-02 · FIX P1 · HIGH | Drain посылает SIGTERM, ожидает безопасный выход; истечение времени наблюдения не посылает SIGKILL, не разрешает deploy и оставляет явный incomplete статус | IN_PROGRESS; base TTL3600+60 vs FFmpeg7200 |
+| WK-03 · FIX P2 · HIGH | Очистка/notifications/alerts имеют независимые bounded проходы во время основной обработки; work classes получают конечную очередь без постоянного приоритета audio | IN_PROGRESS; base fake busy jobs3, maintenance/notifications/alerts0 |
+| WK-04 · FIX P2 · MEDIUM | Readiness не остаётся ready бесконечно при остановке main loop: heartbeat учитывает его activity и известные bounded operation deadlines; законные долгие этапы не считаются зависанием; никаких automatic paid retry/restart | IN_PROGRESS; base independent heartbeat не проверяет основной цикл |
+| WK-05 · FIX P2 · HIGH | До STT cancel/lease проверяется между chunks и при ожидании FFmpeg; дочерний процесс/streams очищаются, отмена никогда не начинает STT | IN_PROGRESS; base materialization без callbacks, blocking FFmpeg1800 |
+| WK-06 · FIX P2 · HIGH | Unknown failure сохраняет allowlisted exception type, stage и opaque correlation context; реальные handlers это сериализуют, не включая exception text/traceback/секреты/контент | IN_PROGRESS; base synthetic exception log только worker_iteration_failed |
+
+Scope: runtime worker, существующие processing/recovery/cancellation boundaries, operational drain, focused tests и canonical docs. Non-goals: Cloudflare/другие platforms, commercial/Yandex features, provider tuning, старые Google Docs, paid canary/scans, production fault injection, массовая переработка/очистка пользовательских данных, изменение required gates. Recovery — выбранное поведение существующих expired processing jobs с сохранением accounting и output authority; никаких прямых SQL resets.
+
+DoD: шесть критериев READY по code и подходящим автоматическим checks; один PR/current required CI PASS/merge; applicable API/worker delivery exact main на pinned Contabo167.86.68.98, schema/role/isolation/health и bounded no-paid smoke. Планируется stateful class NONE/schema0041 unchanged; при необходимости schema/config owner decision не имитируется. Worker rollout status→graceful drain→manual deploy; blocked drain не обходится. Recovery rollout не выполняет платные canary или ручные reset production.
+
+| Validation Plan | Tool / каталог / environment / ожидаемый результат | Этап |
+|---|---|---|
+| WK-01 | Root focused retry/runner/worker tests, isolated SQLite + required Linux PG/role suite; expired safe/uncertain/cancel/completed outputs, concurrency/fencing, no external dispatch | REQUIRED local до push и CI |
+| WK-02 | Existing manage-worker/drain contracts + fake Docker Linux cases: normal exit0, timeout running/no kill, abnormal exit, unchanged image | REQUIRED Linux CI; local available Bash only, отсутствие не PASS |
+| WK-03/04/06 | Worker/runtime/health/alerts/notifications tests с fake clocks/events и bounded threads; busy work не блокирует background, stop/join bounded, overdue loop не обновляет runtime heartbeat, long bounded operation и redaction проходят | REQUIRED local + CI |
+| WK-05 | Source materialization/media preparation/real synthetic FFmpeg/integrity/orchestration tests; cancel during read/process, cleanup and zero provider calls | REQUIRED focused local; Linux media profile CI |
+| Docs/local gates | `python scripts/ci_checks.py`, `git diff --check`, source/self-review, specs/runbooks/findings/checkpoint | REQUIRED до initial push |
+| Delivery | Existing CI→merge→API/worker CD; exact revision/schema0041, direct worker role, isolation и no-paid smoke через contabo-vps | REQUIRED после merge |
+
+Checkpoint24Oct: discovery/base/branch/protections установлены. Сначала bounded DB-only recovery и безопасный drain, затем background/progress/cancellation/diagnostics; local commits остаются в одном PR. Previous Goal DIARIZATION-WHOLE завершена PR338/main8c25efa: CI40014806617/main40015514630, API40015574555, drain40017761455, worker40017882902 PASS; production bounded smoke API/worker exact8c25efa, schema0041/health/role/isolation PASS, old documents untouched. Нижний pre-merge checkpoint сохранён как history.
+
 ### DIARIZATION-WHOLE-20261023 — IN_PROGRESS
 
 Основание: владелец23Oct2026 поручил узкую Goal одним PR: при диаризации отправлять запись целиком, где возможно, убрать мусор из начала новых документов; старые транскрипции не менять. Built-in Goal ACTIVE. Fresh base `0cf7f72ef8c30bb81467b77ba6ad8cc29078ed43`, clean branch `codex/diarization-whole-recording-20261023`, existing worktree. GitHub: canonical repository ID1212324255, open PR0, main strict `ci-required`, admins enforced, approvals0; unrelated материалы сохранены.
