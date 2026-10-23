@@ -424,6 +424,8 @@ def _classify_documents(
     evidence = []
     unreadable_document_count = 0
     for position, document in enumerate(documents, start=1):
+        from .worker_progress import touch_worker_progress
+        touch_worker_progress()
         authority = source_creation_by_document_id[
             document.drive_document_id
         ]

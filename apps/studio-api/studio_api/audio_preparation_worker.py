@@ -69,17 +69,35 @@ def claim_next_and_process_audio_preparation(
         return processor(**kwargs)
 
 
-def claim_next_studio_work(db: Session, **kwargs):
-    audio_result = claim_next_and_process_audio_preparation(db, **kwargs)
-    if audio_result is not None:
-        return audio_result
-    from .job_processing_runner import claim_next_and_orchestrate_processing_job
+def claim_next_studio_work(db: Session, *, work_order=("audio", "transcription", "maintenance"), should_stop=lambda: False, **kwargs):
+    from .worker_recovery import recover_expired_worker_jobs
 
-    processing_result = claim_next_and_orchestrate_processing_job(db, **kwargs)
-    if processing_result is not None:
-        return processing_result
+    if should_stop():
+        return None
+    try:
+        recover_expired_worker_jobs(db, now=utcnow())
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    from .job_processing_runner import claim_next_and_orchestrate_processing_job
     from .transcript_maintenance_worker import (
         claim_next_and_process_transcript_maintenance,
     )
 
-    return claim_next_and_process_transcript_maintenance(db, **kwargs)
+    runners = {
+        "audio": claim_next_and_process_audio_preparation,
+        "transcription": claim_next_and_orchestrate_processing_job,
+        "maintenance": claim_next_and_process_transcript_maintenance,
+    }
+    if len(work_order) != len(runners) or set(work_order) != set(runners):
+        raise ValueError("worker_work_order_invalid")
+    for kind in work_order:
+        if should_stop():
+            return None
+        from .worker_progress import worker_phase
+        with worker_phase(kind, 120):
+            result = runners[kind](db, **kwargs)
+        if result is not None:
+            return result
+    return None

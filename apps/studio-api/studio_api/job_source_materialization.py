@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import Enum
 from tempfile import SpooledTemporaryFile
 from typing import BinaryIO, Callable, Iterator
+from time import monotonic
 
 from sqlalchemy.orm import Session, selectinload
 
@@ -160,6 +161,9 @@ def materialize_processing_job_source(
             # scalars. A fresh snapshot is compared after the external I/O.
             db.rollback()
             temp = SpooledTemporaryFile(max_size=min(settings.source_max_upload_bytes, 8 * 1024 * 1024), mode="w+b")
+            check = processing_source_control(db, job_id=job_id, job_source_id=job_source_id,
+                lease_owner_id=lease_owner_id, lease_generation=lease_generation,
+                clock=clock, settings=settings, expected=snap)
             byte_count, response_mime, response_length = _copy_source_bytes(
                 snap,
                 temp,
@@ -168,6 +172,7 @@ def materialize_processing_job_source(
                 _cached_drive_token_resolver,
                 drive_content_fetcher,
                 db,
+                check,
             )
             _validate_materialized_metadata(snap, byte_count, response_mime, response_length, settings)
             _compare_snapshot(snap, _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings))
@@ -226,7 +231,28 @@ def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, s
     return _SourceSnapshot(job.id, rel.id, src.id, rel.position, _value(rel.status), _value(src.source_type), src.project_id, src.drive_file_id, src.s3_bucket, src.s3_object_key, source_reference_class(src), mime, src.size_bytes, _value(src.upload_status), src.deleted_at, src.expires_at, src.source_created_at, src.source_created_at_provenance, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, _value(job.status), project.archived_at, project.owner_user_id, job.owner_user_id, job.project_id, src.original_filename)
 
 
-def _copy_source_bytes(snap, temp, settings, storage_factory, drive_token_resolver, drive_content_fetcher, db):
+def processing_source_control(db, *, job_id, job_source_id, lease_owner_id, lease_generation, clock, settings, expected=None):
+    last_check = None
+
+    def check():
+        nonlocal last_check
+        from .worker_progress import touch_worker_progress
+        touch_worker_progress()
+        current = monotonic()
+        if last_check is not None and current - last_check < 1:
+            return
+        try:
+            snapshot = _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id,
+                lease_generation, clock(), settings)
+            if expected is not None:
+                _compare_snapshot(expected, snapshot)
+        finally:
+            db.rollback()
+        last_check = current
+    return check
+
+
+def _copy_source_bytes(snap, temp, settings, storage_factory, drive_token_resolver, drive_content_fetcher, db, check=lambda: None):
     if snap.source_type == SourceType.local_upload.value:
         if (
             not reference_storage_isolation_configured(settings)
@@ -255,6 +281,7 @@ def _copy_source_bytes(snap, temp, settings, storage_factory, drive_token_resolv
     try:
         count = 0
         for chunk in stream.iter_chunks(_CHUNK_SIZE):
+            check()
             if not chunk:
                 continue
             count += len(chunk)

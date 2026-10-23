@@ -177,6 +177,26 @@ def test_local_upload_success_rewinds_metadata_repr_and_closes(sqlite_session, m
     assert handle.stream.closed
 
 
+def test_download_observes_cancellation_between_chunks_and_closes_stream(sqlite_session, models, monkeypatch):
+    from studio_api import job_source_materialization as materialization
+    job, _, rel, _, now, _ = make_job(sqlite_session, models)
+    ticks = iter(range(100))
+    monkeypatch.setattr(materialization, "monotonic", lambda: next(ticks) * 2)
+    reads = []
+    class CancellingBody(FakeBody):
+        def read(self, size=-1):
+            reads.append(1)
+            if len(reads) == 2:
+                job.cancel_requested_at = now
+                sqlite_session.commit()
+            return super().read(size)
+    body = CancellingBody([b"a" * 30, b"b" * 30, b"c" * 40])
+    with pytest.raises(materialization.SourceMaterializationError, match="cancellation_requested"):
+        with materialize(sqlite_session, job, rel, storage=FakeStorage(FakeStream(body)), now=now):
+            pytest.fail("cancelled download must not reach preparation or STT")
+    assert len(reads) == 2 and body.closed
+
+
 def test_source_download_runs_without_idle_database_transaction(
     sqlite_session,
     models,

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
 from .source_storage import normalize_source_display_filename
+from .worker_progress import worker_operation
 
 
 MAX_AUDIO_INPUTS = 50
@@ -193,6 +194,7 @@ def normalize_options(payload: dict[str, object]) -> AudioPreparationOptions:
     )
 
 
+@worker_operation("media_probe", FFPROBE_TIMEOUT_SECONDS + 30)
 def probe_media(
     path: Path,
     *,
@@ -262,6 +264,7 @@ def probe_media(
     return AudioProbe(duration, format_name, codec, sample_rate, channels, channel_layout)
 
 
+@worker_operation("media_analysis", FFMPEG_ANALYSIS_TIMEOUT_SECONDS + 30)
 def verify_media_integrity(path: Path, *, runner: Callable = subprocess.run) -> None:
     command = [
         "ffmpeg",
@@ -284,6 +287,7 @@ def verify_media_integrity(path: Path, *, runner: Callable = subprocess.run) -> 
         raise AudioPreparationError(AudioPreparationReason.media_integrity_failed) from exc
 
 
+@worker_operation("media_analysis", FFMPEG_ANALYSIS_TIMEOUT_SECONDS + 30)
 def analyze_silence(
     path: Path,
     *,
@@ -420,6 +424,7 @@ def build_ffmpeg_command(
     return command
 
 
+@worker_operation("media_processing", FFMPEG_PROCESS_TIMEOUT_SECONDS + 30)
 def run_processing(
     command: Sequence[str],
     *,
@@ -667,6 +672,7 @@ def _ffprobe_time_base_duration(stream: dict[str, object]) -> float | None:
     return ticks * numerator / denominator
 
 
+@worker_operation("media_analysis", FFMPEG_ANALYSIS_TIMEOUT_SECONDS + 30)
 def _scan_audio_duration(path: Path, *, runner: Callable = subprocess.run) -> float:
     """Decode one audio stream when Matroska metadata has no usable duration.
 

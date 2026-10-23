@@ -460,7 +460,7 @@ Q009,Q089..092: отложено до отдельного решения вла
 | `JOBREL-01` | Transcription jobs используют durable queue. |
 | `JOBREL-02` | Каждая job сохраняет явное processing-stage state. |
 | `JOBREL-03` | Каждая job сохраняет last safe checkpoint. |
-| `JOBREL-04` | Interrupted jobs восстанавливаются после backend/worker restart. |
+| `JOBREL-04` | После worker restart перед claim выполняется bounded locked recovery истёкших processing leases: durable outputs → completed, cancel → cancelled, доказуемо retry-safe → queued; неизвестный/оплаченный неопределённый результат → attention state без нового STT/Google create. Live leases и stale owners защищены fencing. Проверка: lifecycle/real worker entry tests и PostgreSQL concurrency/rollback. WK-01, owner decision24Oct2026. |
 | `JOBREL-05` | Автоматически повторяются только доказуемо безопасные transient failures. |
 | `JOBREL-06` | Retry/recovery не дублирует provider operations. |
 | `JOBREL-07` | Retry/recovery не дублирует Google Docs outputs. |

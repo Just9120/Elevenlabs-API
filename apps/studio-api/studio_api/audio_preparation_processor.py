@@ -371,6 +371,8 @@ def _upload_ready_output(db, job, uploader, token, path, filename, mime_type, ow
 
 
 def _require_not_cancelled(db, job):
+    from .worker_progress import touch_worker_progress
+    touch_worker_progress()
     owner, generation = getattr(job, "_processing_lease", (job.lease_owner_id, job.lease_generation))
     db.refresh(job)
     if job.lease_owner_id != owner or job.lease_generation != generation:

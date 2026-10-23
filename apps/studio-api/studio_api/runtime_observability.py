@@ -370,6 +370,7 @@ class WorkerRuntimeHeartbeat:
         interval_seconds: int,
         logger: logging.Logger,
         clock: Callable[[], datetime] = utcnow,
+        progress_check: Callable[[], bool] | None = None,
     ):
         self.session_factory = session_factory
         self.identity = identity
@@ -377,6 +378,7 @@ class WorkerRuntimeHeartbeat:
         self.interval_seconds = interval_seconds
         self.logger = logger
         self.clock = clock
+        self.progress_check = progress_check
         self.started_at = clock()
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
@@ -394,6 +396,10 @@ class WorkerRuntimeHeartbeat:
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
+            if self.progress_check is not None and not self.progress_check():
+                self.logger.warning("studio_worker_main_progress_stale")
+                self.stop_event.wait(self.interval_seconds)
+                continue
             db = None
             try:
                 db = self.session_factory()

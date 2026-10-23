@@ -12,8 +12,16 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - PostgreSQL is the durable authority for jobs, job-source relations, leases, lifecycle state, output destinations, output rows, and completion decisions.
 - Redis is not the processing queue, lease authority, retry authority, scheduler, notification authority, or heartbeat authority.
 - Browser clients do not start internal processing directly and must not receive internal lease/claim metadata.
-- A worker process handles no more than one job at a time.
+- A worker process handles no more than one primary job at a time. A separate serial housekeeping thread uses its own sessions for cleanup, notifications and alerts while primary work is busy; it never dispatches STT. Primary claim priority rotates across audio, transcription and transcript maintenance. SIGTERM prevents new passes/claims and waits for active boundaries to finish; an operator observation timeout does not kill them.
 - Source-level code does not prove production-live processing; controlled rollout evidence is required.
+
+## Runtime progress and preparation cancellation
+
+Runtime heartbeat is conditional on main-thread progress. Idle/claim work has a 120-second operation deadline (error backoff retains its configured allowance); media probes/analysis/processing and provider requests use their existing bounded timeouts plus 30 seconds. A valid 7200-second FFmpeg operation is allowed. Background and lease-heartbeat threads cannot renew main-thread progress. An overdue main loop stops publishing runtime heartbeat, so the existing freshness readiness gate becomes unavailable; this does not restart the process or authorize any provider retry.
+
+Before STT, source streaming checks cancellation and exact lease/source authority between chunks, rate-limited to once per second, using fresh reads closed before further I/O. Media copies check between chunks; owned FFmpeg/ffprobe waits poll every 250ms with the same authority check. Cancellation/lease loss terminates and reaps only the owned media child, closes streams and removes temporary work; no provider request starts. A network read remains bounded by its existing transport timeout. Already-started STT retains the existing uncertainty/accounting/reconciliation rules.
+
+Worker diagnostics serialize only allowlisted event/type/stage/count/status and opaque job/run/iteration IDs. Exception text, traceback, arbitrary extras, file names, provider payloads and credentials are never serialized.
 
 ## Claim and lease
 
@@ -137,7 +145,7 @@ Google uncertainty remains governed by output reconciliation. A provider-returne
 
 A full, unexpired encrypted multipart checkpoint set permits explicit owner-only `full_provider_restore_available`: assemble and export already recognized parts without provider calls or new usage accounting. This is distinct from continuation of unfinished parts, which retains its explicit cost confirmation. Owner/project/job/source identity, key/HMAC, part order, count and deterministic media timing must match. A durable fully completed earlier attempt requires the full set at execution as well as enqueue: expiry, cleanup, corruption or mismatch fails closed and cannot fall back to STT. Unresolved Google reconciliation, cancellation, lease/lifecycle gates and the attempt limit remain authoritative. Cached restore is not automatic expired-lease recovery.
 
-Expired processing lease recovery is stage-aware and database-only. It may requeue only when every missing required relation is retry-safe and the job has not reached the retry limit. Unknown/legacy execution state, provider uncertainty, provider-result-lost state, Google handoff/uncertainty, unresolved reconciliation, non-retryable evidence, or three job attempts fail closed. There is no automatic scheduler, backoff loop, Google retry, transcript persistence, or replacement-job creation.
+Expired processing lease recovery is stage-aware and database-only. It may requeue only when every missing required relation is retry-safe and the job has not reached the retry limit. Unknown/legacy execution state, provider uncertainty, provider-result-lost state, Google handoff/uncertainty, unresolved reconciliation, non-retryable evidence, or three job attempts fail closed. Before each primary claim, the worker scans at most 10 expired processing jobs under PostgreSQL SKIP LOCKED row locks and invokes this database-only lifecycle. Each recovery clears the old owner/lease; the next claim increments generation. A live lease is never recovered. Only durable retry-safe evidence permits requeue. There is no speculative provider retry, Google retry, transcript persistence, or replacement-job creation.
 
 The maximum processing attempts per job is three: the initial attempt plus at most two explicit/safe recovered attempts. Existing failed jobs without source-attempt evidence are treated as legacy/unknown and are not retryable.
 
