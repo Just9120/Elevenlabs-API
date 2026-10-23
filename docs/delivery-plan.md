@@ -2,7 +2,36 @@
 
 ## Current work и checkpoint
 
-### PERSONAL-REVIEW-FIXES-20261018 — IN_PROGRESS
+### VOICEOPS-REBRAND-20261023 — IN_PROGRESS
+
+Основание: владелец23Oct2026 согласовал единое название VoiceOps Studio и repository `Just9120/voiceops-studio`, затем поручил начать; ручные Google OAuth изменения выполняет параллельно. Built-in Goal ACTIVE. Fresh base/main `f7f608713e4b70484e48b6b1df0641dd3f0a50ec`, clean branch `codex/voiceops-studio-rebrand-20261023`, существующий worktree. GitHub repository ID1212324255, ownerJust9120/admin, open PR0; strict `ci-required`, admins enforced, approvals0, force/delete запрещены. CLI credentials доступны вне Windows sandbox; их значения не фиксируются. Base fetched23Oct; unrelated branch/stash/ignored материалы сохраняются.
+
+Результат: единый бренд для repository/Colab/Studio/GCP display name, публичные информационные страницы для Google Branding и рабочие строгие CI/CD после rename. Один основной PR. Spec: BRAND-01..05, owner decision23Oct. Non-goals: commercial, новые provider calls/scopes в runtime, OAuth client/project IDs, смена домена, удаление архивов/секретов, перенос БД/buckets/volumes, переименование state-bearing VPS directories/Compose/images и исправление отдельного PWA cache finding. Реальные Google grants/Branding/scopes/Publish app меняет владелец; агент сверяет доступное readback и сообщает оставшиеся действия, не выдаёт их за выполненные.
+
+| Критерий | Scope / DoD | Статус |
+|---|---|---|
+| BRAND-01 | VoiceOps Studio в активных product/repository metadata, документации и launcher labels; ElevenLabs остаётся provider name | IN_PROGRESS |
+| BRAND-02 | About/privacy/personal-use information доступны без login, содержат фактические Google/data flows и контакты, есть навигация и mobile layout; без invented legal/SLO promises | BACKLOG |
+| BRAND-03 | CI/CD принимает exact canonical repository, foreign identity отвергается; remotes и installed forced-command wrappers синхронизированы без ослабления gates | IN_PROGRESS |
+| BRAND-04 | Persistent/runtime identifiers и existing data сохраняются; Colab сохраняет immutable reviewed ref/hash verification | BACKLOG |
+| BRAND-05 | GCP display name/actual GitHub identity проверены; one PR required checks/merge и applicable web CD/health/public pages подтверждены; manual OAuth итог отражён отдельно | BACKLOG |
+
+DoD: BRAND-01..05 реализованы, применимые local checks/self-review и exact-revision `ci-required` PASS, один PR merged, применимая поставка и bounded smoke подтверждены. Stateful class NONE, migrations не нужны. Host changes ограничены Git remote и exact reviewed repository-name substitutions в двух установленных root-owned wrappers после merge; target `/opt/elevenlabs-studio`, pinned Contabo167.86.68.98. До смены remote/wrappers — проверить текущие values/hashes, отсутствие active release и сохранить exact recovery copies; permissions/SSH commands/approvals/locks сохраняются. Recovery — вернуть exact прежние remote/wrappers при failed verification; rename/редиректы GitHub проверяются по неизменному ID. Installed wrappers не обновляются candidate/unreviewed source.
+
+| Validation Plan / риск | Проверка, каталог/tool, environment | Этап / применимость |
+|---|---|---|
+| Trusted repository/Colab | Root: `pytest -q tests/test_ci_validation.py tests/test_colab_launcher_integrity.py` и affected deploy/preflight/wrapper tests, synthetic data | REQUIRED local focused до initial push; Linux shell REQUIRED CI |
+| Public pages/no login side effects | Studio: affected Vitest, `npm run lint`, `npm run build`; isolated browser desktop/mobile direct URL/nav/back и отсутствие API/provider calls | REQUIRED local до initial push; existing Studio/E2E CI REQUIRED |
+| Docs/metadata | Root: `python scripts/ci_checks.py`, `git diff --check`, active-vs-historical refs/ID/link/self-review | REQUIRED local до initial push |
+| GitHub/host/cloud | CLI/plugin exact repository ID1212324255, protections/PR/runs; explicit GCP project read-update-read; pinned SSH wrapper hashes/remote/health | REQUIRED по соответствующему этапу; external writes только выбранного scope |
+| Delivery | Exact merged main CI; existing Studio platform CD; web build identity/public pages/PWA/navigation и API/worker unchanged health | REQUIRED remote после merge; не повторять deployment без причины |
+| Paid/production destructive tests | STT/Live/scans/restore/delete/runtime Google grants | N/A: вне scope; реальные пользовательские данные не fixtures |
+
+Checkpoint23Oct: branch/base созданы до edits; discovery выявил hardcoded old repository в CI deploy-gate, component remote validation и двух privileged wrappers. GitHub rename выполняется после локальной подготовки и до PR validation; host remote сменяется перед merge/CD, installed wrappers — только exact reviewed main после merge с backup/readback. При ручном rename владельца сначала повторно прочитать repository по ID и сохранить его изменения. GCP target `braided-potion-499918-k4`, project number476316429029; display name пока ElevenLabs API. OAuth Console Testing/empty declared scopes известны по owner screenshots; исправление owner-side, не скрытое расширение runtime permissions. Следующий шаг: implementation/точечная validation; initial push/PR/CI/merge/CD PENDING.
+
+### PERSONAL-REVIEW-FIXES-20261018 — DONE по первичным records
+
+PR336 merged/f7f6087; required CI39114120229 и main39114461322 SUCCESS; web/API39114493348, worker39115420877 SUCCESS. Fresh readback23Oct: source/web/API/worker exactf7f6087, health/readiness PASS, schema0041; backup timer active10h и scheduled snapshotc520d51f23Oct07:20MSK подтверждён. Нижний checkpoint сохранён как pre-merge history, не активная Goal.
 
 Основание: владелец 18Oct2026 поручил исправить все проблемы последнего personal review единой Goal, одним PR, начиная с backup и фрагментов. Built-in Goal ACTIVE. Fresh base `b7f9d48136e07d6bcd92eba6f8fba9bd42871b1a`, clean branch `codex/studio-review-fixes-20261018`, один существующий worktree. GitHub readback18Oct: open PR0; main strict `ci-required`, admins enforced, approvals0. Unrelated branch/stash/ignored материалы сохранены. Baseline API/worker b7f9d48, web def1750 (source unchanged), schema0041; runtime healthy. Реальные задачи владельца не изменяются.
 

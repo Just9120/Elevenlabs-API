@@ -2,6 +2,16 @@
 
 Часть [delivery dashboard](../delivery-plan.md). Полный аудит 2026-10-10 на проверенном `origin/main` `bc5150eb189b44867101ca45b9da201921a99227`; формулировки — [spec](../spec/extensions.md), источник — [trace](../spec/source-trace.md). Все действующие ID повторно оценены по реализации и подходящим проверкам A20261010-CODE/CI; runtime scope/ограничения — A20261010-RUNTIME в плане. CODE/TEST/CI — типы Evidence, а не три процента; ◐ ограничивает проверенные условия. ALIAS/SUPERSEDED исключены. READY не требует ручной приёмки и не доказывает commercial rollout.
 
+### `BRAND-VOICEOPS-01`
+
+| AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
+|---|---|---|---|---|---|
+| `BRAND-01` | IN_PROGRESS | ◐ | — | — | VOICEOPS-REBRAND-20261023, basef7f6087; rename/active labels/docs inventory |
+| `BRAND-02` | BACKLOG | — | — | — | Публичные информационные страницы, direct URL и synthetic/no API checks |
+| `BRAND-03` | IN_PROGRESS | ◐ | — | — | Strict CI/CD exact-name guards, remote/root wrapper rollout и negative checks |
+| `BRAND-04` | BACKLOG | — | — | — | Stateful boundaries/pinned Colab integrity сохраняются, runtime readback PENDING |
+| `BRAND-05` | BACKLOG | — | — | — | GitHub/GCP rename readback, primary CI/merge/CD и manual OAuth sync PENDING |
+
 ### `RESULTS-STUDIO-02`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |

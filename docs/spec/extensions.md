@@ -2,6 +2,18 @@
 
 Часть [canonical spec](../project-spec.md). Единственный владелец формулировок AC этой подсистемы. Статусы/Evidence находятся в [реестре](../delivery/extensions.md).
 
+### Эпик `BRAND-VOICEOPS-01` — единый бренд и публичная информация
+
+Основание: `OWNER-REBRAND-20261023`, явное решение владельца23Oct2026. Это изменение требований, а не автоматическое превращение finding в AC.
+
+| AC | Проверяемое требование |
+|---|---|
+| `BRAND-01` | При открытии active project/product metadata и current documentation пользователь видит VoiceOps Studio и canonical repository `Just9120/voiceops-studio`; provider ElevenLabs и исторические records не переименовываются как продукт. Проверка: active references/metadata inventory и build. |
+| `BRAND-02` | До авторизации доступны описание personal продукта, фактическая информация об обработке данных/Google permissions и правила personal использования с контактами и навигацией. Страницы работают по прямому URL, на mobile и с клавиатуры без API/provider операций или раскрытия пользовательских данных. Проверка: isolated browser/component/direct URL и public smoke. |
+| `BRAND-03` | После GitHub rename exact canonical repository проходит CI/delivery gates, foreign repository/remote отвергается. Known-hosts, required checks, approval/branch/commit/lock protections сохраняются. Проверка: identity/negative tests, GitHub protections readback, installed-wrapper/remote verification. |
+| `BRAND-04` | Переименование сохраняет existing data, Google project/client IDs, bucket/volume/database identities и state-bearing deployment paths; Colab launchers продолжают проверять immutable reviewed revision и SHA-256 до исполнения. Проверка: diff, launcher integrity, runtime/host metadata readback без пользовательских bytes. |
+| `BRAND-05` | Canonical GitHub name и GCP display name подтверждены readback; после merge применимая поставка содержит ожидаемую web revision и публичные страницы, API/worker остаются healthy. Ручные OAuth изменения владельца сверяются отдельно и не выдаются за подтверждённые без Evidence. Проверка: primary PR/CI/CD/cloud records, exact identity и bounded safe smoke. |
+
 ### Эпик `RESULTS-STUDIO-02` — Live-результат и временное восстановление обычного экспорта
 
 | AC | Проверяемое требование |
