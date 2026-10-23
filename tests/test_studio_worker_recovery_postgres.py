@@ -52,7 +52,8 @@ def test_expired_sweep_is_bounded_skip_locked_and_transactional():
             second.commit()
             rows = [second.get(m.TranscriptionJob, job_id) for job_id in ids]
             assert [job.status for job in rows] == [m.JobStatus.cancelled, m.JobStatus.cancelled, m.JobStatus.processing]
-            assert [job.lease_generation for job in rows] == [2, 2, 1]
+            assert all(job.lease_owner_id is None and job.lease_expires_at is None for job in rows[:2])
+            assert rows[2].lease_owner_id == "old-worker" and rows[2].lease_generation == 1
     finally:
         with engine.begin() as connection:
             connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
