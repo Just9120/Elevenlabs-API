@@ -4,6 +4,8 @@
 
 VoiceOps Studio — PWA подготовки аудио, обычной транскрибации файлов/фрагментов и Live-текста. Текущий этап — personal для владельца. Полный будущий commercial scope сохранён отдельно и не блокирует готовность personal. Colab — самостоятельный стабильный personal вариант с ограниченной поддержкой существующего назначения.
 
+Решение владельца23Oct2026 `OWNER-REBRAND-20261023`: единый бренд всего проекта — VoiceOps Studio, canonical repository `Just9120/voiceops-studio`; ElevenLabs остаётся названием provider. Отображаемое имя существующего Google Cloud project меняется без смены project/client IDs. Публичные страницы описания и обработки данных отражают personal реализацию и доступны до входа. Stateful deployment identifiers и existing data сохраняются; compatibility/strict CI/CD — часть переименования, а не поручение миграции данных. Проверяемые критерии BRAND-01..05 — в [расширениях](spec/extensions.md#эпик-brand-voiceops-01--единый-бренд-и-публичная-информация).
+
 Canonical требования и атомарные AC — здесь и в индексируемых spec; состояния, Evidence, findings и checkpoint — только [delivery-plan](delivery-plan.md). Workflow/полномочия — [AGENTS](../AGENTS.md). Запись requirement/finding не разрешает исполнение.
 
 ## Источники и решения

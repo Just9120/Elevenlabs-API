@@ -1,4 +1,4 @@
-"""Experimental LIVE-COLAB-01 realtime transcription Colab runtime.
+"""VoiceOps Studio experimental LIVE-COLAB-01 realtime Colab runtime.
 
 This file is intentionally standalone and does not import the batch Colab
 runtime. It creates an ElevenLabs realtime Scribe single-use token Python-side,
@@ -656,7 +656,7 @@ def build_realtime_colab_iframe_srcdoc(token: str, root_id: str | None = None) -
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LIVE-COLAB-01 прототип realtime-распознавания</title>
+  <title>VoiceOps Studio — realtime Colab</title>
 </head>
 <body style="margin:0;padding:0;background:#fff;">
 {shell}
@@ -766,7 +766,7 @@ def build_realtime_frontend_html(token: str | None = None, root_id: str | None =
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LIVE-COLAB-PROXY-01 отдельная realtime-страница</title>
+  <title>VoiceOps Studio — realtime Colab</title>
 </head>
 <body style="margin:0;padding:16px;background:#f8fafc;">
 {shell}

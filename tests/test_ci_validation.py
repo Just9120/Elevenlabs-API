@@ -2,6 +2,7 @@ from copy import deepcopy
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -141,6 +142,16 @@ def test_manual_cd_rejects_non_main_and_outdated_dispatch(monkeypatch, tmp_path)
         ci.deploy_gate(API(), {})
 
 
+@pytest.mark.parametrize("repository", ["Just9120/Elevenlabs-API", "attacker/voiceops-studio"])
+def test_rename_does_not_accept_legacy_or_foreign_repository_identity(monkeypatch, repository):
+    monkeypatch.setenv("GITHUB_REPOSITORY", repository)
+    with pytest.raises(ValueError, match="foreign repository"):
+        ci.deploy_gate(API(), {})
+    api = API()
+    api.run["repository"]["full_name"] = repository
+    assert not ci.required_run(api, api.run, HEAD, "pull_request")
+
+
 def test_pagination_is_complete_or_rejected():
     api = ci.GitHub()
     calls = []
@@ -162,3 +173,10 @@ def test_workflows_keep_required_aggregate_and_gate_before_secret_jobs():
     assert cd.index("ci_validation.py deploy-gate") < cd.index("secrets.DEPLOY_HOST")
     assert cd.count("ref: ${{ needs.detect-components.outputs.revision }}") == 4
     assert "cancel-in-progress: false" in cd
+
+
+@pytest.mark.parametrize("workflow", ["studio-worker-status.yml", "studio-worker-drain.yml", "studio-processing-preflight.yml"])
+def test_operations_workflow_passes_the_same_repository_identity_as_deploy_gate(workflow):
+    text = (ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8")
+    passed_repositories = re.findall(r"\$\(shell_quote ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\)", text)
+    assert passed_repositories == [ci.REPOSITORY]

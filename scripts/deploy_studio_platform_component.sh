@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-EXPECTED_REMOTE="${EXPECTED_REMOTE:-git@github.com:Just9120/Elevenlabs-API.git}"
+EXPECTED_REMOTE="${EXPECTED_REMOTE:-git@github.com:Just9120/voiceops-studio.git}"
 EXPECTED_BRANCH="${EXPECTED_BRANCH:-main}"
 EXPECTED_DIR="${STUDIO_DEPLOY_DIR:?STUDIO_DEPLOY_DIR is required}"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
@@ -173,7 +173,7 @@ poll_health() {
 [[ "$(pwd -P)" == "$(cd "$EXPECTED_DIR" && pwd -P)" ]] || fail "must run inside STUDIO_DEPLOY_DIR"
 [[ "$(git rev-parse --abbrev-ref HEAD)" == "$EXPECTED_BRANCH" ]] || fail "unexpected branch"
 remote_url="$(git config --get remote.origin.url)"
-[[ "$remote_url" == "$EXPECTED_REMOTE" || "$remote_url" == "git@github.com:Just9120/Elevenlabs-API" || "$remote_url" == "https://github.com/Just9120/Elevenlabs-API.git" ]] || fail "unexpected remote"
+[[ "$remote_url" == "$EXPECTED_REMOTE" || "$remote_url" == "git@github.com:Just9120/voiceops-studio" || "$remote_url" == "https://github.com/Just9120/voiceops-studio.git" ]] || fail "unexpected remote"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree is not clean"
 require_file "$ENV_FILE"
 

@@ -1,4 +1,4 @@
-# ElevenLabs API / VoiceOps Studio
+# VoiceOps Studio
 
 VoiceOps Studio — PWA для подготовки аудио, транскрибации и работы с результатами. Product scope включает изолированные personal и commercial контуры; отдельный Colab поддерживается в пределах существующих возможностей. Фактические исполняемые поверхности:
 
@@ -6,6 +6,10 @@ VoiceOps Studio — PWA для подготовки аудио, транскри
 2. **VoiceOps Studio PWA** — web-приложение с отдельной подготовкой WAV/FLAC до транскрибации, batch и realtime, авторизацией, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
 
 Personal Studio PWA работает и развивается. Яндекс Диск входит в согласованные требования; его текущие gaps зафиксированы в delivery-plan. Полные готовые обычные транскрипции не хранятся отдельной постоянной копией в Studio. Live сохраняет текст до ручной очистки, а незавершённая обычная транскрибация — до полного документа, отмены или явного закрытия ошибки; это recovery state. Готовое аудио скачивается или экспортируется через временную сборку из доступных исходников. Colab не получает новые PWA/commercial возможности автоматически.
+
+Единый бренд проекта и repository — **VoiceOps Studio**, canonical repository `Just9120/voiceops-studio`. ElevenLabs — provider, а не имя приложения. Файлы `elevenlabs_api.py` / `elevenlabs_realtime.py` сохраняют совместимые entrypoint names. Действующие database/volume/bucket names и deployment paths не меняются ради брендинга.
+
+Публичная информация Studio доступна без входа и API-запросов: [описание приложения](apps/studio/public/about.html), [обработка данных](apps/studio/public/privacy.html), [правила personal использования](apps/studio/public/terms.html). В развернутом Studio это `/about.html`, `/privacy.html`, `/terms.html`; страница входа и основная навигация содержат ссылки на них. Google Branding использует существующий canonical host и эти страницы после подтверждённой поставки.
 
 README не дублирует быстро устаревающие проценты и revision IDs. Полный scope, atomic AC, источники и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Все текущие статусы AC, Evidence, numerator/denominator, текущая и предыдущая оценки, findings, варианты Goal и checkpoint находятся только в [docs/delivery-plan.md](docs/delivery-plan.md).
 
@@ -55,7 +59,7 @@ Colab batch запускается вручную через `notebooks/elevenla
 |---|---|
 | [Источники требований](docs/project-spec.md#1-назначение-источники-и-область) | Согласованные источники, версии и трассировка; сами требования не разрешают implementation. |
 | [AGENTS.md](AGENTS.md) | Goal-driven repository router, execution kernel, authority и scope. |
-| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract и индекс 56 эпиков; формулировки AC — в docs/spec/*.md. |
+| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract и индекс эпиков; формулировки AC — в docs/spec/*.md. |
 | [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и checkpoint; полные реестры AC — в docs/delivery/*.md. |
 | [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Архив завершённой delivery history. |
 | [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | Настройка и исправление pipeline; не обязательное чтение для routine checks/merge/deploy. |

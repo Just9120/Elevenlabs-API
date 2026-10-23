@@ -834,13 +834,13 @@ async function openPlatformNavPage(
 ) {
   await waitFor(() =>
     expect(
-      within(screen.getByRole("navigation")).getByRole("button", {
+      within(screen.getByRole("navigation", { name: "Основная навигация" })).getByRole("button", {
         name: "Обзор",
       }),
     ).toBeInTheDocument(),
   );
   await userEvent.click(
-    within(screen.getByRole("navigation")).getByRole("button", { name }),
+    within(screen.getByRole("navigation", { name: "Основная навигация" })).getByRole("button", { name }),
   );
 }
 
@@ -3149,7 +3149,7 @@ describe("Studio PWA", () => {
     try {
       renderApp();
       await waitForPlatformOverview();
-      const navigation = screen.getByRole("navigation");
+      const navigation = screen.getByRole("navigation", { name: "Основная навигация" });
       await userEvent.click(within(navigation).getByRole("button", { name: "Подготовка аудио" }));
       const heading = await screen.findByRole("heading", { name: "Подготовка аудио" });
       expect(heading).toHaveFocus();
@@ -14026,7 +14026,7 @@ describe("settings diagnostics", () => {
     await openSettingsPage();
     await waitFor(() => expect(resolveAudit).toBeDefined());
     await userEvent.click(
-      within(screen.getByRole("navigation")).getByRole("button", {
+      within(screen.getByRole("navigation", { name: "Основная навигация" })).getByRole("button", {
         name: "Обзор",
       }),
     );

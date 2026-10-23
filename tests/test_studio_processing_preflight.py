@@ -24,7 +24,7 @@ def invoke_preflight(repo: Path, bin_dir: Path, *, cwd: Path | None = None):
         [BASH, "-c", 'export PREFLIGHT_TEST_PYTHON="$(command -v python)"; '
          'export PATH="$(cd "$1" && pwd):$PATH"; '
          'target="$(cd "$3" && pwd)"; exec bash "$2" "$target" main '
-         'Just9120/Elevenlabs-API "$4"', "preflight-test",
+         'Just9120/voiceops-studio "$4"', "preflight-test",
          bin_dir.as_posix(), SCRIPT.as_posix(), repo.as_posix(), SHA],
         cwd=cwd or repo, env=os.environ.copy(), text=True, capture_output=True, timeout=15,
     )
@@ -140,7 +140,7 @@ STUDIO_ELEVENLABS_PRICING_SOURCE=elevenlabs_public_api_pricing
         f"[[ {state.get('application_role', 'ready')!r} == ready ]]\n",
     )
     branch = state.get("branch", "main")
-    remote = state.get("remote", "git@github.com:Just9120/Elevenlabs-API.git")
+    remote = state.get("remote", "git@github.com:Just9120/voiceops-studio.git")
     commit = state.get("commit", SHA)
     dirty = state.get("dirty", "")
     _write_exe(bin_dir / "git", f"""#!/usr/bin/env bash
@@ -805,11 +805,11 @@ if parts[:3] == ['rm', '-f', '--']:
     if parts[3] == remote and os.path.exists(storage): os.remove(storage)
     sys.exit(0)
 if {str(exec_fail)}: sys.exit(23)
-expected=['chmod','700','--',remote,'&&','cd','/opt/elevenlabs-studio','&&',remote,'/opt/elevenlabs-studio','main','Just9120/Elevenlabs-API',os.environ['EXPECTED_COMMIT']]
+expected=['chmod','700','--',remote,'&&','cd','/opt/elevenlabs-studio','&&',remote,'/opt/elevenlabs-studio','main','Just9120/voiceops-studio',os.environ['EXPECTED_COMMIT']]
 if parts != expected:
     with open(log, 'a', encoding='utf-8') as f: f.write('unexpected-parts '+repr(parts)+'\\n')
     sys.exit(24)
-subprocess.run([os.environ['PREFLIGHT_TRANSPORT_BASH'], storage, '/opt/elevenlabs-studio', 'main', 'Just9120/Elevenlabs-API', os.environ['EXPECTED_COMMIT']], check=True)
+subprocess.run([os.environ['PREFLIGHT_TRANSPORT_BASH'], storage, '/opt/elevenlabs-studio', 'main', 'Just9120/voiceops-studio', os.environ['EXPECTED_COMMIT']], check=True)
 sys.exit(0)
 ''',
     )
@@ -864,7 +864,7 @@ def test_workflow_ssh_transport_quotes_and_cleans_up_after_success(tmp_path: Pat
     assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(lines)
     assert any("mktemp /tmp/studio-processing-preflight.XXXXXX" in line for line in lines)
     assert any("scp-args" in line and "deployer@example.invalid:/tmp/studio-processing-preflight.Abc123" in line for line in lines)
-    assert any("remote-preflight-args /opt/elevenlabs-studio main Just9120/Elevenlabs-API " + SHA in line for line in lines)
+    assert any("remote-preflight-args /opt/elevenlabs-studio main Just9120/voiceops-studio " + SHA in line for line in lines)
     assert lines.count("cleanup-path /tmp/studio-processing-preflight.Abc123") == 1
     joined = "\n".join(lines)
     for forbidden in ["deploy_studio_platform_component.sh", "git fetch", "git pull", "docker compose", "compose build", "compose up", "compose restart", "alembic upgrade", "backup", "provider", "Google API", "job creation"]:

@@ -2,6 +2,16 @@
 
 Часть [delivery dashboard](../delivery-plan.md). Полный аудит 2026-10-10 на проверенном `origin/main` `bc5150eb189b44867101ca45b9da201921a99227`; формулировки — [spec](../spec/extensions.md), источник — [trace](../spec/source-trace.md). Все действующие ID повторно оценены по реализации и подходящим проверкам A20261010-CODE/CI; runtime scope/ограничения — A20261010-RUNTIME в плане. CODE/TEST/CI — типы Evidence, а не три процента; ◐ ограничивает проверенные условия. ALIAS/SUPERSEDED исключены. READY не требует ручной приёмки и не доказывает commercial rollout.
 
+### `BRAND-VOICEOPS-01`
+
+| AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
+|---|---|---|---|---|---|
+| `BRAND-01` | READY | ✅ | ✅ | PENDING | Candidate: active labels/repository metadata/docs и npm identity; local lint/build/lightweight PASS23Oct; GitHub rename/delivery отдельно BRAND-05. |
+| `BRAND-02` | READY | ✅ | ✅ | PENDING | Static about/privacy/terms без auth/script/API; Chromium390/768/1280 direct URL/reload/back/focus/overflow PASS, links readback и visual review23Oct; deployment PENDING. |
+| `BRAND-03` | IN_PROGRESS | ✅ | ◐ | PENDING | Exact new repository guards и foreign/legacy rejection CI unit PASS; affected Linux shell CI и installed-wrapper/remote rollout PENDING. Gates не ослаблены. |
+| `BRAND-04` | READY | ✅ | ✅ | PENDING | Stateful paths/IDs сохранены; Colab pinned ref023f217 и SHA-256 по Git blobs,39 integrity/CI и62 realtime cases PASS23Oct. Runtime readback после delivery отдельно. |
+| `BRAND-05` | IN_PROGRESS | ◐ | ◐ | PENDING | GCP display name readback VoiceOps Studio23Oct; GitHub rename/PR/CI/merge/web CD/host sync и manual OAuth итог PENDING. |
+
 ### `RESULTS-STUDIO-02`
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |

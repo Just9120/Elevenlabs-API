@@ -1,5 +1,5 @@
 {
-  "name": "@elevenlabs-api/studio",
+  "name": "@voiceops-studio/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",

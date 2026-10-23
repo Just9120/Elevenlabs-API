@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "./apiClient";
+import { PublicInfoLinks } from "./PublicInfoLinks";
 import {
   parseAuthenticatedLoginResponse,
   parseBootstrapStatusResponse,
@@ -198,7 +199,7 @@ export function Login({
   return (
     <main className="auth">
       <form className="card login" onSubmit={submit}>
-        <p className="eyebrow">Studio account</p>
+        <p className="eyebrow">VoiceOps Studio</p>
         <h1>Вход</h1>
         <label>
           Email
@@ -235,6 +236,7 @@ export function Login({
           {loginPending ? "Входим…" : "Войти"}
         </button>
         {error && <p className="error" role="alert">{error}</p>}
+        <PublicInfoLinks />
       </form>
     </main>
   );
