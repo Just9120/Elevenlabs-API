@@ -119,6 +119,19 @@ def test_graceful_shutdown_waits_for_active_background_boundary(monkeypatch):
     assert joined.is_set() and not background.thread.is_alive() and deliveries == []
 
 
+def test_sigterm_between_work_classes_prevents_next_claim(monkeypatch):
+    from studio_api import audio_preparation_worker as selector, worker_recovery, job_processing_runner, transcript_maintenance_worker
+    stop = threading.Event(); claims = []
+    monkeypatch.setattr(worker_recovery, "recover_expired_worker_jobs", lambda *a, **k: None)
+    def audio(*a, **k):
+        claims.append("audio"); stop.set(); return None
+    monkeypatch.setattr(selector, "claim_next_and_process_audio_preparation", audio)
+    monkeypatch.setattr(job_processing_runner, "claim_next_and_orchestrate_processing_job", lambda *a, **k: claims.append("transcription"))
+    monkeypatch.setattr(transcript_maintenance_worker, "claim_next_and_process_transcript_maintenance", lambda *a, **k: claims.append("maintenance"))
+    selector.claim_next_studio_work(SimpleNamespace(commit=lambda: None), should_stop=stop.is_set)
+    assert claims == ["audio"]
+
+
 def test_unknown_error_has_stage_and_correlation_but_no_payload_or_traceback():
     from studio_api.worker import run_worker_loop
     from studio_api.worker_logging import WorkerLogFormatter
@@ -156,3 +169,26 @@ def test_cancel_during_owned_media_subprocess_reaps_child(monkeypatch):
                                           check=True, capture_output=True, timeout=30)
     assert len(children) == 1 and children[0].poll() is not None
     assert children[0].stdout.closed and children[0].stderr.closed
+
+
+def test_real_media_preparation_completes_with_authority_checks(tmp_path):
+    import shutil
+    import wave
+    from studio_api.preparation_control import preparation_control
+    from studio_api.media_preparation import prepare_elevenlabs_media_parts
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("Real media tools required by the Linux CI profile")
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as writer:
+        writer.setnchannels(1); writer.setsampwidth(2); writer.setframerate(16000)
+        writer.writeframes(b"\x00\x00" * 8000)
+    checks = []
+    with preparation_control(lambda: checks.append(1)):
+        with prepare_elevenlabs_media_parts(
+            stream=audio, original_filename="synthetic.wav", mime_type="audio/wav",
+            byte_count=len(audio.getvalue()), max_output_bytes=1024 * 1024,
+            temporary_directory=str(tmp_path), prefer_whole_recording=True,
+        ) as batch:
+            assert len(batch.parts) == 1 and batch.duration_seconds == pytest.approx(0.5)
+            assert batch.parts[0].stream.read(4) == b"RIFF"
+    assert len(checks) >= 5 and list(tmp_path.iterdir()) == []

@@ -137,6 +137,7 @@ def run_worker_loop(
             if default_iteration:
                 classes = ("audio", "transcription", "maintenance")
                 selection["work_order"] = classes[work_index:] + classes[:work_index]
+                selection["should_stop"] = stop_event.is_set
                 work_index = (work_index + 1) % len(classes)
             result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings, heartbeat_session_factory=session_factory, **selection)
         except Exception as exc:

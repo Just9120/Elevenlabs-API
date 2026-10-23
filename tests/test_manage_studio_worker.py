@@ -34,6 +34,9 @@ def run_cmd(
     commit_image: str = "sha256:worker-old",
     health: str = "healthy",
     isolation_match: bool = True,
+    wait_blocks: bool = False,
+    drain_ttl: str = "300",
+    drain_buffer: str = "60",
 ):
     tmp_path.mkdir(parents=True, exist_ok=True)
     bindir = tmp_path / "bin"; bindir.mkdir()
@@ -88,9 +91,10 @@ elif [[ "$1 $2" == "image inspect" ]]; then
   exit 1
 elif [[ "$1" == run ]]; then
   if [[ "$*" == *elevenlabs-studio-worker:rollback-candidate* ]]; then printf '%s\n' {rollback_head!r}; else printf '%s\n' {stopped_head!r}; fi
-elif [[ "$1 $2 $3" == "kill --signal SIGTERM" ]]; then
+elif [[ "${{1:-}} ${{2:-}} ${{3:-}}" == "kill --signal SIGTERM" ]]; then
   printf {stop_state!r} > {str(state_file)!r}; printf {stop_exit!r} > {str(exit_file)!r}
 elif [[ "$1" == wait ]]; then
+  if [[ {wait_blocks!r} == True && "$state" == running ]]; then exec /bin/sleep 30; fi
   [[ "$state" != running ]] || exit 124
   echo "$code"
 elif [[ "$1" == start ]]; then
@@ -101,7 +105,7 @@ else exit 8; fi
 """)
     env_file = ROOT / "deploy/studio/.env"; created = not env_file.exists()
     if created: env_file.write_text("STUDIO_WORKER_LEASE_TTL_SECONDS=300\n", encoding="utf-8")
-    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT), "STUDIO_WORKER_LEASE_TTL_SECONDS": "300"}
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT), "STUDIO_WORKER_LEASE_TTL_SECONDS": drain_ttl, "STUDIO_WORKER_DRAIN_BUFFER_SECONDS": drain_buffer}
     try:
         proc = subprocess.run(["bash", str(SCRIPT), cmd], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
     finally:
@@ -161,6 +165,16 @@ def test_running_drain_exit_semantics(tmp_path: Path) -> None:
     assert proc.returncode != 0 and "still_running" in proc.stderr
     assert "STUDIO_WORKER_DRAINED" not in proc.stdout
     assert not any("docker stop" in c or "SIGKILL" in c or " compose.platform.yml up" in c for c in calls)
+
+
+def test_observation_timeout_ends_wait_client_without_stopping_container(tmp_path: Path) -> None:
+    proc, calls = run_cmd(tmp_path, "drain", state="running", stop_state="running",
+                          wait_blocks=True, drain_ttl="0", drain_buffer="1")
+    assert proc.returncode != 0 and "still_running" in proc.stderr
+    assert "STUDIO_WORKER_DRAINED" not in proc.stdout
+    assert (tmp_path / "state").read_text() == "running"
+    assert sum("docker kill --signal SIGTERM cid" in call for call in calls) == 1
+    assert not any("docker stop" in call or "SIGKILL" in call for call in calls)
 
 
 def test_pause_only_succeeds_after_successful_drain(tmp_path: Path) -> None:

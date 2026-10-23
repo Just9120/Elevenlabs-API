@@ -377,6 +377,8 @@ def process_claimed_transcript_maintenance_run(
     )
 
     def progress(stage: str, completed: int, total: int | None) -> None:
+        from .worker_progress import touch_worker_progress
+        touch_worker_progress()
         current = _owned_lease(
             db,
             run_id=run_id,

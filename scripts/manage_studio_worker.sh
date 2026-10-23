@@ -186,7 +186,7 @@ cmd_drain() {
   # docker stop escalates to SIGKILL at its timeout. Only terminate the waiting
   # client on timeout, never the container or its current paid operation.
   docker kill --signal SIGTERM "$running" >/dev/null
-  timeout --foreground "${timeout}s" docker wait "$running" >/dev/null || true
+  timeout --foreground --kill-after=5s "${timeout}s" docker wait "$running" >/dev/null || true
   after="$(state_of "$running")"
   code="$(exit_code_of "$running")"
   [[ "$after" != running && "$after" != restarting ]] || fail "STUDIO_WORKER_DRAIN_BLOCKED reason=still_running lease_output_reconciliation_review_required"

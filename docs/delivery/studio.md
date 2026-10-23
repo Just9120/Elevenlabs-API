@@ -410,7 +410,7 @@
 | `JOBREL-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `JOBREL-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `JOBREL-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `JOBREL-04` | IN_PROGRESS | ✅ | ✅ | ◐ | WK-01 candidate922c0ce/fe5b822: real worker entry safe/uncertain/cancel/active local PASS; required PostgreSQL skip-locked/concurrency/rollback CI PENDING. Main8c25efa had no runtime recovery caller; READY reopened. No paid live/fault injection. |
+| `JOBREL-04` | READY | ✅ | ✅ | ◐ | WK-01 candidate0d7e902 + reviewed diff: real worker entry safe/uncertain/cancel/active local PASS; PostgreSQL skip-locked/concurrency/rollback PASS in CI40028316121. Main8c25efa had no runtime recovery caller; candidate restores criterion. Aggregate CI/merge/CD PENDING; no paid live/fault injection. |
 | `JOBREL-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `JOBREL-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `JOBREL-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |

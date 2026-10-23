@@ -672,6 +672,7 @@ def _ffprobe_time_base_duration(stream: dict[str, object]) -> float | None:
     return ticks * numerator / denominator
 
 
+@worker_operation("media_analysis", FFMPEG_ANALYSIS_TIMEOUT_SECONDS + 30)
 def _scan_audio_duration(path: Path, *, runner: Callable = subprocess.run) -> float:
     """Decode one audio stream when Matroska metadata has no usable duration.
 

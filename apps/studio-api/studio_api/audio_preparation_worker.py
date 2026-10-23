@@ -69,9 +69,11 @@ def claim_next_and_process_audio_preparation(
         return processor(**kwargs)
 
 
-def claim_next_studio_work(db: Session, *, work_order=("audio", "transcription", "maintenance"), **kwargs):
+def claim_next_studio_work(db: Session, *, work_order=("audio", "transcription", "maintenance"), should_stop=lambda: False, **kwargs):
     from .worker_recovery import recover_expired_worker_jobs
 
+    if should_stop():
+        return None
     try:
         recover_expired_worker_jobs(db, now=utcnow())
         db.commit()
@@ -91,6 +93,8 @@ def claim_next_studio_work(db: Session, *, work_order=("audio", "transcription",
     if len(work_order) != len(runners) or set(work_order) != set(runners):
         raise ValueError("worker_work_order_invalid")
     for kind in work_order:
+        if should_stop():
+            return None
         from .worker_progress import worker_phase
         with worker_phase(kind, 120):
             result = runners[kind](db, **kwargs)
