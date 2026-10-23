@@ -2,6 +2,7 @@ from copy import deepcopy
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -172,3 +173,10 @@ def test_workflows_keep_required_aggregate_and_gate_before_secret_jobs():
     assert cd.index("ci_validation.py deploy-gate") < cd.index("secrets.DEPLOY_HOST")
     assert cd.count("ref: ${{ needs.detect-components.outputs.revision }}") == 4
     assert "cancel-in-progress: false" in cd
+
+
+@pytest.mark.parametrize("workflow", ["studio-worker-status.yml", "studio-worker-drain.yml", "studio-processing-preflight.yml"])
+def test_operations_workflow_passes_the_same_repository_identity_as_deploy_gate(workflow):
+    text = (ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8")
+    passed_repositories = re.findall(r"\$\(shell_quote ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\)", text)
+    assert passed_repositories == [ci.REPOSITORY]

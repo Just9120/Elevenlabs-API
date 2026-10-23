@@ -98,5 +98,5 @@ jobs:
           }
           trap cleanup EXIT
           scp "${ssh_options[@]}" scripts/studio_worker_drain.sh "$DEPLOY_USER@$DEPLOY_HOST:$remote_script"
-          execute_command="chmod 700 -- $(shell_quote "$remote_script") && $(shell_quote "$remote_script") $(shell_quote /opt/elevenlabs-studio) $(shell_quote main) $(shell_quote Just9120/Elevenlabs-API) $(shell_quote "$EXPECTED_COMMIT")"
+          execute_command="chmod 700 -- $(shell_quote "$remote_script") && $(shell_quote "$remote_script") $(shell_quote /opt/elevenlabs-studio) $(shell_quote main) $(shell_quote Just9120/voiceops-studio) $(shell_quote "$EXPECTED_COMMIT")"
           ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "$execute_command"
