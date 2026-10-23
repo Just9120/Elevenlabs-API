@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-REPOSITORY = "Just9120/Elevenlabs-API"
+REPOSITORY = "Just9120/voiceops-studio"
 WORKFLOW = ".github/workflows/ci.yml"
 PROOF_NAME = "ci-validation-identity"
 CONTEXT_FILES = (WORKFLOW, ".github/workflows/studio-ci.yml", "scripts/ci_validation.py")

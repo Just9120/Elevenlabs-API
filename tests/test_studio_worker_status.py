@@ -33,7 +33,7 @@ def _run_status(
     tmp_path: Path,
     *,
     branch: str = "main",
-    remote: str = "git@github.com:Just9120/Elevenlabs-API.git",
+    remote: str = "git@github.com:Just9120/voiceops-studio.git",
     commit: str = SHA,
     dirty: str = "",
     tracked: bool = True,
@@ -65,7 +65,7 @@ esac
 ''',
     )
     proc = subprocess.run(
-        [repository_bash(), str(SCRIPT), _bash_path(repo), "main", "Just9120/Elevenlabs-API", SHA],
+        [repository_bash(), str(SCRIPT), _bash_path(repo), "main", "Just9120/voiceops-studio", SHA],
         cwd=repo,
         env={**os.environ, "PATH": f"{_bash_path(bin_dir)}:{os.environ['PATH']}"},
         text=True,

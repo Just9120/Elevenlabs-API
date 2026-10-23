@@ -47,7 +47,7 @@ Untrusted PR/fork code не должен получать production secrets, wr
 
 Cache — оптимизация, а не доверенный artifact. Учитывай OS/runtime/lockfile и trust context в ключах; privileged job не должен потреблять cache, который может отравить untrusted job. Не помещай secrets в repository, artifacts/cache/logs. При изменении runner, trigger или credential model перепроверь trust boundaries.
 
-Проектное ограничение Elevenlabs-API: **Baseline repository and Studio CI must remain secretless**. Synthetic setup и применимость проверок — в [validation runbook](runbooks/validation.md); credentialed integration требует отдельного согласованного scope.
+Проектное ограничение VoiceOps Studio: **Baseline repository and Studio CI must remain secretless**. Synthetic setup и применимость проверок — в [validation runbook](runbooks/validation.md); credentialed integration требует отдельного согласованного scope.
 
 ## 5. Build и identity поставки
 
@@ -108,6 +108,6 @@ Automatic rollback допустим только при проверенной �
 Исключение из safety contract требует решения пользователя/уполномоченного владельца: правило, причина, scope/срок, риск, compensating checks и stop/recovery criteria. Уже разрешённое исключение действует в своих границах и не меняет универсальный шаблон. Стоимость, flaky test или ожидание доступа не разрешают обходить обязательный gate.
 
 
-## Project profile — Elevenlabs-API
+## Project profile — VoiceOps Studio
 
 Настройка F13/F63 разрешена владельцем06Oct2026 в Goal DELIVERY-METADATA-CLEANUP-20261006. Canonical validation commands, required aggregate `ci-required`, source/tree/context proof, selection/reuse fallback и cost records — [validation runbook](runbooks/validation.md). Exact-main component/edge CI gate, production target/queue, protected migration approval и post-checks — [Studio operations](runbooks/studio-platform-ops.md#ci-gate-для-component-и-edge-delivery). Общая policy выше не изменена. GitHub enforcement применяется с readback после PASS текущего PR, до merge; до primary подтверждения не считать настройку завершённой. Production provider/Google mutations и cleanup/restore не являются CI fixtures.

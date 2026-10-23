@@ -141,6 +141,16 @@ def test_manual_cd_rejects_non_main_and_outdated_dispatch(monkeypatch, tmp_path)
         ci.deploy_gate(API(), {})
 
 
+@pytest.mark.parametrize("repository", ["Just9120/Elevenlabs-API", "attacker/voiceops-studio"])
+def test_rename_does_not_accept_legacy_or_foreign_repository_identity(monkeypatch, repository):
+    monkeypatch.setenv("GITHUB_REPOSITORY", repository)
+    with pytest.raises(ValueError, match="foreign repository"):
+        ci.deploy_gate(API(), {})
+    api = API()
+    api.run["repository"]["full_name"] = repository
+    assert not ci.required_run(api, api.run, HEAD, "pull_request")
+
+
 def test_pagination_is_complete_or_rejected():
     api = ci.GitHub()
     calls = []

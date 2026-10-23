@@ -78,9 +78,9 @@ Validation Plan: AC/риск, проверка/ожидаемый результ
 DONE требует выполненных scope/DoD, обязательных checks/review, merge и applicable delivery всех PR. Исправимый failure не завершает Goal; при внешнем blocker сохрани причину и нужное действие, продолжая независимую работу. Заверши встроенную Goal по её правилам, сообщи результат, готовность, Evidence, PR/поставку и ограничения. Остановись: следующую Goal выбирает пользователь.
 
 
-## Особенности Elevenlabs-API
+## Особенности VoiceOps Studio
 
-- Repository `Just9120/Elevenlabs-API`: ожидаемая default/release branch `main`, рабочие ветки `codex/`. Перед consequential operation проверяй фактические remote/base и target. Существующий canonical путь правил настройки CI/CD — `docs/ci-cd-rules.md`; второй файл в корне не создаётся.
+- Repository `Just9120/voiceops-studio`: ожидаемая default/release branch `main`, рабочие ветки `codex/`. Перед consequential operation проверяй фактические remote/base и target. Существующий canonical путь правил настройки CI/CD — `docs/ci-cd-rules.md`; второй файл в корне не создаётся.
 - Два продукта: Colab entrypoints в корне и VoiceOps Studio. `apps/studio` — React/TypeScript/Vite PWA; `apps/studio-api` — Python/FastAPI API, worker, Alembic и provider adapters; `deploy/studio` и `scripts` — Compose/operations. Runtime/credential/state boundaries различаются; personal implementation не доказывает commercial readiness. Generated protobuf и notebooks не считать dead/duplicate code без проверки callers.
 - Обычные команды, тестовые окружения, required checks и revision model: [validation runbook](docs/runbooks/validation.md). Targets, config owners, credentials boundaries, GitHub Environment, очередь, rollout и recovery: [Studio operations](docs/runbooks/studio-platform-ops.md). Инварианты обработки: [processing contract](docs/studio-processing-contract.md); отдельный Colab capture: [Realtime Colab](docs/runbooks/realtime-colab.md). Optional AI tooling documents не создавать без соответствующего workstream.
 - Windows `pytest -q --portable` сохраняет часть shell-dependent tests и не заменяет Linux CI. Обычные проверки используют synthetic configuration/data; production `.env`, реальные provider/Google calls и пользовательские данные не использовать как тестовые fixtures.

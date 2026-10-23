@@ -1,4 +1,4 @@
-# ElevenLabs API / VoiceOps Studio
+# VoiceOps Studio
 
 VoiceOps Studio — PWA для подготовки аудио, транскрибации и работы с результатами. Product scope включает изолированные personal и commercial контуры; отдельный Colab поддерживается в пределах существующих возможностей. Фактические исполняемые поверхности:
 
@@ -55,7 +55,7 @@ Colab batch запускается вручную через `notebooks/elevenla
 |---|---|
 | [Источники требований](docs/project-spec.md#1-назначение-источники-и-область) | Согласованные источники, версии и трассировка; сами требования не разрешают implementation. |
 | [AGENTS.md](AGENTS.md) | Goal-driven repository router, execution kernel, authority и scope. |
-| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract и индекс 56 эпиков; формулировки AC — в docs/spec/*.md. |
+| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract и индекс эпиков; формулировки AC — в docs/spec/*.md. |
 | [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и checkpoint; полные реестры AC — в docs/delivery/*.md. |
 | [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Архив завершённой delivery history. |
 | [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | Настройка и исправление pipeline; не обязательное чтение для routine checks/merge/deploy. |

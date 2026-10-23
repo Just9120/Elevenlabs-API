@@ -80,6 +80,7 @@ def run_deploy(
         "local_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "target_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "local_config_exit": "1",
+        "remote": "git@github.com:Just9120/voiceops-studio.git",
     }
     state.update(env_overrides)
 
@@ -92,7 +93,7 @@ case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
   "rev-parse HEAD") if [[ -f {str(merge_marker)!r} ]]; then echo {state['target_head']!r}; else echo {state['local_head']!r}; fi ;;
   "rev-parse origin/main") echo {state['target_head']!r} ;;
-  "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
+  "config --get remote.origin.url") echo {state['remote']!r} ;;
   "config --local --get-regexp "*) exit {state['local_config_exit']} ;;
   "status --porcelain --untracked-files=no") ;;
   "-c http.https://github.com/.extraheader= fetch --prune origin main")
@@ -249,6 +250,13 @@ def assert_no_forbidden_mutation(calls: list[str]) -> None:
 
 def index_of(calls: list[str], fragment: str) -> int:
     return next(i for i, line in enumerate(calls) if fragment in line)
+
+
+def test_legacy_repository_remote_is_rejected_before_fetch_or_container_changes(tmp_path: Path) -> None:
+    proc, calls = run_deploy(tmp_path, "web", remote="git@github.com:Just9120/Elevenlabs-API.git")
+    assert proc.returncode != 0
+    assert "unexpected remote" in proc.stderr
+    assert not any("fetch" in line or "docker " in line for line in calls)
 
 
 def test_successful_api_deployment_orders_identity_before_health() -> None:
@@ -707,7 +715,7 @@ case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
   "rev-parse HEAD") echo {('b'*40)!r} ;;
   "rev-parse origin/main") echo {('b'*40)!r} ;;
-  "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
+  "config --get remote.origin.url") echo git@github.com:Just9120/voiceops-studio.git ;;
   "config --local --get-regexp "*) exit 1 ;;
   "status --porcelain --untracked-files=no") ;;
   "-c http.https://github.com/.extraheader= fetch --prune origin main")
