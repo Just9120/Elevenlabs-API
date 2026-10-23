@@ -7,10 +7,13 @@ import socket
 import sys
 import threading
 import uuid
+from enum import Enum
 from datetime import timedelta
 from typing import Callable
 
 from pydantic import ValidationError
+from .worker_progress import WorkerProgress, bind_worker_progress, begin_worker_iteration, failure_stage
+from .worker_logging import WorkerLogFormatter, safe_error_type
 
 
 LOGGER = logging.getLogger("studio_api.worker")
@@ -34,7 +37,7 @@ def install_signal_handlers(stop_event: threading.Event) -> None:
 
 def _reason(exc: BaseException) -> str:
     reason = getattr(exc, "reason", None)
-    return getattr(reason, "value", None) or "unknown"
+    return reason.value if isinstance(reason, Enum) and type(reason).__module__.startswith("studio_api.") else "unknown"
 
 
 def _safe_log_result(logger: logging.Logger, result) -> None:
@@ -98,7 +101,9 @@ def run_worker_loop(
     alert_evaluator: Callable | None = None,
     alert_delivery_runner: Callable | None = None,
     job_notification_runner: Callable | None = None,
+    independent_background: bool = False,
 ) -> int:
+    default_iteration = iteration is None
     if iteration is None:
         from .audio_preparation_worker import claim_next_studio_work
 
@@ -107,7 +112,16 @@ def run_worker_loop(
     poll_interval = settings.worker_poll_interval_seconds
     error_backoff = settings.worker_error_backoff_seconds
     owner_id = owner_id_factory()
-    last_alert_evaluation_at = None
+    work_index = 0
+    from .worker_background import WorkerBackground
+    background = WorkerBackground(
+        settings=settings, session_factory=session_factory, stop_event=stop_event,
+        logger=logger, owner_id=owner_id, source_cleanup_runner=source_cleanup_runner,
+        provider_checkpoint_cleanup_runner=provider_checkpoint_cleanup_runner,
+        realtime_draft_cleanup_runner=realtime_draft_cleanup_runner,
+        alert_evaluator=alert_evaluator, alert_delivery_runner=alert_delivery_runner,
+        job_notification_runner=job_notification_runner,
+    )
 
     while not stop_event.is_set():
         if stop_event.is_set():
@@ -116,18 +130,25 @@ def run_worker_loop(
         result = None
         wait_seconds = None
         iteration_failed = False
+        begin_worker_iteration()
+        iteration_id = str(uuid.uuid4())
         try:
-            result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings, heartbeat_session_factory=session_factory)
+            selection = {}
+            if default_iteration:
+                classes = ("audio", "transcription", "maintenance")
+                selection["work_order"] = classes[work_index:] + classes[:work_index]
+                work_index = (work_index + 1) % len(classes)
+            result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings, heartbeat_session_factory=session_factory, **selection)
         except Exception as exc:
             if type(exc).__name__ not in {"JobLeaseError", "JobProcessingRunnerError", "JobProcessingOrchestrationError", "TranscriptMaintenanceRunError"}:
                 _safe_rollback(db, logger)
-                logger.error("worker_iteration_failed", extra={"event": "worker_iteration_failed"})
+                logger.error("worker_iteration_failed", extra={"event": "worker_iteration_failed", "error_type": safe_error_type(exc), "stage": failure_stage(), "iteration_id": iteration_id})
                 wait_seconds = error_backoff
                 iteration_failed = True
             else:
                 logger.warning(
                     "studio_worker_iteration_error",
-                    extra={"event": "studio_worker_iteration_error", "error_type": type(exc).__name__, "reason": _reason(exc)},
+                    extra={"event": "studio_worker_iteration_error", "error_type": safe_error_type(exc), "reason": _reason(exc), "stage": failure_stage(), "iteration_id": iteration_id},
                 )
                 wait_seconds = error_backoff
                 iteration_failed = True
@@ -145,104 +166,8 @@ def run_worker_loop(
         if iteration_failed:
             stop_event.wait(wait_seconds if wait_seconds is not None else poll_interval)
             continue
-        if not stop_event.is_set():
-            cleanup_db = session_factory()
-            try:
-                from datetime import datetime, timezone
-                if (
-                    provider_checkpoint_cleanup_runner is None
-                    and source_cleanup_runner is None
-                    and realtime_draft_cleanup_runner is None
-                ):
-                    from .provider_part_checkpoints import cleanup_expired_provider_part_checkpoints as checkpoint_cleanup_runner
-                    from .realtime_drafts import cleanup_expired_realtime_drafts as draft_cleanup_runner
-                else:
-                    checkpoint_cleanup_runner = provider_checkpoint_cleanup_runner
-                    draft_cleanup_runner = realtime_draft_cleanup_runner
-                if source_cleanup_runner is None:
-                    from .source_deletion import run_one_source_cleanup as cleanup_runner
-                else:
-                    cleanup_runner = source_cleanup_runner
-
-                cleanup_now = datetime.now(timezone.utc)
-                expired_checkpoint_count = (
-                    checkpoint_cleanup_runner(cleanup_db, now=cleanup_now)
-                    if checkpoint_cleanup_runner is not None
-                    else 0
-                )
-                expired_draft_count = (
-                    draft_cleanup_runner(cleanup_db, now=cleanup_now)
-                    if draft_cleanup_runner is not None
-                    else 0
-                )
-                if expired_checkpoint_count or expired_draft_count:
-                    cleanup_db.commit()
-                if expired_checkpoint_count:
-                    logger.info(
-                        "studio_worker_provider_part_checkpoints_expired",
-                        extra={
-                            "event": "studio_worker_provider_part_checkpoints_expired",
-                            "checkpoint_count": expired_checkpoint_count,
-                        },
-                    )
-                if expired_draft_count:
-                    logger.info(
-                        "studio_worker_realtime_drafts_expired",
-                        extra={
-                            "event": "studio_worker_realtime_drafts_expired",
-                            "draft_count": expired_draft_count,
-                        },
-                    )
-                if cleanup_runner(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=cleanup_now, should_stop=stop_event.is_set):
-                    logger.info("studio_worker_source_cleanup_processed", extra={"event": "studio_worker_source_cleanup_processed"})
-            except Exception:
-                _safe_rollback(cleanup_db, logger)
-                logger.warning("studio_worker_source_cleanup_failed", extra={"event": "studio_worker_source_cleanup_failed", "reason": "source_cleanup_failed"})
-            finally:
-                try:
-                    cleanup_db.close()
-                except Exception:
-                    logger.warning("worker_session_close_failed")
-            if stop_event.is_set():
-                break
-            alert_now = datetime.now(timezone.utc)
-            try:
-                from .security_email import process_one_security_email
-                if process_one_security_email(session_factory=session_factory, settings=settings, now=alert_now):
-                    continue
-            except Exception:
-                logger.warning("studio_worker_security_email_failed", extra={"event": "studio_worker_security_email_failed"})
-            try:
-                if job_notification_runner is None:
-                    from .job_notifications import process_one_job_notification as deliver_job_notification
-                else:
-                    deliver_job_notification = job_notification_runner
-                if deliver_job_notification(session_factory=session_factory, settings=settings, now=alert_now):
-                    continue
-            except Exception:
-                logger.warning("studio_worker_job_notification_failed", extra={"event": "studio_worker_job_notification_failed"})
-            alert_interval = max(30, int(getattr(settings, "alert_evaluation_interval_seconds", 60)))
-            if (
-                last_alert_evaluation_at is None
-                or (alert_now - last_alert_evaluation_at).total_seconds() >= alert_interval
-            ):
-                try:
-                    if alert_evaluator is None:
-                        from .operational_alerts import evaluate_all_owner_incidents as evaluate_alerts
-                    else:
-                        evaluate_alerts = alert_evaluator
-                    evaluate_alerts(session_factory=session_factory, settings=settings, now=alert_now)
-                    last_alert_evaluation_at = alert_now
-                except Exception:
-                    logger.warning("studio_worker_alert_evaluation_failed", extra={"event": "studio_worker_alert_evaluation_failed"})
-            try:
-                if alert_delivery_runner is None:
-                    from .operational_alerts import process_one_delivery as deliver_alert
-                else:
-                    deliver_alert = alert_delivery_runner
-                deliver_alert(session_factory=session_factory, settings=settings, now=alert_now)
-            except Exception:
-                logger.warning("studio_worker_alert_delivery_failed", extra={"event": "studio_worker_alert_delivery_failed"})
+        if not independent_background:
+            background.run_once()
         if stop_event.is_set():
             break
         stop_event.wait(wait_seconds if wait_seconds is not None else poll_interval)
@@ -250,7 +175,9 @@ def run_worker_loop(
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(WorkerLogFormatter())
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     try:
         from .config import Settings
 
@@ -282,23 +209,34 @@ def main() -> int:
     except Exception:
         LOGGER.error("studio_worker_runtime_instance_invalid")
         return 2
+    progress = WorkerProgress(timeout_seconds=max(120, settings.worker_error_backoff_seconds + 30))
     runtime_heartbeat = WorkerRuntimeHeartbeat(
         session_factory=SessionLocal,
         identity=identity,
         instance_id=runtime_instance_id,
         interval_seconds=settings.runtime_worker_heartbeat_interval_seconds,
         logger=LOGGER,
+        progress_check=progress.is_current,
     )
     runtime_heartbeat.start()
+    from .worker_background import WorkerBackground
+    background = WorkerBackground(
+        settings=settings, session_factory=SessionLocal, stop_event=stop_event,
+        logger=LOGGER, owner_id=runtime_instance_id,
+    )
+    background.start()
     try:
-        return run_worker_loop(
-            settings=settings,
-            session_factory=SessionLocal,
-            stop_event=stop_event,
-            logger=LOGGER,
-            owner_id_factory=lambda: runtime_instance_id,
-        )
+        with bind_worker_progress(progress):
+            return run_worker_loop(
+                settings=settings,
+                session_factory=SessionLocal,
+                stop_event=stop_event,
+                logger=LOGGER,
+                owner_id_factory=lambda: runtime_instance_id,
+                independent_background=True,
+            )
     finally:
+        background.stop_and_join()
         runtime_heartbeat.stop_and_join()
 
 

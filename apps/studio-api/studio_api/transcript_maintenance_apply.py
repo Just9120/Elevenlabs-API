@@ -120,6 +120,8 @@ def execute_transcript_standardization_apply(
         plan["items"],
         strict=True,
     ), start=1):
+        from .worker_progress import touch_worker_progress
+        touch_worker_progress()
         if decision.action == TranscriptStandardizationAction.blocked:
             outcome = TranscriptStandardizationApplyOutcome.blocked
             reason = decision.reason

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .preparation_control import PreparationInterrupted
 
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -242,7 +243,14 @@ def transcribe_processing_job_source_with_elevenlabs(
                             else {}
                         ),
                     )
-                    prepared_batch = _enter_prepared_media_batch(prepared_cm)
+                    from .preparation_control import preparation_control
+                    from .job_source_materialization import processing_source_control
+                    with preparation_control(processing_source_control(
+                        db, job_id=job_id, job_source_id=job_source_id,
+                        lease_owner_id=lease_owner_id, lease_generation=lease_generation,
+                        clock=clock, settings=settings,
+                    )):
+                        prepared_batch = _enter_prepared_media_batch(prepared_cm)
                     if (
                         source.source_type == "local_upload"
                         and source.source_created_at is None
@@ -256,6 +264,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                             created_at=prepared_batch.source_created_at,
                             now=clock(),
                         )
+                except PreparationInterrupted as exc:
+                    raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call) from exc
                 except MediaPreparationError as exc:
                     if exc.reason is MediaPreparationReason.media_duration_confirmation_required:
                         from .long_media_preflight import record_long_media_preflight
@@ -576,9 +586,14 @@ def _source_kwargs(kwargs):
 
 
 def _call_transport(transport, **kwargs):
-    if hasattr(transport, "transcribe"):
-        return transport.transcribe(**kwargs)
-    return transport(**kwargs)
+    from .worker_progress import worker_phase
+    timeout = getattr(transport, "timeout", None)
+    if timeout is None:
+        timeout = getattr(getattr(transport, "settings", None), "yandex_operation_timeout_seconds", 1800)
+    with worker_phase("provider_request", float(timeout) + 30):
+        if hasattr(transport, "transcribe"):
+            return transport.transcribe(**kwargs)
+        return transport(**kwargs)
 
 
 def _persist_embedded_source_creation_time(

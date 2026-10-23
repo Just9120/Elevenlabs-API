@@ -925,6 +925,26 @@ def test_video_is_prepared_before_provider_and_revalidated_after_preparation(db,
     assert transport.calls == []
 
 
+def test_cancel_inside_media_preparation_never_calls_provider(db, models):
+    from studio_api.preparation_control import check_preparation_control
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    *_, job, rel, now = make_job(db, models)
+    transport = CaptureTransport()
+
+    @contextmanager
+    def prepare(**kwargs):
+        job.cancel_requested_at = now
+        db.commit()
+        check_preparation_control()
+        pytest.fail("preparation must stop immediately")
+        yield
+
+    with pytest.raises(JobElevenLabsTranscriptionError, match="lifecycle_changed_before_provider_call"):
+        with run_boundary(db, models, job, rel, transport, now, media_preparer=prepare):
+            pass
+    assert transport.calls == []
+
+
 def test_immutable_media_clip_reaches_preparation_boundary(db, models):
     from studio_api.media_preparation import PreparedMediaInput
 

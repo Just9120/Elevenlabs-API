@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -14,6 +13,7 @@ from tempfile import TemporaryDirectory
 from typing import BinaryIO, Callable, Iterator
 
 from .source_creation import parse_authoritative_source_created_at
+from .preparation_control import PreparationInterrupted, check_preparation_control, controlled_runner
 from .audio_preparation import AudioPreparationError, AudioPreparationReason, probe_media, verify_media_integrity
 
 
@@ -114,6 +114,7 @@ def prepare_elevenlabs_media_input(
     temporary_directory: str | None = None,
     probe_source_creation_time: bool = False,
 ) -> Iterator[PreparedMediaInput]:
+    runner = controlled_runner(runner)
     if not requires_video_audio_extraction(mime_type):
         if not probe_source_creation_time:
             yield PreparedMediaInput(
@@ -158,7 +159,7 @@ def prepare_elevenlabs_media_input(
             prepared_size = _validated_output_size(output_path, max_output_bytes)
             prepared_name = f"{_safe_stem(original_filename)}.m4a"
             prepared_stream = output_path.open("rb")
-        except MediaPreparationError:
+        except (MediaPreparationError, PreparationInterrupted):
             raise
         except Exception as exc:
             raise MediaPreparationError(
@@ -196,6 +197,7 @@ def prepare_elevenlabs_media_parts(
     confirmed_source_duration_seconds: float | None = None,
     prefer_whole_recording: bool = False,
 ) -> Iterator[PreparedMediaBatch]:
+    runner = controlled_runner(runner)
     with prepare_elevenlabs_media_input(
         stream=stream,
         original_filename=original_filename,
@@ -308,7 +310,7 @@ def prepare_elevenlabs_media_parts(
                         split_reason=split_reason,
                         source_created_at=prepared.source_created_at,
                     )
-            except MediaPreparationError:
+            except (MediaPreparationError, PreparationInterrupted):
                 raise
             except Exception as exc:
                 raise MediaPreparationError(
@@ -340,6 +342,7 @@ def prepare_yandex_media_file(
     confirmed_source_duration_seconds: float | None = None,
 ) -> Iterator[PreparedMediaBatch]:
     """Normalize one source to the Yandex v3 OGG/Opus async-file contract."""
+    runner = controlled_runner(runner)
     del mime_type, byte_count
     with TemporaryDirectory(prefix="studio-yandex-", dir=temporary_directory) as temp_dir:
         root = Path(temp_dir)
@@ -404,7 +407,14 @@ def _copy_input(stream: BinaryIO, destination: Path) -> None:
     try:
         stream.seek(0)
         with destination.open("wb") as target:
-            shutil.copyfileobj(stream, target, length=_COPY_CHUNK_SIZE)
+            while True:
+                check_preparation_control()
+                chunk = stream.read(_COPY_CHUNK_SIZE)
+                if not chunk:
+                    break
+                target.write(chunk)
+    except PreparationInterrupted:
+        raise
     except Exception as exc:
         raise MediaPreparationError(
             MediaPreparationReason.media_preparation_failed,
