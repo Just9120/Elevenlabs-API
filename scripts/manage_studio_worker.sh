@@ -182,8 +182,11 @@ cmd_drain() {
   running="$id"
   timeout="$(drain_timeout)"
   before="$(image_of "$running")"
-  log "sending SIGTERM via docker stop with timeout ${timeout}s"
-  docker stop --time "$timeout" "$running" >/dev/null
+  log "sending SIGTERM; observing graceful exit for at most ${timeout}s"
+  # docker stop escalates to SIGKILL at its timeout. Only terminate the waiting
+  # client on timeout, never the container or its current paid operation.
+  docker kill --signal SIGTERM "$running" >/dev/null
+  timeout --foreground "${timeout}s" docker wait "$running" >/dev/null || true
   after="$(state_of "$running")"
   code="$(exit_code_of "$running")"
   [[ "$after" != running && "$after" != restarting ]] || fail "STUDIO_WORKER_DRAIN_BLOCKED reason=still_running lease_output_reconciliation_review_required"
