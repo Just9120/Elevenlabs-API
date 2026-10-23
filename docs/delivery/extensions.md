@@ -6,11 +6,11 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 |---|---|---|---|---|---|
-| `BRAND-01` | IN_PROGRESS | ◐ | — | — | VOICEOPS-REBRAND-20261023, basef7f6087; rename/active labels/docs inventory |
-| `BRAND-02` | BACKLOG | — | — | — | Публичные информационные страницы, direct URL и synthetic/no API checks |
-| `BRAND-03` | IN_PROGRESS | ◐ | — | — | Strict CI/CD exact-name guards, remote/root wrapper rollout и negative checks |
-| `BRAND-04` | BACKLOG | — | — | — | Stateful boundaries/pinned Colab integrity сохраняются, runtime readback PENDING |
-| `BRAND-05` | BACKLOG | — | — | — | GitHub/GCP rename readback, primary CI/merge/CD и manual OAuth sync PENDING |
+| `BRAND-01` | READY | ✅ | ✅ | PENDING | Candidate: active labels/repository metadata/docs и npm identity; local lint/build/lightweight PASS23Oct; GitHub rename/delivery отдельно BRAND-05. |
+| `BRAND-02` | READY | ✅ | ✅ | PENDING | Static about/privacy/terms без auth/script/API; Chromium390/768/1280 direct URL/reload/back/focus/overflow PASS, links readback и visual review23Oct; deployment PENDING. |
+| `BRAND-03` | IN_PROGRESS | ✅ | ◐ | PENDING | Exact new repository guards и foreign/legacy rejection CI unit PASS; affected Linux shell CI и installed-wrapper/remote rollout PENDING. Gates не ослаблены. |
+| `BRAND-04` | READY | ✅ | ✅ | PENDING | Stateful paths/IDs сохранены; Colab pinned ref023f217 и SHA-256 по Git blobs,39 integrity/CI и62 realtime cases PASS23Oct. Runtime readback после delivery отдельно. |
+| `BRAND-05` | IN_PROGRESS | ◐ | ◐ | PENDING | GCP display name readback VoiceOps Studio23Oct; GitHub rename/PR/CI/merge/web CD/host sync и manual OAuth итог PENDING. |
 
 ### `RESULTS-STUDIO-02`
 

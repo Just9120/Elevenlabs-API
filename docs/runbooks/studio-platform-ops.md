@@ -50,6 +50,22 @@ Target-side build/recreate ограничен выбранным сервисо�
 
 Фактический результат восстанавливай из PR merge SHA и соответствующего run/job: target, artifact identity, UTC, terminal result и обязательные post-checks. Отдельные DEPLOY/LIVE поля в реестре и post-merge metadata commit не требуются. При восстановлении не запускай повторный deploy ради статуса; общий flow — [AGENTS](../../AGENTS.md), checks — [validation](validation.md).
 
+## Repository/product rename — VOICEOPS-REBRAND-20261023
+
+Canonical repository после согласованного rename — `Just9120/voiceops-studio`, immutable GitHub repository ID1212324255. Default branch остаётся `main`; protections, required `ci-required`, environment approvals и credential scopes сохраняются. GCP display name — VoiceOps Studio; project ID `braided-potion-499918-k4`, number476316429029 и existing OAuth clients не пересоздаются. Для восстановления источника имени сначала читать GitHub repository по immutable ID, а не создавать replacement repository по прежнему имени.
+
+Порядок owner-authorized перехода:
+
+1. Подготовить/review изменения canonical CI repository identity, deployment remote validation, двух forced-command wrappers и Colab pinned launcher metadata. CI продолжает отвергать foreign/legacy identity, а не принимает произвольный repository из environment.
+2. При отсутствии конфликтующих runs переименовать тот же GitHub repository; readback должен сохранить ID1212324255, owner, branch и protections. Обновить local remote и выполнить PR validation уже с новым canonical name. Не использовать повторно прежнее имя для другого repository.
+3. После успешных PR gates, перед merge/automatic web CD сверить clean `/opt/elevenlabs-studio`, source HEAD и старый remote. Сохранить recovery metadata и изменить только remote на новый exact GitHub URL; branch/source/config/data не заменять. В этот краткий переход installed legacy migration/edge wrappers закрыты из-за remote mismatch; не запускать эти lanes до следующего шага.
+4. После merge получить exact reviewed main. При свободных migration/edge locks сверить каждый installed wrapper с ожидаемым baseline; сделать root-only recovery copy. Единственное разрешённое различие source/installed wrapper в этой операции — новое `EXPECTED_REPOSITORY`. Проверить Bash syntax, установить exact reviewed bytes на прежний root-owned path с прежними permissions, подтвердить hash/owner/mode и remote. Не менять forced SSH commands, secrets, approval gates или логику release. Если фактический файл изменился независимо, остановить этот шаг и согласовать current state.
+5. Дождаться existing exact-main web CD; проверить build identity, health и три публичные HTML-страницы. API/worker/source storage/DB не требуют redeploy или migration из-за display name. При failed post-check остановить продвижение, восстановить exact previous remote/wrappers по сохранённым копиям, не откатывать данные.
+
+Stateful compatibility: directory `/opt/elevenlabs-studio`, Compose project `elevenlabs-studio-platform`, image/volume/database/bucket/secret-file identities, manifest filenames и Colab module entrypoints сохраняются. Их names — техническая совместимость, а не ошибочный пользовательский бренд. Historical records сохраняют исходное имя и revision; active docs/scripts используют canonical name.
+
+Google Branding values после web delivery: App name VoiceOps Studio; support/developer contact — согласованный owner email; authorized domain `cloud-nodes.net`; homepage `/about.html`, privacy `/privacy.html`, personal terms `/terms.html` на canonical host. Это реальные public static files без JavaScript/bootstrap auth. Владелец отдельно сохраняет actual requested scopes и меняет Publishing status; агент не утверждает OAuth publication/verification по одному GCP project display name. Personal use и Google brand/scope verification — отдельные условия, не commercial rollout.
+
 ## State vocabulary
 
 Различай эти факты при объяснении результата; отдельные статусы в реестре AC не требуются:

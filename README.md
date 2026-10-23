@@ -7,6 +7,10 @@ VoiceOps Studio — PWA для подготовки аудио, транскри
 
 Personal Studio PWA работает и развивается. Яндекс Диск входит в согласованные требования; его текущие gaps зафиксированы в delivery-plan. Полные готовые обычные транскрипции не хранятся отдельной постоянной копией в Studio. Live сохраняет текст до ручной очистки, а незавершённая обычная транскрибация — до полного документа, отмены или явного закрытия ошибки; это recovery state. Готовое аудио скачивается или экспортируется через временную сборку из доступных исходников. Colab не получает новые PWA/commercial возможности автоматически.
 
+Единый бренд проекта и repository — **VoiceOps Studio**, canonical repository `Just9120/voiceops-studio`. ElevenLabs — provider, а не имя приложения. Файлы `elevenlabs_api.py` / `elevenlabs_realtime.py` сохраняют совместимые entrypoint names. Действующие database/volume/bucket names и deployment paths не меняются ради брендинга.
+
+Публичная информация Studio доступна без входа и API-запросов: [описание приложения](apps/studio/public/about.html), [обработка данных](apps/studio/public/privacy.html), [правила personal использования](apps/studio/public/terms.html). В развернутом Studio это `/about.html`, `/privacy.html`, `/terms.html`; страница входа и основная навигация содержат ссылки на них. Google Branding использует существующий canonical host и эти страницы после подтверждённой поставки.
+
 README не дублирует быстро устаревающие проценты и revision IDs. Полный scope, atomic AC, источники и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Все текущие статусы AC, Evidence, numerator/denominator, текущая и предыдущая оценки, findings, варианты Goal и checkpoint находятся только в [docs/delivery-plan.md](docs/delivery-plan.md).
 
 Commercial production включён в durable product scope; его фактическое состояние и приоритеты отражены в delivery dashboard. Существующий personal code не считается commercial Evidence.

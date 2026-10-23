@@ -10,17 +10,17 @@
 
 | Критерий | Scope / DoD | Статус |
 |---|---|---|
-| BRAND-01 | VoiceOps Studio в активных product/repository metadata, документации и launcher labels; ElevenLabs остаётся provider name | IN_PROGRESS |
-| BRAND-02 | About/privacy/personal-use information доступны без login, содержат фактические Google/data flows и контакты, есть навигация и mobile layout; без invented legal/SLO promises | BACKLOG |
+| BRAND-01 | VoiceOps Studio в активных product/repository metadata, документации и launcher labels; ElevenLabs остаётся provider name | READY |
+| BRAND-02 | About/privacy/personal-use information доступны без login, содержат фактические Google/data flows и контакты, есть навигация и mobile layout; без invented legal/SLO promises | READY |
 | BRAND-03 | CI/CD принимает exact canonical repository, foreign identity отвергается; remotes и installed forced-command wrappers синхронизированы без ослабления gates | IN_PROGRESS |
-| BRAND-04 | Persistent/runtime identifiers и existing data сохраняются; Colab сохраняет immutable reviewed ref/hash verification | BACKLOG |
+| BRAND-04 | Persistent/runtime identifiers и existing data сохраняются; Colab сохраняет immutable reviewed ref/hash verification | READY |
 | BRAND-05 | GCP display name/actual GitHub identity проверены; one PR required checks/merge и applicable web CD/health/public pages подтверждены; manual OAuth итог отражён отдельно | BACKLOG |
 
 DoD: BRAND-01..05 реализованы, применимые local checks/self-review и exact-revision `ci-required` PASS, один PR merged, применимая поставка и bounded smoke подтверждены. Stateful class NONE, migrations не нужны. Host changes ограничены Git remote и exact reviewed repository-name substitutions в двух установленных root-owned wrappers после merge; target `/opt/elevenlabs-studio`, pinned Contabo167.86.68.98. До смены remote/wrappers — проверить текущие values/hashes, отсутствие active release и сохранить exact recovery copies; permissions/SSH commands/approvals/locks сохраняются. Recovery — вернуть exact прежние remote/wrappers при failed verification; rename/редиректы GitHub проверяются по неизменному ID. Installed wrappers не обновляются candidate/unreviewed source.
 
 | Validation Plan / риск | Проверка, каталог/tool, environment | Этап / применимость |
 |---|---|---|
-| Trusted repository/Colab | Root: `pytest -q tests/test_ci_validation.py tests/test_colab_launcher_integrity.py` и affected deploy/preflight/wrapper tests, synthetic data | REQUIRED local focused до initial push; Linux shell REQUIRED CI |
+| Trusted repository/Colab | Root: `pytest -q tests/test_ci_validation.py tests/test_colab_launcher_integrity.py tests/test_realtime_static.py`; affected deploy/preflight/wrapper tests используют Linux/bash и synthetic data | REQUIRED local Python focused до initial push; Linux shell REMOTE-ONLY REQUIRED CI, локальная отсутствующая Git Bash usr/bin часть не считается PASS |
 | Public pages/no login side effects | Studio: affected Vitest, `npm run lint`, `npm run build`; isolated browser desktop/mobile direct URL/nav/back и отсутствие API/provider calls | REQUIRED local до initial push; existing Studio/E2E CI REQUIRED |
 | Docs/metadata | Root: `python scripts/ci_checks.py`, `git diff --check`, active-vs-historical refs/ID/link/self-review | REQUIRED local до initial push |
 | GitHub/host/cloud | CLI/plugin exact repository ID1212324255, protections/PR/runs; explicit GCP project read-update-read; pinned SSH wrapper hashes/remote/health | REQUIRED по соответствующему этапу; external writes только выбранного scope |
@@ -28,6 +28,10 @@ DoD: BRAND-01..05 реализованы, применимые local checks/self
 | Paid/production destructive tests | STT/Live/scans/restore/delete/runtime Google grants | N/A: вне scope; реальные пользовательские данные не fixtures |
 
 Checkpoint23Oct: branch/base созданы до edits; discovery выявил hardcoded old repository в CI deploy-gate, component remote validation и двух privileged wrappers. GitHub rename выполняется после локальной подготовки и до PR validation; host remote сменяется перед merge/CD, installed wrappers — только exact reviewed main после merge с backup/readback. При ручном rename владельца сначала повторно прочитать repository по ID и сохранить его изменения. GCP target `braided-potion-499918-k4`, project number476316429029; display name пока ElevenLabs API. OAuth Console Testing/empty declared scopes известны по owner screenshots; исправление owner-side, не скрытое расширение runtime permissions. Следующий шаг: implementation/точечная validation; initial push/PR/CI/merge/CD PENDING.
+
+Candidate validation23Oct:39 CI/Colab integrity и62 realtime static Python cases PASS;11 Login/Sidebar/main component cases PASS; lint/build/lightweight/diff checks PASS. Isolated Chromium layout11/11 PASS на390×844/768×1024/1280×720, включая3 новых public direct URL/no API/keyboard/reload/back и существующие main navigation/fragments/history/menu/reset cases. Screenshots public390/1280 визуально просмотрены. Windows shell attempts не исполнили Bash fixtures: отсутствует Git `usr/bin/bash.exe`, WSL fallback недоступен; assertions не менялись, definitive affected shell tests — обязательный Linux CI. Initial sandbox Temp rename отказ Vitest устранён task-local TMP и запуском разрешённых checks вне sandbox, затем11/11 PASS. Логи/скриншоты ignored, не входят в PR.
+
+GCP23Oct: exact project read-update-read подтвердил display name VoiceOps Studio, ID/number прежние. MCP command transport не сохранил пробел в --name и завершился до изменения; выполнен штатный локальный gcloud с тем же profile/explicit project, итог подтверждён. Runtime scopes/clients/billing/IAM не менялись. Colab runtime diff — только docstring/page titles; reviewed immutable ref023f2175cfe0631c6670588075e8329bc0672a14 и expected hashes в launchers проверены по Git object bytes. Self-review сверил no-script public pages/фактические data flows, immutable Colab pins, отсутствие credential/state/schema changes и exact repository guards. Sidebar secondary links сведены к одной ссылке «О приложении», чтобы не раздувать mobile header;9 affected component и3 existing layout cases после изменения PASS. Осталось: GitHub rename/readback, one PR/current checks, merge/host wrapper+remote sync/web CD и owner manual OAuth sync.
 
 ### PERSONAL-REVIEW-FIXES-20261018 — DONE по первичным records
 
@@ -244,17 +248,19 @@ PR329 интегрирован и поставлен на main5601f1a; AC и fin
 
 PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбранных AC READY на момент closure; CI37430070244/37430070238, protected web/API/migration37430070252, worker37431465267 и status37432061023 SUCCESS. Старые pre-merge PENDING в реестрах заменены primary results; вновь выявленные независимые нарушения F74/F75 возвращают соответствующие AC в работу. Closure предыдущей Goal не доказывает отсутствие новых findings.
 
-## Готовность — baseline18Oct2026 и текущий candidate
+## Готовность — проверенный main23Oct2026 и rebrand candidate
 
-Проверенный `origin/main` b7f9d48136e07d6bcd92eba6f8fba9bd42871b1a: **personal435/454=95.8%; полный roadmap440/687=64.0%**. По сравнению с восстановленным domain snapshot437/454 и442/687 исправлена переоценка PS-04/05: на этой revision код запрещает пересечения/произвольный EOF и не проверяет известную длительность до подтверждения. Denominator не меняется. PUX-20 READY восстановлен по PR333 и primary CI/CD records; это устранение stale checkpoint, не новое выполнение.
+Проверенный `origin/main` f7f608713e4b70484e48b6b1df0641dd3f0a50ec (fetch23Oct2026), до нового scope: **personal437/454=96.3%; полный roadmap442/687=64.3%**. PR336/CI39114120229/main39114461322 и runtime readback23Oct подтверждают прежний candidate как merged; это не повторный полный аудит. Предыдущая b7f9d48 оценка435/454 и440/687 отличалась двумя исправленными PS-04/05; baseline findings не маскируются сменой denominator.
 
-Текущий незамерженный candidate: **personal437/454=96.3%; полный roadmap442/687=64.3%; Goal14/14 READY по реализации**. Personal включает Colab, Studio/extensions и17 общих technical EVC; исключены224 future commercial и9 отложенных voice identity AC. Всего711 стабильных IDs,687 active и24 ALIAS/SUPERSEDED. Findings и layout рекомендации не добавляют AC автоматически. Сравнение не является повторным полным аудитом; затронутые AC подтверждены V-REVIEW-FIXES-18, остальные сохраняют проверенное исходное Evidence.
+Новое явное решение23Oct добавило5 AC BRAND-01..05. На том же main, где они ещё не реализованы: **personal437/459=95.2%; полный roadmap442/692=63.9%**. Всего716 стабильных IDs,692 active и24 ALIAS/SUPERSEDED. Personal исключает224 future commercial и ровно9 отложенных voice AC (SP-01..05, VID-01..04); VID-05 остаётся в personal. Изменение denominator вызвано owner scope, а не новым finding.
+
+Незамерженный rebrand candidate: **personal440/459=95.9%; полный roadmap445/692=64.3%; Goal3/5 READY**. BRAND-01/02/04 подтверждены local code/checks, BRAND-03/05 IN_PROGRESS до remote Linux/host/delivery Evidence. Остальные AC сохраняют исходное проверенное Evidence. Готовность main после merge/delivery пересчитывается по actual records; pending gates не предсказываются. Изменение менее10п.п.
 
 Незавершённые personal AC17: `PM-05`, `STTPRO-05`, `YANDEX-01`, `YANDEX-02`, `YANDEX-05`, `YD-01`, `YD-02`, `YD-03`, `YD-04`, `YD-05`, `YD-07`, `YD-08`, `YD-09`, `UXN-04`, `MC-08`, `MC-09` (исключённый из этой Goal Yandex scope), `SECX-06` BACKLOG (personal email отложен владельцем). Обсуждение filler-word cleaning не становится согласованной feature. Ручная приёмка отсутствует; dogfooding ad-hoc, required CI/delivery остаются обязательными. После merge фактическую main revision/готовность установить по registry и первичным records без metadata-only follow-up PR.
 
 ### Эпики / features на проверенном main
 
-Таблица ниже — candidate; на baseline PWA-SEGMENTS-01 —3/5=60%. Все атомарные статусы: [Colab](delivery/colab.md), [Studio](delivery/studio.md), [extensions](delivery/extensions.md), [commercial](delivery/commercial.md). Проценты эпиков не усредняются.
+Таблица существующих эпиков соответствует merged f7f6087; новый BRAND-VOICEOPS-01 показан отдельной строкой по candidate. Все атомарные статусы: [Colab](delivery/colab.md), [Studio](delivery/studio.md), [extensions](delivery/extensions.md), [commercial](delivery/commercial.md). Проценты эпиков не усредняются.
 
 | Эпик | READY / active | Scope | Незакрытые статусы |
 |---|---|---|---|
@@ -275,6 +281,7 @@ PERSONAL-COMPLETION-20261004 — DONE по PR326/merge1937658:105/105 выбра
 | `COMMERCIAL-NOTIFICATIONS-01` | 0/8 = 0.0% | будущий commercial / общие technical отдельно | BACKLOG:8 |
 | `COMMERCIAL-LEGAL-01` | 0/15 = 0.0% | будущий commercial / общие technical отдельно | BACKLOG:15 |
 | `COMMERCIAL-COMPLETENESS-02` | 0/9 = 0.0% | будущий commercial / общие technical отдельно | BACKLOG:9 |
+| `BRAND-VOICEOPS-01` | 3/5 = 60.0% | current rebrand candidate; main0/5 | IN_PROGRESS:2 |
 | `RESULTS-STUDIO-02` | 9/9 = 100.0% | текущий personal | — |
 | `YANDEX-DISK-01` | 0/8 = 0.0% | текущий personal | BACKLOG:8 |
 | `REALTIME-RECOVERY-03` | 6/6 = 100.0% | текущий personal | — |

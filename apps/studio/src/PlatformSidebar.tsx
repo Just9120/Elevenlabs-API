@@ -34,7 +34,7 @@ export function PlatformSidebar({
           </button>
         ))}
       </nav>
-      <PublicInfoLinks />
+      <PublicInfoLinks compact />
     </aside>
   );
 }
