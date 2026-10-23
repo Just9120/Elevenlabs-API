@@ -572,6 +572,10 @@ code {
   font-size: 0.8rem;
   color: var(--studio-sidebar-muted);
 }
+
+.public-info-links { display: flex; flex-wrap: wrap; gap: .25rem 1rem; font-size: .85rem; margin-top: 1rem; }
+.public-info-links a { display: inline-flex; align-items: center; min-height: 44px; text-underline-offset: .2em; color: var(--studio-primary); }
+.app-sidebar .public-info-links a { color: var(--studio-sidebar-muted); }
 .app-nav {
   display: grid;
   gap: 0.5rem;

@@ -2,6 +2,42 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+for (const viewport of [{width:390,height:844},{width:768,height:1024},{width:1280,height:720}]) {
+  test(`public information works without login or API at ${viewport.width}px`, async ({page}) => {
+    await page.setViewportSize(viewport);
+    const apiRequests: string[] = [];
+    await page.route('**/api/**', route => {
+      apiRequests.push(route.request().url());
+      return route.abort();
+    });
+    for (const [path, heading] of [
+      ['/about.html', 'Из записи — в удобный текст'],
+      ['/privacy.html', 'Обработка данных'],
+      ['/terms.html', 'Правила личного использования'],
+    ]) {
+      const response = await page.goto(path);
+      expect(response?.status()).toBe(200);
+      await expect(page.getByRole('heading', {name: heading, exact:true})).toBeVisible();
+      await expect(page.getByRole('navigation', {name:'Информация о приложении'})).toBeVisible();
+      await expect(page.getByRole('link', {name:'Войти в Studio', exact:true}).first()).toHaveAttribute('href','/');
+      await noHorizontalOverflow(page);
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('link', {name:'К содержанию'})).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('main')).toBeFocused();
+      await page.getByRole('contentinfo').scrollIntoViewIfNeeded();
+      if (path === '/about.html') await page.screenshot({path:`../../.tmp/rebrand-public-${viewport.width}.png`,fullPage:true});
+      await page.reload();
+      await expect(page.getByRole('heading', {name: heading, exact:true})).toBeVisible();
+    }
+    await page.getByRole('navigation').getByRole('link', {name:'О приложении', exact:true}).click();
+    await expect(page).toHaveURL(/\/about\.html$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/terms\.html/);
+    expect(apiRequests).toEqual([]);
+  });
+}
+
 const project = {id: 'synthetic-layout', title: 'Studio', description: '',
   created_at: '2026-10-11T12:00:00Z', updated_at: '2026-10-11T12:00:00Z', archived_at: null,
   output_drive_folder_id: null, output_drive_folder_url: null, output_drive_folder_name: null};
