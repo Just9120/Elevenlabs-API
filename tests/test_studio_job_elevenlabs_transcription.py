@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import uuid
 import base64
@@ -477,7 +478,13 @@ def test_diarization_option_reaches_provider_boundary(db, models):
     )
     transport = CaptureTransport()
 
-    with run_boundary(db, models, job, rel, transport, now):
+    @contextmanager
+    def prepare(**kwargs):
+        assert kwargs["prefer_whole_recording"] is True
+        with fake_media_preparer(**kwargs) as prepared:
+            yield prepared
+
+    with run_boundary(db, models, job, rel, transport, now, media_preparer=prepare):
         pass
 
     assert transport.calls[0]["diarize"] is True
@@ -1095,8 +1102,10 @@ def test_chunk_transcripts_merge_in_order_without_duplicate_overlap():
     from studio_api.job_google_docs_output import build_speaker_labeled_transcript
     rendered = build_speaker_labeled_transcript(tuple(merged.words), fallback_text=merged.text)
     assert "личность между частями не сопоставлялась" in rendered
-    assert "Спикер 1 — часть 1" in rendered and "Спикер 2 — часть 2" in rendered
-    assert rendered.endswith("Спикер 2:\nagain")
+    assert "— часть" not in rendered
+    assert rendered.startswith("Спикер 1:\nHello world")
+    assert "Спикер 2:\nagain\n\nПримечание:" in rendered
+    assert rendered.endswith("личность между частями не сопоставлялась.")
     assert merged.detected_language_code == "en"
     assert merged.language_probability == 0.8
     assert "Hello" not in repr(merged)
@@ -1307,7 +1316,8 @@ def test_second_part_failure_preserves_encrypted_checkpoint_and_safe_cause(db, m
     assert b"first" not in checkpoint.ciphertext
 
 
-def test_explicit_partial_resume_calls_only_unfinished_provider_part(db, models):
+@pytest.mark.parametrize("diarize", [False, True])
+def test_explicit_partial_resume_calls_only_unfinished_provider_part(db, models, diarize):
     from studio_api.elevenlabs_transcription import (
         ElevenLabsTranscriptionError,
         ElevenLabsTranscriptionReason,
@@ -1322,10 +1332,12 @@ def test_explicit_partial_resume_calls_only_unfinished_provider_part(db, models)
     )
     from studio_api.media_preparation import PreparedMediaBatch, PreparedMediaInput
 
-    *_, job, rel, now = make_job(db, models)
+    *_, job, rel, now = make_job(db, models, options_json=json.dumps({"diarize": diarize}))
+    preparation_preferences = []
 
     @contextmanager
     def prepare(**kwargs):
+        preparation_preferences.append(kwargs["prefer_whole_recording"])
         streams = [BytesIO(b"one"), BytesIO(b"two")]
         try:
             yield PreparedMediaBatch(
@@ -1403,6 +1415,7 @@ def test_explicit_partial_resume_calls_only_unfinished_provider_part(db, models)
     assert transport.calls == 1
     attempt = db.query(models.TranscriptionJobSourceAttempt).filter_by(job_source_id=rel.id, attempt_number=2).one()
     assert attempt.provider_completed_parts == attempt.provider_total_parts == 2
+    assert preparation_preferences == [diarize, False]
 
 
 @pytest.mark.parametrize("checkpoint_state", ["intact", "expired", "missing", "corrupt", "wrong_owner", "wrong_shape"])

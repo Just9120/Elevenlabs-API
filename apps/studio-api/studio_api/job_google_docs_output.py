@@ -277,13 +277,8 @@ def build_speaker_labeled_transcript(
         return fallback_text.strip()
     labeled = "\n\n".join(blocks)
     if any(re.fullmatch(r"part_[1-9]\d*:.*", speaker) for speaker in speaker_numbers):
-        part_labels = []
-        for speaker, number in speaker_numbers.items():
-            match = re.fullmatch(r"part_([1-9]\d*):.*", speaker)
-            if match:
-                part_labels.append(f"Спикер {number} — часть {match.group(1)}")
         notice = "Метки спикеров определены отдельно в каждой части; личность между частями не сопоставлялась."
-        return f"{notice}\n{' · '.join(part_labels)}\n\n{labeled}"
+        return f"{labeled}\n\nПримечание: {notice}"
     return labeled
 
 

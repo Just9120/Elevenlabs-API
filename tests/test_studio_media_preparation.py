@@ -300,6 +300,86 @@ def test_small_media_is_probed_but_not_split(tmp_path):
     assert source.closed is False
 
 
+@pytest.mark.parametrize("mime_type", ["audio/mpeg", "video/mp4"])
+@pytest.mark.parametrize("clip", [False, True])
+def test_diarized_recording_avoids_size_and_duration_fragmentation(tmp_path, monkeypatch, mime_type, clip):
+    from studio_api import media_preparation as media
+
+    monkeypatch.setattr(media, "ELEVENLABS_PART_MAX_BYTES", 8)
+    commands = []
+
+    def runner(command, **kwargs):
+        commands.append(command)
+        if command[0] == "ffprobe":
+            duration = 1880 if Path(command[-1]).name == "manual-clip.m4a" else 4000
+            return subprocess.CompletedProcess(command, 0, stdout=str(duration))
+        assert command[0] == "ffmpeg"
+        assert not Path(command[-1]).name.startswith("part-")
+        Path(command[-1]).write_bytes(b"prepared-audio")
+        return subprocess.CompletedProcess(command, 0)
+
+    with media.prepare_elevenlabs_media_parts(
+        stream=BytesIO(b"synthetic-audio"), original_filename="meeting.mp4",
+        mime_type=mime_type, byte_count=15, max_output_bytes=100,
+        prefer_whole_recording=True, runner=runner, temporary_directory=str(tmp_path),
+        media_clip_start_seconds=120 if clip else None,
+        media_clip_end_seconds=2000 if clip else None,
+    ) as batch:
+        assert len(batch.parts) == 1 and batch.split_reason is None
+        assert batch.parts[0].timeline_offset_seconds == 0
+        assert batch.parts[0].duration_seconds == (1880 if clip else 4000)
+        assert batch.parts[0].stream.read() in (b"synthetic-audio", b"prepared-audio")
+        if clip:
+            command = next(c for c in commands if Path(c[-1]).name == "manual-clip.m4a" and c[0] == "ffmpeg")
+            assert command[command.index("-ss") + 1] == "120.000"
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "size,duration,expected",
+    [(26 * 1024 * 1024, 4000, None), (4_999_999_999, 36000, None),
+     (5_000_000_000, 10, "size"), (10, 36000.001, "duration")],
+)
+def test_whole_recording_preference_respects_provider_limits(size, duration, expected):
+    from studio_api.media_preparation import _split_reason
+    assert _split_reason(size, duration, prefer_whole_recording=True) == expected
+
+
+def test_diarized_recording_beyond_single_request_duration_uses_bounded_parts(tmp_path):
+    from studio_api.media_preparation import prepare_elevenlabs_media_parts
+
+    def runner(command, **kwargs):
+        if command[0] == "ffprobe":
+            return subprocess.CompletedProcess(command, 0, stdout="36001")
+        Path(command[-1]).write_bytes(b"part")
+        return subprocess.CompletedProcess(command, 0)
+
+    with prepare_elevenlabs_media_parts(
+        stream=BytesIO(b"audio"), original_filename="meeting.mp3", mime_type="audio/mpeg",
+        byte_count=5, max_output_bytes=1000, prefer_whole_recording=True,
+        long_duration_confirmed=True, runner=runner, temporary_directory=str(tmp_path),
+    ) as batch:
+        assert batch.split_reason == "duration" and len(batch.parts) > 1
+        assert max(part.duration_seconds for part in batch.parts) <= 1320
+        assert batch.parts[-1].timeline_offset_seconds + batch.parts[-1].duration_seconds == pytest.approx(36001)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_whole_recording_preference_cannot_bypass_project_byte_limit(tmp_path):
+    from studio_api.media_preparation import MediaPreparationError, prepare_elevenlabs_media_parts
+
+    def unexpected_runner(*args, **kwargs):
+        raise AssertionError("oversized input must fail before probe/provider preparation")
+
+    with pytest.raises(MediaPreparationError, match="prepared_media_too_large"):
+        with prepare_elevenlabs_media_parts(
+            stream=BytesIO(b"oversized"), original_filename="meeting.mp3", mime_type="audio/mpeg",
+            byte_count=9, max_output_bytes=5, prefer_whole_recording=True,
+            runner=unexpected_runner, temporary_directory=str(tmp_path),
+        ):
+            pytest.fail("project limit was bypassed")
+
+
 def test_video_extraction_flows_into_probe_and_single_prepared_part(tmp_path):
     from studio_api.media_preparation import prepare_elevenlabs_media_parts
 
@@ -466,7 +546,8 @@ def test_long_media_is_split_in_deterministic_overlapping_order_and_cleaned(tmp_
     assert second.stream.closed is True
 
 
-def test_duration_warning_requires_explicit_confirmation_before_splitting(tmp_path):
+@pytest.mark.parametrize("prefer_whole_recording", [False, True])
+def test_duration_warning_requires_explicit_confirmation_before_splitting(tmp_path, prefer_whole_recording):
     from studio_api.media_preparation import (
         MediaPreparationError,
         prepare_elevenlabs_media_parts,
@@ -491,6 +572,7 @@ def test_duration_warning_requires_explicit_confirmation_before_splitting(tmp_pa
             max_output_bytes=100,
             duration_warning_seconds=100,
             max_duration_seconds=200,
+            prefer_whole_recording=prefer_whole_recording,
             runner=runner,
             temporary_directory=str(tmp_path),
         ):
@@ -522,7 +604,8 @@ def test_confirmed_duration_between_warning_and_limit_is_processed(tmp_path):
         assert len(batch.parts) == 1
 
 
-def test_hard_duration_limit_stops_before_part_creation_even_if_confirmed(tmp_path):
+@pytest.mark.parametrize("prefer_whole_recording", [False, True])
+def test_hard_duration_limit_stops_before_part_creation_even_if_confirmed(tmp_path, prefer_whole_recording):
     from studio_api.media_preparation import (
         MediaPreparationError,
         prepare_elevenlabs_media_parts,
@@ -545,6 +628,7 @@ def test_hard_duration_limit_stops_before_part_creation_even_if_confirmed(tmp_pa
             duration_warning_seconds=100,
             max_duration_seconds=200,
             long_duration_confirmed=True,
+            prefer_whole_recording=prefer_whole_recording,
             runner=runner,
             temporary_directory=str(tmp_path),
         ):
