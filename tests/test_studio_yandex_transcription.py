@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import asyncio
 import io
+import json
 import os
 import sys
 import uuid
@@ -39,6 +40,7 @@ from studio_api.elevenlabs_transcription import (  # noqa: E402
 )
 from studio_api.yandex_transcription import (  # noqa: E402
     YandexTranscriptionTransport,
+    _decode_streaming_json,
     normalize_yandex_transcript_response,
 )
 
@@ -194,19 +196,20 @@ class _YandexClient:
                                     "words": [
                                         {
                                             "text": "Проверка",
-                                            "startTimeMs": 0,
-                                            "endTimeMs": 400,
+                                            "startTimeMs": "0",
+                                            "endTimeMs": "400",
                                         },
                                         {
                                             "text": "завершена",
-                                            "startTimeMs": 420,
-                                            "endTimeMs": 800,
+                                            "startTimeMs": "420",
+                                            "endTimeMs": "800",
                                         },
                                     ],
                                 }
-                            ]
+                            ],
+                            "channelTag": "0",
                         },
-                        "audioCursors": {"finalIndex": 0},
+                        "audioCursors": {"finalIndex": "0"},
                     }
                 ]
             },
@@ -239,6 +242,95 @@ def test_yandex_normalization_preserves_text_words_language_and_speakers():
     assert result.words[0].start == 0
     assert result.words[1].end == 0.6
     assert {word.speaker_id for word in result.words} == {"speaker-1"}
+
+
+@pytest.mark.parametrize("snake_case", [False, True])
+@pytest.mark.parametrize("wire_shape", ["single", "array", "collection", "ndjson"])
+def test_yandex_official_rest_wire_preserves_refined_timing_channel_and_probability(snake_case, wire_shape):
+    def names(value):
+        if isinstance(value, list):
+            return [names(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        aliases = {
+            "audioCursors": "audio_cursors", "finalIndex": "final_index",
+            "channelTag": "channel_tag", "startTimeMs": "start_time_ms",
+            "endTimeMs": "end_time_ms", "languageCode": "language_code",
+            "finalRefinement": "final_refinement", "normalizedText": "normalized_text",
+        }
+        return {(aliases.get(key, key) if snake_case else key): names(item) for key, item in value.items()}
+
+    final = {"result": names({
+        "audioCursors": {"finalIndex": "0"},
+        "channelTag": "legacy-root",
+        "final": {"channelTag": "0", "alternatives": [{
+            "text": "Тест", "words": [{"text": "Тест", "startTimeMs": "0", "endTimeMs": "450"}],
+            "languages": [{"languageCode": "ru-RU", "probability": "9.9e-1"}],
+        }]},
+    })}
+    refined = {"result": names({"finalRefinement": {
+        "finalIndex": "0", "normalizedText": {"channelTag": "0", "alternatives": [{
+            "text": "Тест.", "words": [{"text": "Тест.", "startTimeMs": "0", "endTimeMs": "500"}],
+            "languages": [{"languageCode": "ru-RU", "probability": "0.99"}],
+        }]},
+    }})}
+    events = [final, refined] if wire_shape != "single" else [final]
+    if wire_shape == "ndjson":
+        response = httpx.Response(200, text="\n".join(json.dumps(event) for event in events))
+    else:
+        payload = final if wire_shape == "single" else (events if wire_shape == "array" else {"streamingResponses": events})
+        response = httpx.Response(200, json=payload)
+    result = normalize_yandex_transcript_response(_decode_streaming_json(response))
+    assert result.text == ("Тест" if wire_shape == "single" else "Тест.")
+    assert result.word_count == 1  # Refinement replaces, never duplicates, its final.
+    assert result.words[0].start == 0
+    assert result.words[0].end == (0.45 if wire_shape == "single" else 0.5)
+    assert result.words[0].speaker_id == "0"  # Nested tag beats legacy root.
+    assert result.detected_language_code == "ru-RU"
+    assert result.language_probability == 0.99
+
+
+def test_yandex_refinement_retains_previous_channel_when_not_repeated():
+    result = normalize_yandex_transcript_response([
+        {"final": {"channelTag": 0, "alternatives": [{"text": "Первый"}]}, "audioCursors": {"finalIndex": "0"}},
+        {"final": {"channelTag": "1", "alternatives": [{"text": "Второй", "words": [{"text": "Второй"}]}]}, "audioCursors": {"finalIndex": "1"}},
+        {"finalRefinement": {"finalIndex": "0", "normalizedText": {"alternatives": [{"text": "Первый.", "words": [{"text": "Первый.", "startTimeMs": "0", "endTimeMs": "500"}]}]}}},
+    ])
+    assert result.text == "Первый. Второй"
+    assert [word.speaker_id for word in result.words] == ["0", "1"]
+    assert result.words[1].start is None  # No invented timing for absent fields.
+
+
+@pytest.mark.parametrize("invalid", [-1, "-1", True, False, 1.5, "1.5", "NaN", float("nan"), float("inf"), "9" * 20, 2**63, {}, ""])
+@pytest.mark.parametrize("refinement", [False, True])
+def test_yandex_invalid_final_index_is_normalized_provider_error(invalid, refinement):
+    alternative = {"alternatives": [{"text": "Тест"}]}
+    event = ({"finalRefinement": {"finalIndex": invalid, "normalizedText": alternative}}
+             if refinement else {"audioCursors": {"finalIndex": invalid}, "final": alternative})
+    with pytest.raises(ElevenLabsTranscriptionError) as failure:
+        normalize_yandex_transcript_response(event)
+    assert failure.value.reason is ElevenLabsTranscriptionReason.malformed_provider_response
+
+
+@pytest.mark.parametrize("field,invalid", [
+    ("startTimeMs", "-1"), ("endTimeMs", "NaN"), ("startTimeMs", True),
+    ("startTimeMs", float("nan")), ("endTimeMs", float("inf")),
+    ("endTimeMs", 2**63), ("startTimeMs", "9" * 20), ("startTimeMs", "1.5"),
+])
+def test_yandex_invalid_word_timing_does_not_silently_disappear(field, invalid):
+    word = {"text": "Тест", "startTimeMs": "0", "endTimeMs": "500", field: invalid}
+    with pytest.raises(ElevenLabsTranscriptionError) as failure:
+        normalize_yandex_transcript_response({"final": {"alternatives": [{"text": "Тест", "words": [word]}]}})
+    assert failure.value.reason is ElevenLabsTranscriptionReason.malformed_provider_response
+
+
+@pytest.mark.parametrize("invalid", ["NaN", "Infinity", "1.1", "-0.1", True, float("nan"), float("inf"), {}, "1e999"])
+def test_yandex_invalid_language_probability_is_normalized_provider_error(invalid):
+    with pytest.raises(ElevenLabsTranscriptionError) as failure:
+        normalize_yandex_transcript_response({"final": {"alternatives": [{
+            "text": "Тест", "languages": [{"languageCode": "ru-RU", "probability": invalid}],
+        }]}})
+    assert failure.value.reason is ElevenLabsTranscriptionReason.malformed_provider_response
 
 
 def test_yandex_realtime_capability_is_bounded_signed_and_origin_scoped():
@@ -436,8 +528,10 @@ def test_realtime_finals_without_cursor_do_not_share_an_invented_zero_identity()
     assert not events.finals
 
 
-def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resumes_without_resubmit():
+@pytest.mark.parametrize("mode,model,diarize", [("standard", "general", True), ("economic", "deferred-general", False)])
+def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resumes_without_resubmit(mode, model, diarize):
     db = _YandexDb()
+    db.job.operating_mode = mode
     client = _YandexClient(db)
     settings = SimpleNamespace(
         yandex_stt_api_base_url="https://stt.api.cloud.yandex.net",
@@ -464,14 +558,21 @@ def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resu
         filename="source.ogg",
         mime_type="audio/ogg",
         language_code="ru",
-        diarize=False,
-        model_id="general",
+        diarize=diarize,
+        model_id=model,
     )
 
     assert result.text == "Проверка завершена"
+    assert result.words[0].start == 0
+    assert result.words[1].end == 0.8
+    assert {word.speaker_id for word in result.words} == {"0"}
     assert db.operation.status == "completed"
     assert db.operation.result_ciphertext
     assert [call[0] for call in client.calls] == ["POST", "GET", "GET"]
+    submitted = client.calls[0][2]["json"]
+    assert submitted["recognitionModel"]["audioProcessingType"] == "FULL_DATA"
+    assert submitted["recognitionModel"]["model"] == model
+    assert ("speakerLabeling" in submitted) is diarize
 
     db.job.attempt_count = 2
     no_network_client = _YandexClient(db)
@@ -489,10 +590,13 @@ def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resu
         filename="source.ogg",
         mime_type="audio/ogg",
         language_code="ru",
-        model_id="general",
+        model_id=model,
     )
 
     assert resumed.text == result.text
+    assert [(word.start, word.end, word.speaker_id) for word in resumed.words] == [
+        (word.start, word.end, word.speaker_id) for word in result.words
+    ]
     assert no_network_client.calls == []
 
     db.operation.status = "failed"
@@ -513,7 +617,7 @@ def test_yandex_async_operation_is_durable_before_poll_and_completed_result_resu
             filename="source.ogg",
             mime_type="audio/ogg",
             language_code="ru",
-            model_id="general",
+            model_id=model,
         )
     assert rejected.value.reason is ElevenLabsTranscriptionReason.provider_request_rejected
     assert rejected_client.calls == []

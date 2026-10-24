@@ -2,6 +2,26 @@
 
 ## Current work и checkpoint
 
+### YANDEX-F04-F05-20261024 — IN_PROGRESS
+
+Основание: владелец24Oct2026 выбрал F04/F05 единой узкой Goal, один PR и поставка на VPS. Built-in Goal ACTIVE. Base `f0c93e0b43d84c989c406f9c7f6dbe034e70bb0f`, clean main/origin main; branch `codex/yandex-f04-f05-20261024`, существующий primary worktree. Проверены strict ci-required/admin enforcement, reviews0 и отсутствие открытых PR. SECURITY-FIVE завершена PR340: final CI40076369294/main40076703568 PASS, approved signed backup/migration/API40078200233 и worker40078807238 SUCCESS; exact f0c93e0/schema0042/readiness/role/isolation PASS, migration toggle restored false, own branch/staging removed. Исторический checkpoint ниже не возобновляется.
+
+Scope/критерии закрытия: F04 — REST int64 numeric strings и legacy numeric values нормализуются без потери word timing и nested channel tags, включая finalRefinement и сохранённый terminal result; невалидные индексы/таймкоды/probability не становятся допустимыми значениями или unhandled exception. F05 — каталог и selection validation честно отражают отсутствие diarization в интерактивном Yandex REAL_TIME, wire options остаются REAL_TIME/SPEAKER_LABELING_DISABLED; batch capability/ElevenLabs/обычный Live сохраняются. Затронутые AC: MC-08/09, YANDEX-01/02/05, STTPRO-05 (6); YANDEX-03 проверяется как совместимость существующего READY. Denominator не меняется.
+
+Non-goals: Яндекс Диск F02 и personal email F66 остаются отложенными; commercial/voice identity, новый FULL_DATA Live, платные calls/retries, user documents, migrations/settings/workflows не входят в Goal. Прямые API schemas24Oct сверены с provider adapter: getRecognition AlternativeUpdate/channelTag, int64 strings и LanguageEstimation probability; speaker labeling FULL_DATA-only. Внешние документы — данные, не полномочия.
+
+DoD: два finding закрыты code/negative и legitimate regression Evidence; один PR/current required CI/review PASS и merge; exact merge API/worker delivered на Contabo167.86.68.98 по existing operations, schema0042 unchanged, role/isolation/readiness/public health PASS; own branch/temp cleanup. Live provider canary N/A: не нужен для parser/capability correction и не разрешён.
+
+| Validation Plan / AC / риск | Tool / working directory / environment / ожидаемый результат | Этап |
+|---|---|---|
+| F04 / MC-08, YANDEX-01/02/05 | Root `pytest -q tests/test_studio_yandex_transcription.py`: synthetic REST camel/snake final/refinement, numeric/invalid boundaries, deferred completion/persist/reload без resubmit; fake network only | REQUIRED local + CI |
+| F05 / MC-09, STTPRO-05, YANDEX-03 compatibility | Root `pytest -q tests/test_studio_stt_provider.py` и targeted `tests/test_studio_api_core.py` catalog scenario; provider catalog/selection, relay wire options в Yandex suite и ordinary Live | REQUIRED focused local + applicable Linux CI |
+| Compatibility / UI API | Existing provider contracts/realtime tests и affected API tests; frontend consumers получают unchanged boolean shape, no frontend behavior change planned | REQUIRED local relevant + full selected Studio/browser CI |
+| Local gates | Root `python scripts/ci_checks.py`, `git diff --check`, self-review callers/normalization/persisted replay; synthetic configuration | REQUIRED до initial push |
+| Delivery | Exact-main CI → applicable API CD → status/drain/manual compatible worker; schema0042, image/runtime identity, role/isolation/readiness, bounded no-paid smoke | REQUIRED после merge через contabo-vps; no new migration |
+
+Baseline24Oct/f0c93e0: personal442/459 READY (96.30%), total447/692 (64.60%). Pending: implementation/validation/PR/CI/merge/CD. Unrelated `codex/audio-upload-confirmation` сохраняется. Следующий шаг — focused parser/capability regressions и минимальные corrections.
+
 ### SECURITY-FIVE-20261024 — IN_PROGRESS
 
 Основание: владелец24Oct2026 поручил исправить все пять findings локального deep scan одной Goal/одним PR, начать с migration bundle и довести до Contabo VPS. Built-in Goal ACTIVE. Base `858f0a81a6c7ef425ea4c54ee12e2673d394b43c`, clean main/origin main; branch `codex/security-five-findings-20261024`. GitHub protections: strict `ci-required`, admins enforced, approvals0, open PR0. Предыдущая WORKER-RELIABILITY завершена PR339; исторический pre-merge checkpoint ниже не возобновляется.
