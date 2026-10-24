@@ -224,8 +224,18 @@ secrets or VPS steps become available. Environment binding or a green job alone
 is not evidence that the pause and approval occurred. The job creates a Git
 bundle from its exact trusted checkout, verifies the advertised `HEAD` and
 SHA-256 checksum, then streams it over stdin while sending exactly
-`release-bundle <main-sha> <target> <bundle-sha256>` to a dedicated root SSH key whose forced command is
+`release-bundle <main-sha> <target> <bundle-sha256> <signature-base64>` to a dedicated root SSH key whose forced command is
 `/usr/local/sbin/studio-migration-release-wrapper`.
+
+The signature is Ed25519 over the exact LF-terminated UTF-8 message
+`voiceops-studio-migration-release-v1`, `Just9120/voiceops-studio`, main SHA,
+target and bundle SHA-256, each on its own line. The protected environment
+holds `STUDIO_MIGRATION_SIGNING_KEY`, independently generated from the SSH
+identity. The VPS holds only its public key in
+`/etc/studio-migration-release/signing.pub`; directory root-owned0700, key
+root-owned0400. The wrapper rejects missing/invalid signatures and unsafe
+trust-file ownership/modes before receiving/promoting the bundle or executing
+its runner. Caller checksum and Git ancestry alone never authorize a release.
 
 The root-owned wrapper accepts only that command (plus the retained legacy
 network form for rollback compatibility), where target is `head` or one bounded
@@ -266,7 +276,11 @@ One-time setup must be completed in this order:
    If the sole operator is also the workflow initiator, do not enable
    prevent-self-review or that operator cannot approve the deployment.
 3. Add environment secrets `STUDIO_MIGRATION_DEPLOY_HOST`,
-   `STUDIO_MIGRATION_SSH_KEY`, and `STUDIO_MIGRATION_KNOWN_HOSTS`. Use a new
+   `STUDIO_MIGRATION_SSH_KEY`, `STUDIO_MIGRATION_KNOWN_HOSTS` and
+   `STUDIO_MIGRATION_SIGNING_KEY` (Ed25519 PEM, generated independently with
+   `openssl genpkey -algorithm Ed25519`). Install the derived public key
+   (`openssl pkey -pubout`) as the root-owned trust file above. Do not print,
+   commit or deliver the signing private key to the VPS. Use a new
    dedicated Ed25519 key; do not reuse the ordinary deploy key. Verify the host
    key out of band before storing the known-hosts entry.
 4. On the VPS, require a clean `main` checkout owned by `studio-deploy`.
@@ -291,6 +305,14 @@ One-time setup must be completed in this order:
    Stop if status is non-empty or the printed SHA is not the reviewed merge
    SHA. Do not fetch/merge this checkout as root and do not add a GitHub
    credential to the VPS.
+
+   For an existing installation, first deliver the reviewed exact-main source
+   through the ordinary component lane, verify its SHA and install the new
+   wrapper and separate public trust key through the operator boundary. Only
+   then approve the signed migration release. Never run the new schema release
+   with the old unsigned wrapper. Rotation requires the same protected secret
+   and pinned public-key readback; a failed signature blocks release, without
+   falling back to an unsigned bundle or copying the signing key to the host.
 
 5. Add only the dedicated public key to root's `authorized_keys` with this
    forced-command shape; replace the placeholder with the public key, never the

@@ -14,12 +14,18 @@ RELEASE_SCRIPT="scripts/release_studio_platform_migration.sh"
 LOCK_FILE="/run/lock/studio-migration-release.lock"
 INSTALLED_PATH="/usr/local/sbin/studio-migration-release-wrapper"
 MAX_BUNDLE_BYTES=134217728
+SIGNING_DIRECTORY="/etc/studio-migration-release"
+SIGNING_PUBLIC_KEY="$SIGNING_DIRECTORY/signing.pub"
 temporary_script=""
 temporary_bundle=""
+temporary_manifest=""
+temporary_signature=""
 
 cleanup() {
   [[ -z "$temporary_script" ]] || rm -f -- "$temporary_script"
   [[ -z "$temporary_bundle" ]] || rm -f -- "$temporary_bundle"
+  [[ -z "$temporary_manifest" ]] || rm -f -- "$temporary_manifest"
+  [[ -z "$temporary_signature" ]] || rm -f -- "$temporary_signature"
 }
 trap cleanup EXIT
 
@@ -36,11 +42,12 @@ repo_git() {
 [[ "$(id -u)" -eq 0 ]] || fail "not_root"
 [[ -z "${SSH_TTY:-}" ]] || fail "pty_not_allowed"
 requested_bundle_sha=""
-if [[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^release-bundle\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)\ ([0-9a-f]{64})$ ]]; then
+if [[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^release-bundle\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)\ ([0-9a-f]{64})\ ([A-Za-z0-9+/]{86}==)$ ]]; then
   release_transport="bundle"
   requested_commit="${BASH_REMATCH[1]}"
   requested_target="${BASH_REMATCH[2]}"
   requested_bundle_sha="${BASH_REMATCH[3]}"
+  requested_signature="${BASH_REMATCH[4]}"
 elif [[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^release\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)$ ]]; then
   release_transport="network"
   requested_commit="${BASH_REMATCH[1]}"
@@ -49,7 +56,7 @@ else
   fail "command_not_allowed"
 fi
 
-for tool in awk bash chmod chown dd env flock git id mktemp readlink rm runuser sha256sum stat; do
+for tool in awk base64 bash chmod chown dd env flock git id mktemp openssl readlink rm runuser sha256sum stat; do
   command -v "$tool" >/dev/null || fail "missing_$tool"
 done
 [[ ! -L "$0" && "$(readlink -f -- "$0")" == "$INSTALLED_PATH" ]] \
@@ -88,6 +95,32 @@ case "$remote_url" in
 esac
 
 if [[ "$release_transport" == "bundle" ]]; then
+  # The SSH caller's checksum authenticates transport only. A separate signing
+  # identity authorizes these exact release bytes and metadata before ref writes.
+  [[ -d "$SIGNING_DIRECTORY" && ! -L "$SIGNING_DIRECTORY" ]] \
+    || fail "signing_directory_invalid"
+  [[ "$(stat -c %u -- "$SIGNING_DIRECTORY")" == "0" ]] \
+    || fail "signing_directory_owner"
+  case "$(stat -c %a -- "$SIGNING_DIRECTORY")" in
+    500 | 700 | 750 | 755) ;; *) fail "signing_directory_permissions" ;;
+  esac
+  [[ -f "$SIGNING_PUBLIC_KEY" && ! -L "$SIGNING_PUBLIC_KEY" ]] \
+    || fail "signing_key_invalid"
+  [[ "$(stat -c %u -- "$SIGNING_PUBLIC_KEY")" == "0" ]] \
+    || fail "signing_key_owner"
+  case "$(stat -c %a -- "$SIGNING_PUBLIC_KEY")" in
+    400 | 600 | 640 | 644) ;; *) fail "signing_key_permissions" ;;
+  esac
+  temporary_manifest="$(mktemp /run/studio-migration-manifest.XXXXXX)"
+  temporary_signature="$(mktemp /run/studio-migration-signature.XXXXXX)"
+  printf 'voiceops-studio-migration-release-v1\n%s\n%s\n%s\n%s\n' \
+    "$EXPECTED_REPOSITORY" "$requested_commit" "$requested_target" "$requested_bundle_sha" \
+    >"$temporary_manifest"
+  printf '%s' "$requested_signature" | base64 --decode >"$temporary_signature" \
+    || fail "signature_encoding_invalid"
+  openssl pkeyutl -verify -pubin -inkey "$SIGNING_PUBLIC_KEY" \
+    -rawin -in "$temporary_manifest" -sigfile "$temporary_signature" >/dev/null 2>&1 \
+    || fail "release_signature_invalid"
   temporary_bundle="$(mktemp /run/studio-migration-release-bundle.XXXXXX)"
   dd iflag=fullblock bs=1048576 count=129 status=none of="$temporary_bundle" \
     || fail "bundle_receive_failed"

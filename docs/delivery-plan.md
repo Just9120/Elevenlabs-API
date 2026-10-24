@@ -2,6 +2,34 @@
 
 ## Current work и checkpoint
 
+### SECURITY-FIVE-20261024 — IN_PROGRESS
+
+Основание: владелец24Oct2026 поручил исправить все пять findings локального deep scan одной Goal/одним PR, начать с migration bundle и довести до Contabo VPS. Built-in Goal ACTIVE. Base `858f0a81a6c7ef425ea4c54ee12e2673d394b43c`, clean main/origin main; branch `codex/security-five-findings-20261024`. GitHub protections: strict `ci-required`, admins enforced, approvals0, open PR0. Предыдущая WORKER-RELIABILITY завершена PR339; исторический pre-merge checkpoint ниже не возобновляется.
+
+| Stable scan finding | Приоритет / confidence / Evidence на base | Действие и критерий закрытия |
+|---|---|---|
+| `csf_81860525e89f7e45e17636fe` | Medium / HIGH; migration wrapper принимает caller bundle/checksum, меняет origin/main и root-exec runner | FIX: независимая подпись exact repository/commit/target/bundle до изменения refs/exec; malicious descendant, другая подпись и metadata mismatch отклоняются; approved bundle проходит |
+| `csf_4cad8491958c267ada7237d3` | Low / HIGH; security_email/job_notifications SMTP_SSL без verifying context | FIX: оба implicit TLS sender проверяют CA/hostname; invalid certificate не допускает AUTH/send; STARTTLS и отключённая почта сохраняются |
+| `csf_80d2ffe71d5169d9881bbd16` | Low / HIGH; TOTP verification не потребляет counter | FIX: durable atomic consumption для login/reauth/enrollment/disable, конкурентный replay отвергается; следующий code и recovery остаются рабочими |
+| `csf_4edee3c08c2498dad21db502` | Low / MEDIUM; локальный Colab bridge GET mint без browser authority | FIX: post/capability boundary до token factory, защита rebinding/cross-origin; legitimate local/Colab proxy получает новый token, unauthorised requests вызывают factory0 |
+| `csf_1d65ce1f40b1c92f2dca0ec9` | Low / MEDIUM; BYOK429 открывает shared provider/mode circuit | FIX: quota/account failures не блокируют другого owner, включая legacy persisted429; genuine service failure circuit сохраняется, batch/realtime/relay используют общий enforcement |
+
+Источник Evidence: completed local deep scan24Oct2026 baseline858f0a8, два независимых Standard прохода; исходники без runtime/production exploitation. Полный отчёт хранится вне repository. Scope включает эти пять boundaries, regression tests, минимальную additive schema для TOTP, delivery signing configuration и canonical procedures. Non-goals: новый аудит/scan, paid calls, commercial features, включение personal email, перенос на Cloudflare, user data/старые транскрипты, ослабление gates или ручные SQL resets. Findings не создают новые AC/denominator. Baseline readiness и затронутые AC пересматриваются по финальному diff/Evidence; старый PASS не доказывает исправление этих дефектов.
+
+DoD: пять критериев подтверждены security trigger и legitimate controls; один PR, final required checks/review PASS, merge; exact merge API/worker/schema и installed root migration wrapper/signing trust подтверждены на Contabo167.86.68.98. Migration — protected lane с новым backup/direct-successor/required reviewer approval; worker status→drain→deploy, no automatic retry/force kill. Signing key создаётся отдельно от SSH, private key только protected GitHub environment; VPS получает public trust key. Нельзя выполнить новую schema release старым неподписанным wrapper.
+
+| Validation Plan / риск | Проверка, tool/working directory/environment | Этап / обязательность |
+|---|---|---|
+| Bundle authority | Root `pytest -q tests/test_studio_migration_release.py` и executable hostile/approved bundle cases, synthetic Git/keys/fake runner; syntax bash и workflow selection/contract tests | REQUIRED focused local где поддержано; Linux CI до merge |
+| SMTP | Root focused security_email/job_notifications tests: verified SSLContext, failed handshake без AUTH/send, STARTTLS controls; fake SMTP only | REQUIRED local + CI |
+| TOTP | Root account-security/API regressions, matched counter boundaries, replay across consumers, isolated PostgreSQL concurrency/migration; exact schema release rehearsal | REQUIRED local applicable; PG/rehearsal Linux CI |
+| Realtime bridge | Root `pytest -q tests/test_realtime_static.py`: synthetic factory, missing/wrong capability, rebinding/foreign origin, valid local/proxy, fresh token; no provider/network external calls | REQUIRED local + CI |
+| BYOK | Root stt-provider/API/Yandex focused tests: quota isolation, existing persisted429, genuine outage cooldown/recovery, all direct callers | REQUIRED local + CI |
+| Local gates/review | Root `python scripts/ci_checks.py`, `git diff --check`, fresh read-only boundary investigation + one candidate bypass/regression review | REQUIRED до initial push |
+| Delivery | Existing exact-main CI→protected backup/migration/API→drained worker; installed signature trust/wrapper checks, API/worker identity/schema0042/readiness/role/isolation, bounded no-paid smoke | REQUIRED после merge; live exploit/realtime/STT N/A, не нужны для safe delivery |
+
+Checkpoint24Oct: discovery завершён, реализация0/5. Root source/remotes/worktrees/required protections проверены; unrelated branch сохраняется. Следующий шаг: migration signed bundle boundary и executable regression, затем остальные четыре исправления; до push весь scope и применимая local validation. PR/CI/CD ещё не созданы.
+
 ### WORKER-RELIABILITY-20261024 — IN_PROGRESS
 
 Основание: владелец24Oct2026 выбрал WK-01..WK-06 единой узкой Goal, один PR и поставка на Contabo; Cloudflare исключён. Built-in Goal ACTIVE. Fresh base/main `8c25efa627b6eeebf13e87e26161e65a96975942`, clean branch `codex/worker-reliability-wk01-wk06-20261024`, existing worktree. GitHub: open PR0, main strict `ci-required`, admins enforced, approvals0; unrelated branch/materials сохраняются.
