@@ -10,7 +10,6 @@ from .models import SttProviderHealth
 
 HEALTH_FAILURE_CODES = frozenset({
     "malformed_provider_response",
-    "provider_rate_limited",
     "provider_unavailable",
     "provider_timeout",
 })
@@ -31,6 +30,10 @@ def _naive_utc(value: datetime) -> datetime:
 
 def provider_health(db, *, provider: str, operating_mode: str, now: datetime) -> ProviderHealthState:
     row = db.get(SttProviderHealth, (provider, operating_mode))
+    # Old versions persisted BYOK quota failures in the shared service circuit.
+    # They must not deny dispatch to unrelated owners after the upgrade.
+    if row is not None and row.last_failure_code == "provider_rate_limited":
+        return ProviderHealthState(True, 0, None)
     current = _naive_utc(now)
     open_until = _naive_utc(row.circuit_open_until) if row and row.circuit_open_until else None
     if row is None or open_until is None or open_until <= current:
@@ -76,6 +79,9 @@ def record_provider_failure(
     if row is None:
         row = SttProviderHealth(provider=provider, operating_mode=operating_mode, updated_at=now)
         db.add(row)
+    if row.last_failure_code == "provider_rate_limited":
+        row.consecutive_failures = 0
+        row.circuit_open_until = None
     row.consecutive_failures = int(row.consecutive_failures or 0) + 1
     row.last_failure_code = failure_code
     row.updated_at = now
