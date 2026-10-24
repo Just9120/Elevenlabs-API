@@ -19,11 +19,12 @@ import html
 import importlib.util
 import json
 import os
+import secrets
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse, urlencode, urldefrag
 from urllib.request import Request, urlopen
 
 
@@ -517,7 +518,8 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     attempt.sessionConfigAbortController = controller;
     const timeout = setTimeout(() => controller.abort(), SESSION_CONFIG_TIMEOUT_MS);
     try {{
-      const response = await fetch('/session-config.json', {{cache: 'no-store', signal: controller.signal}});
+      const launchCapability = new URLSearchParams(window.location.hash.slice(1)).get('launch') || '';
+      const response = await fetch('/session-config.json', {{method: 'POST', headers: {{'X-Realtime-Launch': launchCapability}}, cache: 'no-store', signal: controller.signal}});
       assertAttemptActive(attempt);
       if (!response.ok) {{
         throw new Error('Не удалось подготовить новую realtime-сессию. Проверьте ключ API и попробуйте ещё раз.');
@@ -788,11 +790,16 @@ class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler method
+        if not self._browser_request_allowed(check_fetch_site=False):
+            self._send_bytes(b"forbidden", content_type="text/plain", status=403)
+            return
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             body = self.server.frontend_html.encode("utf-8")  # type: ignore[attr-defined]
@@ -807,6 +814,33 @@ class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
             self._send_bytes(body, content_type="application/json; charset=utf-8")
             return
         if path == "/session-config.json":
+            self._send_bytes(b"method not allowed", content_type="text/plain", status=405)
+            return
+        if path == "/healthz":
+            self._send_bytes(b"ok", content_type="text/plain; charset=utf-8")
+            return
+        self._send_bytes(b"not found", content_type="text/plain; charset=utf-8", status=404)
+
+    def _browser_request_allowed(self, *, check_fetch_site: bool = True) -> bool:
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1 or hosts[0].lower() not in self.server.allowed_hosts:
+            return False
+        origins = self.headers.get_all("Origin", [])
+        if origins and (len(origins) != 1 or origins[0] not in self.server.allowed_origins):
+            return False
+        return not check_fetch_site or self.headers.get("Sec-Fetch-Site", "same-origin") in {"same-origin", "none"}
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler method
+        capability = self.headers.get("X-Realtime-Launch", "")
+        if (not self._browser_request_allowed() or not capability.isascii()
+                or not secrets.compare_digest(capability, self.server.launch_capability)):
+            self._send_bytes(b"forbidden", content_type="text/plain", status=403)
+            return
+        if self.headers.get("Transfer-Encoding") or self.headers.get("Content-Length", "0") != "0":
+            self.close_connection = True
+            self._send_bytes(b"invalid request", content_type="text/plain", status=400)
+            return
+        if urlparse(self.path).path == "/session-config.json":
             try:
                 token = self.server.realtime_token_factory()  # type: ignore[attr-defined]
                 body = json.dumps(build_realtime_session_config(token), ensure_ascii=False).encode("utf-8")
@@ -814,9 +848,6 @@ class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
             except Exception:
                 body = json.dumps({"error": "Не удалось подготовить новую realtime-сессию. Проверьте ключ API и попробуйте ещё раз."}, ensure_ascii=False).encode("utf-8")
                 self._send_bytes(body, content_type="application/json; charset=utf-8", status=503)
-            return
-        if path == "/healthz":
-            self._send_bytes(b"ok", content_type="text/plain; charset=utf-8")
             return
         self._send_bytes(b"not found", content_type="text/plain; charset=utf-8", status=404)
 
@@ -835,11 +866,15 @@ def start_realtime_frontend_server(
     server.frontend_javascript = frontend_javascript  # type: ignore[attr-defined]
     server.frontend_config = frontend_config  # type: ignore[attr-defined]
     server.realtime_token_factory = token_factory  # type: ignore[attr-defined]
+    actual_host, actual_port = server.server_address[:2]
+    local_url = f"http://{actual_host}:{actual_port}/"
+    server.launch_capability = secrets.token_urlsafe(32)
+    server.allowed_hosts = {f"{actual_host}:{actual_port}", f"localhost:{actual_port}"}
+    server.allowed_origins = {f"http://{authority}" for authority in server.allowed_hosts}
     thread = threading.Thread(target=server.serve_forever, name="elevenlabs-realtime-proxy", daemon=True)
     thread.start()
     _REALTIME_PROXY_SERVERS.append(server)
-    actual_host, actual_port = server.server_address[:2]
-    return server, f"http://{actual_host}:{actual_port}/"
+    return server, local_url + "#launch=" + server.launch_capability
 
 
 def get_colab_proxy_url(port: int) -> str | None:
@@ -862,13 +897,22 @@ def get_colab_proxy_url(port: int) -> str | None:
     return None
 
 
+def _frontend_proxy_launch_url(server: ThreadingHTTPServer, proxy_url: str) -> str:
+    parsed_proxy = urlparse(proxy_url)
+    if parsed_proxy.scheme != "https" or not parsed_proxy.hostname or parsed_proxy.username or parsed_proxy.password:
+        raise RealtimeTokenError("Invalid Colab proxy origin.")
+    server.allowed_hosts.add(parsed_proxy.netloc.lower())
+    server.allowed_origins.add(f"https://{parsed_proxy.netloc.lower()}")
+    return parsed_proxy._replace(fragment="launch=" + server.launch_capability).geturl()
+
+
 def build_realtime_proxy_launch_html(
     public_url: str, local_url: str, *, used_colab_proxy: bool
 ) -> str:
     """Build the Colab output containing the new-tab bridge link and warnings."""
 
     escaped_public_url = html.escape(public_url, quote=True)
-    escaped_local_url = html.escape(local_url, quote=True)
+    escaped_local_url = html.escape(urldefrag(local_url)[0], quote=True)
     proxy_note = "Colab proxy URL активен." if used_colab_proxy else (
         "Не удалось получить Colab proxy URL автоматически. Если ссылка localhost не открывается из браузера, "
         "перезапустите в Google Colab runtime и проверьте доступность google.colab.kernel.proxyPort(port)."
@@ -907,6 +951,13 @@ def launch_realtime_colab_proxy() -> None:
     server, local_url = start_realtime_frontend_server(token_factory)
     port = int(server.server_address[1])
     proxy_url = get_colab_proxy_url(port)
+    if proxy_url:
+        try:
+            proxy_url = _frontend_proxy_launch_url(server, proxy_url)
+        except RealtimeTokenError:
+            server.shutdown()
+            server.server_close()
+            raise
     public_url = proxy_url or local_url
     display(
         HTML(

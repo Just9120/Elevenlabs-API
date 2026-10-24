@@ -321,6 +321,7 @@ jobs:
           MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
           MIGRATION_SSH_KEY: ${{ secrets.STUDIO_MIGRATION_SSH_KEY }}
           MIGRATION_KNOWN_HOSTS: ${{ secrets.STUDIO_MIGRATION_KNOWN_HOSTS }}
+          MIGRATION_SIGNING_KEY: ${{ secrets.STUDIO_MIGRATION_SIGNING_KEY }}
           RELEASE_SHA: ${{ needs.detect-components.outputs.revision }}
           RELEASE_REF: ${{ github.ref }}
           RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
@@ -338,7 +339,7 @@ jobs:
             echo "migration release target is invalid" >&2
             exit 1
           }
-          for name in MIGRATION_DEPLOY_HOST MIGRATION_SSH_KEY MIGRATION_KNOWN_HOSTS; do
+          for name in MIGRATION_DEPLOY_HOST MIGRATION_SSH_KEY MIGRATION_KNOWN_HOSTS MIGRATION_SIGNING_KEY; do
             if [[ -z "${!name}" ]]; then
               echo "required migration environment secret is missing: $name" >&2
               exit 1
@@ -364,11 +365,18 @@ jobs:
           MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
           RELEASE_SHA: ${{ needs.detect-components.outputs.revision }}
           RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
+          MIGRATION_SIGNING_KEY: ${{ secrets.STUDIO_MIGRATION_SIGNING_KEY }}
         run: |
           set -euo pipefail
           bundle_file="$(mktemp)"
           output_file="$(mktemp)"
-          trap 'rm -f "$bundle_file" "$output_file"' EXIT
+          signing_key="$(mktemp)"
+          manifest_file="$(mktemp)"
+          signature_file="$(mktemp)"
+          trap 'rm -f "$bundle_file" "$output_file" "$signing_key" "$manifest_file" "$signature_file"' EXIT
+          chmod 600 "$signing_key"
+          printf '%s\n' "$MIGRATION_SIGNING_KEY" >"$signing_key"
+          unset MIGRATION_SIGNING_KEY
           [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || {
             echo "runner checkout does not match migration release SHA" >&2
             exit 1
@@ -384,13 +392,20 @@ jobs:
             echo "migration release bundle checksum is invalid" >&2
             exit 1
           }
+          printf 'voiceops-studio-migration-release-v1\n%s\n%s\n%s\n%s\n' \
+            'Just9120/voiceops-studio' "$RELEASE_SHA" "$RELEASE_TARGET" "$bundle_sha" \
+            >"$manifest_file"
+          openssl pkeyutl -sign -inkey "$signing_key" -rawin \
+            -in "$manifest_file" -out "$signature_file"
+          [[ "$(wc -c <"$signature_file")" -eq 64 ]]
+          release_signature="$(base64 -w 0 "$signature_file")"
           if ! ssh \
             -i ~/.ssh/studio_migration_key \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile=~/.ssh/studio_migration_known_hosts \
             "root@$MIGRATION_DEPLOY_HOST" \
-            "release-bundle $RELEASE_SHA $RELEASE_TARGET $bundle_sha" \
+            "release-bundle $RELEASE_SHA $RELEASE_TARGET $bundle_sha $release_signature" \
             <"$bundle_file" >"$output_file" 2>&1; then
             cat "$output_file"
             exit 1

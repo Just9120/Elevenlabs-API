@@ -99,7 +99,8 @@ def _send(payload, *, delivery_id, settings, smtp_factory=None):
     message.set_content(payload["body"])
     factory = smtp_factory or (smtplib.SMTP_SSL if settings.job_smtp_use_ssl else smtplib.SMTP)
     try:
-        with factory(settings.job_smtp_host, settings.job_smtp_port, timeout=settings.job_smtp_timeout_seconds) as smtp:
+        tls_options = {"context": ssl.create_default_context()} if settings.job_smtp_use_ssl else {}
+        with factory(settings.job_smtp_host, settings.job_smtp_port, timeout=settings.job_smtp_timeout_seconds, **tls_options) as smtp:
             if settings.job_smtp_starttls:
                 smtp.starttls(context=ssl.create_default_context())
             if settings.job_smtp_username:

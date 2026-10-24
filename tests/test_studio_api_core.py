@@ -160,7 +160,7 @@ def test_database_role_manifest_lets_real_migrator_extend_existing_enum(tmp_path
                 conn.execute(text("ALTER ROLE studio_migrator NOLOGIN"))
 
         with temp_engine.connect() as conn:
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0042_totp_replay"
             assert conn.execute(
                 text(
                     "SELECT count(*) FROM pg_enum e "
@@ -254,7 +254,9 @@ def test_operator_totp_break_glass_fails_closed_for_unknown_owner():
     db.close()
 
 
-def test_optional_totp_enrollment_login_recovery_and_disable_lifecycle():
+def test_optional_totp_enrollment_login_recovery_and_disable_lifecycle(monkeypatch):
+    clock = [int(time.time()) // 30 * 30 + 5]
+    monkeypatch.setattr("studio_api.account_security.time.time", lambda: clock[0])
     password = admin(email="owner@example.com")
     owner = TestClient(app)
     csrf = login(owner, password, email="owner@example.com")
@@ -313,6 +315,11 @@ def test_optional_totp_enrollment_login_recovery_and_disable_lifecycle():
         "/api/auth/login-context",
         headers={"origin": "https://studio.test"},
     ).json()["login_csrf_token"]
+    replayed = with_factor.post("/api/auth/login", json={"email": "owner@example.com", "password": password,
+        "login_csrf_token": login_context, "verification_code": code}, headers={"origin": "https://studio.test"})
+    assert replayed.status_code == 401
+    clock[0] += 30
+    code = _totp(material["secret"], int(time.time()) // 30)
     accepted = with_factor.post(
         "/api/auth/login",
         json={
@@ -353,6 +360,14 @@ def test_optional_totp_enrollment_login_recovery_and_disable_lifecycle():
     ).count() == 1
     db.close()
 
+    owner_headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    assert owner.post("/api/auth/reauth", json={"password": password, "verification_code": code}, headers=owner_headers).status_code == 401
+    clock[0] += 30
+    code = _totp(material["secret"], int(time.time()) // 30)
+    assert owner.post("/api/auth/reauth", json={"password": password, "verification_code": code}, headers=owner_headers).status_code == 200
+    assert owner.request("DELETE", "/api/auth/totp", json={"verification_code": code}, headers=owner_headers).status_code == 422
+    clock[0] += 30
+    code = _totp(material["secret"], int(time.time()) // 30)
     disabled = owner.request(
         "DELETE",
         "/api/auth/totp",
@@ -475,7 +490,7 @@ def test_alembic_upgrade_and_readiness_current():
     c = TestClient(app)
     r = c.get("/api/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0041_source_retention_default", "redis": "reachable"}
+    assert r.json() == {"ok": True, "database": "reachable", "migrations": "current", "schema_revision": "0042_totp_replay", "redis": "reachable"}
     assert c.get("/api/readyz").json() == r.json()
     assert c.get("/api/livez").json() == {"ok": True, "status": "alive"}
 
@@ -2059,7 +2074,6 @@ def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
         health = db.get(SttProviderHealth, ("elevenlabs", "realtime"))
         if reason.value in {
             "malformed_provider_response",
-            "provider_rate_limited",
             "provider_timeout",
             "provider_unavailable",
         }:
@@ -2144,6 +2158,35 @@ def test_realtime_capability_circuit_stops_dispatch_after_systemic_failures(
         assert health.circuit_open_until is not None
     finally:
         db.close()
+
+
+def test_realtime_byok_quota_does_not_block_another_owner(monkeypatch):
+    from studio_api import main as main_mod
+
+    paths = []
+    for index in range(2):
+        email = f"quota-owner-{index}@example.com"
+        password = admin(email)
+        client = TestClient(app)
+        csrf = login(client, password, email)
+        headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+        project = client.post("/api/projects", json={"title": "Synthetic quota"}, headers=headers).json()
+        assert client.post("/api/credentials", json={"provider": "elevenlabs", "label": "Synthetic",
+            "raw_value": f"sk_synthetic_owner_{index}"}, headers=headers).status_code == 200
+        paths.append((client, headers, f"/api/projects/{project['id']}/realtime/capability"))
+    calls = []
+    def capability(api_key, **kwargs):
+        calls.append(api_key)
+        if api_key.endswith("_0"):
+            raise RealtimeCapabilityError(RealtimeCapabilityReason.provider_rate_limited)
+        return RealtimeCapability(websocket_url="wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=synthetic")
+    monkeypatch.setattr(main_mod, "create_realtime_capability", capability)
+    client, headers, path = paths[0]
+    for _ in range(main_mod.settings.stt_health_failure_threshold):
+        assert client.post(path, json={"language": "detect"}, headers=headers).status_code == 429
+    client, headers, path = paths[1]
+    assert client.post(path, json={"language": "detect"}, headers=headers).status_code == 200
+    assert calls[-1] == "sk_synthetic_owner_1"
 
 
 def test_aes_gcm_unique_nonce_and_aad_binding():
@@ -4555,7 +4598,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0042_totp_replay"
 
 
 
@@ -4619,7 +4662,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0041_source_retention_default"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0042_totp_replay"
 
 
 
@@ -8897,7 +8940,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0041_source_retention_default"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0042_totp_replay"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -9290,7 +9333,9 @@ def test_oauth_callback_never_exchanges_outside_initiating_session(monkeypatch, 
         assert db.query(GoogleOAuthState).one().used_at is None
 
 
-def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions():
+def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions(monkeypatch):
+    clock = [int(time.time()) // 30 * 30 + 5]
+    monkeypatch.setattr("studio_api.account_security.time.time", lambda: clock[0])
     password = admin("totp-security@example.com")
     owner = TestClient(app)
     other_session = TestClient(app)
@@ -9307,6 +9352,8 @@ def test_totp_enable_and_recovery_rotation_revoke_other_owner_sessions():
     assert owner.get("/api/auth/session").status_code == 200
     assert stranger.get("/api/auth/session").status_code == 200
     context = other_session.post("/api/auth/login-context", headers={"origin": "https://studio.test"}).json()["login_csrf_token"]
+    clock[0] += 30
+    code = _totp(secret, int(time.time()) // 30)
     assert other_session.post("/api/auth/login", json={"email": "totp-security@example.com", "password": password, "login_csrf_token": context, "verification_code": code}, headers={"origin": "https://studio.test"}).status_code == 200
     assert owner.post("/api/auth/totp/recovery-codes", headers=headers).status_code == 200
     assert other_session.get("/api/auth/session").status_code == 401
@@ -9372,3 +9419,28 @@ def test_yandex_capability_redis_consume_allows_only_one_concurrent_claim():
             return False
     with ThreadPoolExecutor(max_workers=8) as pool:
         assert sum(pool.map(consume, range(16))) == 1
+
+
+def test_totp_counter_consumption_accepts_exactly_one_concurrent_request():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from studio_api.account_security import consume_totp_code
+
+    admin("totp-concurrency@example.test")
+    secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(email="totp-concurrency@example.test").one()
+        user_id = user.id
+        db.add(UserTotpFactor(user_id=user_id, secret_ciphertext=b"synthetic", secret_nonce=b"synthetic-nonce",
+                              key_id="synthetic", confirmed_at=utcnow()))
+        db.commit()
+    barrier = Barrier(2)
+    def consume(_):
+        with SessionLocal() as db:
+            factor = db.get(UserTotpFactor, user_id)
+            barrier.wait(timeout=5)
+            result = consume_totp_code(db, factor=factor, secret=secret, code=_totp(secret, 6), timestamp=180)
+            db.commit()
+            return result
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(consume, range(2))) == 1

@@ -299,7 +299,7 @@
 | `PWASEC-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PWASEC-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PWASEC-13` | READY | ✅ | ✅ | ✅ | SECURITY-FIVE-20261024 / PR340 candidate60db429: persisted conditional counter/secret-nonce consume во всех auth consumers, additive0042; unit rollback/window/secret PASS, PostgreSQL exactly-one concurrency и cross-route replay/fresh/recovery controls PASS в CI40075895698 (2205 tests), release-rehearsal PASS. Code READY; final revision gates/merge/protected delivery остаются обязательными, production ещё0041. |
 | `PWASEC-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-15` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PWASEC-16` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |

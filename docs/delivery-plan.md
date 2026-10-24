@@ -2,7 +2,39 @@
 
 ## Current work и checkpoint
 
-### WORKER-RELIABILITY-20261024 — IN_PROGRESS
+### SECURITY-FIVE-20261024 — IN_PROGRESS
+
+Основание: владелец24Oct2026 поручил исправить все пять findings локального deep scan одной Goal/одним PR, начать с migration bundle и довести до Contabo VPS. Built-in Goal ACTIVE. Base `858f0a81a6c7ef425ea4c54ee12e2673d394b43c`, clean main/origin main; branch `codex/security-five-findings-20261024`. GitHub protections: strict `ci-required`, admins enforced, approvals0, open PR0. Предыдущая WORKER-RELIABILITY завершена PR339; исторический pre-merge checkpoint ниже не возобновляется.
+
+| Stable scan finding | Приоритет / confidence / Evidence на base | Действие и критерий закрытия |
+|---|---|---|
+| `csf_81860525e89f7e45e17636fe` | Medium / HIGH; migration wrapper принимает caller bundle/checksum, меняет origin/main и root-exec runner | FIX: независимая подпись exact repository/commit/target/bundle до изменения refs/exec; malicious descendant, другая подпись и metadata mismatch отклоняются; approved bundle проходит |
+| `csf_4cad8491958c267ada7237d3` | Low / HIGH; security_email/job_notifications SMTP_SSL без verifying context | FIX: оба implicit TLS sender проверяют CA/hostname; invalid certificate не допускает AUTH/send; STARTTLS и отключённая почта сохраняются |
+| `csf_80d2ffe71d5169d9881bbd16` | Low / HIGH; TOTP verification не потребляет counter | FIX: durable atomic consumption для login/reauth/enrollment/disable, конкурентный replay отвергается; следующий code и recovery остаются рабочими |
+| `csf_4edee3c08c2498dad21db502` | Low / MEDIUM; локальный Colab bridge GET mint без browser authority | FIX: post/capability boundary до token factory, защита rebinding/cross-origin; legitimate local/Colab proxy получает новый token, unauthorised requests вызывают factory0 |
+| `csf_1d65ce1f40b1c92f2dca0ec9` | Low / MEDIUM; BYOK429 открывает shared provider/mode circuit | FIX: quota/account failures не блокируют другого owner, включая legacy persisted429; genuine service failure circuit сохраняется, batch/realtime/relay используют общий enforcement |
+
+Источник Evidence: completed local deep scan24Oct2026 baseline858f0a8, два независимых Standard прохода; исходники без runtime/production exploitation. Полный отчёт хранится вне repository. Scope включает эти пять boundaries, regression tests, минимальную additive schema для TOTP, delivery signing configuration и canonical procedures. Non-goals: новый аудит/scan, paid calls, commercial features, включение personal email, перенос на Cloudflare, user data/старые транскрипты, ослабление gates или ручные SQL resets. Findings не создают новые AC/denominator. Baseline readiness и затронутые AC пересматриваются по финальному diff/Evidence; старый PASS не доказывает исправление этих дефектов.
+
+DoD: пять критериев подтверждены security trigger и legitimate controls; один PR, final required checks/review PASS, merge; exact merge API/worker/schema и installed root migration wrapper/signing trust подтверждены на Contabo167.86.68.98. Migration — protected lane с новым backup/direct-successor/required reviewer approval; worker status→drain→deploy, no automatic retry/force kill. Signing key создаётся отдельно от SSH, private key только protected GitHub environment; VPS получает public trust key. Нельзя выполнить новую schema release старым неподписанным wrapper.
+
+| Validation Plan / риск | Проверка, tool/working directory/environment | Этап / обязательность |
+|---|---|---|
+| Bundle authority | Root `pytest -q tests/test_studio_migration_release.py` и executable hostile/approved bundle cases, synthetic Git/keys/fake runner; syntax bash и workflow selection/contract tests | REQUIRED focused local где поддержано; Linux CI до merge |
+| SMTP | Root focused security_email/job_notifications tests: verified SSLContext, failed handshake без AUTH/send, STARTTLS controls; fake SMTP only | REQUIRED local + CI |
+| TOTP | Root account-security/API regressions, matched counter boundaries, replay across consumers, isolated PostgreSQL concurrency/migration; exact schema release rehearsal | REQUIRED local applicable; PG/rehearsal Linux CI |
+| Realtime bridge | Root `pytest -q tests/test_realtime_static.py`: synthetic factory, missing/wrong capability, rebinding/foreign origin, valid local/proxy, fresh token; no provider/network external calls | REQUIRED local + CI |
+| BYOK | Root stt-provider/API/Yandex focused tests: quota isolation, existing persisted429, genuine outage cooldown/recovery, all direct callers | REQUIRED local + CI |
+| Local gates/review | Root `python scripts/ci_checks.py`, `git diff --check`, fresh read-only boundary investigation + one candidate bypass/regression review | REQUIRED до initial push |
+| Delivery | Existing exact-main CI→protected backup/migration/API→drained worker; installed signature trust/wrapper checks, API/worker identity/schema0042/readiness/role/isolation, bounded no-paid smoke | REQUIRED после merge; live exploit/realtime/STT N/A, не нужны для safe delivery |
+
+Checkpoint24Oct: реализация5/5 code READY, один PR340/head60db429, required CI40075895698 SUCCESS:2205 Python tests PASS, все6 POSIX hostile/approved signed-bundle tests PASS, PostgreSQL exactly-one TOTP/auth-route replay и two-owner quota isolation PASS; Studio build/container/browser и schema release-rehearsal PASS. Independent read-only candidate review не нашёл concrete bypass/regression. Focused affected local suite291 PASS/6 POSIX SKIP, Windows Python3.12/SQLite/synthetic data; старые shell release cases локально не стартовали из-за отсутствующего Git Bash binary, их Linux CI PASS. Lightweight checks/diff whitespace PASS. Fresh Contabo read-only: deployed source858f0a8 clean, old root wrapper hashf09296b7, OpenSSL3.0.13; все пять Compose services healthy, signing trust ещё отсутствует. Финальный docs status/Evidence commit не меняет исполняемый code; его current revision checks остаются REQUIRED/PENDING до merge. Wrapper/public trust bootstrap и backup/migration/API/worker CD ещё не выполнялись. Следующий шаг: дождаться final revision gates и merge PR340, установить reviewed wrapper+public key независимо от untrusted bundle, required environment approval и0041→0042/API/worker delivery. Providers/paid calls/user data mutations не выполнялись.
+
+Scoped readiness пересчитана24Oct по проверенному origin/main858f0a8 и уточнённому PWASEC-13: **446/692 READY=64.45%; current personal441/459=96.08%**. Незамерженный PR340 candidate60db429 с CI40075895698 восстанавливает PWASEC-13: **447/692=64.60%, personal442/459=96.30%; Goal code5/5**. До merge эти значения не объявляются готовностью main. Один существующий AC был возвращён IN_PROGRESS и подтверждён исправлением, denominator неизменен:716 stable IDs минус24 ALIAS/SUPERSEDED; personal исключает224 commercial backlog и9 deferred SP-01..05/VID-01..04, сохраняя17 READY shared technical EVC. Старый WK checkpoint430/451 ошибочно исключал shared technical вместе со всем commercial-файлом и не отделял deferred voice; он не переносится как актуальная оценка. Остальные AC используют прежнее unchanged Evidence, это scoped пересчёт, не новый полный audit.
+
+### WORKER-RELIABILITY-20261024 — DONE по первичным records
+
+PR339 merged858f0a8, final CI40029247548/main40029848055 PASS; API40030448317, graceful drain40030653602 и worker40030822929 PASS. Fresh bounded runtime readback: exact858f0a8 API/worker, schema0041, role/isolation/readiness healthy, expired processing leases0. Ниже сохранён исторический pre-merge checkpoint; его ACTIVE/PENDING относятся к моменту записи, Goal не возобновляется.
 
 Основание: владелец24Oct2026 выбрал WK-01..WK-06 единой узкой Goal, один PR и поставка на Contabo; Cloudflare исключён. Built-in Goal ACTIVE. Fresh base/main `8c25efa627b6eeebf13e87e26161e65a96975942`, clean branch `codex/worker-reliability-wk01-wk06-20261024`, existing worktree. GitHub: open PR0, main strict `ci-required`, admins enforced, approvals0; unrelated branch/materials сохраняются.
 
@@ -402,6 +434,12 @@ Config Settings env→defaults, explicit database URL/secret-file boundaries, Co
 **UI coverage.** Authenticated dashboard/audio/batch/Live/maintenance/settings, representative loading/empty/success/configured/unavailable states, picker/modal/number fields; current1280×720, horizontal overflow в проверенных main states не выявлен. Critical executable suites покрывают synthetic auth/owner/storage/errors/exports/Live recovery; real happy-path STT/Google writes не выполнялись. Mobile390/modal, offline/PWA update/install и poor-network capture опираются на code/component/browser fixtures, не новый runtime proof. Реальные media/provider sessions, backup timer/freshness/RPO under outage, host nginx/S3 policy и restore всей topology10Oct не проверены. STT support status configured/unknown/not_run; это не provider PASS. Maintenance revoked grant — runtime precondition, не кодовый defect.
 
 ## Реестр findings — полный актуальный
+
+Пять новых security findings24Oct2026 со стабильными `csf_…` IDs, evidence,
+приоритетом/confidence, действием FIX и критериями закрытия сохранены в
+[Current Goal SECURITY-FIVE](#security-five-20261024--in_progress). Это часть
+полного реестра, а не повторное создание прежних F-ID; подробные scan artifacts
+остаются вне repository. Их closure зависит от проверок текущего PR и delivery.
 
 Новые/reopened наблюдения относятся к проверенному main `bc5150eb189b44867101ca45b9da201921a99227`10Oct2026. Исторические closures сохраняют revision/records; отсутствие строки в кратком ответе не закрывает finding. Короткие Python paths — apps/studio-api/studio_api, UI — apps/studio/src. P1 correctness/security/lifecycle; P2 ограниченная функциональность/проверяемость/maintainability; P3 documentation. Finding не создаёт AC и разрешение исполнения.
 

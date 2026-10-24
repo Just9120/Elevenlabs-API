@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -187,3 +187,25 @@ def test_health_circuit_counts_only_provider_failures_and_accepts_aware_database
         now=now,
     )
     assert provider_health(db, provider="yandex", operating_mode="standard", now=now).available
+
+
+def test_byok_quota_failures_never_open_shared_circuit_and_legacy_state_is_ignored():
+    from studio_api.models import SttProviderHealth
+
+    db = _HealthDb()
+    now = datetime(2026, 10, 24, 10, tzinfo=timezone.utc)
+    for provider in ("elevenlabs", "yandex"):
+        db.row = None
+        for _ in range(5):
+            record_provider_failure(db, provider=provider, operating_mode="realtime",
+                failure_code="provider_rate_limited", threshold=3, cooldown_seconds=300, now=now)
+        assert db.row is None
+        assert provider_health(db, provider=provider, operating_mode="realtime", now=now).available
+        db.row = SttProviderHealth(provider=provider, operating_mode="realtime", consecutive_failures=5,
+            last_failure_code="provider_rate_limited", circuit_open_until=now + timedelta(seconds=300), updated_at=now)
+        state = provider_health(db, provider=provider, operating_mode="realtime", now=now)
+        assert state.available and state.consecutive_failures == 0
+        record_provider_failure(db, provider=provider, operating_mode="realtime",
+            failure_code="provider_unavailable", threshold=3, cooldown_seconds=300, now=now)
+        assert db.row.consecutive_failures == 1
+        assert db.row.circuit_open_until is None

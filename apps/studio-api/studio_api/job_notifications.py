@@ -481,10 +481,12 @@ def _send_email(
     message.set_content(f"{payload['body']}\n\n{settings.app_origin}/transcriptions")
     factory = smtp_factory or (smtplib.SMTP_SSL if settings.job_smtp_use_ssl else smtplib.SMTP)
     try:
+        tls_options = {"context": ssl.create_default_context()} if settings.job_smtp_use_ssl else {}
         with factory(
             settings.job_smtp_host,
             settings.job_smtp_port,
             timeout=float(settings.job_smtp_timeout_seconds),
+            **tls_options,
         ) as smtp:
             if settings.job_smtp_starttls:
                 smtp.starttls(context=ssl.create_default_context())

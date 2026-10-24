@@ -191,7 +191,7 @@ from .account_security import (
     totp_factor_aad,
     totp_qr_data_uri,
     totp_uri,
-    verify_totp,
+    consume_totp_code,
 )
 
 settings=get_settings()
@@ -758,7 +758,7 @@ def _verify_second_factor(
     factor=_active_totp_factor(db,user.id)
     if factor is None:
         return True
-    if verification_code and verify_totp(_totp_secret(factor),verification_code):
+    if verification_code and consume_totp_code(db, factor=factor, secret=_totp_secret(factor), code=verification_code):
         return True
     if recovery_code:
         row=(
@@ -947,7 +947,7 @@ def enroll_totp(response: Response,pair=Depends(require_csrf),db: Session=Depend
         factor=UserTotpFactor(user_id=user.id,secret_ciphertext=ciphertext,secret_nonce=nonce,key_id=settings.credential_key_id,created_at=now,updated_at=now)
         db.add(factor)
     else:
-        factor.secret_ciphertext=ciphertext; factor.secret_nonce=nonce; factor.key_id=settings.credential_key_id; factor.confirmed_at=None; factor.disabled_at=None; factor.updated_at=now
+        factor.secret_ciphertext=ciphertext; factor.secret_nonce=nonce; factor.key_id=settings.credential_key_id; factor.last_used_counter=None; factor.confirmed_at=None; factor.disabled_at=None; factor.updated_at=now
     db.query(UserTotpRecoveryCode).filter_by(user_id=user.id,used_at=None).delete(synchronize_session=False)
     audit(db,"auth.totp_enrollment_started",actor_user_id=user.id,subject_user_id=user.id)
     db.commit(); _browser_capability_cache_headers(response)
@@ -961,7 +961,7 @@ def confirm_totp(data: TotpConfirmIn,request: Request,response: Response,pair=De
     factor=db.get(UserTotpFactor,user.id)
     if not factor or factor.disabled_at is not None or factor.confirmed_at is not None:
         raise HTTPException(409,"Нет ожидающей настройки TOTP")
-    if not verify_totp(_totp_secret(factor),data.verification_code):
+    if not consume_totp_code(db, factor=factor, secret=_totp_secret(factor), code=data.verification_code):
         raise HTTPException(422,"Неверный одноразовый код")
     now=utcnow(); factor.confirmed_at=now; factor.updated_at=now
     recovery_codes=generate_recovery_codes()

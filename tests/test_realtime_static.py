@@ -12,8 +12,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-from urllib.request import urlopen
+from urllib.parse import parse_qs, urlparse, urldefrag
+from urllib.request import urlopen, Request
 
 import pytest
 
@@ -386,7 +386,7 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
     assert "Virtual input / system audio device" not in page
     assert "navigator.mediaDevices.getUserMedia" in js
     assert "navigator.mediaDevices.getDisplayMedia" in js
-    assert "fetch('/session-config.json', {cache: 'no-store', signal: controller.signal})" in js
+    assert "fetch('/session-config.json', {method: 'POST', headers: {'X-Realtime-Launch': launchCapability}, cache: 'no-store', signal: controller.signal})" in js
     assert "new WebSocket(wsUrl)" in js
     assert "new WebSocket(CONFIG.wsUrl)" not in js
     assert "message_type: 'input_audio_chunk'" in js
@@ -772,7 +772,7 @@ def test_proxy_frontend_javascript_uses_deterministic_config_loader() -> None:
     )
 
     assert "fetch('/config.json', {cache: 'no-store'})" in js
-    assert "fetch('/session-config.json', {cache: 'no-store', signal: controller.signal})" in js
+    assert "fetch('/session-config.json', {method: 'POST', headers: {'X-Realtime-Launch': launchCapability}, cache: 'no-store', signal: controller.signal})" in js
     assert "_build_realtime_app_javascript" in function_source
     assert ".index(" not in function_source
     assert "javascript[:" not in function_source
@@ -782,6 +782,7 @@ def test_proxy_frontend_javascript_uses_deterministic_config_loader() -> None:
 def test_proxy_server_serves_standalone_frontend_assets_and_mints_session_tokens_on_demand() -> None:
     tokens = iter(["temporary-token-1", "temporary-token-2"])
     server, local_url = realtime.start_realtime_frontend_server(lambda: next(tokens))
+    local_url = urldefrag(local_url)[0]
     try:
         with urlopen(local_url, timeout=5) as response:
             body = response.read().decode("utf-8")
@@ -809,9 +810,9 @@ def test_proxy_server_serves_standalone_frontend_assets_and_mints_session_tokens
         assert config["bridge"] == "LIVE-COLAB-PROXY-01"
         assert "wsUrl" not in config
 
-        with urlopen(local_url + "session-config.json", timeout=5) as response:
+        with urlopen(Request(urldefrag(local_url)[0] + "session-config.json", data=b"", headers={"X-Realtime-Launch": server.launch_capability}), timeout=5) as response:
             first_session = json.loads(response.read().decode("utf-8"))
-        with urlopen(local_url + "session-config.json", timeout=5) as response:
+        with urlopen(Request(urldefrag(local_url)[0] + "session-config.json", data=b"", headers={"X-Realtime-Launch": server.launch_capability}), timeout=5) as response:
             second_session = json.loads(response.read().decode("utf-8"))
         assert "temporary-token-1" in first_session["wsUrl"]
         assert "temporary-token-2" in second_session["wsUrl"]
@@ -832,7 +833,7 @@ def test_proxy_session_config_failure_is_safe_and_retry_ready() -> None:
     )
     try:
         with pytest.raises(Exception) as exc_info:
-            urlopen(local_url + "session-config.json", timeout=5)
+            urlopen(Request(urldefrag(local_url)[0] + "session-config.json", data=b"", headers={"X-Realtime-Launch": server.launch_capability}), timeout=5)
         err = exc_info.value
         response = getattr(err, "fp", None)
         assert response is not None
@@ -852,7 +853,7 @@ def test_realtime_session_config_stale_attempt_cannot_open_websocket_or_overwrit
     assert "const sessionConfig = await loadRealtimeSessionConfig(attempt); assertAttemptActive(attempt);" in js
     assert "attachWebSocket(attempt, sessionConfig.wsUrl);" in js
     assert js.index("loadRealtimeSessionConfig(attempt)") < js.index("attachWebSocket(attempt, sessionConfig.wsUrl)")
-    assert "const response = await fetch('/session-config.json', {cache: 'no-store', signal: controller.signal});\n      assertAttemptActive(attempt);" in js
+    assert "const response = await fetch('/session-config.json', {method: 'POST', headers: {'X-Realtime-Launch': launchCapability}, cache: 'no-store', signal: controller.signal});\n      assertAttemptActive(attempt);" in js
     assert "const sessionConfig = await response.json();\n      assertAttemptActive(attempt);" in js
     inactive_branch = "if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') { cleanupAttempt(attempt); return; }"
     assert inactive_branch in js
@@ -872,6 +873,49 @@ def test_proxy_launch_html_contains_required_link_label_and_warnings() -> None:
     assert "Без интеграции проектов спикеров" in launch_html
     assert "одноразовый токен realtime" in launch_html
     assert "https://colab.example/proxy/123/" in launch_html
+
+
+def test_proxy_rejects_rebinding_cross_origin_and_missing_capability_before_mint():
+    from urllib.error import HTTPError
+
+    calls = []
+    server, launch_url = realtime.start_realtime_frontend_server(lambda: calls.append(1) or "synthetic-token")
+    base_url = urldefrag(launch_url)[0]
+    try:
+        assert parse_qs(urlparse(launch_url).fragment)["launch"] == [server.launch_capability]
+        for headers, method, expected in [
+            ({}, "POST", 403),
+            ({"X-Realtime-Launch": "wrong"}, "POST", 403),
+            ({"X-Realtime-Launch": server.launch_capability, "Host": "rebinding.example"}, "POST", 403),
+            ({"X-Realtime-Launch": server.launch_capability, "Origin": "https://foreign.example"}, "POST", 403),
+            ({"X-Realtime-Launch": server.launch_capability, "Origin": "null"}, "POST", 403),
+            ({"X-Realtime-Launch": server.launch_capability, "Sec-Fetch-Site": "cross-site"}, "POST", 403),
+            ({}, "GET", 405),
+        ]:
+            request = Request(base_url + "session-config.json", headers=headers, method=method)
+            with pytest.raises(HTTPError) as error:
+                urlopen(request, timeout=5)
+            assert error.value.code == expected
+            error.value.close()
+        assert calls == []
+        with urlopen(Request(base_url, headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"}), timeout=5) as response:
+            assert response.status == 200
+        with urlopen(base_url + "realtime.js", timeout=5) as response:
+            assert server.launch_capability not in response.read().decode()
+        # Colab's explicitly selected proxy may retain the local upstream Host.
+        proxy_launch = realtime._frontend_proxy_launch_url(server, "https://synthetic.colab.example/")
+        assert parse_qs(urlparse(proxy_launch).fragment)["launch"] == [server.launch_capability]
+        with pytest.raises(realtime.RealtimeTokenError):
+            realtime._frontend_proxy_launch_url(server, "http://foreign.example/")
+        with urlopen(Request(base_url + "session-config.json", data=b"", headers={
+            "X-Realtime-Launch": server.launch_capability, "Origin": "https://synthetic.colab.example",
+        }), timeout=5) as response:
+            assert response.status == 200
+            assert response.headers["Referrer-Policy"] == "no-referrer"
+        assert calls == [1]
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_error_message_mapping_has_russian_known_cases() -> None:

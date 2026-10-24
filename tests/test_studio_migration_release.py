@@ -677,7 +677,7 @@ def test_forced_command_wrapper_never_executes_original_command() -> None:
     wrapper = WRAPPER.read_text(encoding="utf-8")
 
     assert (
-        r"^release-bundle\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)\ ([0-9a-f]{64})$"
+        r"^release-bundle\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)\ ([0-9a-f]{64})\ ([A-Za-z0-9+/]{86}==)$"
         in wrapper
     )
     assert r"^release\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)$" in wrapper
@@ -751,6 +751,7 @@ def test_cd_uses_only_dedicated_forced_command_identity_for_migration() -> None:
         "STUDIO_MIGRATION_DEPLOY_HOST",
         "STUDIO_MIGRATION_SSH_KEY",
         "STUDIO_MIGRATION_KNOWN_HOSTS",
+        "STUDIO_MIGRATION_SIGNING_KEY",
     ):
         assert secret in release_job
     assert "Checkout exact trusted revision" in release_job
@@ -758,7 +759,8 @@ def test_cd_uses_only_dedicated_forced_command_identity_for_migration() -> None:
     assert "persist-credentials: false" in release_job
     assert '"root@$MIGRATION_DEPLOY_HOST"' in release_job
     assert 'git bundle create "$bundle_file" HEAD' in release_job
-    assert '"release-bundle $RELEASE_SHA $RELEASE_TARGET $bundle_sha"' in release_job
+    assert '"release-bundle $RELEASE_SHA $RELEASE_TARGET $bundle_sha $release_signature"' in release_job
+    assert 'openssl pkeyutl -sign' in release_job
     assert '<"$bundle_file" >"$output_file"' in release_job
     assert "StrictHostKeyChecking=yes" in release_job
     assert "UserKnownHostsFile=~/.ssh/studio_migration_known_hosts" in release_job
