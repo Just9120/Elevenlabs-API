@@ -621,7 +621,7 @@ def test_catalog_standard_classifier_matches_current_migration_contract(
     assert classify_transcript_document_standard(document_text).value == expected
 
 
-def test_catalog_standard_classifier_accepts_omitted_legacy_created_at_only_without_authority():
+def test_catalog_standard_classifier_accepts_omitted_optional_date_with_authority():
     from datetime import datetime, timezone
 
     from studio_api.transcript_catalog_scan import (
@@ -639,7 +639,7 @@ def test_catalog_standard_classifier_accepts_omitted_legacy_created_at_only_with
         authoritative_created_at=datetime(
             2026, 7, 1, 10, tzinfo=timezone.utc
         ),
-    ).value == "outdated"
+    ).value == "current"
 
 
 def test_catalog_standard_classifier_requires_exact_source_creation_time():

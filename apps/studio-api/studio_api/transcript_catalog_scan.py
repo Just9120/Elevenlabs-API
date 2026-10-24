@@ -47,10 +47,11 @@ TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
     "Provider:",
     "Model:",
     "Language:",
-    "Speakers:",
 )
 TRANSCRIPT_DATE_METADATA_PREFIX = "Created at:"
 TRANSCRIPT_OPTIONAL_METADATA_PREFIXES = (
+    "Speakers:",  # Read old documents; new output does not require this boolean.
+    "Audio processing:",
     "Segment project:",
     "Segment time range:",
     "Original source:",
@@ -531,6 +532,8 @@ def classify_transcript_document_standard(
         )
     )
     remaining_lines = metadata_lines[required_count:]
+    if remaining_lines and remaining_lines[0].startswith("Speakers:"):
+        remaining_lines = remaining_lines[1:]
     visible_created_at = None
     if remaining_lines and remaining_lines[0].startswith(
         TRANSCRIPT_DATE_METADATA_PREFIX
@@ -552,8 +555,8 @@ def classify_transcript_document_standard(
         if (
             expected_created_at is not None
             and (
-                visible_created_at is None
-                or visible_created_at != expected_created_at
+                visible_created_at is not None
+                and visible_created_at != expected_created_at
             )
         ):
             return CatalogDocumentStandardStatus.outdated
