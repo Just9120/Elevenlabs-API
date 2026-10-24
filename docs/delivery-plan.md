@@ -28,9 +28,13 @@ DoD: пять критериев подтверждены security trigger и le
 | Local gates/review | Root `python scripts/ci_checks.py`, `git diff --check`, fresh read-only boundary investigation + one candidate bypass/regression review | REQUIRED до initial push |
 | Delivery | Existing exact-main CI→protected backup/migration/API→drained worker; installed signature trust/wrapper checks, API/worker identity/schema0042/readiness/role/isolation, bounded no-paid smoke | REQUIRED после merge; live exploit/realtime/STT N/A, не нужны для safe delivery |
 
-Checkpoint24Oct: discovery завершён, реализация0/5. Root source/remotes/worktrees/required protections проверены; unrelated branch сохраняется. Следующий шаг: migration signed bundle boundary и executable regression, затем остальные четыре исправления; до push весь scope и применимая local validation. PR/CI/CD ещё не созданы.
+Checkpoint24Oct: реализация5/5 в local commits2d09d94/4feff3e/1e1f060/68bb36e/09a21c9 и итоговом diff. Focused affected local suite291 PASS/6 SKIP, Windows Python3.12/SQLite/synthetic data; шесть executable signed-bundle cases требуют POSIX ownership/modes и остаются REQUIRED Linux CI. Старые shell release cases локально не стартовали: Git installation не содержит рабочего `usr/bin/bash.exe`; static workflow/wrapper contracts3 PASS. Lightweight checks/diff whitespace PASS. PostgreSQL TOTP concurrency/auth-route и schema release-rehearsal REQUIRED remote-only, ещё PENDING. Fresh Contabo read-only: deployed source858f0a8 clean, old root wrapper hashf09296b7, OpenSSL3.0.13; все пять Compose services healthy. Wrapper/public trust bootstrap и backup/migration/API/worker CD ещё не выполнялись. Следующий шаг: завершить independent candidate review, один grouped initial push/PR, required Linux CI; после merge установить reviewed wrapper+public key независимо от untrusted bundle, дождаться required environment approval и выполнить0041→0042/API/worker delivery. Внешних/provider/paid вызовов нет; PR/CI/CD ещё не созданы.
 
-### WORKER-RELIABILITY-20261024 — IN_PROGRESS
+Scoped readiness пересчитана24Oct по проверенному origin/main858f0a8 и уточнённому PWASEC-13: **446/692 READY=64.45%; current personal441/459=96.08%**. Предыдущий snapshot до обнаружения replay:447/692=64.60%, personal442/459=96.30%. Один существующий AC возвращён IN_PROGRESS, denominator неизменен:716 stable IDs минус24 ALIAS/SUPERSEDED; personal исключает224 commercial backlog и9 deferred SP-01..05/VID-01..04, сохраняя17 READY shared technical EVC. Старый WK checkpoint430/451 ошибочно исключал shared technical вместе со всем commercial-файлом и не отделял deferred voice; он не переносится как актуальная оценка. Остальные AC используют прежнее unchanged Evidence, это scoped пересчёт, не новый полный audit. Candidate PWASEC-13 ожидает обязательные PG/CI проверки.
+
+### WORKER-RELIABILITY-20261024 — DONE по первичным records
+
+PR339 merged858f0a8, final CI40029247548/main40029848055 PASS; API40030448317, graceful drain40030653602 и worker40030822929 PASS. Fresh bounded runtime readback: exact858f0a8 API/worker, schema0041, role/isolation/readiness healthy, expired processing leases0. Ниже сохранён исторический pre-merge checkpoint; его ACTIVE/PENDING относятся к моменту записи, Goal не возобновляется.
 
 Основание: владелец24Oct2026 выбрал WK-01..WK-06 единой узкой Goal, один PR и поставка на Contabo; Cloudflare исключён. Built-in Goal ACTIVE. Fresh base/main `8c25efa627b6eeebf13e87e26161e65a96975942`, clean branch `codex/worker-reliability-wk01-wk06-20261024`, existing worktree. GitHub: open PR0, main strict `ci-required`, admins enforced, approvals0; unrelated branch/materials сохраняются.
 
@@ -430,6 +434,12 @@ Config Settings env→defaults, explicit database URL/secret-file boundaries, Co
 **UI coverage.** Authenticated dashboard/audio/batch/Live/maintenance/settings, representative loading/empty/success/configured/unavailable states, picker/modal/number fields; current1280×720, horizontal overflow в проверенных main states не выявлен. Critical executable suites покрывают synthetic auth/owner/storage/errors/exports/Live recovery; real happy-path STT/Google writes не выполнялись. Mobile390/modal, offline/PWA update/install и poor-network capture опираются на code/component/browser fixtures, не новый runtime proof. Реальные media/provider sessions, backup timer/freshness/RPO under outage, host nginx/S3 policy и restore всей topology10Oct не проверены. STT support status configured/unknown/not_run; это не provider PASS. Maintenance revoked grant — runtime precondition, не кодовый defect.
 
 ## Реестр findings — полный актуальный
+
+Пять новых security findings24Oct2026 со стабильными `csf_…` IDs, evidence,
+приоритетом/confidence, действием FIX и критериями закрытия сохранены в
+[Current Goal SECURITY-FIVE](#security-five-20261024--in_progress). Это часть
+полного реестра, а не повторное создание прежних F-ID; подробные scan artifacts
+остаются вне repository. Их closure зависит от проверок текущего PR и delivery.
 
 Новые/reopened наблюдения относятся к проверенному main `bc5150eb189b44867101ca45b9da201921a99227`10Oct2026. Исторические closures сохраняют revision/records; отсутствие строки в кратком ответе не закрывает finding. Короткие Python paths — apps/studio-api/studio_api, UI — apps/studio/src. P1 correctness/security/lifecycle; P2 ограниченная функциональность/проверяемость/maintainability; P3 documentation. Finding не создаёт AC и разрешение исполнения.
 

@@ -327,6 +327,15 @@ One-time setup must be completed in this order:
    and pinned public-key readback; a failed signature blocks release, without
    falling back to an unsigned bundle or copying the signing key to the host.
 
+   When an additive schema prevents ordinary API checkout delivery, the operator
+   may bootstrap only the wrapper from the reviewed merged main blob: verify
+   current GitHub main/CI, extract this exact regular file locally, transfer to
+   private staging, compare its SHA-256 on both sides and install root0500 with
+   the public trust key root0400. Verify installed hashes before approving the
+   migration. Do not execute staged repository code, update production data or
+   use the old unsigned release to bootstrap its own authority. The signed
+   migration subsequently performs the normal clean-main fast-forward itself.
+
 5. Add only the dedicated public key to root's `authorized_keys` with this
    forced-command shape; replace the placeholder with the public key, never the
    private key:

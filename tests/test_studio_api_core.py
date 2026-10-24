@@ -2160,6 +2160,35 @@ def test_realtime_capability_circuit_stops_dispatch_after_systemic_failures(
         db.close()
 
 
+def test_realtime_byok_quota_does_not_block_another_owner(monkeypatch):
+    from studio_api import main as main_mod
+
+    paths = []
+    for index in range(2):
+        email = f"quota-owner-{index}@example.com"
+        password = admin(email)
+        client = TestClient(app)
+        csrf = login(client, password, email)
+        headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+        project = client.post("/api/projects", json={"title": "Synthetic quota"}, headers=headers).json()
+        assert client.post("/api/credentials", json={"provider": "elevenlabs", "label": "Synthetic",
+            "raw_value": f"sk_synthetic_owner_{index}"}, headers=headers).status_code == 200
+        paths.append((client, headers, f"/api/projects/{project['id']}/realtime/capability"))
+    calls = []
+    def capability(api_key, **kwargs):
+        calls.append(api_key)
+        if api_key.endswith("_0"):
+            raise RealtimeCapabilityError(RealtimeCapabilityReason.provider_rate_limited)
+        return RealtimeCapability(websocket_url="wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=synthetic")
+    monkeypatch.setattr(main_mod, "create_realtime_capability", capability)
+    client, headers, path = paths[0]
+    for _ in range(main_mod.settings.stt_health_failure_threshold):
+        assert client.post(path, json={"language": "detect"}, headers=headers).status_code == 429
+    client, headers, path = paths[1]
+    assert client.post(path, json={"language": "detect"}, headers=headers).status_code == 200
+    assert calls[-1] == "sk_synthetic_owner_1"
+
+
 def test_aes_gcm_unique_nonce_and_aad_binding():
     key = master_key_from_b64(base64.b64encode(b"2" * 32).decode()); associated = aad("u", "c", "v", "openai")
     c1, n1 = encrypt("secret", key, associated); c2, n2 = encrypt("secret", key, associated)
