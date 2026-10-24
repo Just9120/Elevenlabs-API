@@ -146,9 +146,9 @@
 | `PB-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PB-06` | READY | ✅ | ✅ | ✅ | A20261010-CODE/CI; job_processing_orchestrator.py, job_google_docs_output.py; тесты Google output/orchestration. Яндекс Диск учитывается отдельно YD-05; не реализован. |
 | `PB-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PB-10` | READY | ✅ | ✅ | ✅ | PR327: authoritative source date либо полное отсутствие поля; prepared export не подменяет дату оригинала. Document/source ownership и lifecycle regressions PASS; PR327 mergedbc5150e; exact-main CI37502013651 и web/API CD37502621690/worker37504355706 SUCCESS06Oct; runtime identity/health10Oct PASS (A20261010-RUNTIME). |
+| `PB-08` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
+| `PB-09` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
+| `PB-10` | READY | ✅ | ✅ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
 | `PB-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 
 ### `PWA-AUDIO-PREPARATION-01`
@@ -216,17 +216,17 @@
 | `PD-01` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PD-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PD-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PD-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PD-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PD-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PD-04` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
+| `PD-05` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
+| `PD-06` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
 | `PD-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PD-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PD-09` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PD-10` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `PD-11` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PD-12` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PD-13` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `PD-14` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
+| `PD-12` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
+| `PD-13` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
+| `PD-14` | READY | ✅ | ◐ | ✅ | CONCISE-METADATA-20261024/code586c32d: compact provider/model/language, optional nonduplicated date, meaningful clip/prepared provenance; old headers/catalog compatible. Local188 focused synthetic tests PASS; Linux required CI и exact API/worker delivery PENDING до PR/merge,16 native Docs edits tracked in Current Goal. |
 
 ### `PWA-TRANSCRIPT-MAINTENANCE-01`
 

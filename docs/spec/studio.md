@@ -162,9 +162,9 @@
 | `PB-05` | Job progress отображается live в процентах из server checkpoints. |
 | `PB-06` | При выбранном Google Drive обычная транскрибация завершается только после подтверждения полного оформленного Google Doc в выбранной папке; UI показывает статус и ссылку, постоянная внутренняя копия текста не нужна. Проверка: fake Google create/write/readback, пустой/частичный ответ не становится success. Q125,Q129,Q130. |
 | `PB-07` | Transcript document разбит на читабельные абзацы. |
-| `PB-08` | В начало документа добавлен metadata header. |
-| `PB-09` | Видимый timestamp имеет ISO 8601 format. |
-| `PB-10` | Timestamp получен из фактического creation time исходного media file. |
+| `PB-08` | В начале документа только Provider/Model/Language; UUID, recipe JSON и boolean Speakers не выводятся. Дата из title не дублируется; clip, изменённая timeline и необходимые особенности обработки остаются кратким понятным текстом. Решение владельца24Oct2026. |
+| `PB-09` | Если timestamp нужен в metadata при отсутствии даты в title, он имеет ISO 8601 format. |
+| `PB-10` | Опциональный timestamp получен из подтверждённого creation time исходного media file; дата в title не становится authority для source matching. |
 | `PB-11` | Composer и preflight явно текстом показывают `Разделение спикеров: включено` или `Разделение спикеров: выключено`; включённое состояние визуально заметно и не передаётся только цветом. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
@@ -242,9 +242,9 @@ Q009,Q089..092: отложено до отдельного решения вла
 | `PD-01` | Есть отдельная быстрая selected-folder dry-run/apply operation. |
 | `PD-02` | Folder mode обходит все вложенные подпапки в bounded tree. |
 | `PD-03` | Документ нормализуется в читабельные абзацы. |
-| `PD-04` | Документ получает standard metadata header. |
-| `PD-05` | Timestamp нормализуется в ISO 8601. |
-| `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. |
+| `PD-04` | Standard metadata header содержит Provider/Model/Language; standardization сохраняет существенные clip/concat/timeline/processing пояснения без технических IDs/JSON/boolean Speakers. Legacy полный header читается совместимо. Решение владельца24Oct2026. |
+| `PD-05` | Опциональный timestamp нормализуется в ISO 8601; дата, уже указанная в title, не дублируется в metadata. |
+| `PD-06` | Если timestamp нужен при отсутствии даты в title, он отражает подтверждённое creation time исходного media file, а не Google Doc/job time; отсутствие поля допустимо для компактного header. |
 | `PD-07` | Canonical identifier текущего document standard — versionless `transcript_doc`; user-facing flow не предлагает выбор версии стандарта. |
 | `PD-08` | Название документа в новых и стандартизированных transcripts оформлено Google Docs style `Heading 2`. |
 | `PD-09` | Метка каждого блока спикера имеет русскую форму `Спикер N:`, bold и размер `14 pt`. |
@@ -252,7 +252,7 @@ Q009,Q089..092: отложено до отдельного решения вла
 | `PD-11` | Пользовательские структурные labels документа русифицированы; устойчивые technical terms и metadata keys сохраняются на английском. |
 | `PD-12` | Каждый новый Studio PWA transcript создаётся в текущем canonical формате `transcript_doc`. |
 | `PD-13` | Existing eligible Google Docs приводятся к текущему `transcript_doc` через существующий explicit dry-run/apply standardization flow одной пользовательской операцией; historical version selection не требуется. |
-| `PD-14` | Existing legacy Google Doc стандартируется без обязательной связи с исходным media file: валидный существующий `Created at` сохраняется, отсутствующий/невалидный не создаётся и не заменяется `unknown` или догадкой; подтверждённый source-date conflict остаётся blocker. |
+| `PD-14` | Existing legacy Google Doc стандартируется без обязательной связи с исходным media file: валидный существующий `Created at` сохраняется при отсутствии даты в title, иначе не дублируется; отсутствующий/невалидный не заменяется `unknown` или догадкой, при известном source допустима его подтверждённая дата. Подтверждённый source-date conflict остаётся blocker. Compact header без Speakers/date принимается каталогом и при известной source date. Решение владельца24Oct2026 уточняет прежнее обязательное сохранение видимой даты. |
 
 Проверка AC этого эпика: Unit/component/contract проверки позитивного и негативного сценария, owner isolation и повторов; browser проверяет пользовательский результат; внешние side effects и recovery — отдельный разрешённый сценарий точной версии. Конкретные существующие suites и незакрытые gaps — в [delivery dashboard](../delivery-plan.md). Наличие suite не подтверждает её полноту.
 
