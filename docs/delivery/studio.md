@@ -355,7 +355,7 @@
 | `STTPRO-02` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STTPRO-03` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STTPRO-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `STTPRO-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F05 |
+| `STTPRO-05` | READY | ✅ | ✅ | PENDING | F05 code7151628: truthful Yandex REAL_TIME catalog/selection, existing wire labeling disabled; batch/ElevenLabs unchanged. Local193 focused checks PASS24Oct; required API/CI and delivery PENDING, no paid provider call. |
 | `STTPRO-06` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STTPRO-07` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `STTPRO-08` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
@@ -370,11 +370,11 @@
 
 | AC | Состояние | CODE | TEST | CI | Остаток / Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `YANDEX-01` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 |
-| `YANDEX-02` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 |
+| `YANDEX-01` | READY | ✅ | ✅ | PENDING | F04 code854c0d7: standard/deferred official-shape REST timing/channel/probability, durable operation and encrypted completed-result reload without resubmit; malformed bounds normalized. Local193 focused checks PASS24Oct; required Linux/API CI and delivery PENDING. No real Yandex call. |
+| `YANDEX-02` | READY | ✅ | ✅ | PENDING | F04 code854c0d7: standard/deferred official-shape REST timing/channel/probability, durable operation and encrypted completed-result reload without resubmit; malformed bounds normalized. Local193 focused checks PASS24Oct; required Linux/API CI and delivery PENDING. No real Yandex call. |
 | `YANDEX-03` | READY | ✅ | ✅ | ✅ | REAL_TIME relay с отключённым speaker labeling, single-use capability, indexed finals/refinements и bounded reconnect/replay реализованы; tests/test_studio_yandex_transcription.py и exact-main CI37502013651 PASS. F05 сохраняется для неверного capability diarization, не для самой realtime transcription. Реальный Yandex runtime disabled, paid canary не выполнялся. |
 | `YANDEX-04` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
-| `YANDEX-05` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 |
+| `YANDEX-05` | READY | ✅ | ✅ | PENDING | F04 code854c0d7: standard/deferred official-shape REST timing/channel/probability, durable operation and encrypted completed-result reload without resubmit; malformed bounds normalized. Local193 focused checks PASS24Oct; required Linux/API CI and delivery PENDING. No real Yandex call. |
 
 ### `PWA-DICTIONARIES-01`
 

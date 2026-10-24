@@ -84,8 +84,8 @@
 | `MC-05` | READY | ✅ | ◐ | ✅ | Код реализован; subsystem checks есть, полный сценарий LIVE отдельно не проверен |
 | `MC-06` | READY | ✅ | ✅ | PENDING | DIARIZATION-WHOLE-20261023 candidate: whole-recording/clip preference within provider/project guards; prior multipart recovery retains plan, completed parts not repeated; exhaustive legend removed, fallback note after speech. Focused synthetic/SQLite/real-media checks PASS23Oct; required current CI/merge/API+worker delivery pending. Named voice identity/acoustic quality not claimed; existing documents untouched. |
 | `MC-07` | READY | ✅ | ✅ | ✅ | PR329 candidate c23fdc0, CI38141034993 SUCCESS11Oct2026 (test merge c1618886); ещё не main. F73: immutable plan recorded before provider I/O, owner-safe exact missing parts/ranges; checkpoint/API/UI regressions PASS. |
-| `MC-08` | IN_PROGRESS | ◐ | ◐ | ✅ | F04 остаётся: официальный REST numeric-string/nested channel fixture теряет timing/speaker (synthetic readback10Oct). Provider/model/date/provenance часть исправлена PR327 и проверена A20261010-CI. |
-| `MC-09` | IN_PROGRESS | ◐ | ◐ | ✅ | F05: catalog заявляет diarization=true для Yandex Live, relay REAL_TIME явно выключает speaker labeling. Indexed correction/reconnect уже исправлены PR326; A20261010-CODE/CI. |
+| `MC-08` | READY | ✅ | ✅ | PENDING | F04 / YANDEX-F04-F05-20261024 code854c0d7: official REST int64 strings, nested channelTag/zero, gateway result, camel/snake finalRefinement, probability и persisted terminal reload сохраняются; invalid boundaries возвращают normalized error. Local193 focused checks PASS24Oct; required Linux/API CI и delivery PENDING. Provider/model provenance прежний PASS сохранён; paid canary не выполнялся. |
+| `MC-09` | READY | ✅ | ✅ | PENDING | F05 / code7151628: Yandex realtime catalog diarization=false, selection rejects unsupported request; REAL_TIME/disabled labeling wire и обычный relay сохраняются, FULL_DATA batch capability=true. Local catalog/selection/relay checks входят в193 PASS24Oct; required API/CI и delivery PENDING. |
 
 ### `PERSONAL-VOICE-02`
 

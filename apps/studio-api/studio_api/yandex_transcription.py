@@ -4,6 +4,8 @@ import base64
 import hashlib
 import hmac
 import json
+import math
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -291,6 +293,51 @@ def _decode_streaming_json(response: httpx.Response) -> list[Mapping[str, Any]]:
     return result
 
 
+def _nonnegative_int64(value: Any) -> int:
+    # REST protobuf int64 fields use decimal strings; retain legacy numbers.
+    if isinstance(value, str) and re.fullmatch(r"[0-9]{1,19}", value):
+        value = int(value)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 <= value <= 9_223_372_036_854_775_807
+        or (isinstance(value, float) and not value.is_integer())
+    ):
+        raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
+    return int(value)
+
+
+def _word_timestamp(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = _nonnegative_int64(value)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 <= value <= 9_223_372_036_854_775_807
+    ):
+        raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
+    return float(value) / 1000
+
+
+def _language_probability(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and len(value) <= 64 and re.fullmatch(
+        r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value
+    ):
+        value = float(value)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 <= value <= 1
+        or not math.isfinite(value)
+    ):
+        raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
+    return float(value)
+
+
 def normalize_yandex_transcript_response(payload: Any) -> ElevenLabsTranscriptResult:
     events = payload if isinstance(payload, list) else [payload]
     final_by_index: dict[int, Mapping[str, Any]] = {}
@@ -300,14 +347,16 @@ def normalize_yandex_transcript_response(payload: Any) -> ElevenLabsTranscriptRe
     for sequence, event in enumerate(events):
         if not isinstance(event, Mapping):
             continue
+        if isinstance(event.get("result"), Mapping):
+            event = event["result"]  # HTTP streaming gateway envelope.
         refinement = event.get("finalRefinement") or event.get("final_refinement")
         final = event.get("final")
         if isinstance(refinement, Mapping):
-            index = int(refinement.get("finalIndex", refinement.get("final_index", sequence)))
+            index = _nonnegative_int64(refinement.get("finalIndex", refinement.get("final_index", sequence)))
             update = refinement.get("normalizedText") or refinement.get("normalized_text")
         elif isinstance(final, Mapping):
             cursors = event.get("audioCursors") or event.get("audio_cursors") or {}
-            index = int(cursors.get("finalIndex", cursors.get("final_index", sequence))) if isinstance(cursors, Mapping) else sequence
+            index = _nonnegative_int64(cursors.get("finalIndex", cursors.get("final_index", sequence))) if isinstance(cursors, Mapping) else sequence
             update = final
         else:
             continue
@@ -315,16 +364,24 @@ def normalize_yandex_transcript_response(payload: Any) -> ElevenLabsTranscriptRe
         if not isinstance(alternatives, list) or not alternatives or not isinstance(alternatives[0], Mapping):
             continue
         alternative = alternatives[0]
-        final_by_index[index] = {**alternative, "speaker_id": str(event.get("channelTag") or event.get("channel_tag") or "") or None}
+        # AlternativeUpdate owns channelTag in REST; root tags are legacy.
+        channel_tag = update.get("channelTag", update.get("channel_tag"))
+        if channel_tag in (None, ""):
+            channel_tag = event.get("channelTag", event.get("channel_tag"))
+        if channel_tag in (None, ""):
+            channel_tag = final_by_index.get(index, {}).get("speaker_id")
+        if channel_tag is not None and (
+            isinstance(channel_tag, bool) or not isinstance(channel_tag, (str, int))
+        ):
+            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
+        final_by_index[index] = {**alternative, "speaker_id": str(channel_tag) if channel_tag is not None else None}
         if index not in final_order:
             final_order.append(index)
         languages = alternative.get("languages")
         if isinstance(languages, list) and languages and isinstance(languages[0], Mapping):
             language = languages[0]
             detected_language = language.get("languageCode") or language.get("language_code") or detected_language
-            raw_probability = language.get("probability")
-            if isinstance(raw_probability, (int, float)) and not isinstance(raw_probability, bool):
-                probability = float(raw_probability)
+            probability = _language_probability(language.get("probability"))
     normalized_words: list[dict[str, Any]] = []
     text_parts: list[str] = []
     for index in final_order:
@@ -341,8 +398,8 @@ def normalize_yandex_transcript_response(payload: Any) -> ElevenLabsTranscriptRe
                 end = word.get("endTimeMs", word.get("end_time_ms"))
                 normalized_words.append({
                     "text": word["text"],
-                    "start": float(start) / 1000 if isinstance(start, (int, float)) else None,
-                    "end": float(end) / 1000 if isinstance(end, (int, float)) else None,
+                    "start": _word_timestamp(start),
+                    "end": _word_timestamp(end),
                     "type": "word",
                     "speaker_id": alternative.get("speaker_id"),
                 })

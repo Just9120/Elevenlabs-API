@@ -1439,6 +1439,9 @@ def test_stt_catalog_yandex_byok_and_owner_dictionary_crud_are_safe_and_scoped()
         }
         assert set(providers) == {"elevenlabs", "yandex"}
         assert providers["yandex"]["byok_enabled"] is False
+        yandex_modes = {mode["mode"]: mode for mode in providers["yandex"]["modes"]}
+        assert yandex_modes["realtime"]["diarization"] is False
+        assert yandex_modes["standard"]["diarization"] is True
         assert catalog.headers["cache-control"] == "no-store"
 
         missing_folder = owner.post(

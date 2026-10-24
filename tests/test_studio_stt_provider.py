@@ -67,6 +67,23 @@ def test_catalog_exposes_provider_neutral_modes_and_limits():
     }
     assert yandex_modes["realtime"]["transport"] == "grpc_relay"
     assert yandex_modes["realtime"]["file_constraints"]["max_duration_seconds"] == 300
+    assert yandex_modes["realtime"]["diarization"] is False
+    assert yandex_modes["standard"]["diarization"] is True
+    assert yandex_modes["premium"]["diarization"] is True
+
+
+def test_yandex_interactive_live_rejects_diarization_but_preserves_live_and_batch():
+    live = validate_selection(settings(), provider="yandex", mode="realtime",
+        language="ru", diarization=False)
+    assert live.transport == "grpc_relay"
+    with pytest.raises(SttCapabilityError) as failure:
+        validate_selection(settings(), provider="yandex", mode="realtime",
+            language="ru", diarization=True)
+    assert failure.value.reason is SttCapabilityReason.diarization_unsupported
+    for mode in ("standard", "premium"):
+        batch = validate_selection(settings(), provider="yandex", mode=mode,
+            language="ru", diarization=True)
+        assert batch.diarization is True
 
 
 def test_selection_enforces_capabilities_without_cross_provider_fallback():
