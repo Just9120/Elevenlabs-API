@@ -126,7 +126,7 @@ def provider_catalog(settings) -> dict[SttProvider, SttProviderCapability]:
                 SttOperatingMode.economic: SttModeCapability(SttOperatingMode.economic, settings.yandex_economic_model, "deferred", _LANGUAGES, False, False, yandex_batch),
                 SttOperatingMode.standard: SttModeCapability(SttOperatingMode.standard, settings.yandex_standard_model, "batch", _LANGUAGES, True, False, yandex_batch),
                 SttOperatingMode.premium: SttModeCapability(SttOperatingMode.premium, settings.yandex_premium_model, "batch", _LANGUAGES, True, False, yandex_batch),
-                SttOperatingMode.realtime: SttModeCapability(SttOperatingMode.realtime, settings.yandex_realtime_model, "grpc_relay", _LANGUAGES, True, False, yandex_realtime),
+                SttOperatingMode.realtime: SttModeCapability(SttOperatingMode.realtime, settings.yandex_realtime_model, "grpc_relay", _LANGUAGES, False, False, yandex_realtime),
             },
         ),
     }
