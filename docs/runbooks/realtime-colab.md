@@ -10,6 +10,18 @@ Output-cell UI path is blocked in the tested Colab runtime: active JavaScript di
 
 ## 2. Confirmed evidence
 
+SECURITY-FIVE-20261024: каждый запуск standalone server создаёт непредсказуемую
+browser capability. Launcher передаёт её только через URL fragment `#launch=…`,
+который не отправляется HTTP-серверу; сохраняйте исходную launcher-ссылку для
+reload/new tab. Статические HTML/JS/config не содержат capability или provider
+token. Выдача нового token требует POST `/session-config.json`, header
+`X-Realtime-Launch`, разрешённый Host/Origin и same-origin Fetch-Metadata.
+Обычный GET не создаёт token. Для Colab разрешается только exact HTTPS origin
+выбранного `proxyPort`, без wildcard; local upstream Host остаётся допустимым.
+Ответы no-store/no-referrer, server не логирует URL/headers. Synthetic HTTP tests
+подтверждают rejection до factory и fresh token на каждый разрешённый Start;
+новый live provider/Colab E2E в этой Goal не запускается.
+
 Current confirmed manual evidence is limited to partial standalone-page paths:
 
 - standalone page boot;
