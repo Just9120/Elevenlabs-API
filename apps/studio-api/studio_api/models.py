@@ -105,6 +105,7 @@ class UserTotpFactor(Base):
     secret_ciphertext: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
     secret_nonce: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
     key_id: Mapped[str]=mapped_column(String(80), nullable=False)
+    last_used_counter: Mapped[int|None]=mapped_column(BigInteger)
     confirmed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     disabled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)

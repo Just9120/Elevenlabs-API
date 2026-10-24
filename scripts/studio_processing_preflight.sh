@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0041_source_retention_default"
+EXPECTED_HEAD="0042_totp_replay"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"

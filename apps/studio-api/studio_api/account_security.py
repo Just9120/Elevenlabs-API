@@ -66,18 +66,42 @@ def _totp(secret: str, counter: int) -> str:
     return str(binary % (10**TOTP_DIGITS)).zfill(TOTP_DIGITS)
 
 
-def verify_totp(secret: str, code: str, *, timestamp: int | None = None) -> bool:
+def matched_totp_counter(secret: str, code: str, *, timestamp: int | None = None) -> int | None:
     normalized = "".join(ch for ch in str(code) if ch.isdigit())
     if len(normalized) != TOTP_DIGITS:
-        return False
+        return None
     counter = int(time.time() if timestamp is None else timestamp) // TOTP_PERIOD_SECONDS
     try:
-        return any(
-            hmac.compare_digest(_totp(secret, counter + offset), normalized)
-            for offset in range(-TOTP_WINDOW_STEPS, TOTP_WINDOW_STEPS + 1)
-        )
+        for offset in range(TOTP_WINDOW_STEPS, -TOTP_WINDOW_STEPS - 1, -1):
+            candidate = counter + offset
+            if candidate >= 0 and hmac.compare_digest(_totp(secret, candidate), normalized):
+                return candidate
     except Exception:
+        return None
+    return None
+
+
+def verify_totp(secret: str, code: str, *, timestamp: int | None = None) -> bool:
+    return matched_totp_counter(secret, code, timestamp=timestamp) is not None
+
+
+def consume_totp_code(db, *, factor, secret: str, code: str, timestamp: int | None = None) -> bool:
+    """Consume the matched counter in the same transaction as the auth action."""
+    from sqlalchemy import or_, update
+    from .models import UserTotpFactor
+
+    counter = matched_totp_counter(secret, code, timestamp=timestamp)
+    if counter is None:
         return False
+    # Conditional SQL rechecks replay and secret identity under the database
+    # write lock, even if a concurrent request loaded the same ORM snapshot.
+    result = db.execute(update(UserTotpFactor).where(
+        UserTotpFactor.user_id == factor.user_id,
+        UserTotpFactor.secret_nonce == factor.secret_nonce,
+        UserTotpFactor.disabled_at.is_(None),
+        or_(UserTotpFactor.last_used_counter.is_(None), UserTotpFactor.last_used_counter < counter),
+    ).values(last_used_counter=counter).execution_options(synchronize_session=False))
+    return result.rowcount == 1
 
 
 def generate_recovery_codes() -> list[str]:

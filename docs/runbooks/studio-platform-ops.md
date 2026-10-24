@@ -215,6 +215,19 @@ manual commands remain a fallback for a diagnosed operator task.
 
 ### Approval-gated migration release lane
 
+SECURITY-FIVE-20261024 introduces additive `0042_totp_replay` after
+`0041_source_retention_default`. It adds nullable `user_totp_factors.last_used_counter`
+without changing enrolled secrets, sessions or recovery codes. Apply through the
+signed protected backup/direct-successor migration lane, then verify API and
+drained compatible worker at0042. New login/reauth/confirm/disable operations
+atomically consume their matched counter in the auth transaction; reused codes
+are rejected, including concurrent attempts. Secret replacement resets only that
+factor's counter. Existing active factors start with no historical counter;
+pre-upgrade use cannot be reconstructed, and an old code can remain within the
+standard bounded acceptance window during cutover. Existing recovery codes and
+the operator break-glass procedure remain available. Production schema downgrade
+or direct counter reset is not a normal recovery action.
+
 `.github/workflows/studio-platform-cd.yml` detects Alembic changes but keeps the
 lane disabled unless repository variable
 `STUDIO_MIGRATION_RELEASE_ENABLED=true`. A selected release job enters GitHub

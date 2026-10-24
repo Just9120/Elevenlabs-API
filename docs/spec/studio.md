@@ -333,7 +333,7 @@ Q009,Q089..092: отложено до отдельного решения вла
 | `PWASEC-10` | Critical actions требуют recent re-authentication; явно доверенный браузер может заменить повторное подтверждение только для разрешённых операций, но не для входа и изменения факторов защиты. Решение `D20260927-TRUSTED-DEVICE`. |
 | `PWASEC-11` | Login защищён отдельным brute-force limit. |
 | `PWASEC-12` | Password reset защищён отдельным brute-force limit. |
-| `PWASEC-13` | TOTP verification защищена отдельным brute-force limit. |
+| `PWASEC-13` | TOTP verification защищена отдельным brute-force limit. Принятый time-step counter атомарно потребляется в БД вместе с auth-действием и не принимается повторно в login, reauth, enrollment confirmation и disable; следующий свежий code и одноразовый recovery сохраняют работоспособность. Уточнение безопасности по решению владельца24Oct2026: пять findings deep scan. Проверка — counter/window/rollback regression и конкурентные PostgreSQL/auth-route tests. |
 | `PWASEC-14` | Personal TOTP остаётся optional, пока пользователь явно его не включил. |
 | `PWASEC-15` | TOTP использует стандартный protocol и не привязан к одному authenticator app. |
 | `PWASEC-16` | TOTP enrollment имеет проверяемую secret-confirmation boundary. |
