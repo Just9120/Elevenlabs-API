@@ -118,7 +118,7 @@ def test_selected_model_and_unknown_recording_date(db, models, provider, model, 
     body = transport.calls[0]["document_text"]
     assert f"Provider: {label}" in body and f"Model: {model}" in body
     assert "Created at:" not in body
-    assert f"Source: {source.id}" in body and "Clip: 10-20 seconds; source timeline" in body
+    assert "Source:" not in body and "Clip: 10-20 seconds; source timeline" in body
 
 
 def test_metadata_change_before_creation_blocks_side_effect(db, models):
@@ -181,14 +181,15 @@ def test_prepared_document_retains_inputs_recipe_not_export_date(db, models, cas
         assert "Created at: 2024-01-01T00:00:00Z" in body
     else:
         assert "Created at:" not in body
-    assert f"Preparation: {preparation.id}" in body
-    assert 'Original source: [' in body and f'"source_id":"{original.id}"' in body
-    assert '"silence_enabled":true' in body and "Timeline: prepared audio" in body
+    assert "Preparation:" not in body and preparation.id not in body
+    assert 'Original source: original.wav' in body and original.id not in body
+    assert 'длинные паузы сокращены' in body and "Timeline: prepared audio" in body
+    assert "Transformations:" not in body and '"silence_enabled"' not in body
     from studio_api.transcript_catalog_scan import classify_transcript_document_standard
     from studio_api.transcript_catalog_standardize import build_standardized_transcript_document_text
     assert classify_transcript_document_standard(body).value == "current"
     rewritten = build_standardized_transcript_document_text(document_name="Reviewed", existing_document_text=body, created_time=None)
-    for prefix in ("Source:", "Preparation:", "Timeline:", "Transformations:", "Original source:"):
+    for prefix in ("Timeline:", "Audio processing:", "Original source:"):
         assert next(line for line in body.splitlines() if line.startswith(prefix)) in rewritten
 
 
@@ -299,7 +300,7 @@ def test_formatting_contract_title_language_unicode_empty_body():
     from studio_api.job_google_docs_output import build_speaker_labeled_transcript, choose_transcript_document_title, format_transcript_doc
     created = datetime(2026,1,2,3,4,5)
     doc = format_transcript_doc(title=" My Job ", transcript_text="Привет\nмир", job_language=" ", detected_language_code="ru", created_at=created)
-    assert doc.body == "My Job\n\nМетаданные транскрипта\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nSpeakers: no\nCreated at: 2026-01-02T03:04:05Z\n\nТранскрипция\n\nПривет\nмир"
+    assert doc.body == "My Job\n\nМетаданные транскрипта\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nCreated at: 2026-01-02T03:04:05Z\n\nТранскрипция\n\nПривет\nмир"
     assert "Source file:" not in doc.body and "Source mode:" not in doc.body
     detected = format_transcript_doc(title="Auto", transcript_text="Text", job_language="detect", detected_language_code="en", created_at=created)
     assert detected.language == "en" and "Language: en" in detected.body
@@ -312,7 +313,7 @@ def test_formatting_contract_title_language_unicode_empty_body():
     labeled = build_speaker_labeled_transcript(words, fallback_text="fallback")
     assert labeled == "Спикер 1:\nПривет,\n\nСпикер 2:\nмир\n\nСпикер 1:\nснова"
     diarized = format_transcript_doc(title="Call", transcript_text=labeled, job_language="ru", detected_language_code="ru", created_at=created, diarization_enabled=True)
-    assert "Speakers: yes" in diarized.body and diarized.body.endswith(labeled)
+    assert "Speakers:" not in diarized.body and diarized.body.endswith(labeled)
     assert choose_transcript_document_title(job_title=" ", original_filename="folder/audio.name.mp3") == "audio.name"
     empty = format_transcript_doc(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
     assert empty.title == "Transcript" and empty.body.endswith("Транскрипция\n\n") and "Language: unknown" in empty.body
@@ -370,7 +371,7 @@ def test_diarized_job_creates_deterministic_speaker_document(db, models):
         pass
 
     document_text = transport.calls[0]["document_text"]
-    assert "Speakers: yes" in document_text
+    assert "Speakers:" not in document_text
     assert document_text.endswith("Спикер 1:\nДобрый день\n\nСпикер 2:\nЗдравствуйте")
 
 

@@ -29,6 +29,7 @@ from .job_output_reconciliation import OutputReconciliationError, OutputReconcil
 from .transcription_metadata import selected_provider, selected_model, source_provenance
 from .models import SttProviderOperation, TranscriptionProviderPartCheckpoint
 from .transcript_document import build_transcript_document_text
+from .transcript_document_metadata import compact_provenance_lines, title_has_recording_date
 from .transcription_options import document_language, job_diarization_enabled
 
 
@@ -222,15 +223,13 @@ def create_processing_job_google_doc_from_transcript(
 def format_transcript_doc(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime | None, diarization_enabled: bool = False, provider: str = "elevenlabs", model: str = "scribe_v2", provenance_lines: tuple[str, ...] = ()) -> FormattedTranscriptDocument:
     safe_title = normalize_document_title(title)
     lang = document_language(job_language, detected_language_code)
-    speakers = "yes" if diarization_enabled else "no"
     body = build_transcript_document_text(
         title=safe_title,
         metadata_lines=(
             f"Provider: {dict(elevenlabs='ElevenLabs', yandex='Yandex SpeechKit').get(provider, 'unknown')}",
             f"Model: {model}",
             f"Language: {lang}",
-            f"Speakers: {speakers}",
-        ) + ((f"Created at: {_utc_iso(created_at)}",) if created_at is not None else ()) + provenance_lines,
+        ) + ((f"Created at: {_utc_iso(created_at)}",) if created_at is not None and not title_has_recording_date(safe_title) else ()) + compact_provenance_lines(provenance_lines),
         transcript_text=transcript_text,
     )
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)

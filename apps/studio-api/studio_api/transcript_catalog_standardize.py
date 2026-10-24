@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping
 
 import httpx
 
+from .transcript_document_metadata import compact_provenance_lines, title_has_recording_date
 from .transcript_catalog_migration import CatalogDocumentStandardStatus
 from .transcript_catalog_scan import (
     DRIVE_ID_PATTERN,
@@ -447,19 +448,20 @@ def build_standardized_transcript_document_text(
         "Provider": _metadata_value(metadata.get("Provider")),
         "Model": _metadata_value(metadata.get("Model")),
         "Language": _metadata_value(metadata.get("Language")),
-        "Speakers": _metadata_value(metadata.get("Speakers")),
     }
     metadata_lines = [
         f"{label}: {required_values[label]}"
-        for label in ("Provider", "Model", "Language", "Speakers")
+        for label in ("Provider", "Model", "Language")
     ]
-    if created_at is not None:
+    if created_at is not None and not title_has_recording_date(title):
         metadata_lines.append(f"Created at: {created_at}")
+    provenance_lines = []
     for prefix in TRANSCRIPT_OPTIONAL_METADATA_PREFIXES:
         label = prefix.removesuffix(":")
         value = metadata.get(label)
         if value:
-            metadata_lines.append(f"{label}: {_metadata_value(value)}")
+            provenance_lines.append(f"{label}: {_metadata_value(value)}")
+    metadata_lines.extend(compact_provenance_lines(provenance_lines))
     result = build_transcript_document_text(
         title=title,
         metadata_lines=metadata_lines,

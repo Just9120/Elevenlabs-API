@@ -170,9 +170,9 @@ def test_standardized_text_preserves_authoritative_metadata_and_body():
     assert "Provider: ElevenLabs" in result
     assert "Model: scribe_v2" in result
     assert "Language: Русский" in result
-    assert "Speakers: no" in result
+    assert "Speakers:" not in result
     assert "Created at: 2026-05-01T00:00:00Z" in result
-    assert "Segment project: Tivali" in result
+    assert "Segment project:" not in result
     assert "Segment time range: 00:00-end" in result
     assert "Original source: Lecture.mp4" in result
     assert body in result
@@ -203,7 +203,7 @@ def test_unstructured_standardization_does_not_infer_settings():
     assert "Provider: unknown" in result
     assert "Model: unknown" in result
     assert "Language: unknown" in result
-    assert "Speakers: unknown" in result
+    assert "Speakers:" not in result
     assert "Created at: 2026-07-01T12:34:56Z" in result
     assert "ElevenLabs" not in result
     assert "scribe_v2" not in result
